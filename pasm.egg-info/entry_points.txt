@@ -1,0 +1,2 @@
+[console_scripts]
+pasm = src.main:main

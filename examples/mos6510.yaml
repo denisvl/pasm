@@ -1,0 +1,163 @@
+metadata:
+  name: "MOS6510"
+  version: "1.0"
+  bits: 8
+  address_bits: 16
+  endian: little
+  undefined_opcode_policy: trap
+
+registers:
+  - name: "A"
+    type: general
+    bits: 8
+  - name: "X"
+    type: general
+    bits: 8
+  - name: "Y"
+    type: general
+    bits: 8
+  - name: "SP"
+    type: stack_pointer
+    bits: 8
+  - name: "PC"
+    type: program_counter
+    bits: 16
+  - name: "IO_DDR"
+    type: special
+    bits: 8
+  - name: "IO_DATA"
+    type: special
+    bits: 8
+
+flags:
+  - name: "C"
+    bit: 0
+  - name: "Z"
+    bit: 1
+  - name: "I"
+    bit: 2
+  - name: "D"
+    bit: 3
+  - name: "B"
+    bit: 4
+  - name: "V"
+    bit: 6
+  - name: "N"
+    bit: 7
+
+memory:
+  address_bits: 16
+  default_size: 65536
+
+instructions:
+  - name: "NOP"
+    display: "NOP"
+    category: control
+    encoding:
+      opcode: 0xEA
+      mask: 0xFF
+      length: 1
+    cycles: 2
+    behavior: |
+      (void)cpu;
+
+  - name: "LDA_IMM"
+    display: "LDA #imm"
+    category: data_transfer
+    encoding:
+      opcode: 0xA9
+      mask: 0xFF
+      length: 2
+      fields:
+        - name: "imm"
+          position: [15, 8]
+          type: immediate
+    cycles: 2
+    behavior: |
+      cpu->registers[REG_A] = inst->imm;
+      cpu->flags.Z = (cpu->registers[REG_A] == 0);
+      cpu->flags.N = ((cpu->registers[REG_A] & 0x80) != 0);
+
+  - name: "LDA_ZP"
+    display: "LDA zp"
+    category: data_transfer
+    encoding:
+      opcode: 0xA5
+      mask: 0xFF
+      length: 2
+      fields:
+        - name: "zp"
+          position: [15, 8]
+          type: address
+    cycles: 3
+    behavior: |
+      cpu->registers[REG_A] = mos6510_read_byte(cpu, inst->zp);
+      cpu->flags.Z = (cpu->registers[REG_A] == 0);
+      cpu->flags.N = ((cpu->registers[REG_A] & 0x80) != 0);
+
+  - name: "STA_ZP"
+    display: "STA zp"
+    category: data_transfer
+    encoding:
+      opcode: 0x85
+      mask: 0xFF
+      length: 2
+      fields:
+        - name: "zp"
+          position: [15, 8]
+          type: address
+    cycles: 3
+    behavior: |
+      mos6510_write_byte(cpu, inst->zp, cpu->registers[REG_A]);
+
+  - name: "TAX"
+    display: "TAX"
+    category: data_transfer
+    encoding:
+      opcode: 0xAA
+      mask: 0xFF
+      length: 1
+    cycles: 2
+    behavior: |
+      cpu->registers[REG_X] = cpu->registers[REG_A];
+      cpu->flags.Z = (cpu->registers[REG_X] == 0);
+      cpu->flags.N = ((cpu->registers[REG_X] & 0x80) != 0);
+
+  - name: "INX"
+    display: "INX"
+    category: arithmetic
+    encoding:
+      opcode: 0xE8
+      mask: 0xFF
+      length: 1
+    cycles: 2
+    behavior: |
+      cpu->registers[REG_X] = (uint8_t)(cpu->registers[REG_X] + 1u);
+      cpu->flags.Z = (cpu->registers[REG_X] == 0);
+      cpu->flags.N = ((cpu->registers[REG_X] & 0x80) != 0);
+
+  - name: "JMP_ABS"
+    display: "JMP abs"
+    category: control
+    encoding:
+      opcode: 0x4C
+      mask: 0xFF
+      length: 3
+      fields:
+        - name: "addr"
+          position: [23, 8]
+          type: address
+    cycles: 3
+    behavior: |
+      cpu->pc = inst->addr;
+
+  - name: "BRK"
+    display: "BRK"
+    category: control
+    encoding:
+      opcode: 0x00
+      mask: 0xFF
+      length: 1
+    cycles: 7
+    behavior: |
+      cpu->running = false;

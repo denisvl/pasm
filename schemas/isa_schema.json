@@ -1,0 +1,315 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ISA Definition",
+  "description": "Schema for Processor Instruction Set Architecture definition",
+  "type": "object",
+  "required": ["metadata", "registers", "flags", "memory", "instructions"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["name", "bits", "address_bits", "endian"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Processor name"
+        },
+        "version": {
+          "type": "string",
+          "description": "ISA version"
+        },
+        "bits": {
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 64,
+          "description": "Primary register width"
+        },
+        "address_bits": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 64,
+          "description": "Address bus width"
+        },
+        "endian": {
+          "type": "string",
+          "enum": ["little", "big"],
+          "description": "Endianness"
+        },
+        "undefined_opcode_policy": {
+          "type": "string",
+          "enum": ["trap", "nop"],
+          "description": "Behavior for undefined opcode patterns",
+          "default": "trap"
+        }
+      }
+    },
+    "registers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "bits"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Register name (use R0..R7 for ranges)"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["general", "program_counter", "stack_pointer", "index", "special"]
+          },
+          "bits": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "lsb", "bits"],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                },
+                "lsb": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 63
+                },
+                "bits": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 64
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "bit"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Z0-9_]+$"
+          },
+          "bit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "required": ["address_bits"],
+      "properties": {
+        "address_bits": {
+          "type": "integer"
+        },
+        "default_size": {
+          "type": "integer"
+        },
+        "regions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "start", "size"],
+            "properties": {
+              "name": {"type": "string"},
+              "start": {"type": "integer"},
+              "size": {"type": "integer"},
+              "read_write": {"type": "boolean"},
+              "read_only": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "ports": {
+      "type": "object",
+      "properties": {
+        "address_bits": {"type": "integer"},
+        "size": {"type": "integer"}
+      }
+    },
+    "interrupts": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "enum": ["none", "fixed_vector", "z80"],
+          "description": "Interrupt dispatch model used by generated runtime"
+        },
+        "modes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": {"type": "string"},
+              "description": {"type": "string"}
+            }
+          }
+        },
+        "fixed_vector": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "vector_table": {"type": "boolean"},
+        "vector_size": {"type": "integer"}
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "properties": {
+        "pre_fetch": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "description": {"type": "string"}
+          }
+        },
+        "post_decode": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "description": {"type": "string"}
+          }
+        },
+        "post_execute": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "description": {"type": "string"}
+          }
+        },
+        "port_read_pre": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "description": {"type": "string"}
+          }
+        },
+        "port_read_post": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "description": {"type": "string"}
+          }
+        },
+        "port_write_pre": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "description": {"type": "string"}
+          }
+        },
+        "port_write_post": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "description": {"type": "string"}
+          }
+        }
+      }
+    },
+    "instructions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "category", "encoding", "behavior"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Z_][A-Z0-9_]*$"
+          },
+          "display": {
+            "type": "string",
+            "description": "Optional human-readable instruction text used by trace/disassembly output"
+          },
+          "category": {
+            "type": "string",
+            "enum": ["arithmetic", "logic", "data_transfer", "control", "bit", "rotate", "misc"]
+          },
+          "encoding": {
+            "type": "object",
+            "required": ["opcode"],
+            "properties": {
+              "opcode": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "mask": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "prefix": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "subop": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "subop_mask": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 16
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "position"],
+                  "properties": {
+                    "name": {"type": "string"},
+                    "position": {
+                      "type": "array",
+                      "items": {"type": "integer"},
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "width": {"type": "integer"},
+                    "type": {
+                      "type": "string",
+                      "enum": ["register", "immediate", "address"]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "length": {
+            "type": "integer"
+          },
+          "cycles": {
+            "type": "integer"
+          },
+          "behavior": {
+            "type": "string",
+            "description": "C code that implements the instruction"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,2 @@
+☑ There should be no helper macros
+☑ If there is any register/flags that have "subdivisions" (e.g. AX = AH | AL) the implementation must be using unions or bit fields declared in YAML

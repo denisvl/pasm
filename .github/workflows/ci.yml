@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-gcc
+            os: ubuntu-latest
+            cc: gcc
+          - name: linux-clang
+            os: ubuntu-latest
+            cc: clang
+          - name: macos-clang
+            os: macos-latest
+            cc: clang
+          - name: windows-msvc
+            os: windows-latest
+            cc: msvc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure C compiler
+        if: matrix.cc != 'msvc'
+        run: echo "CC=${{ matrix.cc }}" >> "$GITHUB_ENV"
+
+      - name: Run test suite
+        run: uv run --extra dev pytest -q
+
+  sectorz-integration:
+    if: ${{ vars.PASM_ENABLE_SECTORZ_TEST == '1' }}
+    name: sectorz-integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run SectorZ integration test
+        env:
+          PASM_ENABLE_SECTORZ_TEST: "1"
+        run: uv run --extra dev pytest -q tests/test_z80_sectorz_integration.py

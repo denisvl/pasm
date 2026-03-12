@@ -1,0 +1,167 @@
+Metadata-Version: 2.4
+Name: pasm
+Version: 0.1.0
+Summary: Processor Architecture Specification for Emulation - Generate C emulators from ISA definitions
+Author: PASM Team
+License: MIT
+Keywords: emulator,cpu,isa,code-generation
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: jsonschema>=4.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0; extra == "dev"
+
+## PASM – Processor Architecture Specification for Emulation
+
+PASM is a Python‑based code generator that reads a YAML Instruction Set Architecture (ISA) description and produces a complete, compilable C emulator for that processor.
+
+The goal is to go from a declarative ISA file (registers, flags, memory model, opcode encodings, and behavior snippets) to a working emulator with minimal boilerplate.
+
+### Features
+
+- **Declarative ISA definitions** in YAML, validated by a strict JSON Schema.
+- **Automatic C code generation** for:
+  - CPU state (`CPUState`) and register/flag enums.
+  - Instruction decoder and decision‑tree dispatch loop.
+  - Runtime helpers for memory, ports, and interrupts.
+  - Optional debug helpers and execution hooks.
+- **Configurable output**:
+  - `--features` toggle which components are generated.
+  - `--dispatch` reserved for future dispatch‑strategy selection.
+- **Build integration**:
+  - Auto‑generated `CMakeLists.txt` and `Makefile`.
+  - Basic test harness wiring for generated CPUs.
+
+See `docs/PLAN.md` for the high‑level architecture and roadmap.
+
+### Installation
+
+You need Python 3.10+.
+
+From the project root:
+
+```bash
+pip install -e .
+```
+
+This installs the `pasm` console script defined in `pyproject.toml`.
+
+### Quickstart
+
+1. **Inspect an example ISA**
+
+   ```bash
+   # From the project root
+   cat examples/simple8.yaml
+   ```
+
+2. **Validate the ISA**
+
+   ```bash
+   pasm validate --isa examples/simple8.yaml
+   ```
+
+3. **Generate an emulator**
+
+   ```bash
+   pasm generate \
+     --isa examples/simple8.yaml \
+     --output generated/simple8 \
+     --features full
+   ```
+
+   This creates:
+
+   - `generated/simple8/src/` with `Simple8.c`, `Simple8.h`, decoder, hooks (if enabled), and `main.c`.
+   - `generated/simple8/include/cpu_defs.h`.
+   - `generated/simple8/CMakeLists.txt` and `generated/simple8/Makefile`.
+
+4. **Build and run (optional)**
+
+   With CMake and a C compiler installed:
+
+   ```bash
+   cd generated/simple8
+   cmake -S . -B build
+   cmake --build build
+   ctest --test-dir build  # or run the built test binary manually
+   ```
+
+### CLI Reference
+
+The main entrypoint lives in `src/main.py` and is exposed as the `pasm` command.
+
+- **Generate an emulator from an ISA file**
+
+  ```bash
+  pasm generate \
+    --isa examples/simple8.yaml \
+    --output generated/simple8 \
+    --features full \
+    [--dispatch switch] \
+    [--validate-only] \
+    [--verbose]
+  ```
+
+- **Validate an ISA file only**
+
+  ```bash
+  pasm validate --isa examples/simple8.yaml [--verbose]
+  ```
+
+- **Show a summary of an ISA**
+
+  ```bash
+  pasm info --isa examples/simple8.yaml
+  ```
+
+Flags (as specified in `docs/PLAN.md`):
+
+- `--isa PATH` (required): Input YAML ISA file.
+- `--output PATH`: Output directory (default: `./generated/[cpu_name]`).
+- `--features [minimal|standard|full]`:
+  - `minimal`: core CPU state, decoder, and runtime.
+  - `standard`: core + debug helpers.
+  - `full`: standard + hooks, build files, and test harness.
+- `--dispatch [switch|threaded|both]`:
+  - `switch`: portable switch‑case dispatch (current implementation).
+  - `threaded` / `both`: reserved for future threaded‑dispatch support.
+- `--validate-only`: Validate the ISA and exit without generating code.
+- `--verbose`: Print additional progress and error details.
+
+### ISA Format
+
+The ISA YAML format is documented in detail in:
+
+- `docs/ISA_FORMAT.md` – human‑oriented description with examples.
+- `schemas/isa_schema.json` – machine‑readable JSON Schema used at runtime.
+
+Example files:
+
+- `examples/minimal8.yaml` – very small 8‑bit ISA for smoke testing.
+- `examples/simple8.yaml` – richer 8‑bit ISA with arithmetic, control flow, and a few hooks.
+
+### Development
+
+- **Source**: `src/`
+- **Schema**: `schemas/isa_schema.json`
+- **Docs**: `docs/PLAN.md`, `docs/ISA_FORMAT.md`
+
+Run tests (once they are in place) with:
+
+```bash
+pytest
+```
+
+### License
+
+This project is licensed under the MIT License. See `pyproject.toml` for metadata.
+
