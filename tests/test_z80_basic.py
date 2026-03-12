@@ -1,4 +1,3 @@
-import pathlib
 import shutil
 import subprocess
 import textwrap
@@ -9,14 +8,12 @@ from src import generator as gen_mod
 from src.analyzer.instruction_analyzer import audit_opcode_spaces
 from src.codegen.cpu_decoder import generate_decoder
 from src.parser import yaml_loader
-
-
-BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
+from tests.support import example_pair
 
 
 def test_z80_yaml_validates():
-    isa_path = BASE_DIR / "examples" / "z80.yaml"
-    data = yaml_loader.load_isa(str(isa_path))
+    processor_path, system_path = example_pair("z80")
+    data = yaml_loader.load_processor_system(str(processor_path), str(system_path))
     assert data["metadata"]["name"] == "Z80"
     assert data["memory"]["default_size"] == 65536
     assert data["interrupts"]["model"] == "z80"
@@ -309,13 +306,11 @@ def test_z80_yaml_validates():
     assert "RST_38" in names
 
 
-def test_generate_z80_minimal():
-    isa_path = BASE_DIR / "examples" / "z80.yaml"
-    outdir = BASE_DIR / "generated" / "z80_basic"
-    if outdir.exists():
-        shutil.rmtree(outdir)
+def test_generate_z80_minimal(tmp_path):
+    processor_path, system_path = example_pair("z80")
+    outdir = tmp_path / "z80_basic"
 
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     src_dir = outdir / "src"
     assert (src_dir / "Z80.c").exists()
@@ -324,15 +319,15 @@ def test_generate_z80_minimal():
 
 
 def test_z80_covers_expected_categories():
-    isa_path = BASE_DIR / "examples" / "z80.yaml"
-    data = yaml_loader.load_isa(str(isa_path))
+    processor_path, system_path = example_pair("z80")
+    data = yaml_loader.load_processor_system(str(processor_path), str(system_path))
     categories = {inst["category"] for inst in data["instructions"]}
     assert {"data_transfer", "arithmetic", "logic", "rotate", "bit", "control"} <= categories
 
 
 def test_z80_opcode_space_audit_reports_prefixed_space_coverage():
-    isa_path = BASE_DIR / "examples" / "z80.yaml"
-    data = yaml_loader.load_isa(str(isa_path))
+    processor_path, system_path = example_pair("z80")
+    data = yaml_loader.load_processor_system(str(processor_path), str(system_path))
     audit = audit_opcode_spaces(data)
 
     assert set(audit.keys()) == {"base", "cb", "ed", "dd", "fd", "ddcb", "fdcb"}
@@ -344,8 +339,8 @@ def test_z80_opcode_space_audit_reports_prefixed_space_coverage():
 
 
 def test_z80_decode_determinism_contract_is_present():
-    isa_path = BASE_DIR / "examples" / "z80.yaml"
-    data = yaml_loader.load_isa(str(isa_path))
+    processor_path, system_path = example_pair("z80")
+    data = yaml_loader.load_processor_system(str(processor_path), str(system_path))
     _, decoder_impl = generate_decoder(data, "Z80")
 
     assert data["metadata"]["undefined_opcode_policy"] == "trap"
@@ -359,9 +354,9 @@ def test_z80_decode_determinism_contract_is_present():
     reason="C compiler not available on PATH",
 )
 def test_z80_generated_decoder_covers_all_prefixed_opcode_spaces(tmp_path):
-    isa_path = BASE_DIR / "examples" / "z80.yaml"
+    processor_path, system_path = example_pair("z80")
     outdir = tmp_path / "z80_decoder_scan"
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     scan_c = outdir / "scan_decode.c"
     scan_c.write_text(
@@ -459,4 +454,3 @@ def test_z80_generated_decoder_covers_all_prefixed_opcode_spaces(tmp_path):
     assert int(lines["fd"]) == 256
     assert int(lines["ddcb"]) == 256
     assert int(lines["fdcb"]) == 256
-

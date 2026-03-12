@@ -5,6 +5,7 @@ import subprocess
 import pytest
 
 from src import generator as gen_mod
+from tests.support import example_pair
 
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -20,12 +21,12 @@ def test_simple8_end_to_end(tmp_path):
     This is a smoke test to ensure the generated code compiles and links.
     """
 
-    isa_path = BASE_DIR / "examples" / "simple8.yaml"
+    processor_path, system_path = example_pair("simple8")
     outdir = tmp_path / "simple8_e2e"
     if outdir.exists():
         shutil.rmtree(outdir)
 
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     build_dir = outdir / "build"
     build_dir.mkdir(parents=True, exist_ok=True)

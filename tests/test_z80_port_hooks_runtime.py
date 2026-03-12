@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from src import generator as gen_mod
+from tests.support import example_pair
 
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -29,9 +30,10 @@ def z80_port_hook_harness(tmp_path_factory):
         pytest.skip("No C compiler available on PATH")
 
     workdir = tmp_path_factory.mktemp("z80_port_hook_runtime")
-    base_isa = BASE_DIR / "examples" / "z80.yaml"
-    isa_data = yaml.safe_load(base_isa.read_text(encoding="utf-8"))
-    isa_data["hooks"] = {
+    processor_path, system_path = example_pair("z80")
+    processor_data = yaml.safe_load(processor_path.read_text(encoding="utf-8"))
+    system_data = yaml.safe_load(system_path.read_text(encoding="utf-8"))
+    system_data["hooks"] = {
         "pre_fetch": {"enabled": False},
         "post_decode": {"enabled": False},
         "post_execute": {"enabled": False},
@@ -41,11 +43,17 @@ def z80_port_hook_harness(tmp_path_factory):
         "port_write_post": {"enabled": True},
     }
 
-    isa_path = workdir / "z80_port_hooks.yaml"
-    isa_path.write_text(yaml.safe_dump(isa_data, sort_keys=False), encoding="utf-8")
+    test_processor_path = workdir / "z80_processor.yaml"
+    test_system_path = workdir / "z80_port_hooks_system.yaml"
+    test_processor_path.write_text(
+        yaml.safe_dump(processor_data, sort_keys=False), encoding="utf-8"
+    )
+    test_system_path.write_text(
+        yaml.safe_dump(system_data, sort_keys=False), encoding="utf-8"
+    )
 
     outdir = workdir / "generated"
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(test_processor_path), str(test_system_path), str(outdir))
 
     harness_c = outdir / "port_hook_harness.c"
     harness_c.write_text(

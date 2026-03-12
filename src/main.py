@@ -24,19 +24,30 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
+    if "--isa" in sys.argv:
+        print(
+            "Error: single-file ISA input was removed. Use --processor and --system.",
+            file=sys.stderr,
+        )
+        return 1
+
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # Generate command
     gen_parser = subparsers.add_parser(
         "generate",
-        help="Generate emulator from ISA file",
+        help="Generate emulator from processor/system files",
         aliases=["gen"],
     )
     gen_parser.add_argument(
-        "--isa",
-        "-i",
+        "--processor",
         required=True,
-        help="Input YAML ISA file",
+        help="Input YAML processor definition file",
+    )
+    gen_parser.add_argument(
+        "--system",
+        required=True,
+        help="Input YAML system definition file",
     )
     gen_parser.add_argument(
         "--output",
@@ -52,7 +63,7 @@ def main():
     gen_parser.add_argument(
         "--validate-only",
         action="store_true",
-        help="Validate ISA and exit without generating",
+        help="Validate processor/system files and exit without generating",
     )
     gen_parser.add_argument(
         "--verbose",
@@ -64,13 +75,17 @@ def main():
     # Validate command
     val_parser = subparsers.add_parser(
         "validate",
-        help="Validate ISA file without generating",
+        help="Validate processor/system files without generating",
     )
     val_parser.add_argument(
-        "--isa",
-        "-i",
+        "--processor",
         required=True,
-        help="Input YAML ISA file",
+        help="Input YAML processor definition file",
+    )
+    val_parser.add_argument(
+        "--system",
+        required=True,
+        help="Input YAML system definition file",
     )
     val_parser.add_argument(
         "--verbose",
@@ -82,13 +97,17 @@ def main():
     # Info command
     info_parser = subparsers.add_parser(
         "info",
-        help="Show ISA summary",
+        help="Show processor/system summary",
     )
     info_parser.add_argument(
-        "--isa",
-        "-i",
+        "--processor",
         required=True,
-        help="Input YAML ISA file",
+        help="Input YAML processor definition file",
+    )
+    info_parser.add_argument(
+        "--system",
+        required=True,
+        help="Input YAML system definition file",
     )
 
     args = parser.parse_args()
@@ -118,28 +137,35 @@ def main():
 def generate_command(args):
     """Handle generate command."""
 
-    isa_path = args.isa
+    processor_path = args.processor
+    system_path = args.system
 
-    # Validate ISA file exists
-    if not os.path.exists(isa_path):
-        print(f"Error: ISA file not found: {isa_path}", file=sys.stderr)
+    # Validate input files exist
+    if not os.path.exists(processor_path):
+        print(f"Error: Processor file not found: {processor_path}", file=sys.stderr)
+        return 1
+    if not os.path.exists(system_path):
+        print(f"Error: System file not found: {system_path}", file=sys.stderr)
         return 1
 
-    # Load ISA
+    # Load processor+system model
     if args.verbose:
-        print(f"Loading ISA from {isa_path}...")
+        print(f"Loading processor from {processor_path}...")
+        print(f"Loading system from {system_path}...")
 
-    loader = src.parser.yaml_loader.ISALoader()
+    loader = src.parser.yaml_loader.ProcessorSystemLoader()
     try:
-        isa_data = loader.load(isa_path)
+        isa_data = loader.load(processor_path, system_path)
     except Exception as e:
-        print(f"Error loading ISA: {e}", file=sys.stderr)
+        print(f"Error loading processor/system definition: {e}", file=sys.stderr)
         return 1
 
     # If requested, only validate and exit
     if getattr(args, "validate_only", False):
         if args.verbose:
-            print(f"ISA file is valid: {isa_path}")
+            print(
+                f"Processor/system files are valid: {processor_path}, {system_path}"
+            )
         return 0
 
     # Determine output directory
@@ -151,7 +177,7 @@ def generate_command(args):
         output_dir = f"./generated/{cpu_name.lower()}"
 
     # Generate
-    generator = src.generator.EmulatorGenerator(isa_path)
+    generator = src.generator.EmulatorGenerator(processor_path, system_path)
     generator.generate(output_dir, dispatch_mode=args.dispatch)
 
     return 0
@@ -160,18 +186,22 @@ def generate_command(args):
 def validate_command(args):
     """Handle validate command."""
 
-    isa_path = args.isa
+    processor_path = args.processor
+    system_path = args.system
 
-    if not os.path.exists(isa_path):
-        print(f"Error: ISA file not found: {isa_path}", file=sys.stderr)
+    if not os.path.exists(processor_path):
+        print(f"Error: Processor file not found: {processor_path}", file=sys.stderr)
+        return 1
+    if not os.path.exists(system_path):
+        print(f"Error: System file not found: {system_path}", file=sys.stderr)
         return 1
 
     try:
-        loader = src.parser.yaml_loader.ISALoader()
-        isa_data = loader.load(isa_path)
+        loader = src.parser.yaml_loader.ProcessorSystemLoader()
+        loader.load(processor_path, system_path)
 
         if args.verbose:
-            print(f"ISA file is valid: {isa_path}")
+            print(f"Processor/system files are valid: {processor_path}, {system_path}")
 
         return 0
     except Exception as e:
@@ -182,22 +212,28 @@ def validate_command(args):
 def info_command(args):
     """Handle info command."""
 
-    isa_path = args.isa
+    processor_path = args.processor
+    system_path = args.system
 
-    if not os.path.exists(isa_path):
-        print(f"Error: ISA file not found: {isa_path}", file=sys.stderr)
+    if not os.path.exists(processor_path):
+        print(f"Error: Processor file not found: {processor_path}", file=sys.stderr)
+        return 1
+    if not os.path.exists(system_path):
+        print(f"Error: System file not found: {system_path}", file=sys.stderr)
         return 1
 
     try:
-        loader = src.parser.yaml_loader.ISALoader()
-        isa_data = loader.load(isa_path)
+        loader = src.parser.yaml_loader.ProcessorSystemLoader()
+        isa_data = loader.load(processor_path, system_path)
         summary = loader.get_summary(isa_data)
 
-        print(f"=== {summary['name']} ISA Summary ===")
-        print(f"Version: {summary['version']}")
+        print(f"=== {summary['name']} + {summary['system_name']} Summary ===")
+        print(f"Processor Version: {summary['version']}")
         print(f"Bits: {summary['bits']}")
         print(f"Address bits: {summary['address_bits']}")
         print(f"Endian: {summary['endian']}")
+        print(f"Clock Hz: {summary['clock_hz']}")
+        print(f"Memory default size: {summary['memory_default_size']}")
         print(f"Registers: {summary['num_registers']}")
         print(f"Flags: {summary['num_flags']}")
         print(f"Instructions: {summary['num_instructions']}")

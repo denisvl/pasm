@@ -6,6 +6,7 @@ import subprocess
 import pytest
 
 from src import generator as gen_mod
+from tests.support import example_pair
 
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -28,8 +29,8 @@ def z80_interrupt_harness(tmp_path_factory):
         pytest.skip("No C compiler available on PATH")
 
     outdir = tmp_path_factory.mktemp("z80_interrupt_runtime") / "generated"
-    isa_path = BASE_DIR / "examples" / "z80.yaml"
-    gen_mod.generate(str(isa_path), str(outdir))
+    processor_path, system_path = example_pair("z80")
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     harness_c = outdir / "interrupt_harness.c"
     harness_c.write_text(

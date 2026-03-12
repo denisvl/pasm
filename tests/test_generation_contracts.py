@@ -4,13 +4,13 @@ import shutil
 import subprocess
 
 import pytest
-import yaml
 
 from src import generator as gen_mod
 from src.codegen.build_system import generate_cmake
 from src.codegen.cpu_decoder import generate_decoder
 from src.codegen.cpu_header import generate_cpu_header
 from src.codegen.cpu_impl import generate_cpu_impl
+from tests.support import example_pair, write_pair_from_legacy
 
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -165,11 +165,10 @@ def test_runtime_blocks_writes_to_read_only_regions(tmp_path):
         {"name": "RAM", "start": 0x0000, "size": 0x8000, "read_write": True},
         {"name": "ROM", "start": 0x8000, "size": 0x8000, "read_only": True},
     ]
-    isa_path = tmp_path / "mem_runtime8.yaml"
-    isa_path.write_text(yaml.safe_dump(isa, sort_keys=False))
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "mem_runtime8", isa)
 
     outdir = tmp_path / "mem_runtime8_out"
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     harness_c = outdir / "rom_guard_harness.c"
     harness_c.write_text(
@@ -251,11 +250,10 @@ def test_hook_generation_matrix(tmp_path, hooks, expect_hooks_file, expect_post_
     isa = _base_isa("Hook8")
     isa["hooks"] = hooks
 
-    isa_path = tmp_path / "hook8.yaml"
-    isa_path.write_text(yaml.safe_dump(isa, sort_keys=False))
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "hook8", isa)
 
     outdir = tmp_path / "hook8_out"
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     hooks_file = outdir / "src" / "Hook8_hooks.c"
     assert hooks_file.exists() == expect_hooks_file
@@ -272,10 +270,9 @@ def test_hook_generation_matrix(tmp_path, hooks, expect_hooks_file, expect_post_
 def test_hook_api_uses_event_callback_contract(tmp_path):
     isa = _base_isa("HookApi8")
     isa["hooks"] = {"post_execute": {"enabled": True}}
-    isa_path = tmp_path / "hookapi8.yaml"
-    isa_path.write_text(yaml.safe_dump(isa, sort_keys=False))
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "hookapi8", isa)
     outdir = tmp_path / "hookapi8_out"
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     header = (outdir / "src" / "HookApi8.h").read_text()
     hooks_h = (outdir / "src" / "HookApi8_hooks.h").read_text()
@@ -319,9 +316,9 @@ def test_behavior_normalization_wraps_pc_assignments():
 
 
 def test_debug_api_symbols_are_generated(tmp_path):
-    isa_path = BASE_DIR / "examples" / "minimal8.yaml"
+    processor_path, system_path = example_pair("minimal8")
     outdir = tmp_path / "debug_api"
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     header = (outdir / "src" / "Minimal8.h").read_text()
     impl = (outdir / "src" / "Minimal8.c").read_text()
@@ -385,21 +382,23 @@ def test_shadow_flags_bank_is_omitted_without_prime_registers():
 def test_flags_require_explicit_bit_positions(tmp_path):
     isa = _base_isa("FlagBits8")
     isa["flags"] = [{"name": "Z"}]
-    isa_path = tmp_path / "flagbits.yaml"
-    isa_path.write_text(yaml.safe_dump(isa, sort_keys=False))
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "flagbits", isa)
 
     with pytest.raises(Exception, match="required property"):
-        gen_mod.generate(str(isa_path), str(tmp_path / "flagbits_out"))
+        gen_mod.generate(
+            str(processor_path), str(system_path), str(tmp_path / "flagbits_out")
+        )
 
 
 def test_duplicate_flag_bit_positions_are_rejected(tmp_path):
     isa = _base_isa("FlagDup8")
     isa["flags"] = [{"name": "Z", "bit": 0}, {"name": "C", "bit": 0}]
-    isa_path = tmp_path / "flagdup.yaml"
-    isa_path.write_text(yaml.safe_dump(isa, sort_keys=False))
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "flagdup", isa)
 
     with pytest.raises(Exception, match="duplicate bit position"):
-        gen_mod.generate(str(isa_path), str(tmp_path / "flagdup_out"))
+        gen_mod.generate(
+            str(processor_path), str(system_path), str(tmp_path / "flagdup_out")
+        )
 
 
 def test_register_parts_overlap_is_rejected(tmp_path):
@@ -415,11 +414,12 @@ def test_register_parts_overlap_is_rejected(tmp_path):
             ],
         }
     )
-    isa_path = tmp_path / "parts_overlap.yaml"
-    isa_path.write_text(yaml.safe_dump(isa, sort_keys=False))
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "parts_overlap", isa)
 
     with pytest.raises(Exception, match="overlapping bit"):
-        gen_mod.generate(str(isa_path), str(tmp_path / "parts_overlap_out"))
+        gen_mod.generate(
+            str(processor_path), str(system_path), str(tmp_path / "parts_overlap_out")
+        )
 
 
 def test_register_parts_out_of_range_is_rejected(tmp_path):
@@ -432,11 +432,12 @@ def test_register_parts_out_of_range_is_rejected(tmp_path):
             "parts": [{"name": "HI", "lsb": 7, "bits": 2}],
         }
     )
-    isa_path = tmp_path / "parts_range.yaml"
-    isa_path.write_text(yaml.safe_dump(isa, sort_keys=False))
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "parts_range", isa)
 
     with pytest.raises(Exception, match="exceeds parent width"):
-        gen_mod.generate(str(isa_path), str(tmp_path / "parts_range_out"))
+        gen_mod.generate(
+            str(processor_path), str(system_path), str(tmp_path / "parts_range_out")
+        )
 
 
 def test_register_parts_emit_yaml_driven_view_fields():
@@ -475,6 +476,20 @@ def test_header_includes_supported_compiler_gate():
     isa = _base_isa("CompilerGate8")
     header = generate_cpu_header(isa, "CompilerGate8")
     assert "Unsupported compiler: generated code supports MSVC, Clang, and GCC." in header
+
+
+def test_header_emits_system_metadata_constants():
+    isa = _base_isa("SystemMeta8")
+    isa["system"] = {
+        "metadata": {"name": "DemoSystem", "version": "2.0"},
+        "clock_hz": 2000000,
+        "integrations": {"demo": {"mode": "test"}},
+    }
+    header = generate_cpu_header(isa, "SystemMeta8")
+    assert '#define CPU_SYSTEM_NAME "DemoSystem"' in header
+    assert '#define CPU_SYSTEM_VERSION "2.0"' in header
+    assert "#define CPU_SYSTEM_CLOCK_HZ 2000000ULL" in header
+    assert "CPU_SYSTEM_INTEGRATIONS_JSON" in header
 
 
 def test_undefined_opcode_policy_defaults_to_trap():
@@ -732,10 +747,11 @@ def test_dispatch_and_decoder_support_masked_ddcb_disp_subop_form():
 
 
 def test_threaded_dispatch_mode_generates_computed_goto_path(tmp_path):
-    isa_path = BASE_DIR / "examples" / "minimal8.yaml"
+    processor_path, system_path = example_pair("minimal8")
     outdir = tmp_path / "dispatch_threaded"
     gen_mod.generate(
-        str(isa_path),
+        str(processor_path),
+        str(system_path),
         str(outdir),
         dispatch_mode="threaded",
     )
@@ -745,10 +761,11 @@ def test_threaded_dispatch_mode_generates_computed_goto_path(tmp_path):
 
 
 def test_both_dispatch_mode_generates_toggle_macro_path(tmp_path):
-    isa_path = BASE_DIR / "examples" / "minimal8.yaml"
+    processor_path, system_path = example_pair("minimal8")
     outdir = tmp_path / "dispatch_both"
     gen_mod.generate(
-        str(isa_path),
+        str(processor_path),
+        str(system_path),
         str(outdir),
         dispatch_mode="both",
     )
@@ -764,12 +781,12 @@ def test_both_dispatch_mode_generates_toggle_macro_path(tmp_path):
 )
 @pytest.mark.parametrize(
     "example_name",
-    ["minimal8.yaml", "simple8.yaml", "z80.yaml", "mos6502.yaml", "mos6510.yaml"],
+    ["minimal8", "simple8", "z80", "mos6502", "mos6510"],
 )
 def test_compile_smoke_generated_examples(tmp_path, example_name):
-    isa_path = BASE_DIR / "examples" / example_name
-    outdir = tmp_path / f"build_{example_name.replace('.yaml', '')}"
-    gen_mod.generate(str(isa_path), str(outdir))
+    processor_path, system_path = example_pair(example_name)
+    outdir = tmp_path / f"build_{example_name}"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     build_dir = outdir / "build"
     subprocess.check_call(
@@ -789,9 +806,14 @@ def test_compile_smoke_generated_examples(tmp_path, example_name):
     reason="cmake not available on PATH",
 )
 def test_compile_smoke_threaded_dispatch(tmp_path):
-    isa_path = BASE_DIR / "examples" / "minimal8.yaml"
+    processor_path, system_path = example_pair("minimal8")
     outdir = tmp_path / "minimal8_threaded"
-    gen_mod.generate(str(isa_path), str(outdir), dispatch_mode="threaded")
+    gen_mod.generate(
+        str(processor_path),
+        str(system_path),
+        str(outdir),
+        dispatch_mode="threaded",
+    )
 
     build_dir = outdir / "build"
     subprocess.check_call(
@@ -811,9 +833,14 @@ def test_compile_smoke_threaded_dispatch(tmp_path):
     reason="cmake not available on PATH",
 )
 def test_compile_smoke_both_dispatch_with_threaded_enabled(tmp_path):
-    isa_path = BASE_DIR / "examples" / "minimal8.yaml"
+    processor_path, system_path = example_pair("minimal8")
     outdir = tmp_path / "minimal8_both"
-    gen_mod.generate(str(isa_path), str(outdir), dispatch_mode="both")
+    gen_mod.generate(
+        str(processor_path),
+        str(system_path),
+        str(outdir),
+        dispatch_mode="both",
+    )
 
     build_dir = outdir / "build"
     subprocess.check_call(
@@ -843,11 +870,10 @@ def test_compile_smoke_with_hooks_enabled(tmp_path):
     isa = _base_isa("HookBuild8")
     isa["hooks"] = {"post_execute": {"enabled": True}}
 
-    isa_path = tmp_path / "hook_build.yaml"
-    isa_path.write_text(yaml.safe_dump(isa, sort_keys=False))
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "hook_build", isa)
 
     outdir = tmp_path / "hook_build_out"
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     build_dir = outdir / "build"
     subprocess.check_call(
@@ -870,11 +896,10 @@ def test_hook_sources_are_referenced_when_hooks_enabled(tmp_path):
     isa = _base_isa("HookEnabled8")
     isa["hooks"] = {"post_execute": {"enabled": True}}
 
-    isa_path = tmp_path / "hook_enabled.yaml"
-    isa_path.write_text(yaml.safe_dump(isa, sort_keys=False))
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "hook_enabled", isa)
 
     outdir = tmp_path / "hook_enabled_out"
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     assert (outdir / "src" / "HookEnabled8_hooks.c").exists()
     cmake_text = (outdir / "CMakeLists.txt").read_text()

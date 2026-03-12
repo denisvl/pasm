@@ -1,13 +1,25 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "ISA Definition",
-  "description": "Schema for Processor Instruction Set Architecture definition",
+  "title": "PASM Processor Definition",
+  "description": "Schema for processor.yaml (CPU semantics).",
   "type": "object",
-  "required": ["metadata", "registers", "flags", "memory", "instructions"],
+  "required": [
+    "metadata",
+    "registers",
+    "flags",
+    "instructions"
+  ],
+  "additionalProperties": false,
   "properties": {
     "metadata": {
       "type": "object",
-      "required": ["name", "bits", "address_bits", "endian"],
+      "required": [
+        "name",
+        "bits",
+        "address_bits",
+        "endian"
+      ],
+      "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string",
@@ -15,7 +27,7 @@
         },
         "version": {
           "type": "string",
-          "description": "ISA version"
+          "description": "Processor/ISA version"
         },
         "bits": {
           "type": "integer",
@@ -31,12 +43,18 @@
         },
         "endian": {
           "type": "string",
-          "enum": ["little", "big"],
+          "enum": [
+            "little",
+            "big"
+          ],
           "description": "Endianness"
         },
         "undefined_opcode_policy": {
           "type": "string",
-          "enum": ["trap", "nop"],
+          "enum": [
+            "trap",
+            "nop"
+          ],
           "description": "Behavior for undefined opcode patterns",
           "default": "trap"
         }
@@ -46,7 +64,12 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "type", "bits"],
+        "required": [
+          "name",
+          "type",
+          "bits"
+        ],
+        "additionalProperties": false,
         "properties": {
           "name": {
             "type": "string",
@@ -54,7 +77,13 @@
           },
           "type": {
             "type": "string",
-            "enum": ["general", "program_counter", "stack_pointer", "index", "special"]
+            "enum": [
+              "general",
+              "program_counter",
+              "stack_pointer",
+              "index",
+              "special"
+            ]
           },
           "bits": {
             "type": "integer",
@@ -65,7 +94,12 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["name", "lsb", "bits"],
+              "required": [
+                "name",
+                "lsb",
+                "bits"
+              ],
+              "additionalProperties": false,
               "properties": {
                 "name": {
                   "type": "string",
@@ -91,7 +125,11 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "bit"],
+        "required": [
+          "name",
+          "bit"
+        ],
+        "additionalProperties": false,
         "properties": {
           "name": {
             "type": "string",
@@ -108,55 +146,49 @@
         }
       }
     },
-    "memory": {
-      "type": "object",
-      "required": ["address_bits"],
-      "properties": {
-        "address_bits": {
-          "type": "integer"
-        },
-        "default_size": {
-          "type": "integer"
-        },
-        "regions": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["name", "start", "size"],
-            "properties": {
-              "name": {"type": "string"},
-              "start": {"type": "integer"},
-              "size": {"type": "integer"},
-              "read_write": {"type": "boolean"},
-              "read_only": {"type": "boolean"}
-            }
-          }
-        }
-      }
-    },
     "ports": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "address_bits": {"type": "integer"},
-        "size": {"type": "integer"}
+        "address_bits": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "interrupts": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "model": {
           "type": "string",
-          "enum": ["none", "fixed_vector", "z80"],
+          "enum": [
+            "none",
+            "fixed_vector",
+            "z80"
+          ],
           "description": "Interrupt dispatch model used by generated runtime"
         },
         "modes": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name"],
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false,
             "properties": {
-              "name": {"type": "string"},
-              "description": {"type": "string"}
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
             }
           }
         },
@@ -165,61 +197,12 @@
           "minimum": 0,
           "maximum": 65535
         },
-        "vector_table": {"type": "boolean"},
-        "vector_size": {"type": "integer"}
-      }
-    },
-    "hooks": {
-      "type": "object",
-      "properties": {
-        "pre_fetch": {
-          "type": "object",
-          "properties": {
-            "enabled": {"type": "boolean"},
-            "description": {"type": "string"}
-          }
+        "vector_table": {
+          "type": "boolean"
         },
-        "post_decode": {
-          "type": "object",
-          "properties": {
-            "enabled": {"type": "boolean"},
-            "description": {"type": "string"}
-          }
-        },
-        "post_execute": {
-          "type": "object",
-          "properties": {
-            "enabled": {"type": "boolean"},
-            "description": {"type": "string"}
-          }
-        },
-        "port_read_pre": {
-          "type": "object",
-          "properties": {
-            "enabled": {"type": "boolean"},
-            "description": {"type": "string"}
-          }
-        },
-        "port_read_post": {
-          "type": "object",
-          "properties": {
-            "enabled": {"type": "boolean"},
-            "description": {"type": "string"}
-          }
-        },
-        "port_write_pre": {
-          "type": "object",
-          "properties": {
-            "enabled": {"type": "boolean"},
-            "description": {"type": "string"}
-          }
-        },
-        "port_write_post": {
-          "type": "object",
-          "properties": {
-            "enabled": {"type": "boolean"},
-            "description": {"type": "string"}
-          }
+        "vector_size": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },
@@ -227,7 +210,13 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "category", "encoding", "behavior"],
+        "required": [
+          "name",
+          "category",
+          "encoding",
+          "behavior"
+        ],
+        "additionalProperties": false,
         "properties": {
           "name": {
             "type": "string",
@@ -235,15 +224,26 @@
           },
           "display": {
             "type": "string",
-            "description": "Optional human-readable instruction text used by trace/disassembly output"
+            "description": "Optional human-readable instruction text"
           },
           "category": {
             "type": "string",
-            "enum": ["arithmetic", "logic", "data_transfer", "control", "bit", "rotate", "misc"]
+            "enum": [
+              "arithmetic",
+              "logic",
+              "data_transfer",
+              "control",
+              "bit",
+              "rotate",
+              "misc"
+            ]
           },
           "encoding": {
             "type": "object",
-            "required": ["opcode"],
+            "required": [
+              "opcode"
+            ],
+            "additionalProperties": false,
             "properties": {
               "opcode": {
                 "type": "integer",
@@ -279,19 +279,34 @@
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["name", "position"],
+                  "required": [
+                    "name",
+                    "position"
+                  ],
+                  "additionalProperties": false,
                   "properties": {
-                    "name": {"type": "string"},
+                    "name": {
+                      "type": "string"
+                    },
                     "position": {
                       "type": "array",
-                      "items": {"type": "integer"},
+                      "items": {
+                        "type": "integer"
+                      },
                       "minItems": 2,
                       "maxItems": 2
                     },
-                    "width": {"type": "integer"},
+                    "width": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
                     "type": {
                       "type": "string",
-                      "enum": ["register", "immediate", "address"]
+                      "enum": [
+                        "register",
+                        "immediate",
+                        "address"
+                      ]
                     }
                   }
                 }
@@ -299,10 +314,12 @@
             }
           },
           "length": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 1
           },
           "cycles": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 0
           },
           "behavior": {
             "type": "string",

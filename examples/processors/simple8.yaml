@@ -1,0 +1,289 @@
+metadata:
+  name: Simple8
+  version: '1.0'
+  bits: 8
+  address_bits: 16
+  endian: little
+  undefined_opcode_policy: trap
+registers:
+- name: R0
+  type: general
+  bits: 8
+- name: R1
+  type: general
+  bits: 8
+- name: R2
+  type: general
+  bits: 8
+- name: R3
+  type: general
+  bits: 8
+- name: R4
+  type: general
+  bits: 8
+- name: R5
+  type: general
+  bits: 8
+- name: R6
+  type: general
+  bits: 8
+- name: R7
+  type: general
+  bits: 8
+- name: PC
+  type: program_counter
+  bits: 16
+- name: SP
+  type: stack_pointer
+  bits: 16
+- name: A
+  type: general
+  bits: 8
+flags:
+- name: Z
+  bit: 0
+- name: N
+  bit: 1
+- name: P
+  bit: 2
+- name: S
+  bit: 3
+- name: C
+  bit: 4
+instructions:
+- name: NOP
+  category: control
+  encoding:
+    opcode: 0
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: '(void)cpu;
+
+    '
+- name: LDA_IMM
+  category: data_transfer
+  encoding:
+    opcode: 16
+    mask: 240
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 7
+      - 0
+      type: immediate
+  cycles: 2
+  behavior: 'cpu->registers[REG_A] = inst->imm;
+
+    '
+- name: LDR
+  category: data_transfer
+  encoding:
+    opcode: 32
+    mask: 248
+    length: 1
+    fields:
+    - name: r
+      position:
+      - 2
+      - 0
+  cycles: 1
+  behavior: 'cpu->registers[REG_A] = cpu->registers[inst->r];
+
+    '
+- name: STR
+  category: data_transfer
+  encoding:
+    opcode: 40
+    mask: 248
+    length: 1
+    fields:
+    - name: r
+      position:
+      - 2
+      - 0
+  cycles: 1
+  behavior: 'cpu->registers[inst->r] = cpu->registers[REG_A];
+
+    '
+- name: ADD
+  category: arithmetic
+  encoding:
+    opcode: 48
+    mask: 248
+    length: 1
+    fields:
+    - name: r
+      position:
+      - 2
+      - 0
+  cycles: 1
+  behavior: 'uint16_t result = cpu->registers[REG_A] + cpu->registers[inst->r];
+
+    cpu->flags.C = ((result > 0xFF));
+
+    cpu->flags.Z = (((result & 0xFF) == 0));
+
+    cpu->flags.N = (((result & 0x80) != 0));
+
+    cpu->registers[REG_A] = result & 0xFF;
+
+    '
+- name: SUB
+  category: arithmetic
+  encoding:
+    opcode: 56
+    mask: 248
+    length: 1
+    fields:
+    - name: r
+      position:
+      - 2
+      - 0
+  cycles: 1
+  behavior: 'uint16_t result = cpu->registers[REG_A] - cpu->registers[inst->r];
+
+    cpu->flags.C = ((result > 0xFF));
+
+    cpu->flags.Z = (((result & 0xFF) == 0));
+
+    cpu->flags.N = (((result & 0x80) != 0));
+
+    cpu->registers[REG_A] = result & 0xFF;
+
+    '
+- name: INC
+  category: arithmetic
+  encoding:
+    opcode: 64
+    mask: 248
+    length: 1
+    fields:
+    - name: r
+      position:
+      - 2
+      - 0
+  cycles: 1
+  behavior: 'cpu->registers[inst->r]++;
+
+    cpu->flags.Z = ((cpu->registers[inst->r] == 0));
+
+    cpu->flags.N = (((cpu->registers[inst->r] & 0x80) != 0));
+
+    '
+- name: DEC
+  category: arithmetic
+  encoding:
+    opcode: 72
+    mask: 248
+    length: 1
+    fields:
+    - name: r
+      position:
+      - 2
+      - 0
+  cycles: 1
+  behavior: 'cpu->registers[inst->r]--;
+
+    cpu->flags.Z = ((cpu->registers[inst->r] == 0));
+
+    cpu->flags.N = (((cpu->registers[inst->r] & 0x80) != 0));
+
+    '
+- name: JP
+  category: control
+  encoding:
+    opcode: 192
+    mask: 240
+    length: 2
+    fields:
+    - name: addr
+      position:
+      - 15
+      - 0
+      type: address
+  cycles: 3
+  behavior: 'cpu->pc = inst->addr;
+
+    '
+- name: JPZ
+  category: control
+  encoding:
+    opcode: 194
+    mask: 240
+    length: 2
+    fields:
+    - name: addr
+      position:
+      - 15
+      - 0
+      type: address
+  cycles: 3
+  behavior: "if (cpu->flags.Z) {\n  cpu->pc = inst->addr;\n}\n"
+- name: JPNZ
+  category: control
+  encoding:
+    opcode: 196
+    mask: 240
+    length: 2
+    fields:
+    - name: addr
+      position:
+      - 15
+      - 0
+      type: address
+  cycles: 3
+  behavior: "if (!cpu->flags.Z) {\n  cpu->pc = inst->addr;\n}\n"
+- name: CALL
+  category: control
+  encoding:
+    opcode: 208
+    mask: 240
+    length: 2
+    fields:
+    - name: addr
+      position:
+      - 15
+      - 0
+      type: address
+  cycles: 5
+  behavior: 'cpu->sp--;
+
+    simple8_write_byte(cpu, cpu->sp, (cpu->pc) & 0xFF);
+
+    cpu->sp--;
+
+    simple8_write_byte(cpu, cpu->sp, (cpu->pc >> 8) & 0xFF);
+
+    cpu->pc = inst->addr;
+
+    '
+- name: RET
+  category: control
+  encoding:
+    opcode: 216
+    mask: 255
+    length: 1
+  cycles: 3
+  behavior: 'uint8_t pcl = simple8_read_byte(cpu, cpu->sp);
+
+    cpu->sp++;
+
+    uint8_t pch = simple8_read_byte(cpu, cpu->sp);
+
+    cpu->sp++;
+
+    cpu->pc = pcl | (pch << 8);
+
+    '
+- name: HALT
+  category: control
+  encoding:
+    opcode: 255
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    '

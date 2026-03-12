@@ -1,0 +1,9 @@
+metadata:
+  name: Minimal8DefaultSystem
+  version: '1.0'
+clock_hz: 1000000
+memory:
+  default_size: 65536
+  regions: []
+hooks: {}
+integrations: {}

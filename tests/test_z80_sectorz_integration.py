@@ -7,6 +7,7 @@ import subprocess
 import pytest
 
 from src import generator as gen_mod
+from tests.support import example_pair
 
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -15,7 +16,8 @@ SECTORZ_CACHE_ROOT = pathlib.Path("/tmp/pasm-sectorz-z88dk")
 SECTORZ_SRC_DIR = SECTORZ_CACHE_ROOT / "src"
 SECTORZ_STAMP = SECTORZ_CACHE_ROOT / "built-z80.stamp"
 SECTORZ_SAMPLE_C = BASE_DIR / "examples" / "sectorz_hello.c"
-SECTORZ_HOOK_ISA = BASE_DIR / "examples" / "z80_sectorz_hooks.yaml"
+SECTORZ_PROCESSOR = example_pair("z80")[0]
+SECTORZ_HOOK_SYSTEM = BASE_DIR / "examples" / "systems" / "z80_sectorz_hooks.yaml"
 SECTORZ_HARNESS_C = BASE_DIR / "examples" / "sectorz_out_harness.c"
 
 
@@ -104,8 +106,9 @@ def _compile_sectorz_program(toolchain_root: pathlib.Path, workdir: pathlib.Path
 
 def _generate_hooked_z80(outdir: pathlib.Path) -> pathlib.Path:
     outdir.mkdir(parents=True, exist_ok=True)
-    assert SECTORZ_HOOK_ISA.exists(), f"Missing hook ISA: {SECTORZ_HOOK_ISA}"
-    gen_mod.generate(str(SECTORZ_HOOK_ISA), str(outdir))
+    assert SECTORZ_PROCESSOR.exists(), f"Missing processor YAML: {SECTORZ_PROCESSOR}"
+    assert SECTORZ_HOOK_SYSTEM.exists(), f"Missing system YAML: {SECTORZ_HOOK_SYSTEM}"
+    gen_mod.generate(str(SECTORZ_PROCESSOR), str(SECTORZ_HOOK_SYSTEM), str(outdir))
     return outdir
 
 

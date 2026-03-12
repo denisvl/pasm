@@ -15,7 +15,8 @@ from src import generator as gen_mod
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SAMPLE_C = REPO_ROOT / "examples" / "sectorz_hello.c"
-HOOK_ISA = REPO_ROOT / "examples" / "z80_sectorz_hooks.yaml"
+PROCESSOR_YAML = REPO_ROOT / "examples" / "processors" / "z80.yaml"
+SYSTEM_YAML = REPO_ROOT / "examples" / "systems" / "z80_sectorz_hooks.yaml"
 HARNESS_C = REPO_ROOT / "examples" / "sectorz_out_harness.c"
 
 
@@ -61,7 +62,12 @@ def _parse_args() -> argparse.Namespace:
 def main() -> int:
     args = _parse_args()
 
-    if not SAMPLE_C.exists() or not HOOK_ISA.exists() or not HARNESS_C.exists():
+    if (
+        not SAMPLE_C.exists()
+        or not PROCESSOR_YAML.exists()
+        or not SYSTEM_YAML.exists()
+        or not HARNESS_C.exists()
+    ):
         raise RuntimeError("Missing required example files in ./examples")
 
     z88dk_root = pathlib.Path(args.z88dk_root).resolve()
@@ -101,7 +107,7 @@ def main() -> int:
     if not rom_file.exists():
         raise RuntimeError(f"Expected ROM missing after build: {rom_file}")
 
-    gen_mod.generate(str(HOOK_ISA), str(generated_dir))
+    gen_mod.generate(str(PROCESSOR_YAML), str(SYSTEM_YAML), str(generated_dir))
 
     compiler = _pick_compiler()
     _run(

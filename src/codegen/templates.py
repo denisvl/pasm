@@ -110,6 +110,7 @@ struct CPUState {{
 #define CPU_ERROR_INVALID_OPCODE 1
 #define CPU_ERROR_INVALID_MEMORY 2
 #define CPU_ERROR_HALT 3
+{system_constants}
 
 /* ===== Register Enum ===== */
 {register_enum}

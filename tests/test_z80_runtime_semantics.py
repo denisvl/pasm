@@ -7,6 +7,7 @@ import subprocess
 import pytest
 
 from src import generator as gen_mod
+from tests.support import example_pair
 
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -73,9 +74,9 @@ def _assert_bit_flags(flags: int, *, expect_z: bool, expect_s: bool, expect_carr
 @pytest.fixture(scope="module")
 def z80_binary(tmp_path_factory):
     outdir = tmp_path_factory.mktemp("z80_runtime") / "generated"
-    isa_path = BASE_DIR / "examples" / "z80.yaml"
+    processor_path, system_path = example_pair("z80")
 
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     build_dir = outdir / "build"
     subprocess.check_call(

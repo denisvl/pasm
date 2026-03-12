@@ -1,5 +1,6 @@
 """CPU header file generator."""
 
+import json
 import re
 from typing import Dict, List, Any
 
@@ -25,6 +26,7 @@ def generate_cpu_header(isa_data: Dict[str, Any], cpu_name: str) -> str:
 
     # Generate flag bits
     flag_bits = _generate_flag_bits(isa_data, cpu_prefix)
+    system_constants = _generate_system_constants(isa_data)
 
     # Format the template
     from .templates import CPU_HEADER_TEMPLATE
@@ -38,6 +40,7 @@ def generate_cpu_header(isa_data: Dict[str, Any], cpu_name: str) -> str:
         interrupt_state_fields=interrupt_state_fields,
         register_enum=register_enum,
         flag_bits=flag_bits,
+        system_constants=system_constants,
         interrupt_api=interrupt_api,
         isa_name=isa_data.get("metadata", {}).get("name", "Unknown"),
     )
@@ -187,6 +190,25 @@ def _generate_flag_bits(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     return "\n".join(lines)
 
 
+def _generate_system_constants(isa_data: Dict[str, Any]) -> str:
+    """Generate system metadata constants/comments from system.yaml."""
+    system = isa_data.get("system", {})
+    system_meta = system.get("metadata", {})
+    system_name = _escape_c_string(str(system_meta.get("name", "UnknownSystem")))
+    system_version = _escape_c_string(str(system_meta.get("version", "")))
+    clock_hz = int(system.get("clock_hz", 0))
+    integrations_json = _escape_c_string(
+        json.dumps(system.get("integrations", {}), sort_keys=True)
+    )
+    lines = [
+        f'#define CPU_SYSTEM_NAME "{system_name}"',
+        f'#define CPU_SYSTEM_VERSION "{system_version}"',
+        f"#define CPU_SYSTEM_CLOCK_HZ {clock_hz}ULL",
+        f"/* CPU_SYSTEM_INTEGRATIONS_JSON: {integrations_json} */",
+    ]
+    return "\n".join(lines)
+
+
 def _to_c_ident(name: str) -> str:
     """Convert ISA-provided names into lowercase C identifiers."""
     ident = re.sub(r"[^0-9A-Za-z_]", "_", str(name).strip())
@@ -196,6 +218,17 @@ def _to_c_ident(name: str) -> str:
     if ident[0].isdigit():
         ident = f"reg_{ident}"
     return ident
+
+
+def _escape_c_string(value: str) -> str:
+    """Escape a string for safe use in C string literals/comments."""
+    return (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
 
 
 def _storage_type_for_bits(bits: int) -> str:

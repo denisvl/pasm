@@ -8,6 +8,7 @@ import textwrap
 import pytest
 
 from src import generator as gen_mod
+from tests.support import example_pair
 
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -15,9 +16,9 @@ REFERENCE_PATH = BASE_DIR / "tests" / "data" / "z80_cycle_reference.json"
 
 
 def _scan_decode_cycles(tmp_path: pathlib.Path) -> dict[str, list[int]]:
-    isa_path = BASE_DIR / "examples" / "z80.yaml"
+    processor_path, system_path = example_pair("z80")
     outdir = tmp_path / "z80_cycle_scan"
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     scan_c = outdir / "scan_cycles.c"
     scan_c.write_text(

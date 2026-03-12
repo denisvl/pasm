@@ -1,0 +1,36 @@
+metadata:
+  name: SimpleCPU
+  version: '1.0'
+  bits: 8
+  address_bits: 16
+  endian: little
+  undefined_opcode_policy: trap
+registers:
+- name: R0
+  type: general
+  bits: 8
+- name: R1
+  type: general
+  bits: 8
+- name: PC
+  type: program_counter
+  bits: 16
+- name: SP
+  type: stack_pointer
+  bits: 16
+flags:
+- name: Z
+  bit: 0
+- name: C
+  bit: 1
+instructions:
+- name: NOP
+  category: control
+  encoding:
+    opcode: 0
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: '(void)cpu;
+
+    '

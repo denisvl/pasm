@@ -1,24 +1,12 @@
-import pathlib
-import shutil
-
 from src import generator as gen_mod
-
-
-BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
-
-
-def _fresh_outdir(name: str) -> pathlib.Path:
-    out = BASE_DIR / "generated" / name
-    if out.exists():
-        shutil.rmtree(out)
-    return out
+from tests.support import example_pair
 
 
 def test_generate_minimal8(tmp_path):
-    isa_path = BASE_DIR / "examples" / "minimal8.yaml"
-    outdir = _fresh_outdir("minimal8_test")
+    processor_path, system_path = example_pair("minimal8")
+    outdir = tmp_path / "minimal8_test"
 
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     src_dir = outdir / "src"
     assert (src_dir / "Minimal8.c").exists()
@@ -29,10 +17,10 @@ def test_generate_minimal8(tmp_path):
 
 
 def test_generate_simple8_full(tmp_path):
-    isa_path = BASE_DIR / "examples" / "simple8.yaml"
-    outdir = _fresh_outdir("simple8_test")
+    processor_path, system_path = example_pair("simple8")
+    outdir = tmp_path / "simple8_test"
 
-    gen_mod.generate(str(isa_path), str(outdir))
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     src_dir = outdir / "src"
     # Core files
