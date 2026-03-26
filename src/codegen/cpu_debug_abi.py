@@ -1,0 +1,1409 @@
+"""Debug ABI generator for linking external debugger frontends."""
+
+from __future__ import annotations
+
+import re
+from typing import Any, Dict, List
+
+from .interrupts import resolve_interrupt_model
+
+
+def _to_c_ident(name: str) -> str:
+    ident = re.sub(r"[^0-9A-Za-z_]", "_", str(name).strip())
+    ident = ident.lower()
+    if not ident:
+        return "field"
+    if ident[0].isdigit():
+        return f"field_{ident}"
+    return ident
+
+
+def _escape_c_string(value: str) -> str:
+    return (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
+
+
+def _architecture_const(isa_data: Dict[str, Any]) -> str:
+    name = str(isa_data.get("metadata", {}).get("name", "")).lower()
+    if "z80" in name:
+        return "PASM_ARCH_Z80"
+    if "6809" in name:
+        return "PASM_ARCH_MC6809"
+    if "6502" in name and "6510" not in name:
+        return "PASM_ARCH_MOS6502"
+    if "6509" in name:
+        return "PASM_ARCH_MOS6502"
+    if "6510" in name:
+        return "PASM_ARCH_MOS6510"
+    if "68000" in name or "m68k" in name:
+        return "PASM_ARCH_MOTOROLA68000"
+    if "2a03" in name:
+        return "PASM_ARCH_RICOH2A03"
+    return "PASM_ARCH_UNKNOWN"
+
+
+def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, str]:
+    """Generate debug ABI header and implementation."""
+
+    cpu_prefix = cpu_name.lower()
+    guard = f"{cpu_name.upper()}_DEBUG_ABI_H"
+    architecture_const = _architecture_const(isa_data)
+    flags = list(isa_data.get("flags", []))
+    registers = list(isa_data.get("registers", []))
+    interrupt_model = resolve_interrupt_model(isa_data)
+    components = (
+        list(isa_data.get("ics", []))
+        + list(isa_data.get("devices", []))
+        + list(isa_data.get("hosts", []))
+    )
+    if isa_data.get("cartridge"):
+        components.append(isa_data.get("cartridge"))
+    ula_id = None
+    for comp in components:
+        comp_id = str(comp.get("metadata", {}).get("id", ""))
+        state_fields = {
+            str(field.get("name", "")) for field in comp.get("state", [])
+        }
+        if {"tstate_global", "tstate_frame", "frame_index"}.issubset(state_fields):
+            ula_id = comp_id
+            break
+
+    processor_name = str(isa_data.get("metadata", {}).get("name", cpu_name))
+    system_name = str(isa_data.get("system", {}).get("metadata", {}).get("name", "system"))
+    hosts = list(isa_data.get("hosts", []))
+    focus_host_blocks: List[str] = []
+    for host in hosts:
+        comp_id = str(host.get("metadata", {}).get("id", "")).strip()
+        if not comp_id:
+            continue
+        comp_ident = _to_c_ident(comp_id)
+        state_fields = {str(field.get("name", "")) for field in host.get("state", [])}
+        if "window" not in state_fields:
+            continue
+        block_lines = [
+            f"    {{",
+            f"        ComponentState_{comp_ident} *comp = &cpu->comp_{comp_ident};",
+            "        if (comp->window != NULL) {",
+            "            SDL_Window *wnd = (SDL_Window *)comp->window;",
+            "            SDL_ShowWindow(wnd);",
+            "            SDL_RaiseWindow(wnd);",
+            "            (void)SDL_SetWindowInputFocus(wnd);",
+        ]
+        if "has_keyboard_focus" in state_fields:
+            block_lines.append(
+                "            comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == wnd) ? 1u : 0u;"
+            )
+        if "last_focus_state" in state_fields:
+            if "has_keyboard_focus" in state_fields:
+                block_lines.append("            comp->last_focus_state = comp->has_keyboard_focus;")
+            else:
+                block_lines.append(
+                    "            comp->last_focus_state = (SDL_GetKeyboardFocus() == wnd) ? 1u : 0u;"
+                )
+        block_lines.extend(
+            [
+                "            focused = 1;",
+                "        }",
+                "    }",
+            ]
+        )
+        focus_host_blocks.append("\n".join(block_lines))
+
+    needs_sdl_focus = bool(focus_host_blocks)
+    if needs_sdl_focus:
+        focus_impl = "\n".join(
+            [
+                f"int {cpu_name.lower()}_dbg_focus_host_window(CPUState *cpu) {{",
+                "    if (!cpu) return -1;",
+                "#if defined(SDL_MAJOR_VERSION)",
+                "    int focused = 0;",
+                *focus_host_blocks,
+                "    return focused ? 0 : -1;",
+                "#else",
+                "    (void)cpu;",
+                "    return -1;",
+                "#endif",
+                "}",
+            ]
+        )
+    else:
+        focus_impl = "\n".join(
+            [
+                f"int {cpu_name.lower()}_dbg_focus_host_window(CPUState *cpu) {{",
+                "    (void)cpu;",
+                "    return -1;",
+                "}",
+            ]
+        )
+
+    sdl_include_block = ""
+    if needs_sdl_focus:
+        sdl_include_block = """#if defined(__has_include)
+#  if __has_include(<SDL2/SDL.h>)
+#    include <SDL2/SDL.h>
+#  elif __has_include(<SDL.h>)
+#    include <SDL.h>
+#  endif
+#endif
+"""
+    header = _generate_header(
+        guard=guard,
+        cpu_name=cpu_name,
+        cpu_prefix=cpu_prefix,
+        processor_name=processor_name,
+        system_name=system_name,
+    )
+    impl = _generate_impl(
+        isa_data=isa_data,
+        cpu_name=cpu_name,
+        cpu_prefix=cpu_prefix,
+        architecture_const=architecture_const,
+        flags=flags,
+        registers=registers,
+        interrupt_model=interrupt_model,
+        ula_id=ula_id,
+        sdl_include_block=sdl_include_block,
+        focus_impl=focus_impl,
+    )
+    return header, impl
+
+
+def _generate_header(
+    guard: str,
+    cpu_name: str,
+    cpu_prefix: str,
+    processor_name: str,
+    system_name: str,
+) -> str:
+    return f"""/*
+ * Auto-generated Debug ABI
+ * Generated by PASM
+ * DO NOT EDIT - regenerate from processor/system definition
+ */
+
+#ifndef {guard}
+#define {guard}
+
+#include <stddef.h>
+#include <stdint.h>
+#include "{cpu_name}.h"
+
+#define PASM_DBG_PROCESSOR_NAME "{_escape_c_string(processor_name)}"
+#define PASM_DBG_SYSTEM_NAME "{_escape_c_string(system_name)}"
+
+#ifdef __cplusplus
+extern "C" {{
+#endif
+
+typedef enum {{
+    PASM_DBG_RUNNING = 0,
+    PASM_DBG_PAUSED = 1,
+    PASM_DBG_STEPPING = 2,
+    PASM_DBG_EXITED = 3,
+    PASM_DBG_ERROR = 4,
+}} PASMDebuggerMode;
+
+typedef enum {{
+    PASM_ARCH_Z80 = 0,
+    PASM_ARCH_MOS6502 = 1,
+    PASM_ARCH_MOS6510 = 2,
+    PASM_ARCH_MOTOROLA68000 = 3,
+    PASM_ARCH_RICOH2A03 = 4,
+    PASM_ARCH_MC6809 = 5,
+    PASM_ARCH_UNKNOWN = 255,
+}} PASMArchitecture;
+
+typedef struct {{
+    uint32_t disassembly_rows;
+    uint32_t register_rows;
+    uint32_t flag_rows;
+    uint32_t operand_rows;
+    uint32_t stack_rows;
+    uint32_t memory_rows;
+    uint32_t call_stack_rows;
+    uint32_t breakpoint_rows;
+    uint32_t watchpoint_rows;
+    uint32_t thread_rows;
+    uint32_t history_rows;
+}} PASMDebugCounts;
+
+typedef struct {{
+    char target_name[64];
+    char status_line[256];
+    uint8_t mode;
+    uint8_t architecture;
+    uint64_t system_clock_hz;
+    uint32_t selected_thread_id;
+    uint64_t pc;
+    uint64_t sp;
+    uint64_t total_cycles;
+    uint64_t last_step_cycles;
+    uint64_t tstate_global;
+    uint64_t tstate_frame;
+    uint64_t frame_index;
+    uint8_t interrupt_mode;
+    uint8_t iff1;
+    uint8_t iff2;
+}} PASMDebugSnapshotCore;
+
+typedef struct {{
+    uint64_t address;
+    char bytes[32];
+    char instruction[96];
+    char symbol[64];
+    uint8_t has_symbol;
+    uint8_t is_current_ip;
+    uint8_t has_breakpoint;
+    uint64_t branch_target;
+    uint8_t has_branch_target;
+    uint8_t changed_since_last_step;
+}} PASMDebugDisasmRow;
+
+typedef struct {{
+    char name[32];
+    char hex_value[32];
+    char dec_value[32];
+    uint8_t has_dec;
+    uint8_t changed;
+}} PASMDebugRegisterRow;
+
+typedef struct {{
+    char name[16];
+    uint8_t value;
+    uint8_t changed;
+}} PASMDebugFlagRow;
+
+typedef struct {{
+    char expression[96];
+    char resolved[96];
+    uint8_t changed;
+}} PASMDebugOperandRow;
+
+typedef struct {{
+    uint64_t address;
+    uint64_t value;
+    char annotation[64];
+    uint8_t has_annotation;
+    uint8_t is_sp;
+    uint8_t changed;
+}} PASMDebugStackRow;
+
+typedef struct {{
+    uint64_t address;
+    char hex_bytes[64];
+    char ascii[17];
+    uint8_t changed;
+}} PASMDebugMemoryRow;
+
+typedef struct {{
+    uint32_t index;
+    char function[64];
+    uint64_t address;
+    char source[96];
+    uint8_t has_source;
+    uint8_t selected;
+}} PASMDebugCallFrameRow;
+
+typedef struct {{
+    uint64_t address;
+    uint8_t enabled;
+    char condition[96];
+    uint8_t has_condition;
+    uint64_t hit_count;
+}} PASMDebugBreakpointRow;
+
+typedef struct {{
+    char expression[96];
+    char access[16];
+    uint8_t enabled;
+}} PASMDebugWatchpointRow;
+
+typedef struct {{
+    uint32_t thread_id;
+    char state[16];
+    uint64_t ip;
+    uint8_t selected;
+}} PASMDebugThreadRow;
+
+typedef struct {{
+    uint64_t address;
+    char instruction[96];
+    char effect[128];
+}} PASMDebugHistoryRow;
+
+int {cpu_prefix}_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
+int {cpu_prefix}_dbg_snapshot_fill(
+    CPUState *cpu,
+    PASMDebugSnapshotCore *out_core,
+    PASMDebugDisasmRow *disasm_rows, size_t disasm_cap,
+    PASMDebugRegisterRow *reg_rows, size_t reg_cap,
+    PASMDebugFlagRow *flag_rows, size_t flag_cap,
+    PASMDebugOperandRow *operand_rows, size_t operand_cap,
+    PASMDebugStackRow *stack_rows, size_t stack_cap,
+    PASMDebugMemoryRow *mem_rows, size_t mem_cap,
+    PASMDebugCallFrameRow *call_rows, size_t call_cap,
+    PASMDebugBreakpointRow *bp_rows, size_t bp_cap,
+    PASMDebugWatchpointRow *wp_rows, size_t wp_cap,
+    PASMDebugThreadRow *thread_rows, size_t thread_cap,
+    PASMDebugHistoryRow *hist_rows, size_t hist_cap
+);
+int {cpu_prefix}_dbg_run(CPUState *cpu);
+int {cpu_prefix}_dbg_run_slice(CPUState *cpu, uint32_t max_steps, uint8_t *out_mode);
+int {cpu_prefix}_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode);
+int {cpu_prefix}_dbg_pause(CPUState *cpu);
+int {cpu_prefix}_dbg_step_into(CPUState *cpu);
+int {cpu_prefix}_dbg_step_over(CPUState *cpu);
+int {cpu_prefix}_dbg_step_out(CPUState *cpu);
+int {cpu_prefix}_dbg_toggle_breakpoint(CPUState *cpu, uint64_t address);
+int {cpu_prefix}_dbg_select_thread(CPUState *cpu, uint32_t thread_id);
+int {cpu_prefix}_dbg_jump_frame(CPUState *cpu, size_t frame_index);
+int {cpu_prefix}_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
+int {cpu_prefix}_dbg_clear_memory(CPUState *cpu);
+int {cpu_prefix}_dbg_clear_history(CPUState *cpu);
+int {cpu_prefix}_dbg_set_pc(CPUState *cpu, uint64_t address);
+int {cpu_prefix}_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
+int {cpu_prefix}_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
+int {cpu_prefix}_dbg_focus_host_window(CPUState *cpu);
+
+/* Generic bridge symbols for architecture-agnostic debugger frontends. */
+CPUState *pasm_dbg_create(size_t memory_size);
+void pasm_dbg_destroy(CPUState *cpu);
+void pasm_dbg_reset(CPUState *cpu);
+int pasm_dbg_load_rom(CPUState *cpu, const char *filename, uint16_t address);
+int pasm_dbg_load_system_roms(CPUState *cpu, const char *system_base_dir);
+int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path);
+int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
+int pasm_dbg_snapshot_fill(
+    CPUState *cpu,
+    PASMDebugSnapshotCore *out_core,
+    PASMDebugDisasmRow *disasm_rows, size_t disasm_cap,
+    PASMDebugRegisterRow *reg_rows, size_t reg_cap,
+    PASMDebugFlagRow *flag_rows, size_t flag_cap,
+    PASMDebugOperandRow *operand_rows, size_t operand_cap,
+    PASMDebugStackRow *stack_rows, size_t stack_cap,
+    PASMDebugMemoryRow *mem_rows, size_t mem_cap,
+    PASMDebugCallFrameRow *call_rows, size_t call_cap,
+    PASMDebugBreakpointRow *bp_rows, size_t bp_cap,
+    PASMDebugWatchpointRow *wp_rows, size_t wp_cap,
+    PASMDebugThreadRow *thread_rows, size_t thread_cap,
+    PASMDebugHistoryRow *hist_rows, size_t hist_cap
+);
+int pasm_dbg_run(CPUState *cpu);
+int pasm_dbg_run_slice(CPUState *cpu, uint32_t max_steps, uint8_t *out_mode);
+int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode);
+int pasm_dbg_pause(CPUState *cpu);
+int pasm_dbg_step_into(CPUState *cpu);
+int pasm_dbg_step_over(CPUState *cpu);
+int pasm_dbg_step_out(CPUState *cpu);
+int pasm_dbg_toggle_breakpoint(CPUState *cpu, uint64_t address);
+int pasm_dbg_select_thread(CPUState *cpu, uint32_t thread_id);
+int pasm_dbg_jump_frame(CPUState *cpu, size_t frame_index);
+int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
+int pasm_dbg_clear_memory(CPUState *cpu);
+int pasm_dbg_clear_history(CPUState *cpu);
+int pasm_dbg_set_pc(CPUState *cpu, uint64_t address);
+int pasm_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
+int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
+int pasm_dbg_focus_host_window(CPUState *cpu);
+const char *pasm_dbg_processor_name(void);
+const char *pasm_dbg_system_name(void);
+uint8_t pasm_dbg_architecture(void);
+
+#ifdef __cplusplus
+}}
+#endif
+
+#endif /* {guard} */
+"""
+
+
+def _reg_value_expr(reg: Dict[str, Any]) -> str:
+    reg_name = str(reg.get("name", "")).upper().replace("'", "_PRIME")
+    reg_type = str(reg.get("type", "general"))
+    if reg_type == "program_counter":
+        return "cpu->pc"
+    if reg_type == "stack_pointer":
+        return "cpu->sp"
+    if reg_type == "index":
+        field = _to_c_ident(str(reg.get("name", "")))
+        return f"cpu->{field}"
+    if reg_type == "special":
+        # Special registers are part of the canonical register bank contract.
+        return f"cpu->registers[REG_{reg_name}]"
+    return f"cpu->registers[REG_{reg_name}]"
+
+
+def _generate_impl(
+    isa_data: Dict[str, Any],
+    cpu_name: str,
+    cpu_prefix: str,
+    architecture_const: str,
+    flags: List[Dict[str, Any]],
+    registers: List[Dict[str, Any]],
+    interrupt_model: str,
+    ula_id: str | None,
+    sdl_include_block: str,
+    focus_impl: str,
+) -> str:
+    explicit_prefixes = sorted(
+        {
+            int(inst.get("encoding", {}).get("prefix"))
+            for inst in isa_data.get("instructions", [])
+            if "prefix" in inst.get("encoding", {}) and int(inst.get("encoding", {}).get("prefix")) != 0
+        }
+    )
+    if explicit_prefixes:
+        explicit_prefix_block = "\n".join(
+            [
+                "    uint8_t b0 = (uint8_t)(raw & 0xFFu);",
+                "    uint8_t prefix = 0u;",
+                "    uint32_t decode_raw = raw;",
+                f"    if ({' || '.join(f'b0 == 0x{value:02X}u' for value in explicit_prefixes)}) {{",
+                "        prefix = b0;",
+                "        decode_raw = raw >> 8;",
+                "    }",
+            ]
+        )
+    else:
+        explicit_prefix_block = "\n".join(
+            [
+                "    uint8_t prefix = 0u;",
+                "    uint32_t decode_raw = raw;",
+            ]
+        )
+
+    reg_fill_lines: List[str] = []
+    for idx, reg in enumerate(registers):
+        reg_name = str(reg.get("name", "R"))
+        reg_label = str(reg.get("display_name") or reg_name)
+        reg_bits = int(reg.get("bits", 8))
+        digits = max(2, (reg_bits + 3) // 4)
+        value_expr = _reg_value_expr(reg)
+        reg_fill_lines.append(
+            f"""        if (row < reg_cap) {{
+            PASMDebugRegisterRow *r = &reg_rows[row];
+            dbg_copy(r->name, sizeof(r->name), "{_escape_c_string(reg_label)}");
+            {{
+                uint64_t val = (uint64_t)({value_expr});
+                snprintf(r->hex_value, sizeof(r->hex_value), "0x%0{digits}llX", (unsigned long long)val);
+                snprintf(r->dec_value, sizeof(r->dec_value), "%llu", (unsigned long long)val);
+                r->has_dec = 1u;
+                r->changed = 0u;
+            }}
+        }}
+        row++;"""
+        )
+
+    flag_fill_lines: List[str] = []
+    for flag in flags:
+        name = str(flag.get("name", "")).upper()
+        flag_fill_lines.append(
+            f"""        if (row < flag_cap) {{
+            PASMDebugFlagRow *f = &flag_rows[row];
+            dbg_copy(f->name, sizeof(f->name), "{_escape_c_string(name)}");
+            f->value = cpu->flags.{name} ? 1u : 0u;
+            f->changed = 0u;
+        }}
+        row++;"""
+        )
+
+    tstate_assign = [
+        "    out_core->tstate_global = cpu->total_cycles;",
+        "    out_core->tstate_frame = 0u;",
+        "    out_core->frame_index = 0u;",
+    ]
+    if ula_id:
+        ula_ident = _to_c_ident(ula_id)
+        tstate_assign = [
+            f"    out_core->tstate_global = cpu->comp_{ula_ident}.tstate_global;",
+            f"    out_core->tstate_frame = cpu->comp_{ula_ident}.tstate_frame;",
+            f"    out_core->frame_index = cpu->comp_{ula_ident}.frame_index;",
+        ]
+
+    if interrupt_model == "z80":
+        interrupt_assign = [
+            "    out_core->interrupt_mode = cpu->interrupt_mode;",
+            "    out_core->iff1 = cpu->interrupts_enabled ? 1u : 0u;",
+            "    out_core->iff2 = cpu->interrupt_pending ? 1u : 0u;",
+        ]
+    elif interrupt_model != "none":
+        interrupt_assign = [
+            "    out_core->interrupt_mode = 0u;",
+            "    out_core->iff1 = cpu->interrupts_enabled ? 1u : 0u;",
+            "    out_core->iff2 = cpu->interrupt_pending ? 1u : 0u;",
+        ]
+    else:
+        interrupt_assign = [
+            "    out_core->interrupt_mode = 0u;",
+            "    out_core->iff1 = 0u;",
+            "    out_core->iff2 = 0u;",
+        ]
+
+    target_name = _escape_c_string(str(isa_data.get("metadata", {}).get("name", cpu_name)))
+    system_name = _escape_c_string(
+        str(isa_data.get("system", {}).get("metadata", {}).get("name", "system"))
+    )
+    flag_count = len(flags)
+
+    return f"""/*
+ * Auto-generated Debug ABI
+ * Generated by PASM
+ * DO NOT EDIT - regenerate from processor/system definition
+ */
+
+#include <ctype.h>
+#include <stdio.h>
+#include <string.h>
+#include "{cpu_name}_debug_abi.h"
+{sdl_include_block}
+
+static void dbg_copy(char *dst, size_t cap, const char *src) {{
+    if (!dst || cap == 0) return;
+    if (!src) {{
+        dst[0] = '\\0';
+        return;
+    }}
+    strncpy(dst, src, cap - 1);
+    dst[cap - 1] = '\\0';
+}}
+
+static uint8_t dbg_mode(CPUState *cpu) {{
+    if (!cpu) return PASM_DBG_ERROR;
+    if (cpu->error_code == CPU_ERROR_INVALID_OPCODE) return PASM_DBG_ERROR;
+    if (cpu->running) return PASM_DBG_RUNNING;
+    if (cpu->error_code == CPU_ERROR_HALT) return PASM_DBG_PAUSED;
+    if (cpu->halted) return PASM_DBG_PAUSED;
+    return PASM_DBG_PAUSED;
+}}
+
+static bool dbg_has_breakpoint(CPUState *cpu, uint64_t address) {{
+    for (int i = 0; i < cpu->num_break_points; i++) {{
+        if ((uint64_t)cpu->break_points[i] == address) return true;
+    }}
+    return false;
+}}
+
+static bool dbg_suppress_breakpoint_at_pc_once(CPUState *cpu, uint16_t *out_addr) {{
+    if (!cpu || !out_addr) return false;
+    for (int i = 0; i < cpu->num_break_points; i++) {{
+        if (cpu->break_points[i] == cpu->pc) {{
+            *out_addr = cpu->break_points[i];
+            {cpu_prefix}_clear_breakpoint(cpu, *out_addr);
+            return true;
+        }}
+    }}
+    return false;
+}}
+
+static void dbg_restore_suppressed_breakpoint(CPUState *cpu, uint16_t addr) {{
+    if (!cpu) return;
+    if (!dbg_has_breakpoint(cpu, (uint64_t)addr)) {{
+        {cpu_prefix}_set_breakpoint(cpu, addr);
+    }}
+}}
+
+static uint32_t dbg_read_u32(CPUState *cpu, uint16_t addr) {{
+    uint32_t raw = 0u;
+    for (size_t i = 0; i < 4u; i++) {{
+        uint16_t fetch_addr = (uint16_t)(addr + (uint16_t)i);
+        uint8_t v = {cpu_prefix}_read_byte(cpu, fetch_addr);
+        raw |= ((uint32_t)v) << (8u * (uint32_t)i);
+    }}
+    return raw;
+}}
+
+static uint8_t dbg_instruction_len(CPUState *cpu, uint16_t addr) {{
+    uint32_t raw = dbg_read_u32(cpu, addr);
+{explicit_prefix_block}
+    DecodedInstruction inst = {cpu_prefix}_decode(decode_raw, prefix, addr);
+    if (!inst.valid || inst.length == 0u) {{
+        return 1u;
+    }}
+    return inst.length;
+}}
+
+static void dbg_fill_disasm_row(CPUState *cpu, PASMDebugDisasmRow *row, uint16_t addr) {{
+    uint32_t raw;
+    uint8_t len;
+    size_t pos = 0u;
+    if (!row) return;
+    memset(row, 0, sizeof(*row));
+    row->address = (uint64_t)addr;
+    raw = dbg_read_u32(cpu, addr);
+    len = dbg_instruction_len(cpu, addr);
+    if (len == 0u) len = 1u;
+    if (len > 4u) len = 4u;
+    row->bytes[0] = '\\0';
+    for (uint8_t i = 0u; i < len && pos < sizeof(row->bytes); i++) {{
+        uint8_t byte_val = (uint8_t)((raw >> (8u * (uint32_t)i)) & 0xFFu);
+        int n = snprintf(
+            &row->bytes[pos],
+            sizeof(row->bytes) - pos,
+            (i + 1u < len) ? "%02X " : "%02X",
+            byte_val
+        );
+        if (n <= 0) break;
+        if ((size_t)n >= (sizeof(row->bytes) - pos)) {{
+            pos = sizeof(row->bytes) - 1u;
+            break;
+        }}
+        pos += (size_t)n;
+    }}
+    dbg_copy(row->instruction, sizeof(row->instruction), {cpu_prefix}_disassemble_instruction(addr, raw));
+    row->is_current_ip = (addr == cpu->pc) ? 1u : 0u;
+    row->has_breakpoint = dbg_has_breakpoint(cpu, (uint64_t)addr) ? 1u : 0u;
+    row->has_branch_target = 0u;
+    row->changed_since_last_step = 0u;
+}}
+
+#define DBG_HISTORY_CAP 100u
+#define DBG_HISTORY_SLOTS 8u
+
+typedef struct {{
+    uint8_t used;
+    CPUState *cpu;
+    uint32_t head;
+    uint32_t count;
+    struct {{
+        uint64_t address;
+        uint32_t raw;
+    }} rows[DBG_HISTORY_CAP];
+}} PASMDebugHistoryStore;
+
+static PASMDebugHistoryStore g_dbg_history_slots[DBG_HISTORY_SLOTS];
+
+static PASMDebugHistoryStore *dbg_history_get_slot(CPUState *cpu, bool create) {{
+    uint32_t i;
+    PASMDebugHistoryStore *first_free = NULL;
+    for (i = 0u; i < DBG_HISTORY_SLOTS; i++) {{
+        PASMDebugHistoryStore *slot = &g_dbg_history_slots[i];
+        if (slot->used != 0u && slot->cpu == cpu) {{
+            return slot;
+        }}
+        if (first_free == NULL && slot->used == 0u) {{
+            first_free = slot;
+        }}
+    }}
+    if (!create) return NULL;
+    if (first_free == NULL) {{
+        first_free = &g_dbg_history_slots[0];
+    }}
+    memset(first_free, 0, sizeof(*first_free));
+    first_free->used = 1u;
+    first_free->cpu = cpu;
+    return first_free;
+}}
+
+static void dbg_history_clear(CPUState *cpu) {{
+    PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, false);
+    if (!slot) return;
+    slot->head = 0u;
+    slot->count = 0u;
+}}
+
+static void dbg_history_record(CPUState *cpu, uint16_t addr) {{
+    PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, true);
+    uint32_t raw;
+    if (!slot) return;
+    if (cpu->halted) return;
+    raw = dbg_read_u32(cpu, addr);
+    slot->rows[slot->head].address = (uint64_t)addr;
+    slot->rows[slot->head].raw = raw;
+    slot->head = (slot->head + 1u) % DBG_HISTORY_CAP;
+    if (slot->count < DBG_HISTORY_CAP) {{
+        slot->count += 1u;
+    }}
+}}
+
+static void dbg_fill_history_row(CPUState *cpu, PASMDebugHistoryRow *row, uint64_t address, uint32_t raw) {{
+    uint8_t len;
+    size_t pos = 0u;
+    if (!row) return;
+    memset(row, 0, sizeof(*row));
+    row->address = address;
+    len = dbg_instruction_len(cpu, (uint16_t)(address & 0xFFFFu));
+    if (len == 0u) len = 1u;
+    if (len > 4u) len = 4u;
+    row->effect[0] = '\\0';
+    for (uint8_t i = 0u; i < len && pos < sizeof(row->effect); i++) {{
+        uint8_t byte_val = (uint8_t)((raw >> (8u * (uint32_t)i)) & 0xFFu);
+        int n = snprintf(
+            &row->effect[pos],
+            sizeof(row->effect) - pos,
+            (i + 1u < len) ? "%02X " : "%02X",
+            byte_val
+        );
+        if (n <= 0) break;
+        if ((size_t)n >= (sizeof(row->effect) - pos)) {{
+            pos = sizeof(row->effect) - 1u;
+            break;
+        }}
+        pos += (size_t)n;
+    }}
+    dbg_copy(
+        row->instruction,
+        sizeof(row->instruction),
+        {cpu_prefix}_disassemble_instruction((uint16_t)(address & 0xFFFFu), raw)
+    );
+}}
+
+int {cpu_prefix}_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {{
+    PASMDebugHistoryStore *hist;
+    if (!cpu || !out_counts) return -1;
+    hist = dbg_history_get_slot(cpu, false);
+    memset(out_counts, 0, sizeof(*out_counts));
+    out_counts->disassembly_rows = 256u;
+    out_counts->register_rows = {len(registers)}u;
+    out_counts->flag_rows = {flag_count}u;
+    out_counts->operand_rows = 0u;
+    out_counts->stack_rows = 32u;
+    out_counts->memory_rows = 16u;
+    out_counts->call_stack_rows = 0u;
+    out_counts->breakpoint_rows = (cpu->num_break_points > 0) ? (uint32_t)cpu->num_break_points : 0u;
+    out_counts->watchpoint_rows = 0u;
+    out_counts->thread_rows = 1u;
+    out_counts->history_rows = hist ? hist->count : 0u;
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_snapshot_fill(
+    CPUState *cpu,
+    PASMDebugSnapshotCore *out_core,
+    PASMDebugDisasmRow *disasm_rows, size_t disasm_cap,
+    PASMDebugRegisterRow *reg_rows, size_t reg_cap,
+    PASMDebugFlagRow *flag_rows, size_t flag_cap,
+    PASMDebugOperandRow *operand_rows, size_t operand_cap,
+    PASMDebugStackRow *stack_rows, size_t stack_cap,
+    PASMDebugMemoryRow *mem_rows, size_t mem_cap,
+    PASMDebugCallFrameRow *call_rows, size_t call_cap,
+    PASMDebugBreakpointRow *bp_rows, size_t bp_cap,
+    PASMDebugWatchpointRow *wp_rows, size_t wp_cap,
+    PASMDebugThreadRow *thread_rows, size_t thread_cap,
+    PASMDebugHistoryRow *hist_rows, size_t hist_cap
+) {{
+    size_t i;
+    (void)operand_rows;
+    (void)operand_cap;
+    (void)call_rows;
+    (void)call_cap;
+    (void)wp_rows;
+    (void)wp_cap;
+    if (!cpu || !out_core) return -1;
+
+    memset(out_core, 0, sizeof(*out_core));
+    dbg_copy(out_core->target_name, sizeof(out_core->target_name), "{target_name}");
+    out_core->mode = dbg_mode(cpu);
+    out_core->architecture = {architecture_const};
+    out_core->system_clock_hz = (uint64_t)CPU_SYSTEM_CLOCK_HZ;
+    out_core->selected_thread_id = 0u;
+    out_core->pc = (uint64_t)cpu->pc;
+    out_core->sp = (uint64_t)cpu->sp;
+    out_core->total_cycles = cpu->total_cycles;
+    out_core->last_step_cycles = 0u;
+{chr(10).join(tstate_assign)}
+{chr(10).join(interrupt_assign)}
+
+    {{
+        const char *mode_label = "Stepping";
+        switch (out_core->mode) {{
+            case PASM_DBG_RUNNING:
+                mode_label = "Running";
+                break;
+            case PASM_DBG_PAUSED:
+                mode_label = "Paused";
+                break;
+            case PASM_DBG_EXITED:
+                mode_label = "Exited";
+                break;
+            case PASM_DBG_ERROR:
+                mode_label = "Error";
+                break;
+            default:
+                mode_label = "Stepping";
+                break;
+        }}
+        if (cpu->loaded_rom_debug[0] != '\\0') {{
+            snprintf(
+                out_core->status_line,
+                sizeof(out_core->status_line),
+                "%s | ROM %s",
+                mode_label,
+                cpu->loaded_rom_debug
+            );
+        }} else {{
+            dbg_copy(out_core->status_line, sizeof(out_core->status_line), mode_label);
+        }}
+    }}
+
+    /* Disassembly window: instruction-aware stream around PC. */
+    if (disasm_rows && disasm_cap > 0) {{
+        size_t max_rows = (disasm_cap < 256u) ? disasm_cap : 256u;
+        uint16_t before_ring[128];
+        size_t before_count = 0u;
+        size_t before_pos = 0u;
+        size_t guard = 0u;
+        size_t row = 0u;
+        uint16_t cursor = (cpu->pc >= 0x0200u) ? (uint16_t)(cpu->pc - 0x0200u) : 0u;
+        uint16_t addr;
+
+        while (cursor < cpu->pc && guard < 2048u) {{
+            uint8_t len;
+            uint16_t next;
+            before_ring[before_pos] = cursor;
+            before_pos = (before_pos + 1u) % 32u;
+            if (before_count < 32u) before_count++;
+            len = dbg_instruction_len(cpu, cursor);
+            next = (uint16_t)(cursor + (uint16_t)len);
+            if (next <= cursor) break;
+            cursor = next;
+            guard++;
+        }}
+
+        if (before_count == 32u) {{
+            addr = before_ring[before_pos];
+        }} else if (before_count > 0u) {{
+            addr = before_ring[0];
+        }} else {{
+            addr = cpu->pc;
+        }}
+
+        while (row < max_rows) {{
+            uint8_t len;
+            uint16_t next;
+            dbg_fill_disasm_row(cpu, &disasm_rows[row], addr);
+            row++;
+            len = dbg_instruction_len(cpu, addr);
+            next = (uint16_t)(addr + (uint16_t)len);
+            if (next <= addr) break;
+            if (addr < cpu->pc && next > cpu->pc) {{
+                addr = cpu->pc;
+            }} else {{
+                addr = next;
+            }}
+        }}
+
+        for (; row < disasm_cap; row++) {{
+            memset(&disasm_rows[row], 0, sizeof(disasm_rows[row]));
+        }}
+    }}
+
+    /* Registers. */
+    if (reg_rows && reg_cap > 0) {{
+        size_t row = 0u;
+{chr(10).join(reg_fill_lines)}
+        for (; row < reg_cap; row++) {{
+            memset(&reg_rows[row], 0, sizeof(reg_rows[row]));
+        }}
+    }}
+
+    /* Flags. */
+    if (flag_rows && flag_cap > 0) {{
+        size_t row = 0u;
+{chr(10).join(flag_fill_lines)}
+        for (; row < flag_cap; row++) {{
+            memset(&flag_rows[row], 0, sizeof(flag_rows[row]));
+        }}
+    }}
+
+    /* Stack rows. */
+    if (stack_rows && stack_cap > 0) {{
+        for (i = 0; i < stack_cap && i < 32u; i++) {{
+            PASMDebugStackRow *row = &stack_rows[i];
+            memset(row, 0, sizeof(*row));
+            row->address = (uint64_t)((uint16_t)(cpu->sp + (uint16_t)(i * 2u)));
+            row->value = (uint64_t){cpu_prefix}_read_word(cpu, (uint16_t)row->address);
+            row->is_sp = (i == 0u) ? 1u : 0u;
+            row->changed = 0u;
+        }}
+    }}
+
+    /* Memory rows near PC. */
+    if (mem_rows && mem_cap > 0) {{
+        uint64_t base = ((uint64_t)cpu->pc) & ~0x0FULL;
+        for (i = 0; i < mem_cap && i < 16u; i++) {{
+            PASMDebugMemoryRow *row = &mem_rows[i];
+            size_t b;
+            size_t pos = 0u;
+            memset(row, 0, sizeof(*row));
+            row->address = base + (i * 16u);
+            for (b = 0; b < 16u; b++) {{
+                uint16_t mem_addr = (uint16_t)((row->address + b) & 0xFFFFu);
+                uint8_t v = {cpu_prefix}_read_byte(cpu, mem_addr);
+                if (pos + 4u < sizeof(row->hex_bytes)) {{
+                    int n = snprintf(&row->hex_bytes[pos], sizeof(row->hex_bytes) - pos, "%02X ", v);
+                    if (n > 0) pos += (size_t)n;
+                }}
+                row->ascii[b] = isprint(v) ? (char)v : '.';
+            }}
+            row->ascii[16] = '\\0';
+            row->changed = 0u;
+        }}
+    }}
+
+    /* Breakpoints. */
+    if (bp_rows && bp_cap > 0) {{
+        size_t n = (size_t)((cpu->num_break_points < 0) ? 0 : cpu->num_break_points);
+        for (i = 0; i < bp_cap; i++) {{
+            PASMDebugBreakpointRow *row = &bp_rows[i];
+            memset(row, 0, sizeof(*row));
+            if (i < n) {{
+                row->address = (uint64_t)cpu->break_points[i];
+                row->enabled = 1u;
+                row->has_condition = 0u;
+                row->hit_count = 0u;
+            }}
+        }}
+    }}
+
+    /* Single-thread provision for phase 1. */
+    if (thread_rows && thread_cap > 0) {{
+        PASMDebugThreadRow *row = &thread_rows[0];
+        memset(row, 0, sizeof(*row));
+        row->thread_id = 0u;
+        row->ip = (uint64_t)cpu->pc;
+        row->selected = 1u;
+        if (cpu->running) {{
+            dbg_copy(row->state, sizeof(row->state), "running");
+        }} else if (cpu->halted) {{
+            dbg_copy(row->state, sizeof(row->state), "halted");
+        }} else {{
+            dbg_copy(row->state, sizeof(row->state), "paused");
+        }}
+        for (i = 1; i < thread_cap; i++) {{
+            memset(&thread_rows[i], 0, sizeof(thread_rows[i]));
+        }}
+    }}
+
+    /* Execution history (oldest to newest). */
+    if (hist_rows && hist_cap > 0) {{
+        PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, false);
+        size_t n = 0u;
+        size_t j = 0u;
+        if (slot && slot->count > 0u) {{
+            uint32_t oldest =
+                (slot->head + DBG_HISTORY_CAP - slot->count) % DBG_HISTORY_CAP;
+            n = (slot->count < (uint32_t)hist_cap) ? (size_t)slot->count : hist_cap;
+            if ((size_t)slot->count > n) {{
+                oldest = (oldest + (uint32_t)((size_t)slot->count - n)) % DBG_HISTORY_CAP;
+            }}
+            for (j = 0; j < n; j++) {{
+                uint32_t idx = (oldest + (uint32_t)j) % DBG_HISTORY_CAP;
+                dbg_fill_history_row(
+                    cpu,
+                    &hist_rows[j],
+                    slot->rows[idx].address,
+                    slot->rows[idx].raw
+                );
+            }}
+        }}
+        for (; j < hist_cap; j++) {{
+            memset(&hist_rows[j], 0, sizeof(hist_rows[j]));
+        }}
+    }}
+
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_run(CPUState *cpu) {{
+    if (!cpu) return -1;
+    cpu->running = true;
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_run_slice(CPUState *cpu, uint32_t max_steps, uint8_t *out_mode) {{
+    uint32_t i;
+    int rc = 0;
+    uint16_t suppressed_bp = 0u;
+    bool had_suppressed_bp = false;
+    if (!cpu || !out_mode) return -1;
+    if (max_steps == 0u) max_steps = 1u;
+    had_suppressed_bp = dbg_suppress_breakpoint_at_pc_once(cpu, &suppressed_bp);
+    for (i = 0u; i < max_steps; i++) {{
+        if (!cpu->running) break;
+        dbg_history_record(cpu, cpu->pc);
+        rc = {cpu_prefix}_step(cpu);
+        if (had_suppressed_bp) {{
+            dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+            had_suppressed_bp = false;
+        }}
+        if (rc != 0) {{
+            *out_mode = dbg_mode(cpu);
+            return rc;
+        }}
+    }}
+    if (had_suppressed_bp) {{
+        dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+    }}
+    *out_mode = dbg_mode(cpu);
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode) {{
+    int rc = 0;
+    uint16_t suppressed_bp = 0u;
+    bool had_suppressed_bp = false;
+    uint64_t start_cycles;
+    if (!cpu || !out_mode) return -1;
+    if (max_cycles == 0u) max_cycles = 1u;
+    start_cycles = cpu->total_cycles;
+    had_suppressed_bp = dbg_suppress_breakpoint_at_pc_once(cpu, &suppressed_bp);
+    while (cpu->running) {{
+        uint64_t before_step_cycles = cpu->total_cycles;
+        if ((cpu->total_cycles - start_cycles) >= max_cycles) break;
+        dbg_history_record(cpu, cpu->pc);
+        rc = {cpu_prefix}_step(cpu);
+        if (had_suppressed_bp) {{
+            dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+            had_suppressed_bp = false;
+        }}
+        if (rc != 0) {{
+            *out_mode = dbg_mode(cpu);
+            return rc;
+        }}
+        if (cpu->total_cycles == before_step_cycles) {{
+            break;
+        }}
+    }}
+    if (had_suppressed_bp) {{
+        dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+    }}
+    *out_mode = dbg_mode(cpu);
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_pause(CPUState *cpu) {{
+    if (!cpu) return -1;
+    cpu->running = false;
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_step_into(CPUState *cpu) {{
+    if (!cpu) return -1;
+    bool was_running = cpu->running;
+    uint8_t mode = PASM_DBG_ERROR;
+    int rc;
+    cpu->running = true;
+    rc = {cpu_prefix}_dbg_run_slice(cpu, 1u, &mode);
+    if (!was_running) {{
+        cpu->running = false;
+    }}
+    return rc;
+}}
+
+int {cpu_prefix}_dbg_step_over(CPUState *cpu) {{
+    if (!cpu) return -1;
+    bool was_running = cpu->running;
+    int rc = 0;
+    uint16_t suppressed_bp = 0u;
+    bool had_suppressed_bp = dbg_suppress_breakpoint_at_pc_once(cpu, &suppressed_bp);
+    uint16_t start_pc = cpu->pc;
+    uint32_t raw = dbg_read_u32(cpu, start_pc);
+    uint8_t len = dbg_instruction_len(cpu, start_pc);
+    uint16_t target_pc = (uint16_t)(start_pc + (uint16_t)len);
+    bool call_like = false;
+    {{
+        uint8_t b0 = (uint8_t)(raw & 0xFFu);
+        uint8_t prefix = 0u;
+        uint32_t decode_raw = raw;
+        if (b0 == 0xDDu || b0 == 0xFDu) {{
+            prefix = b0;
+            decode_raw = raw >> 8;
+        }}
+        DecodedInstruction inst = {cpu_prefix}_decode(decode_raw, prefix, start_pc);
+        if (inst.valid && prefix == 0u) {{
+            uint8_t op = inst.opcode;
+            if (op == 0xCDu) call_like = true; /* CALL nn */
+            if ((op & 0xC7u) == 0xC4u) call_like = true; /* CALL cc,nn */
+            if ((op & 0xC7u) == 0xC7u) call_like = true; /* RST p */
+        }}
+    }}
+
+    cpu->running = true;
+    if (!call_like) {{
+        dbg_history_record(cpu, cpu->pc);
+        rc = {cpu_prefix}_step(cpu);
+        if (had_suppressed_bp) {{
+            dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+            had_suppressed_bp = false;
+        }}
+    }} else {{
+        uint64_t start_cycles = cpu->total_cycles;
+        while (cpu->running) {{
+            dbg_history_record(cpu, cpu->pc);
+            rc = {cpu_prefix}_step(cpu);
+            if (had_suppressed_bp) {{
+                dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+                had_suppressed_bp = false;
+            }}
+            if (rc != 0) break;
+            if (cpu->pc == target_pc) break;
+            if (cpu->halted) break;
+            if (cpu->error_code != CPU_ERROR_NONE) break;
+            if ((cpu->total_cycles - start_cycles) > 10000000u) break;
+        }}
+    }}
+    if (had_suppressed_bp) {{
+        dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+    }}
+    if (!was_running) cpu->running = false;
+    return rc;
+}}
+
+int {cpu_prefix}_dbg_step_out(CPUState *cpu) {{
+    if (!cpu) return -1;
+    bool was_running = cpu->running;
+    int rc = 0;
+    uint16_t suppressed_bp = 0u;
+    bool had_suppressed_bp = dbg_suppress_breakpoint_at_pc_once(cpu, &suppressed_bp);
+    uint16_t start_sp = cpu->sp;
+    uint64_t start_cycles = cpu->total_cycles;
+    cpu->running = true;
+    while (cpu->running) {{
+        dbg_history_record(cpu, cpu->pc);
+        rc = {cpu_prefix}_step(cpu);
+        if (had_suppressed_bp) {{
+            dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+            had_suppressed_bp = false;
+        }}
+        if (rc != 0) break;
+        if (cpu->sp > start_sp) break;
+        if (cpu->halted) break;
+        if (cpu->error_code != CPU_ERROR_NONE) break;
+        if ((cpu->total_cycles - start_cycles) > 20000000u) break;
+    }}
+    if (had_suppressed_bp) {{
+        dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+    }}
+    if (!was_running) cpu->running = false;
+    return rc;
+}}
+
+int {cpu_prefix}_dbg_toggle_breakpoint(CPUState *cpu, uint64_t address) {{
+    int i;
+    uint16_t addr16;
+    if (!cpu) return -1;
+    addr16 = (uint16_t)(address & 0xFFFFu);
+    for (i = 0; i < cpu->num_break_points; i++) {{
+        if (cpu->break_points[i] == addr16) {{
+            {cpu_prefix}_clear_breakpoint(cpu, addr16);
+            return 0;
+        }}
+    }}
+    {cpu_prefix}_set_breakpoint(cpu, addr16);
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_select_thread(CPUState *cpu, uint32_t thread_id) {{
+    (void)cpu;
+    return (thread_id == 0u) ? 0 : -1;
+}}
+
+int {cpu_prefix}_dbg_jump_frame(CPUState *cpu, size_t frame_index) {{
+    (void)cpu;
+    return (frame_index == 0u) ? 0 : -1;
+}}
+
+int {cpu_prefix}_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size) {{
+    size_t i;
+    if (!cpu || !out) return -1;
+    if (cpu->memory_size == 0u) return -1;
+    if (size == 0u) return 0;
+    if (address >= cpu->memory_size) {{
+        address %= cpu->memory_size;
+    }}
+    for (i = 0; i < size; i++) {{
+        uint64_t linear = address + (uint64_t)i;
+        if (linear < address) {{
+            linear %= cpu->memory_size;
+        }}
+        linear %= cpu->memory_size;
+        uint16_t mem_addr = (uint16_t)(linear & 0xFFFFu);
+        out[i] = {cpu_prefix}_read_byte(cpu, mem_addr);
+    }}
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_clear_memory(CPUState *cpu) {{
+    if (!cpu || !cpu->memory) return -1;
+    memset(cpu->memory, 0, cpu->memory_size);
+    if (cpu->port_memory && cpu->port_size > 0u) {{
+        memset(cpu->port_memory, 0, cpu->port_size);
+    }}
+    cpu->loaded_rom_debug[0] = '\\0';
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_clear_history(CPUState *cpu) {{
+    if (!cpu) return -1;
+    dbg_history_clear(cpu);
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_set_pc(CPUState *cpu, uint64_t address) {{
+    if (!cpu) return -1;
+    if (address >= cpu->memory_size) return -1;
+    cpu->pc = (uint16_t)(address & 0xFFFFu);
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled) {{
+    if (!cpu) return -1;
+    cpu->debug_overlay_enabled = (enabled != 0u);
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled) {{
+    if (!cpu || !out_enabled) return -1;
+    *out_enabled = cpu->debug_overlay_enabled ? 1u : 0u;
+    return 0;
+}}
+
+{focus_impl}
+
+CPUState *pasm_dbg_create(size_t memory_size) {{
+    return {cpu_prefix}_create(memory_size);
+}}
+
+void pasm_dbg_destroy(CPUState *cpu) {{
+    dbg_history_clear(cpu);
+    {cpu_prefix}_destroy(cpu);
+}}
+
+void pasm_dbg_reset(CPUState *cpu) {{
+    {cpu_prefix}_reset(cpu);
+    dbg_history_clear(cpu);
+}}
+
+int pasm_dbg_load_rom(CPUState *cpu, const char *filename, uint16_t address) {{
+    return {cpu_prefix}_load_rom(cpu, filename, address);
+}}
+
+int pasm_dbg_load_system_roms(CPUState *cpu, const char *system_base_dir) {{
+    return {cpu_prefix}_load_system_roms(cpu, system_base_dir);
+}}
+
+int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path) {{
+    return {cpu_prefix}_load_cartridge_rom(cpu, path);
+}}
+
+int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {{
+    return {cpu_prefix}_dbg_snapshot_counts(cpu, out_counts);
+}}
+
+int pasm_dbg_snapshot_fill(
+    CPUState *cpu,
+    PASMDebugSnapshotCore *out_core,
+    PASMDebugDisasmRow *disasm_rows, size_t disasm_cap,
+    PASMDebugRegisterRow *reg_rows, size_t reg_cap,
+    PASMDebugFlagRow *flag_rows, size_t flag_cap,
+    PASMDebugOperandRow *operand_rows, size_t operand_cap,
+    PASMDebugStackRow *stack_rows, size_t stack_cap,
+    PASMDebugMemoryRow *mem_rows, size_t mem_cap,
+    PASMDebugCallFrameRow *call_rows, size_t call_cap,
+    PASMDebugBreakpointRow *bp_rows, size_t bp_cap,
+    PASMDebugWatchpointRow *wp_rows, size_t wp_cap,
+    PASMDebugThreadRow *thread_rows, size_t thread_cap,
+    PASMDebugHistoryRow *hist_rows, size_t hist_cap
+) {{
+    return {cpu_prefix}_dbg_snapshot_fill(
+        cpu,
+        out_core,
+        disasm_rows, disasm_cap,
+        reg_rows, reg_cap,
+        flag_rows, flag_cap,
+        operand_rows, operand_cap,
+        stack_rows, stack_cap,
+        mem_rows, mem_cap,
+        call_rows, call_cap,
+        bp_rows, bp_cap,
+        wp_rows, wp_cap,
+        thread_rows, thread_cap,
+        hist_rows, hist_cap
+    );
+}}
+
+int pasm_dbg_run(CPUState *cpu) {{
+    return {cpu_prefix}_dbg_run(cpu);
+}}
+
+int pasm_dbg_run_slice(CPUState *cpu, uint32_t max_steps, uint8_t *out_mode) {{
+    return {cpu_prefix}_dbg_run_slice(cpu, max_steps, out_mode);
+}}
+
+int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode) {{
+    return {cpu_prefix}_dbg_run_for_cycles(cpu, max_cycles, out_mode);
+}}
+
+int pasm_dbg_pause(CPUState *cpu) {{
+    return {cpu_prefix}_dbg_pause(cpu);
+}}
+
+int pasm_dbg_step_into(CPUState *cpu) {{
+    return {cpu_prefix}_dbg_step_into(cpu);
+}}
+
+int pasm_dbg_step_over(CPUState *cpu) {{
+    return {cpu_prefix}_dbg_step_over(cpu);
+}}
+
+int pasm_dbg_step_out(CPUState *cpu) {{
+    return {cpu_prefix}_dbg_step_out(cpu);
+}}
+
+int pasm_dbg_toggle_breakpoint(CPUState *cpu, uint64_t address) {{
+    return {cpu_prefix}_dbg_toggle_breakpoint(cpu, address);
+}}
+
+int pasm_dbg_select_thread(CPUState *cpu, uint32_t thread_id) {{
+    return {cpu_prefix}_dbg_select_thread(cpu, thread_id);
+}}
+
+int pasm_dbg_jump_frame(CPUState *cpu, size_t frame_index) {{
+    return {cpu_prefix}_dbg_jump_frame(cpu, frame_index);
+}}
+
+int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size) {{
+    return {cpu_prefix}_dbg_read_memory(cpu, address, out, size);
+}}
+
+int pasm_dbg_clear_memory(CPUState *cpu) {{
+    return {cpu_prefix}_dbg_clear_memory(cpu);
+}}
+
+int pasm_dbg_clear_history(CPUState *cpu) {{
+    return {cpu_prefix}_dbg_clear_history(cpu);
+}}
+
+int pasm_dbg_set_pc(CPUState *cpu, uint64_t address) {{
+    return {cpu_prefix}_dbg_set_pc(cpu, address);
+}}
+
+int pasm_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled) {{
+    return {cpu_prefix}_dbg_set_overlay_enabled(cpu, enabled);
+}}
+
+int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled) {{
+    return {cpu_prefix}_dbg_get_overlay_enabled(cpu, out_enabled);
+}}
+
+int pasm_dbg_focus_host_window(CPUState *cpu) {{
+    return {cpu_prefix}_dbg_focus_host_window(cpu);
+}}
+
+const char *pasm_dbg_processor_name(void) {{
+    return "{target_name}";
+}}
+
+const char *pasm_dbg_system_name(void) {{
+    return "{system_name}";
+}}
+
+uint8_t pasm_dbg_architecture(void) {{
+    return (uint8_t){architecture_const};
+}}
+"""

@@ -1,0 +1,145 @@
+metadata:
+  id: msx_cart0
+  type: cartridge_mapper
+  model: msx_mapper_konami
+  version: "1.0"
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+  - name: slot_id
+    type: uint8_t
+    initial: "1"
+  - name: bank_6000
+    type: uint8_t
+    initial: "1"
+  - name: bank_8000
+    type: uint8_t
+    initial: "2"
+  - name: bank_a000
+    type: uint8_t
+    initial: "3"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cart_window
+        start: 0x4000
+        size: 0x8000
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      {
+          const char *slot_env = getenv("PASM_MSX_CART_SLOT");
+          if (slot_env != NULL && slot_env[0] != '\0') {
+              int v = atoi(slot_env);
+              if (v >= 0 && v <= 3) {
+                  comp->slot_id = (uint8_t)v;
+              } else {
+                  comp->slot_id = 1u;
+              }
+          } else {
+              comp->slot_id = 1u;
+          }
+      }
+      comp->bank_6000 = 1u;
+      comp->bank_8000 = 2u;
+      comp->bank_a000 = 3u;
+    reset: |
+      {
+          const char *slot_env = getenv("PASM_MSX_CART_SLOT");
+          if (slot_env != NULL && slot_env[0] != '\0') {
+              int v = atoi(slot_env);
+              if (v >= 0 && v <= 3) {
+                  comp->slot_id = (uint8_t)v;
+              }
+          }
+      }
+      comp->bank_6000 = 1u;
+      comp->bank_8000 = 2u;
+      comp->bank_a000 = 3u;
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      comp->rom_size = 0u;
+    mem_read_pre: |
+      if (comp->rom_data != NULL && comp->rom_size > 0u) {
+          uint8_t slotreg = cpu->comp_ppi0.slot_select;
+          uint8_t page = (uint8_t)(addr >> 14);
+          uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+          if (page_slot == (uint8_t)(comp->slot_id & 0x03u)) {
+              uint32_t bank_size = 0x2000u;
+              uint32_t bank_count = comp->rom_size / bank_size;
+              if (bank_count == 0u) return 0xFFu;
+
+              if (addr >= 0x4000u && addr < 0x6000u) {
+                  uint32_t off = (uint32_t)(addr - 0x4000u);
+                  uint32_t bank_off = off;
+                  if (bank_off < comp->rom_size) return comp->rom_data[bank_off];
+                  return 0xFFu;
+              }
+
+              if (addr >= 0x6000u && addr < 0x8000u) {
+                  uint32_t bank = (uint32_t)(comp->bank_6000 % bank_count);
+                  uint32_t off = bank * bank_size + (uint32_t)(addr - 0x6000u);
+                  if (off < comp->rom_size) return comp->rom_data[off];
+                  return 0xFFu;
+              }
+
+              if (addr >= 0x8000u && addr < 0xA000u) {
+                  uint32_t bank = (uint32_t)(comp->bank_8000 % bank_count);
+                  uint32_t off = bank * bank_size + (uint32_t)(addr - 0x8000u);
+                  if (off < comp->rom_size) return comp->rom_data[off];
+                  return 0xFFu;
+              }
+
+              if (addr >= 0xA000u && addr < 0xC000u) {
+                  uint32_t bank = (uint32_t)(comp->bank_a000 % bank_count);
+                  uint32_t off = bank * bank_size + (uint32_t)(addr - 0xA000u);
+                  if (off < comp->rom_size) return comp->rom_data[off];
+                  return 0xFFu;
+              }
+          }
+      }
+    mem_write_pre: |
+      if (comp->rom_data == NULL || comp->rom_size == 0u) return;
+      {
+          uint8_t slotreg = cpu->comp_ppi0.slot_select;
+          uint8_t page = (uint8_t)(addr >> 14);
+          uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+          if (page_slot != (uint8_t)(comp->slot_id & 0x03u)) return;
+      }
+
+      if (addr >= 0x6000u && addr < 0x8000u) {
+          comp->bank_6000 = value;
+          return;
+      }
+      if (addr >= 0x8000u && addr < 0xA000u) {
+          comp->bank_8000 = value;
+          return;
+      }
+      if (addr >= 0xA000u && addr < 0xC000u) {
+          comp->bank_a000 = value;
+          return;
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

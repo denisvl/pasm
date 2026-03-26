@@ -1,0 +1,110 @@
+metadata:
+  id: msx_cart0
+  type: cartridge_mapper
+  model: msx_mapper_none
+  version: "1.0"
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+  - name: slot_id
+    type: uint8_t
+    initial: "1"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cart_window
+        start: 0x4000
+        size: 0x8000
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      {
+          const char *slot_env = getenv("PASM_MSX_CART_SLOT");
+          if (slot_env != NULL && slot_env[0] != '\0') {
+              int v = atoi(slot_env);
+              if (v >= 0 && v <= 3) {
+                  comp->slot_id = (uint8_t)v;
+              } else {
+                  comp->slot_id = 1u;
+              }
+          } else {
+              comp->slot_id = 1u;
+          }
+      }
+    reset: |
+      {
+          const char *slot_env = getenv("PASM_MSX_CART_SLOT");
+          if (slot_env != NULL && slot_env[0] != '\0') {
+              int v = atoi(slot_env);
+              if (v >= 0 && v <= 3) {
+                  comp->slot_id = (uint8_t)v;
+              } else {
+                  comp->slot_id = 1u;
+              }
+          }
+      }
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      comp->rom_size = 0u;
+    mem_read_pre: |
+      if (comp->rom_data != NULL && comp->rom_size > 0u) {
+          uint8_t slotreg = cpu->comp_ppi0.slot_select;
+          uint8_t page = (uint8_t)(addr >> 14);
+          uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+          if (page_slot == (uint8_t)(comp->slot_id & 0x03u)) {
+              if (addr >= 0x4000u && addr < 0x8000u) {
+                  uint32_t off = (uint32_t)(addr - 0x4000u);
+                  if (off < comp->rom_size) return comp->rom_data[off];
+                  return 0xFFu;
+              }
+              if (addr >= 0x8000u && addr < 0xC000u) {
+                  uint32_t off = 0u;
+                  if (comp->rom_size > 0x4000u) {
+                      off = 0x4000u + (uint32_t)(addr - 0x8000u);
+                  } else {
+                      /* 16K cartridge mirror into page 2. */
+                      off = (uint32_t)(addr - 0x8000u);
+                  }
+                  if (off < comp->rom_size) return comp->rom_data[off];
+                  return 0xFFu;
+              }
+          }
+      }
+    mem_write_pre: |
+      if (comp->rom_data == NULL || comp->rom_size == 0u) return;
+      {
+          uint8_t slotreg = cpu->comp_ppi0.slot_select;
+          uint8_t page = (uint8_t)(addr >> 14);
+          uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+          if (page_slot != (uint8_t)(comp->slot_id & 0x03u)) return;
+      }
+      if (addr >= 0x4000u && addr < 0x8000u) {
+          return;
+      }
+      if (addr >= 0x8000u && addr < 0xC000u) {
+          return;
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

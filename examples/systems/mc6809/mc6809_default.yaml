@@ -1,0 +1,20 @@
+metadata:
+  name: MC6809DefaultSystem
+  version: "0.1"
+
+clock_hz: 1000000
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions: []
+
+hooks: {}
+integrations: {}
+
+components:
+  ics: []
+  devices: []
+  hosts: []
+
+connections: []

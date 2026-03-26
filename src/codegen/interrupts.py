@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 
 INTERRUPT_MODE_IDS = {"IM0": 0, "IM1": 1, "IM2": 2}
-SUPPORTED_INTERRUPT_MODELS = {"none", "fixed_vector", "z80"}
+SUPPORTED_INTERRUPT_MODELS = {"none", "fixed_vector", "z80", "mos6502", "mc6809"}
 
 
 def configured_interrupt_modes(isa_data: Dict[str, Any]) -> List[int]:
@@ -41,4 +41,3 @@ def resolve_interrupt_model(isa_data: Dict[str, Any]) -> str:
     if configured_interrupt_modes(isa_data):
         return "z80"
     return "fixed_vector"
-

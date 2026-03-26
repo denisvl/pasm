@@ -70,6 +70,9 @@ typedef struct {{
     bool enabled;
 }} CPUHook;
 
+/* ===== IC Types ===== */
+{ic_types}
+
 /* ===== CPU State ===== */
 struct CPUState {{
 {state_fields}
@@ -98,11 +101,15 @@ struct CPUState {{
     
     /* Debug state */
     bool tracing_enabled;
+    bool debug_overlay_enabled;
+    bool reset_delay_pending;
     uint16_t break_points[16];
     int num_break_points;
+    char loaded_rom_debug[1024];
     
     /* Hooks */
     CPUHook hooks[HOOK_COUNT];
+{ic_state_fields}
 }};
 
 /* ===== Constants ===== */
@@ -123,6 +130,8 @@ CPUState *{cpu_prefix}_create(size_t memory_size);
 void {cpu_prefix}_destroy(CPUState *cpu);
 void {cpu_prefix}_reset(CPUState *cpu);
 int {cpu_prefix}_load_rom(CPUState *cpu, const char *filename, uint16_t address);
+int {cpu_prefix}_load_system_roms(CPUState *cpu, const char *system_base_dir);
+int {cpu_prefix}_load_cartridge_rom(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int {cpu_prefix}_step(CPUState *cpu);
@@ -136,11 +145,14 @@ uint16_t {cpu_prefix}_read_word(CPUState *cpu, uint16_t addr);
 void {cpu_prefix}_write_word(CPUState *cpu, uint16_t addr, uint16_t value);
 
 /* ===== Port I/O ===== */
-uint8_t {cpu_prefix}_read_port(CPUState *cpu, uint8_t port);
-void {cpu_prefix}_write_port(CPUState *cpu, uint8_t port, uint8_t value);
+uint8_t {cpu_prefix}_read_port(CPUState *cpu, uint16_t port);
+void {cpu_prefix}_write_port(CPUState *cpu, uint16_t port, uint8_t value);
 
 /* ===== Interrupts ===== */
 {interrupt_api}
+
+/* ===== IC API ===== */
+{ic_api}
 
 /* ===== Debug ===== */
 void {cpu_prefix}_dump_registers(CPUState *cpu);
@@ -171,9 +183,17 @@ CPU_IMPL_TEMPLATE = (
 #include <string.h>
 #include "{cpu_name}.h"
 #include "{cpu_name}_decoder.h"
+{coding_includes}
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <errno.h>
+#include <time.h>
+#endif
 
 /* ===== Private Helper Functions ===== */
 {helpers_code}
+{ic_helpers_code}
 
 /* ===== Instruction Implementation ===== */
 {instructions_code}
@@ -194,7 +214,7 @@ CPUState *{cpu_prefix}_create(size_t memory_size) {{
     cpu->memory_size = memory_size;
     
     /* Initialize port memory */
-    cpu->port_size = 256;
+    cpu->port_size = 65536;
     cpu->port_memory = (uint8_t *)calloc(1, cpu->port_size);
     
     /* Initialize hooks */
@@ -203,6 +223,7 @@ CPUState *{cpu_prefix}_create(size_t memory_size) {{
         cpu->hooks[i].func = NULL;
         cpu->hooks[i].context = NULL;
     }}
+{ic_init}
     
     {cpu_prefix}_reset(cpu);
     return cpu;
@@ -210,6 +231,7 @@ CPUState *{cpu_prefix}_create(size_t memory_size) {{
 
 void {cpu_prefix}_destroy(CPUState *cpu) {{
     if (cpu) {{
+{ic_destroy}
         free(cpu->memory);
         free(cpu->port_memory);
         free(cpu);
@@ -218,11 +240,13 @@ void {cpu_prefix}_destroy(CPUState *cpu) {{
 
 void {cpu_prefix}_reset(CPUState *cpu) {{
     memset(cpu->registers, 0, sizeof(cpu->registers));
+{register_field_reset}
     cpu->pc = 0;
     cpu->sp = 0;
     cpu->flags.raw = 0;
 {shadow_flags_reset}
 {interrupt_reset}
+{ic_reset}
     cpu->running = true;
     cpu->halted = false;
     cpu->error_code = CPU_ERROR_NONE;
@@ -233,29 +257,45 @@ void {cpu_prefix}_reset(CPUState *cpu) {{
     cpu->hook_opcode = 0;
     cpu->hook_raw = 0;
     cpu->tracing_enabled = false;
-    cpu->num_break_points = 0;
+    cpu->debug_overlay_enabled = true;
+    cpu->reset_delay_pending = true;
 }}
 
 int {cpu_prefix}_load_rom(CPUState *cpu, const char *filename, uint16_t address) {{
+    if (!cpu || !filename || !filename[0]) return -1;
     FILE *f = fopen(filename, "rb");
     if (!f) return -1;
     
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
+    if (size < 0) {{
+        fclose(f);
+        return -1;
+    }}
     
     if (address + size > cpu->memory_size) {{
         fclose(f);
         return -1;
     }}
     
-    fread(&cpu->memory[address], 1, size, f);
+    size_t read_len = fread(&cpu->memory[address], 1, (size_t)size, f);
     fclose(f);
+    if (read_len != (size_t)size) return -1;
+    snprintf(
+        cpu->loaded_rom_debug,
+        sizeof(cpu->loaded_rom_debug),
+        "name=direct path=%s",
+        filename
+    );
     return 0;
 }}
+{system_rom_loader}
+{cartridge_rom_loader}
 
 /* ===== Memory Access ===== */
 uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
+{ic_mem_read_pre}
     if (addr >= cpu->memory_size) {{
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return 0xFF;
@@ -264,6 +304,7 @@ uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
 }}
 
 void {cpu_prefix}_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {{
+{ic_mem_write_pre}
     if (addr >= cpu->memory_size) {{
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
@@ -272,40 +313,35 @@ void {cpu_prefix}_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {{
     cpu->memory[addr] = value;
 }}
 
-uint16_t {cpu_prefix}_read_word(CPUState *cpu, uint16_t addr) {{
-    uint16_t lo = {cpu_prefix}_read_byte(cpu, addr);
-    uint16_t hi = {cpu_prefix}_read_byte(cpu, addr + 1);
-    return lo | (hi << 8);
-}}
-
-void {cpu_prefix}_write_word(CPUState *cpu, uint16_t addr, uint16_t value) {{
-    {cpu_prefix}_write_byte(cpu, addr, value & 0xFF);
-    {cpu_prefix}_write_byte(cpu, addr + 1, (value >> 8) & 0xFF);
-}}
+{word_access_impl}
 
 /* ===== Port I/O ===== */
-uint8_t {cpu_prefix}_read_port(CPUState *cpu, uint8_t port) {{
+uint8_t {cpu_prefix}_read_port(CPUState *cpu, uint16_t port) {{
 {port_read_hook_pre}
-    if (port >= cpu->port_size) return 0xFF;
-    uint8_t value = cpu->port_memory[port];
+{ic_port_read_pre}
+    uint8_t value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFF;
+{ic_port_read_post}
 {port_read_hook_post}
     return value;
 }}
 
-void {cpu_prefix}_write_port(CPUState *cpu, uint8_t port, uint8_t value) {{
+void {cpu_prefix}_write_port(CPUState *cpu, uint16_t port, uint8_t value) {{
 {port_write_hook_pre}
+{ic_port_write_pre}
     if (port >= cpu->port_size) return;
     cpu->port_memory[port] = value;
+{ic_port_write_post}
 {port_write_hook_post}
 }}
 
 /* ===== Interrupts ===== */
 {interrupt_impl}
+{ic_impl}
 
 /* ===== Debug ===== */
 void {cpu_prefix}_dump_registers(CPUState *cpu) {{
     printf("PC: 0x%04X SP: 0x%04X Flags: 0x%02X\\n", cpu->pc, cpu->sp, cpu->flags.raw);
-    for (int i = 0; i < 8; i++) {{
+    for (int i = 0; i < {register_count}; i++) {{
         printf("R%d: 0x%02X ", i, cpu->registers[i]);
     }}
     printf("\\n");
@@ -474,18 +510,30 @@ project({project_name}_emulator C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-include_directories(include src)
+# Default to optimized builds for better emulator runtime performance.
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
 {dispatch_cmake}
 
-# Source files
-set(SOURCES
-    src/main.c
+# Emulator library sources
+set(EMU_SOURCES
     src/{cpu_name}.c
     src/{cpu_name}_decoder.c
 {extra_sources})
 
-# Create executable
-add_executable({project_name}_test ${{SOURCES}})
+# Linkable emulator library for external tools (debugger/TUI, harnesses).
+add_library({project_name}_emu STATIC ${{EMU_SOURCES}})
+target_include_directories({project_name}_emu PUBLIC include src)
+
+# CLI test executable
+add_executable({project_name}_test src/main.c)
+target_link_libraries({project_name}_test PRIVATE {project_name}_emu)
+target_include_directories({project_name}_test PRIVATE include src)
+{auto_dependency_setup}
+{extra_include_dirs}
+{extra_link_dirs}
+{extra_link_libs}
 
 # Enable testing
 enable_testing()
@@ -504,6 +552,7 @@ MAIN_TEMPLATE = (
 void print_usage(const char *prog) {{
     printf("Usage: %s [options]\\n", prog);
     printf("Options:\\n");
+    printf("  --system-dir <dir>  Load system ROM manifests relative to this directory\\n");
     printf("  --rom <file>    Load ROM file\\n");
     printf("  --addr <addr>   Load address (default: 0x0000)\\n");
     printf("  --run           Run emulator\\n");
@@ -522,12 +571,15 @@ int main(int argc, char *argv[]) {{
     
     bool run_emulator = false;
     uint64_t max_cycles = 0;
+    const char *system_dir = NULL;
     const char *rom_file = NULL;
     uint16_t load_addr = 0;
     const char *test_name = NULL;
     
     for (int i = 1; i < argc; i++) {{
-        if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {{
+        if (strcmp(argv[i], "--system-dir") == 0 && i + 1 < argc) {{
+            system_dir = argv[++i];
+        }} else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {{
             rom_file = argv[++i];
         }} else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {{
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
@@ -543,11 +595,21 @@ int main(int argc, char *argv[]) {{
         }}
     }}
     
+    if (system_dir) {{
+        if ({cpu_prefix}_load_system_roms(cpu, system_dir) != 0) {{
+            fprintf(stderr, "Failed to load system ROMs from: %s\\n", system_dir);
+            return 1;
+        }}
+        {cpu_prefix}_reset(cpu);
+        printf("Loaded system ROMs from: %s\\n", system_dir);
+    }}
+    
     if (rom_file) {{
         if ({cpu_prefix}_load_rom(cpu, rom_file, load_addr) != 0) {{
             fprintf(stderr, "Failed to load ROM: %s\\n", rom_file);
             return 1;
         }}
+        cpu->pc = load_addr;
         printf("Loaded ROM: %s at 0x%04X\\n", rom_file, load_addr);
     }}
     

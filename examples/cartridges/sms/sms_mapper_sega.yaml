@@ -1,0 +1,328 @@
+metadata:
+  id: sms_cart0
+  type: cartridge_mapper
+  model: sms_mapper_sega
+  version: "1.0"
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+  - name: bios_visible
+    type: uint8_t
+    initial: "1"
+  - name: bios_window_size
+    type: uint16_t
+    initial: "0x2000"
+  - name: control
+    type: uint8_t
+    initial: "0"
+  - name: bank0
+    type: uint8_t
+    initial: "0"
+  - name: bank1
+    type: uint8_t
+    initial: "1"
+  - name: bank2
+    type: uint8_t
+    initial: "2"
+  - name: sram_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: sram_size
+    type: uint32_t
+    initial: "0"
+  - name: debug_enabled
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cart_window
+        start: 0x0000
+        size: 0xC000
+        access: [read, write]
+  ports:
+    write:
+      - name: memory_ctrl
+        mask: 0x00FF
+        value: 0x003E
+
+behavior:
+  snippets:
+    init: |
+      {
+          const char *dbg_env = getenv("PASM_SMS_DEBUG");
+          comp->debug_enabled = (dbg_env != NULL && dbg_env[0] != '\0' && dbg_env[0] != '0') ? 1u : 0u;
+          if (comp->debug_enabled != 0u) {
+              fprintf(stderr, "sms_cart: debug enabled (PASM_SMS_DEBUG=%s)\n", dbg_env);
+          }
+      }
+      if (comp->sram_data == NULL) {
+          comp->sram_data = (uint8_t *)calloc(0x8000u, sizeof(uint8_t));
+          if (comp->sram_data != NULL) {
+              comp->sram_size = 0x8000u;
+          }
+      }
+    reset: |
+      {
+          const char *dbg_env = getenv("PASM_SMS_DEBUG");
+          comp->debug_enabled = (dbg_env != NULL && dbg_env[0] != '\0' && dbg_env[0] != '0') ? 1u : 0u;
+      }
+      comp->control = 0u;
+      comp->bank0 = 0u;
+      comp->bank1 = 1u;
+      comp->bank2 = 2u;
+      /*
+       * Boot policy:
+       * - default: if a cartridge is loaded, start with cartridge visible
+       *   (pragmatic for debugger workflows).
+       * - optional override: PASM_SMS_BOOT_BIOS=1 forces BIOS-visible boot when
+       *   BIOS bytes are present in system memory.
+       */
+      {
+          const char *boot_bios_env = getenv("PASM_SMS_BOOT_BIOS");
+          uint8_t bios_present = (cpu->memory[0] != 0u || cpu->memory[1] != 0u) ? 1u : 0u;
+          uint8_t force_bios_boot =
+              (boot_bios_env != NULL && boot_bios_env[0] == '1') ? 1u : 0u;
+
+          if (force_bios_boot != 0u) {
+              comp->bios_visible = bios_present;
+          } else if (comp->rom_data != NULL && comp->rom_size > 0u) {
+              comp->bios_visible = 0u;
+          } else {
+              comp->bios_visible = bios_present;
+          }
+      }
+      if (comp->debug_enabled != 0u) {
+          fprintf(
+              stderr,
+              "sms_cart: reset bios_visible=%u rom_size=%u bank0=%u bank1=%u bank2=%u control=0x%02X\n",
+              (unsigned)comp->bios_visible,
+              (unsigned)comp->rom_size,
+              (unsigned)comp->bank0,
+              (unsigned)comp->bank1,
+              (unsigned)comp->bank2,
+              (unsigned)comp->control
+          );
+      }
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      if (comp->sram_data != NULL) {
+          free(comp->sram_data);
+          comp->sram_data = NULL;
+      }
+      comp->rom_size = 0u;
+      comp->sram_size = 0u;
+    port_write_pre: |
+      if ((((uint16_t)port) & 0x00FFu) == 0x003Eu) {
+          uint8_t old_bios_visible = comp->bios_visible;
+          comp->bios_visible = ((value & 0x08u) == 0u) ? 1u : 0u;
+          if (comp->debug_enabled != 0u && old_bios_visible != comp->bios_visible) {
+              fprintf(
+                  stderr,
+                  "sms_cart: port_3E write=0x%02X bios_visible %u->%u\n",
+                  (unsigned)value,
+                  (unsigned)old_bios_visible,
+                  (unsigned)comp->bios_visible
+              );
+          }
+          return;
+      }
+    mem_read_pre: |
+      if (addr >= 0xE000u) {
+          /* $E000-$FFFF mirrors $C000-$DFFF */
+          return cpu->memory[(uint16_t)(addr - 0x2000u)];
+      }
+
+      if (addr < 0xC000u) {
+          if (
+              comp->bios_visible != 0u
+              && (uint16_t) addr < (uint16_t) comp->bios_window_size
+          ) {
+              return cpu->memory[addr];
+          }
+
+          if (
+              addr >= 0x8000u
+              && (comp->control & 0x08u) != 0u
+              && comp->sram_data != NULL
+              && comp->sram_size > 0u
+          ) {
+              uint32_t sram_off =
+                  (((comp->control & 0x04u) != 0u) ? 0x4000u : 0u)
+                  + ((uint32_t) addr - 0x8000u);
+
+              /* Mirror smaller SRAM sizes instead of falling through. */
+              sram_off %= comp->sram_size;
+              return comp->sram_data[sram_off];
+          }
+
+          if (comp->rom_data == NULL || comp->rom_size == 0u) {
+              return 0xFFu;
+          }
+
+          {
+              const uint32_t bank_size = 0x4000u;
+              const uint32_t bank_count =
+                  (comp->rom_size + (bank_size - 1u)) / bank_size;
+              uint32_t off = 0u;
+
+              if (bank_count == 0u) {
+                  return 0xFFu;
+              }
+
+              if (addr < 0x0400u) {
+                  /*
+                   * Sega mapper special case:
+                   * $0000-$03FF is always the first 1KB of ROM bank 0.
+                   */
+                  off = (uint32_t) addr;
+              } else if (addr < 0x4000u) {
+                  const uint32_t bank = (uint32_t) (comp->bank0 % bank_count);
+
+                  /*
+                   * $0400-$3FFF maps to the same offset inside the selected bank.
+                   * The first 1KB remains fixed and is not paged.
+                   */
+                  off = bank * bank_size + (uint32_t) addr;
+              } else if (addr < 0x8000u) {
+                  const uint32_t bank = (uint32_t) (comp->bank1 % bank_count);
+
+                  off = bank * bank_size + ((uint32_t) addr - 0x4000u);
+              } else {
+                  const uint32_t bank = (uint32_t) (comp->bank2 % bank_count);
+
+                  off = bank * bank_size + ((uint32_t) addr - 0x8000u);
+              }
+
+              if (off < comp->rom_size) {
+                  return comp->rom_data[off];
+              }
+          }
+
+          return 0xFFu;
+      }
+    mem_write_pre: |
+      if (
+          addr >= 0x8000u
+          && addr < 0xC000u
+          && (comp->control & 0x08u) != 0u
+          && comp->sram_data != NULL
+          && comp->sram_size > 0u
+      ) {
+          uint32_t sram_off =
+              (((comp->control & 0x04u) != 0u) ? 0x4000u : 0u)
+              + ((uint32_t) addr - 0x8000u);
+
+          /*
+           * Sega carts often have less than 16KB/32KB SRAM.
+           * Mirror smaller SRAM instead of dropping the write.
+           */
+          sram_off %= comp->sram_size;
+          comp->sram_data[sram_off] = value;
+          return;
+      }
+
+      if (addr >= 0xC000u) {
+          uint16_t ram_addr = addr;
+
+          /*
+           * $E000-$FFFF mirrors $C000-$DFFF.
+           * Normalize to the base 8KB RAM window first.
+           */
+          if (ram_addr >= 0xE000u) {
+              ram_addr = (uint16_t) (ram_addr - 0x2000u);
+          }
+
+          cpu->memory[ram_addr] = value;
+          cpu->memory[(uint16_t) (ram_addr + 0x2000u)] = value;
+
+          /*
+           * $FFFC-$FFFF are mapper registers, but because they overlap
+           * the RAM mirror, the RAM copy must still be written too.
+           */
+          if (addr >= 0xFFFCu) {
+              switch (addr) {
+                  case 0xFFFCu:
+                      if (comp->debug_enabled != 0u && comp->control != value) {
+                          fprintf(
+                              stderr,
+                              "sms_cart: map FFFC control 0x%02X->0x%02X (SRAM_EN=%u SRAM_BANK=%u)\n",
+                              (unsigned)comp->control,
+                              (unsigned)value,
+                              (unsigned)((value & 0x08u) != 0u),
+                              (unsigned)((value & 0x04u) != 0u)
+                          );
+                      }
+                      comp->control = value;
+                      break;
+
+                  case 0xFFFDu:
+                      if (comp->debug_enabled != 0u && comp->bank0 != value) {
+                          fprintf(
+                              stderr,
+                              "sms_cart: map FFFD bank0 %u->%u\n",
+                              (unsigned)comp->bank0,
+                              (unsigned)value
+                          );
+                      }
+                      comp->bank0 = value;
+                      break;
+
+                  case 0xFFFEu:
+                      if (comp->debug_enabled != 0u && comp->bank1 != value) {
+                          fprintf(
+                              stderr,
+                              "sms_cart: map FFFE bank1 %u->%u\n",
+                              (unsigned)comp->bank1,
+                              (unsigned)value
+                          );
+                      }
+                      comp->bank1 = value;
+                      break;
+
+                  case 0xFFFFu:
+                      if (comp->debug_enabled != 0u && comp->bank2 != value) {
+                          fprintf(
+                              stderr,
+                              "sms_cart: map FFFF bank2 %u->%u\n",
+                              (unsigned)comp->bank2,
+                              (unsigned)value
+                          );
+                      }
+                      comp->bank2 = value;
+                      break;
+
+                  default:
+                      break;
+              }
+          }
+
+          return;
+      }
+
+      /*
+       * $0000-$7FFF and $8000-$BFFF without SRAM enabled are ROM area
+       * for the Sega mapper, so writes are ignored.
+       */
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: ["stdio.h", "stdlib.h"]
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

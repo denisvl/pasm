@@ -1,0 +1,56 @@
+metadata:
+  id: host_trs80
+  type: host_adapter
+  model: trs80_headless_stub
+  version: "1.0"
+
+state:
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: irq_edges
+    type: uint32_t
+    initial: "0"
+  - name: audio_samples
+    type: uint32_t
+    initial: "0"
+  - name: keyboard_default
+    type: uint8_t
+    initial: "0xFF"
+
+interfaces:
+  callbacks:
+    - name: keyboard_matrix
+      args: [u8]
+      returns: u8
+  handlers:
+    - name: video_frame
+      args: [u32, u64, u32, u32]
+    - name: irq_edge
+      args: [u8]
+    - name: audio_pcm
+      args: [u8, u64]
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    keyboard_matrix: |
+      (void)args;
+      (void)argc;
+      return (uint64_t)comp->keyboard_default;
+  handler_bodies:
+    video_frame: |
+      comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+    irq_edge: |
+      if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {
+          comp->irq_edges += 1u;
+      }
+    audio_pcm: |
+      comp->audio_samples += 1u;
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

@@ -1,0 +1,37 @@
+metadata:
+  id: keyboard_coco
+  type: keyboard
+  model: coco1_matrix_8x8
+  version: "1.0"
+
+state:
+  - name: last_row
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: read_row
+      args: [u8]
+      returns: u8
+    - name: host_matrix
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_row: |
+      uint64_t cb_args[1] = { (uint64_t)((uint8_t)(args[0] & 0x07u)) };
+      comp->last_row = (uint8_t)cb_args[0];
+      __result = cpu_component_call(cpu, "keyboard_coco", "host_matrix", cb_args, 1);
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

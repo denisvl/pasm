@@ -1,0 +1,701 @@
+metadata:
+  id: host_trs80_sdl2
+  type: host_adapter
+  model: trs80_sdl2_interactive
+  version: "1.0"
+
+state:
+  - name: sdl_inited
+    type: uint8_t
+    initial: "0"
+  - name: window
+    type: void *
+    initial: "NULL"
+  - name: renderer
+    type: void *
+    initial: "NULL"
+  - name: texture
+    type: void *
+    initial: "NULL"
+  - name: texture_w
+    type: uint32_t
+    initial: "256"
+  - name: texture_h
+    type: uint32_t
+    initial: "192"
+  - name: audio_out_dev
+    type: uint32_t
+    initial: "0"
+  - name: audio_device_samples
+    type: uint32_t
+    initial: "0"
+  - name: audio_out_ready
+    type: uint8_t
+    initial: "0"
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: irq_edges
+    type: uint32_t
+    initial: "0"
+  - name: audio_samples
+    type: uint32_t
+    initial: "0"
+  - name: audio_level
+    type: int16_t
+    initial: "0"
+  - name: audio_last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: audio_sample_cursor
+    type: uint64_t
+    initial: "0"
+  - name: audio_rate
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring
+    type: int16_t *
+    initial: "NULL"
+  - name: audio_ring_capacity
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring_read_idx
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring_write_idx
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring_fill
+    type: uint32_t
+    initial: "0"
+  - name: has_keyboard_focus
+    type: uint8_t
+    initial: "0"
+  - name: last_focus_state
+    type: uint8_t
+    initial: "0"
+  - name: last_event_poll_cycle
+    type: uint64_t
+    initial: "0"
+  - name: overlay_last_ms
+    type: uint32_t
+    initial: "0"
+  - name: overlay_last_frame_count
+    type: uint64_t
+    initial: "0"
+  - name: overlay_last_cycle_count
+    type: uint64_t
+    initial: "0"
+  - name: overlay_fps_x100
+    type: uint32_t
+    initial: "0"
+  - name: overlay_cpu_hz
+    type: uint64_t
+    initial: "0"
+  - name: overlay_cpu_pct_x10
+    type: uint32_t
+    initial: "0"
+  - name: row0
+    type: uint8_t
+    initial: "0xFF"
+  - name: row1
+    type: uint8_t
+    initial: "0xFF"
+  - name: row2
+    type: uint8_t
+    initial: "0xFF"
+  - name: row3
+    type: uint8_t
+    initial: "0xFF"
+  - name: row4
+    type: uint8_t
+    initial: "0xFF"
+  - name: row5
+    type: uint8_t
+    initial: "0xFF"
+  - name: row6
+    type: uint8_t
+    initial: "0xFF"
+  - name: row7
+    type: uint8_t
+    initial: "0xFF"
+
+interfaces:
+  callbacks:
+    - name: keyboard_matrix
+      args: [u8]
+      returns: u8
+  handlers:
+    - name: video_frame
+      args: [u32, u64, u32, u32]
+    - name: irq_edge
+      args: [u8]
+    - name: audio_pcm
+      args: [u8, u64]
+  signals: []
+
+input:
+  keyboard:
+    source: sdl_scancode
+    focus_required: true
+    bindings:
+      # Row 0: @ A B C D E F G
+      - host_key: SDL_SCANCODE_F5
+        presses: [{ row: 0, bit: 0 }]
+      - host_key: SDL_SCANCODE_LEFTBRACKET
+        presses: [{ row: 0, bit: 0 }]
+      - host_key: SDL_SCANCODE_A
+        presses: [{ row: 0, bit: 1 }]
+      - host_key: SDL_SCANCODE_B
+        presses: [{ row: 0, bit: 2 }]
+      - host_key: SDL_SCANCODE_C
+        presses: [{ row: 0, bit: 3 }]
+      - host_key: SDL_SCANCODE_D
+        presses: [{ row: 0, bit: 4 }]
+      - host_key: SDL_SCANCODE_E
+        presses: [{ row: 0, bit: 5 }]
+      - host_key: SDL_SCANCODE_F
+        presses: [{ row: 0, bit: 6 }]
+      - host_key: SDL_SCANCODE_G
+        presses: [{ row: 0, bit: 7 }]
+
+      # Row 1: H I J K L M N O
+      - host_key: SDL_SCANCODE_H
+        presses: [{ row: 1, bit: 0 }]
+      - host_key: SDL_SCANCODE_I
+        presses: [{ row: 1, bit: 1 }]
+      - host_key: SDL_SCANCODE_J
+        presses: [{ row: 1, bit: 2 }]
+      - host_key: SDL_SCANCODE_K
+        presses: [{ row: 1, bit: 3 }]
+      - host_key: SDL_SCANCODE_L
+        presses: [{ row: 1, bit: 4 }]
+      - host_key: SDL_SCANCODE_M
+        presses: [{ row: 1, bit: 5 }]
+      - host_key: SDL_SCANCODE_N
+        presses: [{ row: 1, bit: 6 }]
+      - host_key: SDL_SCANCODE_O
+        presses: [{ row: 1, bit: 7 }]
+
+      # Row 2: P Q R S T U V W
+      - host_key: SDL_SCANCODE_P
+        presses: [{ row: 2, bit: 0 }]
+      - host_key: SDL_SCANCODE_Q
+        presses: [{ row: 2, bit: 1 }]
+      - host_key: SDL_SCANCODE_R
+        presses: [{ row: 2, bit: 2 }]
+      - host_key: SDL_SCANCODE_S
+        presses: [{ row: 2, bit: 3 }]
+      - host_key: SDL_SCANCODE_T
+        presses: [{ row: 2, bit: 4 }]
+      - host_key: SDL_SCANCODE_U
+        presses: [{ row: 2, bit: 5 }]
+      - host_key: SDL_SCANCODE_V
+        presses: [{ row: 2, bit: 6 }]
+      - host_key: SDL_SCANCODE_W
+        presses: [{ row: 2, bit: 7 }]
+
+      # Row 3: X Y Z
+      - host_key: SDL_SCANCODE_X
+        presses: [{ row: 3, bit: 0 }]
+      - host_key: SDL_SCANCODE_Y
+        presses: [{ row: 3, bit: 1 }]
+      - host_key: SDL_SCANCODE_Z
+        presses: [{ row: 3, bit: 2 }]
+
+      # Row 4: 0 1 2 3 4 5 6 7
+      - host_key: SDL_SCANCODE_0
+        presses: [{ row: 4, bit: 0 }]
+      - host_key: SDL_SCANCODE_KP_0
+        presses: [{ row: 4, bit: 0 }]
+      - host_key: SDL_SCANCODE_1
+        presses: [{ row: 4, bit: 1 }]
+      - host_key: SDL_SCANCODE_KP_1
+        presses: [{ row: 4, bit: 1 }]
+      - host_key: SDL_SCANCODE_2
+        presses: [{ row: 4, bit: 2 }]
+      - host_key: SDL_SCANCODE_KP_2
+        presses: [{ row: 4, bit: 2 }]
+      - host_key: SDL_SCANCODE_3
+        presses: [{ row: 4, bit: 3 }]
+      - host_key: SDL_SCANCODE_KP_3
+        presses: [{ row: 4, bit: 3 }]
+      - host_key: SDL_SCANCODE_4
+        presses: [{ row: 4, bit: 4 }]
+      - host_key: SDL_SCANCODE_KP_4
+        presses: [{ row: 4, bit: 4 }]
+      - host_key: SDL_SCANCODE_5
+        presses: [{ row: 4, bit: 5 }]
+      - host_key: SDL_SCANCODE_KP_5
+        presses: [{ row: 4, bit: 5 }]
+      - host_key: SDL_SCANCODE_6
+        presses: [{ row: 4, bit: 6 }]
+      - host_key: SDL_SCANCODE_KP_6
+        presses: [{ row: 4, bit: 6 }]
+      - host_key: SDL_SCANCODE_7
+        presses: [{ row: 4, bit: 7 }]
+      - host_key: SDL_SCANCODE_KP_7
+        presses: [{ row: 4, bit: 7 }]
+
+      # Row 5: 8 9 :* ;+ ,< -= .> /?
+      - host_key: SDL_SCANCODE_8
+        presses: [{ row: 5, bit: 0 }]
+      - host_key: SDL_SCANCODE_KP_8
+        presses: [{ row: 5, bit: 0 }]
+      - host_key: SDL_SCANCODE_9
+        presses: [{ row: 5, bit: 1 }]
+      - host_key: SDL_SCANCODE_KP_9
+        presses: [{ row: 5, bit: 1 }]
+      - host_key: SDL_SCANCODE_MINUS
+        presses: [{ row: 5, bit: 2 }]
+      - host_key: SDL_SCANCODE_SEMICOLON
+        presses: [{ row: 5, bit: 3 }]
+      - host_key: SDL_SCANCODE_COMMA
+        presses: [{ row: 5, bit: 4 }]
+      - host_key: SDL_SCANCODE_EQUALS
+        presses: [{ row: 5, bit: 5 }]
+      - host_key: SDL_SCANCODE_PERIOD
+        presses: [{ row: 5, bit: 6 }]
+      - host_key: SDL_SCANCODE_SLASH
+        presses: [{ row: 5, bit: 7 }]
+
+      # Row 6: Enter Clear Break Up Down Left Right Space
+      - host_key: SDL_SCANCODE_RETURN
+        presses: [{ row: 6, bit: 0 }]
+      - host_key: SDL_SCANCODE_KP_ENTER
+        presses: [{ row: 6, bit: 0 }]
+      - host_key: SDL_SCANCODE_HOME
+        presses: [{ row: 6, bit: 1 }]
+      - host_key: SDL_SCANCODE_ESCAPE
+        presses: [{ row: 6, bit: 2 }]
+      - host_key: SDL_SCANCODE_UP
+        presses: [{ row: 6, bit: 3 }]
+      - host_key: SDL_SCANCODE_DOWN
+        presses: [{ row: 6, bit: 4 }]
+      - host_key: SDL_SCANCODE_LEFT
+        presses: [{ row: 6, bit: 5 }]
+      - host_key: SDL_SCANCODE_BACKSPACE
+        presses: [{ row: 6, bit: 5 }]
+      - host_key: SDL_SCANCODE_DELETE
+        presses: [{ row: 6, bit: 5 }]
+      - host_key: SDL_SCANCODE_RIGHT
+        presses: [{ row: 6, bit: 6 }]
+      - host_key: SDL_SCANCODE_SPACE
+        presses: [{ row: 6, bit: 7 }]
+
+      # Row 7: LSHIFT RSHIFT CTRL CAPS F1 F2 F3
+      - host_key: SDL_SCANCODE_LSHIFT
+        presses: [{ row: 7, bit: 0 }]
+      - host_key: SDL_SCANCODE_RSHIFT
+        presses: [{ row: 7, bit: 1 }]
+      - host_key: SDL_SCANCODE_LCTRL
+        presses: [{ row: 7, bit: 2 }]
+      - host_key: SDL_SCANCODE_RCTRL
+        presses: [{ row: 7, bit: 2 }]
+      - host_key: SDL_SCANCODE_F4
+        presses: [{ row: 7, bit: 3 }]
+      - host_key: SDL_SCANCODE_CAPSLOCK
+        presses: [{ row: 7, bit: 3 }]
+      - host_key: SDL_SCANCODE_F1
+        presses: [{ row: 7, bit: 4 }]
+      - host_key: SDL_SCANCODE_F2
+        presses: [{ row: 7, bit: 5 }]
+      - host_key: SDL_SCANCODE_F3
+        presses: [{ row: 7, bit: 6 }]
+behavior:
+  snippets:
+    init: |
+      do {
+          if (comp->sdl_inited != 0u) break;
+          if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) != 0) {
+              break;
+          }
+          comp->window = SDL_CreateWindow(
+              "PASM TRS-80 Model 4",
+              SDL_WINDOWPOS_CENTERED,
+              SDL_WINDOWPOS_CENTERED,
+              768,
+              576,
+              SDL_WINDOW_RESIZABLE
+          );
+          if (comp->window == NULL) break;
+          comp->renderer = SDL_CreateRenderer((SDL_Window *)comp->window, -1, SDL_RENDERER_ACCELERATED);
+          if (comp->renderer == NULL) {
+              comp->renderer = SDL_CreateRenderer((SDL_Window *)comp->window, -1, 0);
+          }
+          if (comp->renderer == NULL) break;
+          SDL_StartTextInput();
+          comp->texture = SDL_CreateTexture(
+              (SDL_Renderer *)comp->renderer,
+              SDL_PIXELFORMAT_ARGB8888,
+              SDL_TEXTUREACCESS_STREAMING,
+              256,
+              192
+          );
+          if (comp->texture == NULL) break;
+          {
+              const char *audio_env = getenv("PASM_SDL_AUDIO");
+              if (audio_env == NULL || audio_env[0] != '0') {
+                  SDL_AudioSpec want;
+                  SDL_AudioSpec have;
+                  SDL_zero(want);
+                  SDL_zero(have);
+                  want.freq = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (int)CPU_AUDIO_SAMPLE_RATE : 44100;
+                  want.format = AUDIO_S16SYS;
+                  want.channels = 1;
+                  want.samples = 512;
+                  want.callback = NULL;
+                  comp->audio_device_samples = 0u;
+                  comp->audio_out_dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+                  if (comp->audio_out_dev != 0u && have.format == AUDIO_S16SYS && have.channels == 1) {
+                      uint32_t ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq * 2u) : 88200u;
+                      if (ring_capacity < 8192u) ring_capacity = 8192u;
+                      comp->audio_ring = (int16_t *)SDL_malloc((size_t)ring_capacity * sizeof(int16_t));
+                      if (comp->audio_ring != NULL) {
+                          comp->audio_rate = (have.freq > 0) ? (uint32_t)have.freq : 44100u;
+                          comp->audio_device_samples = (uint32_t)have.samples;
+                          comp->audio_ring_capacity = ring_capacity;
+                          comp->audio_ring_read_idx = 0u;
+                          comp->audio_ring_write_idx = 0u;
+                          comp->audio_ring_fill = 0u;
+                          comp->audio_out_ready = 1u;
+                          SDL_PauseAudioDevice(comp->audio_out_dev, 0);
+                      } else {
+                          SDL_CloseAudioDevice(comp->audio_out_dev);
+                          comp->audio_out_dev = 0u;
+                          comp->audio_device_samples = 0u;
+                      }
+                  } else if (comp->audio_out_dev != 0u) {
+                      SDL_CloseAudioDevice(comp->audio_out_dev);
+                      comp->audio_out_dev = 0u;
+                      comp->audio_device_samples = 0u;
+                  }
+              }
+          }
+          comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == (SDL_Window *)comp->window) ? 1u : 0u;
+          comp->last_focus_state = comp->has_keyboard_focus;
+          if (comp->window != NULL && comp->has_keyboard_focus == 0u) {
+              SDL_RaiseWindow((SDL_Window *)comp->window);
+          }
+          comp->sdl_inited = 1u;
+      } while (0);
+    reset: |
+      comp->row0 = 0xFFu;
+      comp->row1 = 0xFFu;
+      comp->row2 = 0xFFu;
+      comp->row3 = 0xFFu;
+      comp->row4 = 0xFFu;
+      comp->row5 = 0xFFu;
+      comp->row6 = 0xFFu;
+      comp->row7 = 0xFFu;
+      comp->frame_count = 0u;
+      comp->irq_edges = 0u;
+      comp->audio_samples = 0u;
+      comp->audio_level = 0;
+      comp->audio_last_cycle = 0u;
+      comp->audio_sample_cursor = 0u;
+      comp->audio_ring_read_idx = 0u;
+      comp->audio_ring_write_idx = 0u;
+      comp->audio_ring_fill = 0u;
+      comp->last_event_poll_cycle = 0u;
+      comp->overlay_last_ms = 0u;
+      comp->overlay_last_frame_count = 0u;
+      comp->overlay_last_cycle_count = 0u;
+      comp->overlay_fps_x100 = 0u;
+      comp->overlay_cpu_hz = 0u;
+      comp->overlay_cpu_pct_x10 = 0u;
+      if (comp->audio_out_dev != 0u) {
+          SDL_ClearQueuedAudio(comp->audio_out_dev);
+      }
+    step_post: |
+      if (comp->sdl_inited == 0u) return;
+      static int kb_trace = -1;
+      static FILE *kb_trace_fp = NULL;
+      if (kb_trace < 0) {
+          const char *trace_env = getenv("PASM_TRS80_KB_TRACE");
+          kb_trace = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
+          if (kb_trace != 0) {
+              const char *trace_file = getenv("PASM_TRS80_KB_TRACE_FILE");
+              if (trace_file == NULL || trace_file[0] == '\0') trace_file = "trs80_kb_trace.log";
+              kb_trace_fp = fopen(trace_file, "a");
+          }
+      }
+      uint64_t now = cpu->total_cycles;
+      if ((now - comp->last_event_poll_cycle) < 2048u) return;
+      comp->last_event_poll_cycle = now;
+      SDL_Event ev;
+      while (SDL_PollEvent(&ev)) {
+          if (ev.type == SDL_QUIT) {
+              cpu->running = false;
+              cpu->halted = true;
+          } else if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
+              if (kb_trace != 0 && kb_trace_fp != NULL) {
+                  SDL_Scancode sc = ev.key.keysym.scancode;
+                  fprintf(
+                      kb_trace_fp,
+                      "trs80-kb event=%s sc=%d name=%s repeat=%u focus=%u\n",
+                      (ev.type == SDL_KEYDOWN) ? "down" : "up",
+                      (int)sc,
+                      SDL_GetScancodeName(sc),
+                      (unsigned)ev.key.repeat,
+                      (unsigned)comp->has_keyboard_focus
+                  );
+                  fflush(kb_trace_fp);
+              }
+          }
+      }
+      SDL_PumpEvents();
+      comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == (SDL_Window *)comp->window) ? 1u : 0u;
+      if (comp->has_keyboard_focus != comp->last_focus_state) {
+          comp->last_focus_state = comp->has_keyboard_focus;
+          if (comp->window != NULL) {
+              SDL_SetWindowTitle(
+                  (SDL_Window *)comp->window,
+                  (comp->has_keyboard_focus != 0u) ? "PASM TRS-80 Model 4 [FOCUS]" : "PASM TRS-80 Model 4 [NO-FOCUS]"
+              );
+          }
+      }
+      {
+          sms_overlay_update_perf(
+              SDL_GetTicks(),
+              (uint64_t)comp->frame_count,
+              cpu->total_cycles,
+              (uint64_t)CPU_SYSTEM_CLOCK_HZ,
+              &comp->overlay_last_ms,
+              &comp->overlay_last_frame_count,
+              &comp->overlay_last_cycle_count,
+              &comp->overlay_fps_x100,
+              &comp->overlay_cpu_hz,
+              &comp->overlay_cpu_pct_x10
+          );
+      }
+      int key_count = 0;
+      const uint8_t *ks = SDL_GetKeyboardState(&key_count);
+      if (ks == NULL || key_count <= 0) return;
+      uint8_t rows[8] = {
+          0xFFu, 0xFFu, 0xFFu, 0xFFu,
+          0xFFu, 0xFFu, 0xFFu, 0xFFu
+      };
+      cpu_component_apply_declared_keymap(
+          cpu,
+          "host_trs80_sdl2",
+          ks,
+          (size_t)key_count,
+          rows,
+          8u,
+          comp->has_keyboard_focus
+      );
+      {
+          if (kb_trace != 0 && kb_trace_fp != NULL) {
+              uint8_t changed = 0u;
+              if (
+                  rows[0] != comp->row0 || rows[1] != comp->row1 || rows[2] != comp->row2 || rows[3] != comp->row3 ||
+                  rows[4] != comp->row4 || rows[5] != comp->row5 || rows[6] != comp->row6 || rows[7] != comp->row7
+              ) {
+                  changed = 1u;
+              }
+              if (changed != 0u) {
+                  fprintf(
+                      kb_trace_fp,
+                      "trs80-kb matrix focus=%u rows=[%02X %02X %02X %02X %02X %02X %02X %02X]\n",
+                      (unsigned)comp->has_keyboard_focus,
+                      (unsigned)rows[0], (unsigned)rows[1], (unsigned)rows[2], (unsigned)rows[3],
+                      (unsigned)rows[4], (unsigned)rows[5], (unsigned)rows[6], (unsigned)rows[7]
+                  );
+                  fflush(kb_trace_fp);
+              }
+          }
+      }
+      comp->row0 = rows[0];
+      comp->row1 = rows[1];
+      comp->row2 = rows[2];
+      comp->row3 = rows[3];
+      comp->row4 = rows[4];
+      comp->row5 = rows[5];
+      comp->row6 = rows[6];
+      comp->row7 = rows[7];
+      if (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u && comp->audio_ring != NULL && comp->audio_ring_fill > 0u) {
+          uint32_t queued_samples = SDL_GetQueuedAudioSize(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
+          uint32_t device_samples = (comp->audio_device_samples > 0u) ? comp->audio_device_samples : 512u;
+          uint32_t low_watermark = device_samples * 2u;
+          uint32_t target_total = device_samples * 4u;
+          uint32_t max_total = device_samples * 8u;
+          uint32_t total_backlog = queued_samples + comp->audio_ring_fill;
+          if (total_backlog > max_total) {
+              uint32_t drop = total_backlog - max_total;
+              if (drop > comp->audio_ring_fill) {
+                  drop = comp->audio_ring_fill;
+              }
+              if (drop > 0u) {
+                  comp->audio_ring_read_idx = (comp->audio_ring_read_idx + drop) % comp->audio_ring_capacity;
+                  comp->audio_ring_fill -= drop;
+              }
+          }
+          if (queued_samples < low_watermark) {
+              uint32_t desired = target_total - queued_samples;
+              uint32_t to_send = (comp->audio_ring_fill < desired) ? comp->audio_ring_fill : desired;
+              while (to_send > 0u) {
+                  int16_t chunk[1024];
+                  uint32_t n = (to_send > 1024u) ? 1024u : to_send;
+                  for (uint32_t i = 0u; i < n; ++i) {
+                      chunk[i] = comp->audio_ring[comp->audio_ring_read_idx];
+                      comp->audio_ring_read_idx += 1u;
+                      if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+                  }
+                  comp->audio_ring_fill -= n;
+                  if (SDL_QueueAudio(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t)) != 0) {
+                      break;
+                  }
+                  to_send -= n;
+              }
+          }
+      }
+    destroy: |
+      if (comp->audio_out_dev != 0u) {
+          SDL_CloseAudioDevice(comp->audio_out_dev);
+          comp->audio_out_dev = 0u;
+      }
+      if (comp->audio_ring != NULL) {
+          SDL_free(comp->audio_ring);
+          comp->audio_ring = NULL;
+      }
+      comp->audio_ring_capacity = 0u;
+      comp->audio_ring_read_idx = 0u;
+      comp->audio_ring_write_idx = 0u;
+      comp->audio_ring_fill = 0u;
+      comp->audio_device_samples = 0u;
+      if (comp->texture != NULL) {
+          SDL_DestroyTexture((SDL_Texture *)comp->texture);
+          comp->texture = NULL;
+      }
+      if (comp->renderer != NULL) {
+          SDL_DestroyRenderer((SDL_Renderer *)comp->renderer);
+          comp->renderer = NULL;
+      }
+      if (comp->window != NULL) {
+          SDL_DestroyWindow((SDL_Window *)comp->window);
+          comp->window = NULL;
+      }
+      if (comp->sdl_inited != 0u) {
+          SDL_StopTextInput();
+          SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS);
+          SDL_Quit();
+          comp->sdl_inited = 0u;
+      }
+  callback_handlers:
+    keyboard_matrix: |
+      uint8_t row = (argc > 0) ? (uint8_t)(args[0] & 0x0Fu) : 0xFFu;
+      uint8_t value = 0xFFu;
+      switch (row) {
+          case 0u: value = comp->row0; break;
+          case 1u: value = comp->row1; break;
+          case 2u: value = comp->row2; break;
+          case 3u: value = comp->row3; break;
+          case 4u: value = comp->row4; break;
+          case 5u: value = comp->row5; break;
+          case 6u: value = comp->row6; break;
+          case 7u: value = comp->row7; break;
+          default: value = 0xFFu; break;
+      }
+      return (uint64_t)value;
+  handler_bodies:
+    video_frame: |
+      if (comp->sdl_inited == 0u || argc < 4) return;
+      SDL_Renderer *renderer = (SDL_Renderer *)comp->renderer;
+      SDL_Texture *texture = (SDL_Texture *)comp->texture;
+      uint32_t frame = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      uint32_t *pixels = (uint32_t *)(uintptr_t)args[1];
+      uint32_t w = (uint32_t)(args[2] & 0xFFFFFFFFu);
+      uint32_t h = (uint32_t)(args[3] & 0xFFFFFFFFu);
+      if (renderer == NULL || texture == NULL || pixels == NULL || w == 0u || h == 0u) return;
+      comp->frame_count = frame;
+      if (cpu->debug_overlay_enabled) {
+          sms_overlay_draw_perf(
+              pixels,
+              w,
+              h,
+              comp->overlay_fps_x100,
+              comp->overlay_cpu_hz,
+              comp->overlay_cpu_pct_x10
+          );
+      }
+      if (comp->texture_w != w || comp->texture_h != h) {
+          SDL_DestroyTexture(texture);
+          texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, (int)w, (int)h);
+          if (texture == NULL) return;
+          comp->texture = (void *)texture;
+          comp->texture_w = w;
+          comp->texture_h = h;
+      }
+      if (SDL_UpdateTexture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
+      SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+      SDL_RenderClear(renderer);
+      int ww = 0;
+      int wh = 0;
+      if (SDL_GetRendererOutputSize(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
+      SDL_Rect dst;
+      int scaled_w = ww;
+      int scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);
+      if (scaled_h > wh) {
+          scaled_h = wh;
+          scaled_w = (int)((((int64_t)wh) * (int64_t)w) / (int64_t)h);
+      }
+      dst.w = (scaled_w > 0) ? scaled_w : ww;
+      dst.h = (scaled_h > 0) ? scaled_h : wh;
+      dst.x = (ww - dst.w) / 2;
+      dst.y = (wh - dst.h) / 2;
+      if (SDL_RenderCopy(renderer, texture, NULL, &dst) != 0) return;
+      SDL_RenderPresent(renderer);
+    irq_edge: |
+      if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {
+          comp->irq_edges += 1u;
+      }
+    audio_pcm: |
+      if (comp->audio_out_dev == 0u || comp->audio_out_ready == 0u || comp->audio_ring == NULL || comp->audio_ring_capacity == 0u || argc < 1) return;
+      uint8_t level_u = (uint8_t)(args[0] & 0xFFu); /* 1-bit beeper level: 0 or 255 */
+      uint64_t cycle = (argc > 1) ? (uint64_t)args[1] : cpu->total_cycles;
+      uint64_t sample_rate = (comp->audio_rate > 0u) ? (uint64_t)comp->audio_rate : ((CPU_AUDIO_SAMPLE_RATE > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u);
+      uint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? CPU_SYSTEM_CLOCK_HZ : 1u;
+      uint64_t target_sample_index = (cycle * sample_rate) / clock_hz;
+      int16_t next_level = (level_u != 0u) ? 9000 : -9000;
+
+      if (comp->audio_last_cycle == 0u && comp->audio_sample_cursor == 0u && comp->audio_samples == 0u) {
+          comp->audio_last_cycle = cycle;
+          comp->audio_sample_cursor = target_sample_index;
+          comp->audio_level = next_level;
+          return;
+      }
+
+      if (target_sample_index < comp->audio_sample_cursor) {
+          comp->audio_sample_cursor = target_sample_index;
+      }
+      {
+          uint64_t samples_to_emit = target_sample_index - comp->audio_sample_cursor;
+          while (samples_to_emit > 0u) {
+              uint64_t n = (samples_to_emit > 4096u) ? 4096u : samples_to_emit;
+              for (uint64_t i = 0u; i < n; ++i) {
+                  if (comp->audio_ring_fill >= comp->audio_ring_capacity) {
+                      comp->audio_ring_read_idx += 1u;
+                      if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+                      comp->audio_ring_fill -= 1u;
+                  }
+                  comp->audio_ring[comp->audio_ring_write_idx] = comp->audio_level;
+                  comp->audio_ring_write_idx += 1u;
+                  if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
+                  comp->audio_ring_fill += 1u;
+              }
+              comp->audio_samples += (uint32_t)n;
+              comp->audio_sample_cursor += n;
+              samples_to_emit -= n;
+          }
+      }
+
+      comp->audio_last_cycle = cycle;
+      comp->audio_level = next_level;
+
+coding:
+  headers: ["SDL2/SDL.h", "pasm_overlay.h"]
+  include_paths: ["include"]
+  linked_libraries:
+    - name: "SDL2"
+  library_paths: []

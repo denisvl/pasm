@@ -7,6 +7,7 @@ import pytest
 from src import generator as gen_mod
 from src.analyzer.instruction_analyzer import audit_opcode_spaces
 from src.codegen.cpu_decoder import generate_decoder
+from src.codegen.cpu_impl import generate_cpu_impl
 from src.parser import yaml_loader
 from tests.support import example_pair
 
@@ -347,6 +348,66 @@ def test_z80_decode_determinism_contract_is_present():
     assert "inst.length = (prefix != 0) ? 2 : 1;" in decoder_impl
     assert "inst.valid = false;" in decoder_impl
     assert "DD/FD fallback: treat unsupported prefixed forms as base aliases." in decoder_impl
+
+
+def test_z80_disassembler_resolves_implicit_ed_opcodes():
+    processor_path, system_path = example_pair("z80")
+    data = yaml_loader.load_processor_system(str(processor_path), str(system_path))
+    impl = generate_cpu_impl(data, "Z80")
+
+    assert "if (b0 == 0xDD || b0 == 0xFD) {" in impl
+    assert 'mnemonic = "LD I, A";' in impl
+    assert (
+        "(inst.prefix == 0x00 && ((inst.raw & 0x00FF) == 0xED && "
+        "((inst.raw >> 8) & 0x00FF) == 0x47))"
+    ) in impl
+
+
+@pytest.mark.skipif(
+    (shutil.which("cc") is None and shutil.which("gcc") is None),
+    reason="C compiler not available on PATH",
+)
+def test_z80_disassembler_renders_operand_resolved_ld_rr(tmp_path):
+    processor_path, system_path = example_pair("z80")
+    outdir = tmp_path / "z80_disasm_tpl"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    harness_c = outdir / "disasm_harness.c"
+    harness_c.write_text(
+        textwrap.dedent(
+            """
+            #include <stdio.h>
+            #include "Z80.h"
+
+            int main(void) {
+                puts(z80_disassemble_instruction(0x0000u, 0x00000062u));
+                return 0;
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    compiler = shutil.which("cc") or shutil.which("gcc")
+    binary = outdir / "disasm_harness"
+    subprocess.check_call(
+        [
+            compiler,
+            "-std=c11",
+            "-O2",
+            "-I",
+            str(outdir / "src"),
+            str(outdir / "src" / "Z80.c"),
+            str(outdir / "src" / "Z80_decoder.c"),
+            str(harness_c),
+            "-o",
+            str(binary),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
+    proc = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
+    assert "LD H, D" in proc.stdout
 
 
 @pytest.mark.skipif(

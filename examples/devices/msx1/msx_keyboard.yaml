@@ -1,0 +1,37 @@
+metadata:
+  id: keyboard_msx
+  type: keyboard
+  model: msx_matrix_11x8
+  version: "1.0"
+
+state:
+  - name: last_row
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: read_row
+      args: [u8]
+      returns: u8
+    - name: host_matrix
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_row: |
+      comp->last_row = (uint8_t)(args[0] & 0x0Fu);
+      __result = cpu_component_call(cpu, "keyboard_msx", "host_matrix", args, argc);
+      if (__result == 0u) __result = 0xFFu;
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

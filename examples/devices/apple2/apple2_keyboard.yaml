@@ -1,0 +1,36 @@
+metadata:
+  id: keyboard_apple2
+  type: keyboard
+  model: apple2_ascii_keyboard
+  version: "1.0"
+
+state:
+  - name: last_key
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: read_key
+      args: []
+      returns: u8
+    - name: host_key
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_key: |
+      __result = cpu_component_call(cpu, "keyboard_apple2", "host_key", NULL, 0);
+      comp->last_key = (uint8_t)(__result & 0xFFu);
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

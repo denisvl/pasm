@@ -7,36 +7,47 @@ metadata:
   undefined_opcode_policy: trap
 registers:
 - name: R0
+  display_name: R0
   type: general
   bits: 8
 - name: R1
+  display_name: R1
   type: general
   bits: 8
 - name: R2
+  display_name: R2
   type: general
   bits: 8
 - name: R3
+  display_name: R3
   type: general
   bits: 8
 - name: R4
+  display_name: R4
   type: general
   bits: 8
 - name: R5
+  display_name: R5
   type: general
   bits: 8
 - name: R6
+  display_name: R6
   type: general
   bits: 8
 - name: R7
+  display_name: R7
   type: general
   bits: 8
 - name: PC
+  display_name: PC
   type: program_counter
   bits: 16
 - name: SP
+  display_name: SP
   type: stack_pointer
   bits: 16
 - name: A
+  display_name: A
   type: general
   bits: 8
 flags:
@@ -287,3 +298,9 @@ instructions:
   behavior: 'cpu->halted = true;
 
     '
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

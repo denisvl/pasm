@@ -1,0 +1,41 @@
+metadata:
+  id: video_msx
+  type: video
+  model: msx1_frame_sink
+  version: "1.0"
+
+state:
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: width
+    type: uint32_t
+    initial: "256"
+  - name: height
+    type: uint32_t
+    initial: "192"
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: on_frame_ready
+      args: [u32, u64, u32, u32]
+  signals:
+    - name: frame_present
+      args: [u32, u64, u32, u32]
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies:
+    on_frame_ready: |
+      comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      comp->width = (uint32_t)(args[2] & 0xFFFFFFFFu);
+      comp->height = (uint32_t)(args[3] & 0xFFFFFFFFu);
+      cpu_component_emit_signal(cpu, "video_msx", "frame_present", args, argc);
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

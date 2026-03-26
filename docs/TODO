@@ -1,2 +1,18 @@
-☑ There should be no helper macros
-☑ If there is any register/flags that have "subdivisions" (e.g. AX = AH | AL) the implementation must be using unions or bit fields declared in YAML
+# Debugger and Runtime Backlog
+
+Note: this file tracks the current post-implementation backlog (not historical transcript).
+
+## Done
+- ☑ Remove helper macros from behavior snippets.
+- ☑ Ensure register/flag subdivisions are represented through YAML-driven unions/bitfields.
+- ☑ Implement jump-to-address dialog (`g`) for disassembly and memory panes.
+- ☑ Implement run-to-cursor (`F4`).
+- ☑ Align step/run keymap with current shortcuts (`F7`/`F8`/`F6`/`F9`, `F5`).
+
+## Open
+- ☐ Reset should preserve breakpoints across reset in linked backend.
+- ☐ HALT handling: run mode should continue until interrupt/breakpoint/user pause, not auto-stop on HALT loops.
+- ☐ Disassembly operand rendering: fix absolute-vs-indirect forms (example target: `LD HL, 0xC001` must not display as indirect).
+- ☐ Relative branch rendering should include computed target address.
+- ☐ Disassembly navigation should pan continuously beyond a single backend window using arrows/page keys.
+- ☐ Step-over semantics for block/repeat instructions (example: `LDDR`) must match debugger expectations.

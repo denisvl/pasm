@@ -1,188 +1,304 @@
-## PASM YAML Format (Hard Cutover)
+## PASM YAML Format (Current)
 
-PASM now requires two YAML files:
-
-1. `processor.yaml` for CPU semantics.
-2. `system.yaml` for runtime/deployment configuration.
+PASM composes a system from these YAML layers:
+1. `processor.yaml` (required)
+2. `system.yaml` (required)
+3. `ic.yaml` (repeatable)
+4. `device.yaml` (repeatable)
+5. `host.yaml` (repeatable)
+6. `cartridge.yaml` (optional, single active cartridge)
 
 Single-file ISA input is removed.
 
 Schemas:
 - `schemas/processor_schema.json`
 - `schemas/system_schema.json`
+- `schemas/ic_schema.json`
+- `schemas/device_schema.json`
+- `schemas/host_schema.json`
+- `schemas/cartridge_schema.json`
 
 ## 1) `processor.yaml`
 
-Owns CPU architecture and instruction semantics.
-
-Required top-level keys:
+Owns CPU semantics:
 - `metadata`
 - `registers`
 - `flags`
 - `instructions`
+- optional `ports`, `interrupts`
+- required `coding`
 
-Optional:
-- `ports`
-- `interrupts`
+Implemented display fields:
+- `registers[].display_name` (debug/UI label override)
+- `instructions[].display_template` (`{field}` / `{field:formatter}`)
+- `instructions[].display_operands` (operand render specs)
 
-### `metadata`
+Supported `interrupts.model` values:
+- `none`
+- `fixed_vector`
+- `z80`
+- `mos6502`
+- `mc6809`
 
-```yaml
-metadata:
-  name: "Z80"
-  version: "0.1"
-  bits: 8
-  address_bits: 16
-  endian: little
-  undefined_opcode_policy: trap   # trap|nop, default trap
-```
+Instruction behavior contract:
+- operand access: `inst->field`
+- runtime helpers: `<cpu_prefix>_read_*` / `<cpu_prefix>_write_*`
+- flags via `cpu->flags.<NAME>` or `cpu->flags.raw`
+- legacy access patterns are rejected
 
-### `registers`
-
-```yaml
-registers:
-  - name: "A"
-    type: general
-    bits: 8
-  - name: "PC"
-    type: program_counter
-    bits: 16
-  - name: "SP"
-    type: stack_pointer
-    bits: 16
-  - name: "AX"
-    type: general
-    bits: 16
-    parts:
-      - name: "AL"
-        lsb: 0
-        bits: 8
-      - name: "AH"
-        lsb: 8
-        bits: 8
-```
-
-Range expansion is supported: `R0..R7`.
-
-### `flags`
-
-`flags[].bit` is required.
-
-```yaml
-flags:
-  - name: "Z"
-    bit: 0
-  - name: "C"
-    bit: 1
-```
-
-Rules:
-- names are uppercase identifier style
-- bit range is `0..7`
-- duplicate flag names or duplicate bits are rejected
-
-### `instructions`
-
-```yaml
-instructions:
-  - name: "LD_A_N"
-    display: "LD A, n"
-    category: data_transfer
-    encoding:
-      opcode: 0x3E
-      mask: 0xFF
-      length: 2
-      fields:
-        - name: "n"
-          position: [15, 8]
-          type: immediate
-    cycles: 7
-    behavior: |
-      cpu->registers[REG_A] = inst->n;
-```
-
-Behavior contract is strict:
-- Use decoded operands as `inst->field`.
-- Use CPU-prefixed runtime helpers (`<cpu_prefix>_read_*`, `<cpu_prefix>_write_*`).
-- Use YAML-defined flags as `cpu->flags.<NAME>` or `cpu->flags.raw`.
-- Legacy forms are rejected (`inst.field`, `cpu_read_*`, `cpu_write_*`, helper-style legacy APIs).
-
-### `ports` and `interrupts`
-
-These remain processor-owned. Runtime generation still derives port/interrupt semantics from processor YAML.
+When components (`ic`/`device`/`host`/`cartridge`) are present, each instruction must include:
+- `timing_profile.bus_events[]`
+- `timing_profile.total_tstates == cycles`
 
 ## 2) `system.yaml`
 
-Owns deployment/runtime configuration.
+Owns runtime deployment and wiring graph:
+- `metadata`, `clock_hz`, `memory`
+- optional `reset_delay_seconds` (default `0`)
+- optional `hooks`, `integrations`
+- required `components`:
+  - `ics[]`
+  - `devices[]`
+  - `hosts[]`
+  - optional `cartridge` (single ID)
+- required `connections[]`
+- optional `audio`:
+  - `sample_rate`
+  - `format` (`s16le` or `float32`)
+  - `channels` (1 or 2)
 
-Required top-level keys:
-- `metadata`
-- `clock_hz`
-- `memory`
+`reset_delay_seconds` applies every time generated runtime calls `<cpu_prefix>_reset`.
 
-Optional:
-- `hooks`
-- `integrations`
-
-### Example
+`system.yaml` memory can declare ROM manifests:
 
 ```yaml
-metadata:
-  name: "Z80DefaultSystem"
-  version: "0.1"
-clock_hz: 1000000
 memory:
   default_size: 65536
   regions:
-    - name: "RAM"
-      start: 0x0000
-      size: 0x8000
-      read_write: true
-    - name: "ROM"
-      start: 0x8000
-      size: 0x8000
+    - name: ROM
+      start: 0xC000
+      size: 0x4000
       read_only: true
-hooks:
-  post_execute:
-    enabled: false
-  port_write_post:
-    enabled: true
-integrations:
-  sectorz_demo:
-    channel: "stdout"
+  rom_images:
+    - name: system_rom
+      file: ../roms/system.rom
+      target_region: ROM
+      offset: 0
 ```
 
-## 3) Cross-file Validation
+Generated runtime APIs:
+- `<cpu_prefix>_load_system_roms(cpu, system_base_dir)`
+- `<cpu_prefix>_load_cartridge_rom(cpu, path)`
 
-Composition checks enforce:
-- `system.memory.default_size > 0`
-- `system.memory.default_size <= 2^processor.metadata.address_bits`
-- region `start`/`size` are non-negative
-- each region must fit inside `default_size`
-- system hook names must be in supported hook set:
-  - `pre_fetch`
-  - `post_decode`
-  - `post_execute`
-  - `port_read_pre`
-  - `port_read_post`
-  - `port_write_pre`
-  - `port_write_post`
+Generated `main.c` runtime flags:
+- `--system-dir <dir>`
+- `--cart-rom <file>` (only emitted for cartridge-enabled systems)
 
-## 4) CLI
+ROM rules:
+- `target_region` must exist and be read-only.
+- `offset` is optional (default `0`) and must be non-negative.
+- placement must fit target region and not overlap other ROM images.
+- `file` resolves relative to `system.yaml` directory (or absolute path).
 
-Use dual arguments only:
+`system.yaml` is the single source of component connectivity.
+
+### Connection entry
+
+```yaml
+connections:
+  - from:
+      component: "ula0"
+      kind: "signal"      # signal|callback
+      name: "frame_boundary"
+    to:
+      component: "video0"
+      kind: "handler"     # handler|callback
+      name: "on_frame_boundary"
+```
+
+Rules:
+- `callback -> callback`
+- `signal -> handler`
+- arity must match
+- literal pseudo-component `"host"` is not supported; use declared host IDs
+
+## 3) `ic.yaml`
+
+One IC component per file.
+
+Required top-level keys:
+- `metadata` (`id`, `type`, `model`)
+- `state[]`
+- `interfaces`
+- `behavior`
+- `coding`
+
+Optional:
+- `clock_hz`
+- `maps` (`ports`, `memory`) for interception ownership/overlap checks
+
+## 4) `device.yaml`
+
+One peripheral component per file.
+
+Required top-level keys:
+- `metadata` (`id`, `type`, `model`)
+- `state[]`
+- `interfaces`
+- `behavior`
+- `coding`
+
+Optional:
+- `clock_hz`
+
+## 5) `host.yaml`
+
+One host component per file.
+
+Required top-level keys:
+- `metadata` (`id`, `type`, `model`)
+- `state[]`
+- `interfaces`
+- `behavior`
+- `coding`
+
+Optional:
+- `clock_hz`
+- `input.keyboard` declarative key mapping
+
+Keyboard input mapping (optional, v1):
+
+```yaml
+input:
+  keyboard:
+    source: sdl_scancode
+    focus_required: true
+    bindings:
+      - host_key: SDL_SCANCODE_BACKSPACE
+        presses:
+          - { row: 0, bit: 0 }
+          - { row: 4, bit: 0 }
+```
+
+Rules:
+- `source` must be `sdl_scancode`.
+- `bindings[].host_key` must be in validated SDL scancode allowlist.
+- `bindings[].presses` must be non-empty.
+- `presses[].row` range `0..31`, `presses[].bit` range `0..7`.
+- duplicate `host_key` entries are rejected.
+
+## 6) `cartridge.yaml`
+
+One cartridge mapper component per file (single active cartridge per run).
+
+Required top-level keys:
+- `metadata` (`id`, `type`, `model`)
+- `state[]`
+- `interfaces`
+- `behavior`
+- `coding`
+
+Optional:
+- `clock_hz`
+- `maps.ports` (`read[]` and `write[]` entries)
+- `maps.memory.ranges[]`
+
+Composition constraints:
+- if `system.components.cartridge` is set, both `--cartridge-map` and `--cartridge-rom` are required.
+- provided cartridge map ID must match `system.components.cartridge` exactly.
+- systems without cartridge slot reject `--cartridge-map` / `--cartridge-rom`.
+
+## 7) `interfaces` and `behavior`
+
+### Interfaces
+
+```yaml
+interfaces:
+  callbacks:
+    - name: "read_matrix"
+      args: [u8]
+      returns: u8
+  handlers:
+    - name: "on_border_changed"
+      args: [u8]
+  signals:
+    - name: "border_present"
+      args: [u8]
+```
+
+### Behavior
+
+```yaml
+behavior:
+  snippets:
+    init: |
+      /* lifecycle snippet */
+    step_post: |
+      /* called after instruction execution */
+    mem_read_pre: |
+      /* called before memory read */
+    port_write_pre: |
+      /* called before port write */
+  callback_handlers:
+    read_matrix: |
+      return 0xFFu;
+  handler_bodies:
+    on_border_changed: |
+      /* handle routed signal */
+```
+
+Snippet context provided by generated runtime:
+- always: `CPUState *cpu`, `ComponentState_<id> *comp`
+- callback/handler snippets: `const uint64_t *args`, `uint8_t argc`
+- memory snippets: `uint16_t addr` (and `uint8_t value` for writes)
+- port snippets: `uint16_t port`, `uint8_t value` (for write/pre and read/post)
+- step snippets: `DecodedInstruction *inst`, `uint16_t pc_before`
+
+Generic routing helpers inside snippets:
+- `cpu_component_call(cpu, "<component_id>", "<callback>", args, argc)`
+- `cpu_component_emit_signal(cpu, "<component_id>", "<signal>", args, argc)`
+
+## 8) `coding` section
+
+Required in behavior-capable YAML files:
+
+```yaml
+coding:
+  headers: ["stdint.h", "my_header.h"]
+  include_paths: ["./include"]
+  linked_libraries:
+    - name: "m"
+    - path: "./lib/libcustom.a"
+  library_paths: ["./lib"]
+```
+
+Generation merge semantics:
+- order: processor, `--ic` order, `--device` order, `--host` order, then cartridge
+- deterministic union with exact-value de-dup
+- first occurrence preserved
+- relative paths resolved from each YAML file directory
+
+## 9) CLI
 
 ```bash
-pasm generate --processor <processor.yaml> --system <system.yaml> --output <dir>
-pasm validate --processor <processor.yaml> --system <system.yaml>
-pasm info --processor <processor.yaml> --system <system.yaml>
+pasm generate --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...] [--cartridge-map <cartridge.yaml>] [--cartridge-rom <rom_file>] --output <dir> [--dispatch switch|threaded|both] [--validate-only]
+pasm validate --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...] [--cartridge-map <cartridge.yaml>] [--cartridge-rom <rom_file>]
+pasm info --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...] [--cartridge-map <cartridge.yaml>] [--cartridge-rom <rom_file>]
 ```
+
+Aliases:
+- `pasm gen` is equivalent to `pasm generate`.
 
 `--isa` is removed.
 
-## 5) Generated Model Notes
+## 10) Cross-file validation summary
 
-- Memory behavior and ROM write guards are generated from `system.memory.regions`.
-- Hook generation is driven only by `system.hooks`.
-- Port and interrupt runtime behavior are driven only by processor declarations.
-- System metadata (`name`, `version`, `clock_hz`, `integrations`) is exposed in generated metadata constants/comments.
+- `memory.default_size <= 2^processor.metadata.address_bits`
+- memory regions fit within `default_size`
+- system hook names must be supported
+- `system.components.ics/devices/hosts` must match loaded files exactly
+- `system.components.cartridge` must match loaded cartridge map ID when present
+- connection endpoints must exist and have compatible arity
+- IC/cartridge memory map overlaps are hard-fail
+- port map overlaps are validated per direction (`read` and `write` independently)
+- component-enabled generation requires instruction timing profiles

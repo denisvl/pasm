@@ -110,6 +110,9 @@ def _generate_decode_logic(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     lines = []
 
     instructions = isa_data.get("instructions", [])
+    isa_name = str(isa_data.get("metadata", {}).get("name", "")).lower()
+    is_mc6809 = "6809" in isa_name
+    is_big_endian = str(isa_data.get("metadata", {}).get("endian", "little")).lower() == "big"
 
     # Track prefixes used (non-zero only)
     prefixes = set()
@@ -143,7 +146,7 @@ def _generate_decode_logic(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
 
             # Decode prefixed instructions
             for inst in by_prefix.get(prefix, []):
-                _add_decode_case(lines, inst, prefix)
+                _add_decode_case(lines, inst, prefix, is_mc6809, is_big_endian)
 
             lines.append("                break;")
             lines.append("            }")
@@ -156,7 +159,7 @@ def _generate_decode_logic(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     # Decode non-prefixed instructions only when no prefix was consumed.
     lines.append("    if (prefix == 0) {")
     for inst in by_prefix.get(0, []):
-        _add_decode_case(lines, inst, 0)
+        _add_decode_case(lines, inst, 0, is_mc6809, is_big_endian)
     lines.append("    }")
 
     # Default case
@@ -189,7 +192,9 @@ def _generate_decode_logic(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     return "\n".join(lines)
 
 
-def _add_decode_case(lines: List[str], inst: Dict[str, Any], prefix: int):
+def _add_decode_case(
+    lines: List[str], inst: Dict[str, Any], prefix: int, is_mc6809: bool, is_big_endian: bool
+):
     """Add a decode case for an instruction."""
     name = inst.get("name", "UNKNOWN")
     category = inst.get("category", "misc").upper()
@@ -241,7 +246,6 @@ def _add_decode_case(lines: List[str], inst: Dict[str, Any], prefix: int):
     lines.append(f"                    inst.category = CAT_{category};")
     lines.append(f"                    inst.pc = pc;")
     lines.append(f"                    inst.cycles = {cycles};")
-    lines.append(f"                    inst.length = {length};")
 
     # Extract fields
     for field in fields:
@@ -251,18 +255,46 @@ def _add_decode_case(lines: List[str], inst: Dict[str, Any], prefix: int):
         width = msb - lsb + 1
 
         if field.get("type") == "immediate" or field.get("type") == "address":
-            if width <= 8:
+            mask = ((1 << width) - 1)
+            lines.append(
+                f"                    inst.{field_name} = (raw >> {lsb}) & 0x{mask:X};"
+            )
+            if is_big_endian and width > 8 and (width % 8) == 0:
+                byte_count = width // 8
+                lines.append("                    {")
+                lines.append(f"                        uint32_t be_tmp = (uint32_t)inst.{field_name};")
+                lines.append("                        uint32_t be_swapped = 0u;")
+                for byte_idx in range(byte_count):
+                    src_shift = 8 * byte_idx
+                    dst_shift = 8 * (byte_count - 1 - byte_idx)
+                    lines.append(
+                        f"                        be_swapped |= ((be_tmp >> {src_shift}) & 0xFFu) << {dst_shift};"
+                    )
                 lines.append(
-                    f"                    inst.{field_name} = (raw >> {lsb}) & 0x{((1 << width) - 1):X};"
+                    f"                        inst.{field_name} = (be_swapped & 0x{mask:X}u);"
                 )
-            else:
-                lines.append(
-                    f"                    inst.{field_name} = (raw >> {lsb}) & 0x{((1 << width) - 1):X};"
-                )
+                lines.append("                    }")
         else:
             lines.append(
                 f"                    inst.{field_name} = (raw >> {lsb}) & 0x{((1 << width) - 1):X};"
             )
+
+    has_postbyte = any(str(field.get("name", "")) == "postbyte" for field in fields)
+    if is_mc6809 and has_postbyte:
+        lines.append("                    {")
+        lines.append("                        uint8_t pb_len = (uint8_t)((raw >> 8) & 0xFFu);")
+        lines.append("                        uint8_t idx_extra = 0u;")
+        lines.append("                        if ((pb_len & 0x80u) != 0u) {")
+        lines.append("                            uint8_t mode = (uint8_t)(pb_len & 0x1Fu);")
+        lines.append("                            uint8_t m = mode;")
+        lines.append("                            if ((mode & 0x10u) != 0u) m = (uint8_t)(mode & 0x0Fu);")
+        lines.append("                            if (m == 0x08u || m == 0x0Cu) idx_extra = 1u;")
+        lines.append("                            else if (m == 0x09u || m == 0x0Du || m == 0x0Fu) idx_extra = 2u;")
+        lines.append("                        }")
+        lines.append(f"                        inst.length = (uint8_t)({length}u + idx_extra);")
+        lines.append("                    }")
+    else:
+        lines.append(f"                    inst.length = {length};")
 
     lines.append("                    return inst;")
     lines.append("                }")

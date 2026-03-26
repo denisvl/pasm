@@ -1,0 +1,98 @@
+metadata:
+  id: host_atari800xl
+  type: host_adapter
+  model: atari800xl_headless_stub
+  version: "1.0"
+
+state:
+  - name: key_ascii
+    type: uint8_t
+    initial: "0"
+  - name: consol_state
+    type: uint8_t
+    initial: "0x07"
+  - name: joy0_state
+    type: uint8_t
+    initial: "0x0F"
+  - name: joy1_state
+    type: uint8_t
+    initial: "0x0F"
+  - name: trig0
+    type: uint8_t
+    initial: "1"
+  - name: trig1
+    type: uint8_t
+    initial: "1"
+  - name: trig2
+    type: uint8_t
+    initial: "1"
+  - name: trig3
+    type: uint8_t
+    initial: "1"
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: audio_samples
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_ascii
+      args: []
+      returns: u8
+    - name: consol_state
+      args: []
+      returns: u8
+    - name: joystick_porta
+      args: []
+      returns: u8
+    - name: trigger0
+      args: []
+      returns: u8
+    - name: trigger1
+      args: []
+      returns: u8
+    - name: trigger2
+      args: []
+      returns: u8
+    - name: trigger3
+      args: []
+      returns: u8
+  handlers:
+    - name: video_frame
+      args: [u32, u64, u32, u32]
+    - name: audio_pcm
+      args: [u8, u64]
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    keyboard_ascii: |
+      return (uint64_t)comp->key_ascii;
+    consol_state: |
+      return (uint64_t)(comp->consol_state & 0x07u);
+    joystick_porta: |
+      return (uint64_t)(((comp->joy1_state & 0x0Fu) << 4u) | (comp->joy0_state & 0x0Fu));
+    trigger0: |
+      return (uint64_t)(comp->trig0 & 0x01u);
+    trigger1: |
+      return (uint64_t)(comp->trig1 & 0x01u);
+    trigger2: |
+      return (uint64_t)(comp->trig2 & 0x01u);
+    trigger3: |
+      return (uint64_t)(comp->trig3 & 0x01u);
+  handler_bodies:
+    video_frame: |
+      if (argc > 0) {
+          comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      }
+    audio_pcm: |
+      comp->audio_samples += 1u;
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

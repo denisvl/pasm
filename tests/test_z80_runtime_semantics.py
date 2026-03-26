@@ -5056,6 +5056,46 @@ def test_jr_nz_d_does_not_branch_when_zero_is_set(z80_binary, tmp_path):
     not shutil.which("cmake"),
     reason="cmake not available on PATH",
 )
+def test_jr_nz_d_after_cp_a_h_branches_when_not_equal(z80_binary, tmp_path):
+    rom = tmp_path / "jr_nz_after_cp_a_h_taken.rom"
+    # LD A,0x41 ; LD H,0x42 ; CP A,H ; JR NZ,+2 ; LD B,0x11 ; HALT ; LD B,0x77 ; HALT
+    rom.write_bytes(bytes([0x3E, 0x41, 0x26, 0x42, 0xBC, 0x20, 0x02, 0x06, 0x11, 0x76, 0x06, 0x77, 0x76]))
+
+    proc = subprocess.run(
+        [str(z80_binary), "--rom", str(rom), "--cycles", "60"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert (_parse_flags(proc.stdout) & 0x02) == 0  # FLAG_Z clear after CP A,H mismatch
+    assert _parse_reg(proc.stdout, 1) == 0x00  # Branch skips LD B,0x11 and halts before LD B,0x77
+
+
+@pytest.mark.skipif(
+    not shutil.which("cmake"),
+    reason="cmake not available on PATH",
+)
+def test_jr_nz_d_after_cp_a_h_does_not_branch_when_equal(z80_binary, tmp_path):
+    rom = tmp_path / "jr_nz_after_cp_a_h_not_taken.rom"
+    # LD A,0x42 ; LD H,0x42 ; CP A,H ; JR NZ,+2 ; LD B,0x11 ; HALT ; LD B,0x77 ; HALT
+    rom.write_bytes(bytes([0x3E, 0x42, 0x26, 0x42, 0xBC, 0x20, 0x02, 0x06, 0x11, 0x76, 0x06, 0x77, 0x76]))
+
+    proc = subprocess.run(
+        [str(z80_binary), "--rom", str(rom), "--cycles", "60"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert (_parse_flags(proc.stdout) & 0x02) != 0  # FLAG_Z set after CP A,H match
+    assert _parse_reg(proc.stdout, 1) == 0x11  # Not taken path executes LD B,0x11
+
+
+@pytest.mark.skipif(
+    not shutil.which("cmake"),
+    reason="cmake not available on PATH",
+)
 def test_jr_nc_d_branches_when_carry_is_clear(z80_binary, tmp_path):
     rom = tmp_path / "jr_nc.rom"
     # LD A,1 ; ADD A,1 (clears C) ; JR NC,+2 ; LD A,0x11 ; LD A,0x77

@@ -1,54 +1,66 @@
 # PASM Plan and Status
 
-## Current State
+Last verified on: March 19, 2026
 
-Implemented:
-- Hard cutover to dual-file model: `processor.yaml` + `system.yaml`.
-- CLI uses `--processor` and `--system`; single-file `--isa` is rejected.
-- Parser split into processor loader, system loader, and composition validation.
-- Codegen input model is composed from processor+system with ownership boundaries.
-- Hooks derive from system config.
-- Memory regions (including ROM write protection) derive from system config.
-- Ports and interrupts remain processor-owned.
-- Generated output includes system metadata constants/comments (`clock_hz`, integrations metadata).
+## Current State (Implemented)
 
-Quality gate:
-- `uv run --extra dev pytest -q` is green.
+- Hard cutover to multi-file composition:
+  - required: `processor.yaml`, `system.yaml`
+  - repeatable: `ic.yaml`, `device.yaml`, `host.yaml`
+  - optional single active cartridge: `cartridge.yaml`
+- CLI supports:
+  - `--processor --system`
+  - repeatable `--ic`, `--device`, `--host`
+  - cartridge flow: `--cartridge-map`, `--cartridge-rom`
+  - `generate` options: `--dispatch`, `--validate-only`
+- System-owned wiring graph is implemented via:
+  - `components.ics[]`, `components.devices[]`, `components.hosts[]`
+  - optional `components.cartridge`
+  - `connections[]`
+- ROM loading is implemented:
+  - system manifests: `memory.rom_images[]`
+  - runtime API: `<cpu_prefix>_load_system_roms(...)`
+  - cartridge runtime API: `<cpu_prefix>_load_cartridge_rom(...)`
+  - generated `main.c` supports runtime override `--cart-rom`
+- Generic component runtime generation is in place:
+  - no hardware-model-specific branches in generator/runtime
+  - behavior comes from YAML snippets (`ic`/`device`/`host`/`cartridge`)
+  - generic endpoint routing (`callback` / `signal` / `handler`)
+- `coding` merge support is implemented for behavior-capable YAMLs:
+  - deterministic merged includes/link config in generated CMake/Makefile
+  - merge order: processor -> ICs -> devices -> hosts -> cartridge
+- Processor display features are implemented:
+  - `registers[].display_name`
+  - operand-resolved disassembly via `display_template` + `display_operands`
+- Emulator stacks implemented and exercised in repo examples:
+  - ZX Spectrum 48K (Z80 + ULA/devices/host)
+  - MSX1 baseline and interactive profiles
+  - Sega Master System baseline/interative + cartridge mapping flow
+  - CoCo1 (MC6809)
+  - Apple II (MOS6502)
+  - C64 (MOS6510)
 
 ## Ownership Contract
 
-`processor.yaml` owns:
-- `metadata` (`name`, `version`, `bits`, `address_bits`, `endian`, `undefined_opcode_policy`)
-- `registers`, `flags`, `instructions`
-- `ports`, `interrupts`
+- `processor.yaml` owns CPU semantics and instruction behavior.
+- `system.yaml` owns memory/clock/hooks/reset/audio plus all component wiring and ROM manifests.
+- `ic.yaml`, `device.yaml`, `host.yaml`, and `cartridge.yaml` own component-local state/interfaces/behavior/coding.
 
-`system.yaml` owns:
-- `metadata` (`name`, optional `version`)
-- `clock_hz`
-- `memory` (`default_size`, `regions`)
-- `hooks`
-- `integrations`
+## Verification Commands
 
-Cross-file checks:
-- `memory.default_size <= 2^address_bits`
-- regions are non-negative and fit in `default_size`
-- unsupported hook names are rejected
+Use these to re-check documented behavior quickly:
 
-## Z80 Status
+```bash
+uv run python -m src.main --help
+uv run python -m src.main generate --help
+uv run python -m src.main validate --help
+uv run python -m src.main info --help
+uv run --extra dev pytest -q
+```
 
-Implemented:
-- Full decode-space coverage across base/CB/ED/DD/FD/DDCB/FDCB.
-- Documented and undocumented opcode handling in current generator/spec.
-- Interrupt model support including Z80 IM0/IM1/IM2 behavior path.
-- Port I/O hooks (`port_read_*`, `port_write_*`) with event payload.
-- SectorZ hook demo path and integration test.
-- Decode-cycle regression reference gate.
+## Next Suggested Work
 
-## Next Priorities
-
-1. Keep Z80 coverage/cycle semantics locked with regression tests.
-2. Expand platform CI matrix for generated C11 outputs (MSVC/Clang/GCC).
-3. Continue next-processor roadmap:
-   1. MOS 6502/6510
-   2. Motorola 68000
-   3. Ricoh 2A03
+1. Expand typed signature compatibility checks beyond arity in `connections[]`.
+2. Add CI matrix for generated C builds across MSVC/Clang/GCC with interactive/non-interactive targets.
+3. Strengthen runtime reference tests for video/audio correctness in interactive systems.
+4. Continue processor fidelity work (remaining undocumented/edge opcode semantics and timing corner cases).

@@ -1,0 +1,299 @@
+metadata:
+  id: sg_vdp0
+  type: video_controller
+  model: tms9918a_sg1000
+  version: "1.0"
+
+clock_hz: 3579545
+
+state:
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: tstate_accum
+    type: uint64_t
+    initial: "0"
+  - name: vdp_addr
+    type: uint16_t
+    initial: "0"
+  - name: control_latch
+    type: uint8_t
+    initial: "0"
+  - name: control_phase
+    type: uint8_t
+    initial: "0"
+  - name: read_buffer
+    type: uint8_t
+    initial: "0"
+  - name: render_dirty
+    type: uint8_t
+    initial: "1"
+  - name: reg0
+    type: uint8_t
+    initial: "0"
+  - name: reg1
+    type: uint8_t
+    initial: "0"
+  - name: reg2
+    type: uint8_t
+    initial: "0"
+  - name: reg3
+    type: uint8_t
+    initial: "0"
+  - name: reg4
+    type: uint8_t
+    initial: "0"
+  - name: reg5
+    type: uint8_t
+    initial: "0"
+  - name: reg6
+    type: uint8_t
+    initial: "0"
+  - name: reg7
+    type: uint8_t
+    initial: "0"
+  - name: status
+    type: uint8_t
+    initial: "0"
+  - name: vram
+    type: uint8_t *
+    initial: "NULL"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32]
+    - name: irq_edge
+      args: [u8]
+
+maps:
+  ports:
+    read:
+      - name: vdp_data_read
+        mask: 0x00C1
+        value: 0x0080
+      - name: vdp_status_read
+        mask: 0x00C1
+        value: 0x0081
+    write:
+      - name: vdp_data_write
+        mask: 0x00C1
+        value: 0x0080
+      - name: vdp_ctrl_write
+        mask: 0x00C1
+        value: 0x0081
+
+behavior:
+  snippets:
+    init: |
+      do {
+          if (comp->vram != NULL) break;
+          comp->vram = (uint8_t *)calloc(16384u, sizeof(uint8_t));
+          if (comp->vram == NULL) break;
+      } while (0);
+      comp->render_dirty = 1u;
+    reset: |
+      if (comp->vram != NULL) {
+          memset(comp->vram, 0, 16384u);
+      }
+      comp->render_dirty = 1u;
+    destroy: |
+      if (comp->vram != NULL) {
+          free(comp->vram);
+          comp->vram = NULL;
+      }
+    port_read_post: |
+      uint8_t *vram = comp->vram;
+      if (vram == NULL) { value = 0xFFu; return value; }
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0x00C1u);
+      if (p == 0x80u) {
+          value = comp->read_buffer;
+          comp->read_buffer = vram[(uint16_t)(comp->vdp_addr & 0x3FFFu)];
+          comp->vdp_addr = (uint16_t)((comp->vdp_addr + 1u) & 0x3FFFu);
+      } else if (p == 0x81u) {
+          value = comp->status;
+          comp->status = (uint8_t)(comp->status & 0x7Fu);
+          comp->control_phase = 0u;
+      }
+    port_write_pre: |
+      uint8_t *vram = comp->vram;
+      if (vram == NULL) return;
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0x00C1u);
+      if (p == 0x80u) {
+          vram[(uint16_t)(comp->vdp_addr & 0x3FFFu)] = value;
+          comp->vdp_addr = (uint16_t)((comp->vdp_addr + 1u) & 0x3FFFu);
+          comp->render_dirty = 1u;
+      } else if (p == 0x81u) {
+          if (comp->control_phase == 0u) {
+              comp->control_latch = value;
+              comp->control_phase = 1u;
+          } else {
+              uint8_t cmd = value;
+              uint16_t addr = (uint16_t)(((uint16_t)(cmd & 0x3Fu) << 8) | comp->control_latch);
+              if ((cmd & 0x80u) != 0u) {
+                  uint8_t reg_idx = (uint8_t)(cmd & 0x07u);
+                  uint8_t reg_val = comp->control_latch;
+                  switch (reg_idx) {
+                      case 0u: comp->reg0 = reg_val; break;
+                      case 1u: comp->reg1 = reg_val; break;
+                      case 2u: comp->reg2 = reg_val; break;
+                      case 3u: comp->reg3 = reg_val; break;
+                      case 4u: comp->reg4 = reg_val; break;
+                      case 5u: comp->reg5 = reg_val; break;
+                      case 6u: comp->reg6 = reg_val; break;
+                      case 7u: comp->reg7 = reg_val; break;
+                      default: break;
+                  }
+                  comp->render_dirty = 1u;
+              } else if ((cmd & 0x40u) != 0u) {
+                  comp->vdp_addr = (uint16_t)(addr & 0x3FFFu);
+              } else {
+                  comp->vdp_addr = (uint16_t)(addr & 0x3FFFu);
+                  comp->read_buffer = vram[(uint16_t)(comp->vdp_addr & 0x3FFFu)];
+                  comp->vdp_addr = (uint16_t)((comp->vdp_addr + 1u) & 0x3FFFu);
+              }
+              comp->control_phase = 0u;
+          }
+      }
+    step_post: |
+      uint8_t *vram = comp->vram;
+      if (vram == NULL) return;
+      static uint32_t framebuf[256u * 192u];
+      static const uint32_t msx_palette[16] = {
+          0xFF000000u, 0xFF000000u, 0xFF21C842u, 0xFF5EDC78u,
+          0xFF5455EDu, 0xFF7D76FCu, 0xFFD4524Du, 0xFF42EBF5u,
+          0xFFFC5554u, 0xFFFF7978u, 0xFFD4C154u, 0xFFE6CE80u,
+          0xFF21B03Bu, 0xFFC95BBAu, 0xFFCCCCCCu, 0xFFFFFFFFu
+      };
+      const uint64_t frame_tstates = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 59659u;
+      const uint64_t frame_period = (frame_tstates > 0u) ? frame_tstates : 59659u;
+      comp->tstate_accum += (uint64_t)inst->cycles;
+      while (comp->tstate_accum >= frame_period) {
+          comp->tstate_accum -= frame_period;
+          comp->frame_counter += 1u;
+          comp->status = (uint8_t)(comp->status | 0x80u);
+          if (comp->render_dirty != 0u) {
+              uint16_t name_base = (uint16_t)(((uint16_t)(comp->reg2 & 0x0Fu) << 10) & 0x3FFFu);
+              uint16_t color_base = (uint16_t)(((uint16_t)comp->reg3 << 6) & 0x3FFFu);
+              uint16_t patt_base = (uint16_t)(((uint16_t)(comp->reg4 & 0x07u) << 11) & 0x3FFFu);
+              uint8_t display_on = (uint8_t)((comp->reg1 & 0x40u) != 0u);
+              uint8_t mode_m1 = (uint8_t)((comp->reg1 >> 4) & 0x01u);
+              uint8_t mode_m2 = (uint8_t)((comp->reg1 >> 3) & 0x01u);
+              uint8_t mode_m3 = (uint8_t)((comp->reg0 >> 1) & 0x01u);
+              uint8_t is_text_mode = (uint8_t)((mode_m1 != 0u) && (mode_m2 == 0u) && (mode_m3 == 0u));
+              uint8_t is_graphics2_mode = (uint8_t)((mode_m1 == 0u) && (mode_m2 == 0u) && (mode_m3 != 0u));
+              uint8_t fallback_fg = (uint8_t)((comp->reg7 >> 4) & 0x0Fu);
+              uint8_t fallback_bg = (uint8_t)(comp->reg7 & 0x0Fu);
+              if (fallback_fg == 0u) fallback_fg = 15u;
+              if (is_graphics2_mode != 0u) {
+                  /*
+                   * TMS9918A Graphics II (SCREEN 2):
+                   * - Pattern base uses only R4 bit 2 (0x0000 or 0x2000)
+                   * - Color   base uses only R3 bit 7 (0x0000 or 0x2000)
+                   * Lower bits are ignored in this mode.
+                   */
+                  patt_base = (uint16_t)(((uint16_t)(comp->reg4 & 0x04u)) << 11);
+                  color_base = (uint16_t)(((uint16_t)(comp->reg3 & 0x80u)) << 6);
+              }
+              for (uint32_t i = 0u; i < (256u * 192u); i++) {
+                  framebuf[i] = msx_palette[fallback_bg & 0x0Fu];
+              }
+              if (is_text_mode != 0u) {
+                  for (uint16_t row = 0u; row < 24u; row++) {
+                      for (uint16_t col = 0u; col < 40u; col++) {
+                          uint16_t name_addr = (uint16_t)(name_base + row * 40u + col);
+                          uint8_t ch = vram[(uint16_t)(name_addr & 0x3FFFu)];
+                          uint16_t patt_addr = (uint16_t)(patt_base + ((uint16_t)ch << 3));
+                          for (uint8_t py = 0u; py < 8u; py++) {
+                              uint32_t y = (uint32_t)row * 8u + (uint32_t)py;
+                              if (y >= 192u) continue;
+                              uint8_t patt = display_on ? vram[(uint16_t)((patt_addr + py) & 0x3FFFu)] : 0u;
+                              uint32_t x0 = 8u + (uint32_t)col * 6u;
+                              for (uint8_t px = 0u; px < 6u; px++) {
+                                  uint32_t x = x0 + (uint32_t)px;
+                                  if (x >= 256u) continue;
+                                  uint8_t on = (uint8_t)((patt & (uint8_t)(0x80u >> px)) != 0u);
+                                  framebuf[y * 256u + x] = on
+                                      ? msx_palette[fallback_fg & 0x0Fu]
+                                      : msx_palette[fallback_bg & 0x0Fu];
+                              }
+                          }
+                      }
+                  }
+              } else if (is_graphics2_mode != 0u) {
+                  for (uint32_t y = 0u; y < 192u; y++) {
+                      uint16_t tile_row = (uint16_t)(y >> 3);
+                      uint8_t line_in_tile = (uint8_t)(y & 0x07u);
+                      uint16_t section = (uint16_t)((y >> 6) & 0x03u);
+                      for (uint16_t tile_col = 0u; tile_col < 32u; tile_col++) {
+                          uint16_t name_addr = (uint16_t)(name_base + (tile_row * 32u) + tile_col);
+                          uint8_t ch = vram[(uint16_t)(name_addr & 0x3FFFu)];
+                          uint16_t patt_addr = (uint16_t)(patt_base + (section * 0x800u) + ((uint16_t)ch << 3) + (uint16_t)line_in_tile);
+                          uint16_t col_addr = (uint16_t)(color_base + (section * 0x800u) + ((uint16_t)ch << 3) + (uint16_t)line_in_tile);
+                          uint8_t patt = display_on ? vram[(uint16_t)(patt_addr & 0x3FFFu)] : 0u;
+                          uint8_t color = vram[(uint16_t)(col_addr & 0x3FFFu)];
+                          uint8_t fg = (uint8_t)((color >> 4) & 0x0Fu);
+                          uint8_t bg = (uint8_t)(color & 0x0Fu);
+                          if (fg == 0u) fg = fallback_bg;
+                          if (bg == 0u) bg = fallback_bg;
+                          for (uint8_t bit = 0u; bit < 8u; bit++) {
+                              uint32_t x = (uint32_t)(tile_col * 8u + bit);
+                              uint8_t on = (uint8_t)((patt & (uint8_t)(0x80u >> bit)) != 0u);
+                              uint8_t idx = on ? fg : bg;
+                              framebuf[y * 256u + x] = msx_palette[(uint8_t)(idx & 0x0Fu)];
+                          }
+                      }
+                  }
+              } else {
+                  for (uint32_t y = 0u; y < 192u; y++) {
+                      uint16_t tile_row = (uint16_t)(y >> 3);
+                      uint8_t line_in_tile = (uint8_t)(y & 0x07u);
+                      for (uint16_t tile_col = 0u; tile_col < 32u; tile_col++) {
+                          uint16_t name_addr = (uint16_t)(name_base + (tile_row * 32u) + tile_col);
+                          uint8_t ch = vram[(uint16_t)(name_addr & 0x3FFFu)];
+                          uint16_t patt_addr = (uint16_t)(patt_base + ((uint16_t)ch << 3) + (uint16_t)line_in_tile);
+                          uint8_t patt = display_on ? vram[(uint16_t)(patt_addr & 0x3FFFu)] : 0u;
+                          uint8_t color = vram[(uint16_t)((color_base + (uint16_t)(ch >> 3)) & 0x3FFFu)];
+                          uint8_t fg = (uint8_t)((color >> 4) & 0x0Fu);
+                          uint8_t bg = (uint8_t)(color & 0x0Fu);
+                          if (fg == 0u) fg = fallback_bg;
+                          if (bg == 0u) bg = fallback_bg;
+                          for (uint8_t bit = 0u; bit < 8u; bit++) {
+                              uint32_t x = (uint32_t)(tile_col * 8u + bit);
+                              uint8_t on = (uint8_t)((patt & (uint8_t)(0x80u >> bit)) != 0u);
+                              uint8_t idx = on ? fg : bg;
+                              framebuf[y * 256u + x] = msx_palette[(uint8_t)(idx & 0x0Fu)];
+                          }
+                      }
+                  }
+              }
+              comp->render_dirty = 0u;
+          }
+          {
+              uint64_t frame_args[4] = {
+                  (uint64_t)comp->frame_counter,
+                  (uint64_t)(uintptr_t)framebuf,
+                  256u,
+                  192u
+              };
+              cpu_component_emit_signal(cpu, "sg_vdp0", "frame_ready", frame_args, 4);
+          }
+          if ((comp->reg1 & 0x20u) != 0u) {
+              cpu->interrupt_vector = 0xFFu;
+              cpu->interrupt_pending = true;
+              uint64_t irq_up[1] = { 1u };
+              uint64_t irq_down[1] = { 0u };
+              cpu_component_emit_signal(cpu, "sg_vdp0", "irq_edge", irq_up, 1);
+              cpu_component_emit_signal(cpu, "sg_vdp0", "irq_edge", irq_down, 1);
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

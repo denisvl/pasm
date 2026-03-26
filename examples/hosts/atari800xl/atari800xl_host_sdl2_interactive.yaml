@@ -1,0 +1,666 @@
+metadata:
+  id: host_atari800xl_sdl2
+  type: host_adapter
+  model: atari800xl_sdl2_interactive
+  version: "1.0"
+
+state:
+  - name: sdl_inited
+    type: uint8_t
+    initial: "0"
+  - name: window
+    type: void *
+    initial: "NULL"
+  - name: renderer
+    type: void *
+    initial: "NULL"
+  - name: texture
+    type: void *
+    initial: "NULL"
+  - name: texture_w
+    type: uint32_t
+    initial: "320"
+  - name: texture_h
+    type: uint32_t
+    initial: "192"
+  - name: audio_out_dev
+    type: uint32_t
+    initial: "0"
+  - name: audio_out_ready
+    type: uint8_t
+    initial: "0"
+  - name: audio_device_samples
+    type: uint32_t
+    initial: "0"
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: audio_samples
+    type: uint32_t
+    initial: "0"
+  - name: audio_level
+    type: int16_t
+    initial: "0"
+  - name: audio_last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: audio_sample_cursor
+    type: uint64_t
+    initial: "0"
+  - name: audio_rate
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring
+    type: int16_t *
+    initial: "NULL"
+  - name: audio_ring_capacity
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring_read_idx
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring_write_idx
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring_fill
+    type: uint32_t
+    initial: "0"
+  - name: key_ascii
+    type: uint8_t
+    initial: "0"
+  - name: key_queue
+    type: uint8_t *
+    initial: "NULL"
+  - name: key_q_read_idx
+    type: uint8_t
+    initial: "0"
+  - name: key_q_write_idx
+    type: uint8_t
+    initial: "0"
+  - name: consol_state
+    type: uint8_t
+    initial: "0x07"
+  - name: joy0_state
+    type: uint8_t
+    initial: "0x0F"
+  - name: joy1_state
+    type: uint8_t
+    initial: "0x0F"
+  - name: trig0
+    type: uint8_t
+    initial: "1"
+  - name: trig1
+    type: uint8_t
+    initial: "1"
+  - name: trig2
+    type: uint8_t
+    initial: "1"
+  - name: trig3
+    type: uint8_t
+    initial: "1"
+  - name: last_event_poll_cycle
+    type: uint64_t
+    initial: "0u"
+  - name: overlay_last_ms
+    type: uint32_t
+    initial: "0"
+  - name: overlay_last_frame_count
+    type: uint64_t
+    initial: "0"
+  - name: overlay_last_cycle_count
+    type: uint64_t
+    initial: "0"
+  - name: overlay_fps_x100
+    type: uint32_t
+    initial: "0"
+  - name: overlay_cpu_hz
+    type: uint64_t
+    initial: "0"
+  - name: overlay_cpu_pct_x10
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_ascii
+      args: []
+      returns: u8
+    - name: consol_state
+      args: []
+      returns: u8
+    - name: joystick_porta
+      args: []
+      returns: u8
+    - name: trigger0
+      args: []
+      returns: u8
+    - name: trigger1
+      args: []
+      returns: u8
+    - name: trigger2
+      args: []
+      returns: u8
+    - name: trigger3
+      args: []
+      returns: u8
+  handlers:
+    - name: video_frame
+      args: [u32, u64, u32, u32]
+    - name: audio_pcm
+      args: [u8, u64]
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      do {
+          if (comp->sdl_inited != 0u) break;
+          if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) != 0) break;
+          comp->window = SDL_CreateWindow(
+              "PASM Atari 800XL",
+              SDL_WINDOWPOS_CENTERED,
+              SDL_WINDOWPOS_CENTERED,
+              840,
+              576,
+              SDL_WINDOW_RESIZABLE
+          );
+          if (comp->window == NULL) break;
+          comp->renderer = SDL_CreateRenderer((SDL_Window *)comp->window, -1, SDL_RENDERER_ACCELERATED);
+          if (comp->renderer == NULL) {
+              comp->renderer = SDL_CreateRenderer((SDL_Window *)comp->window, -1, 0);
+          }
+          if (comp->renderer == NULL) break;
+          comp->texture = SDL_CreateTexture(
+              (SDL_Renderer *)comp->renderer,
+              SDL_PIXELFORMAT_ARGB8888,
+              SDL_TEXTUREACCESS_STREAMING,
+              320,
+              192
+          );
+          if (comp->texture == NULL) break;
+          if (comp->key_queue == NULL) {
+              comp->key_queue = (uint8_t *)SDL_calloc(16u, sizeof(uint8_t));
+              if (comp->key_queue == NULL) break;
+          }
+          SDL_ShowWindow((SDL_Window *)comp->window);
+          SDL_RaiseWindow((SDL_Window *)comp->window);
+          (void)SDL_SetWindowInputFocus((SDL_Window *)comp->window);
+          {
+              const char *audio_env = getenv("PASM_SDL_AUDIO");
+              if (audio_env == NULL || audio_env[0] != '0') {
+                  SDL_AudioSpec want;
+                  SDL_AudioSpec have;
+                  SDL_zero(want);
+                  SDL_zero(have);
+                  want.freq = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (int)CPU_AUDIO_SAMPLE_RATE : 44100;
+                  want.format = AUDIO_S16SYS;
+                  want.channels = 1;
+                  want.samples = 512;
+                  want.callback = NULL;
+                  comp->audio_device_samples = 0u;
+                  comp->audio_out_dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+                  if (comp->audio_out_dev != 0u && have.format == AUDIO_S16SYS && have.channels == 1) {
+                      uint32_t ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq * 2u) : 88200u;
+                      if (ring_capacity < 8192u) ring_capacity = 8192u;
+                      comp->audio_ring = (int16_t *)SDL_malloc((size_t)ring_capacity * sizeof(int16_t));
+                      if (comp->audio_ring != NULL) {
+                          comp->audio_rate = (have.freq > 0) ? (uint32_t)have.freq : 44100u;
+                          comp->audio_ring_capacity = ring_capacity;
+                          comp->audio_ring_read_idx = 0u;
+                          comp->audio_ring_write_idx = 0u;
+                          comp->audio_ring_fill = 0u;
+                          comp->audio_device_samples = (uint32_t)have.samples;
+                          comp->audio_out_ready = 1u;
+                          SDL_PauseAudioDevice(comp->audio_out_dev, 0);
+                      } else {
+                          SDL_CloseAudioDevice(comp->audio_out_dev);
+                          comp->audio_out_dev = 0u;
+                          comp->audio_device_samples = 0u;
+                      }
+                  } else if (comp->audio_out_dev != 0u) {
+                      SDL_CloseAudioDevice(comp->audio_out_dev);
+                      comp->audio_out_dev = 0u;
+                      comp->audio_device_samples = 0u;
+                  }
+              }
+          }
+          comp->sdl_inited = 1u;
+      } while (0);
+    reset: |
+      comp->frame_count = 0u;
+      comp->audio_samples = 0u;
+      comp->audio_level = 0;
+      comp->audio_last_cycle = 0u;
+      comp->audio_sample_cursor = 0u;
+      comp->audio_ring_read_idx = 0u;
+      comp->audio_ring_write_idx = 0u;
+      comp->audio_ring_fill = 0u;
+      comp->key_ascii = 0u;
+      if (comp->key_queue != NULL) {
+          memset(comp->key_queue, 0, 16u * sizeof(uint8_t));
+      }
+      comp->key_q_read_idx = 0u;
+      comp->key_q_write_idx = 0u;
+      comp->consol_state = 0x07u;
+      comp->joy0_state = 0x0Fu;
+      comp->joy1_state = 0x0Fu;
+      comp->trig0 = 1u;
+      comp->trig1 = 1u;
+      comp->trig2 = 1u;
+      comp->trig3 = 1u;
+      comp->last_event_poll_cycle = 0u;
+      comp->overlay_last_ms = 0u;
+      comp->overlay_last_frame_count = 0u;
+      comp->overlay_last_cycle_count = 0u;
+      comp->overlay_fps_x100 = 0u;
+      comp->overlay_cpu_hz = 0u;
+      comp->overlay_cpu_pct_x10 = 0u;
+      if (comp->audio_out_dev != 0u) {
+          SDL_ClearQueuedAudio(comp->audio_out_dev);
+      }
+    step_post: |
+      if (comp->sdl_inited == 0u) return;
+      {
+          uint64_t now = cpu->total_cycles;
+          if ((now - comp->last_event_poll_cycle) < 256u) {
+              return;
+          }
+          comp->last_event_poll_cycle = now;
+      }
+      SDL_Event ev;
+      while (SDL_PollEvent(&ev)) {
+          if (ev.type == SDL_QUIT) {
+              cpu->running = false;
+              cpu->halted = true;
+              return;
+          } else if (ev.type == SDL_KEYDOWN && ev.key.repeat == 0) {
+              SDL_Scancode sc = ev.key.keysym.scancode;
+              if (sc == SDL_SCANCODE_F2) {
+                  comp->consol_state = (uint8_t)(comp->consol_state & (uint8_t)~0x04u); /* OPTION */
+                  continue;
+              }
+              if (sc == SDL_SCANCODE_F3) {
+                  comp->consol_state = (uint8_t)(comp->consol_state & (uint8_t)~0x02u); /* SELECT */
+                  continue;
+              }
+              if (sc == SDL_SCANCODE_F4) {
+                  comp->consol_state = (uint8_t)(comp->consol_state & (uint8_t)~0x01u); /* START */
+                  continue;
+              }
+              if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_KP_8) {
+                  comp->joy0_state = (uint8_t)(comp->joy0_state & (uint8_t)~0x01u);
+                  continue;
+              }
+              if (sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_KP_2) {
+                  comp->joy0_state = (uint8_t)(comp->joy0_state & (uint8_t)~0x02u);
+                  continue;
+              }
+              if (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_KP_4) {
+                  comp->joy0_state = (uint8_t)(comp->joy0_state & (uint8_t)~0x04u);
+                  continue;
+              }
+              if (sc == SDL_SCANCODE_RIGHT || sc == SDL_SCANCODE_KP_6) {
+                  comp->joy0_state = (uint8_t)(comp->joy0_state & (uint8_t)~0x08u);
+                  continue;
+              }
+              if (
+                  sc == SDL_SCANCODE_RCTRL ||
+                  sc == SDL_SCANCODE_RALT ||
+                  sc == SDL_SCANCODE_SPACE ||
+                  sc == SDL_SCANCODE_KP_0
+              ) {
+                  comp->trig0 = 0u;
+                  continue;
+              }
+              if (sc == SDL_SCANCODE_I) {
+                  comp->joy1_state = (uint8_t)(comp->joy1_state & (uint8_t)~0x01u);
+              }
+              if (sc == SDL_SCANCODE_K) {
+                  comp->joy1_state = (uint8_t)(comp->joy1_state & (uint8_t)~0x02u);
+              }
+              if (sc == SDL_SCANCODE_J) {
+                  comp->joy1_state = (uint8_t)(comp->joy1_state & (uint8_t)~0x04u);
+              }
+              if (sc == SDL_SCANCODE_L) {
+                  comp->joy1_state = (uint8_t)(comp->joy1_state & (uint8_t)~0x08u);
+              }
+              if (sc == SDL_SCANCODE_LCTRL) {
+                  comp->trig1 = 0u;
+                  continue;
+              }
+              if (sc == SDL_SCANCODE_TAB) {
+                  comp->trig2 = 0u;
+                  continue;
+              }
+              if (sc == SDL_SCANCODE_BACKSPACE) {
+                  comp->trig3 = 0u;
+                  continue;
+              }
+              uint8_t controlled = ((ev.key.keysym.mod & KMOD_CTRL) != 0) ? 1u : 0u;
+              uint8_t shifted = ((ev.key.keysym.mod & KMOD_SHIFT) != 0) ? 1u : 0u;
+              uint8_t ascii = 0u;
+              if (controlled != 0u) {
+                  if (sc >= SDL_SCANCODE_A && sc <= SDL_SCANCODE_Z) {
+                      ascii = (uint8_t)(1u + (uint8_t)(sc - SDL_SCANCODE_A));
+                  } else if (sc == SDL_SCANCODE_2 || sc == SDL_SCANCODE_SPACE) {
+                      ascii = 0x00u;
+                  } else if (sc == SDL_SCANCODE_LEFTBRACKET) {
+                      ascii = 0x1Bu;
+                  } else if (sc == SDL_SCANCODE_BACKSLASH) {
+                      ascii = 0x1Cu;
+                  } else if (sc == SDL_SCANCODE_RIGHTBRACKET) {
+                      ascii = 0x1Du;
+                  } else if (sc == SDL_SCANCODE_6) {
+                      ascii = 0x1Eu;
+                  } else if (sc == SDL_SCANCODE_MINUS) {
+                      ascii = 0x1Fu;
+                  }
+              } else if (sc == SDL_SCANCODE_A) ascii = 'A';
+              else if (sc == SDL_SCANCODE_B) ascii = 'B';
+              else if (sc == SDL_SCANCODE_C) ascii = 'C';
+              else if (sc == SDL_SCANCODE_D) ascii = 'D';
+              else if (sc == SDL_SCANCODE_E) ascii = 'E';
+              else if (sc == SDL_SCANCODE_F) ascii = 'F';
+              else if (sc == SDL_SCANCODE_G) ascii = 'G';
+              else if (sc == SDL_SCANCODE_H) ascii = 'H';
+              else if (sc == SDL_SCANCODE_I) ascii = 'I';
+              else if (sc == SDL_SCANCODE_J) ascii = 'J';
+              else if (sc == SDL_SCANCODE_K) ascii = 'K';
+              else if (sc == SDL_SCANCODE_L) ascii = 'L';
+              else if (sc == SDL_SCANCODE_M) ascii = 'M';
+              else if (sc == SDL_SCANCODE_N) ascii = 'N';
+              else if (sc == SDL_SCANCODE_O) ascii = 'O';
+              else if (sc == SDL_SCANCODE_P) ascii = 'P';
+              else if (sc == SDL_SCANCODE_Q) ascii = 'Q';
+              else if (sc == SDL_SCANCODE_R) ascii = 'R';
+              else if (sc == SDL_SCANCODE_S) ascii = 'S';
+              else if (sc == SDL_SCANCODE_T) ascii = 'T';
+              else if (sc == SDL_SCANCODE_U) ascii = 'U';
+              else if (sc == SDL_SCANCODE_V) ascii = 'V';
+              else if (sc == SDL_SCANCODE_W) ascii = 'W';
+              else if (sc == SDL_SCANCODE_X) ascii = 'X';
+              else if (sc == SDL_SCANCODE_Y) ascii = 'Y';
+              else if (sc == SDL_SCANCODE_Z) ascii = 'Z';
+              else if (sc == SDL_SCANCODE_0) ascii = shifted ? ')' : '0';
+              else if (sc == SDL_SCANCODE_1) ascii = shifted ? '!' : '1';
+              else if (sc == SDL_SCANCODE_2) ascii = shifted ? '@' : '2';
+              else if (sc == SDL_SCANCODE_3) ascii = shifted ? '#' : '3';
+              else if (sc == SDL_SCANCODE_4) ascii = shifted ? '$' : '4';
+              else if (sc == SDL_SCANCODE_5) ascii = shifted ? '%' : '5';
+              else if (sc == SDL_SCANCODE_6) ascii = shifted ? '^' : '6';
+              else if (sc == SDL_SCANCODE_7) ascii = shifted ? '&' : '7';
+              else if (sc == SDL_SCANCODE_8) ascii = shifted ? '*' : '8';
+              else if (sc == SDL_SCANCODE_9) ascii = shifted ? '(' : '9';
+              else if (sc == SDL_SCANCODE_KP_0) ascii = '0';
+              else if (sc == SDL_SCANCODE_KP_1) ascii = '1';
+              else if (sc == SDL_SCANCODE_KP_2) ascii = '2';
+              else if (sc == SDL_SCANCODE_KP_3) ascii = '3';
+              else if (sc == SDL_SCANCODE_KP_4) ascii = '4';
+              else if (sc == SDL_SCANCODE_KP_5) ascii = '5';
+              else if (sc == SDL_SCANCODE_KP_6) ascii = '6';
+              else if (sc == SDL_SCANCODE_KP_7) ascii = '7';
+              else if (sc == SDL_SCANCODE_KP_8) ascii = '8';
+              else if (sc == SDL_SCANCODE_KP_9) ascii = '9';
+              else if (sc == SDL_SCANCODE_SPACE) ascii = ' ';
+              else if (sc == SDL_SCANCODE_TAB) ascii = 0x7Fu;
+              else if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER) ascii = 0x9Bu;
+              else if (sc == SDL_SCANCODE_BACKSPACE) ascii = 0x7Eu;
+              else if (sc == SDL_SCANCODE_ESCAPE) ascii = 0x1Bu;
+              else if (sc == SDL_SCANCODE_MINUS) ascii = shifted ? '_' : '-';
+              else if (sc == SDL_SCANCODE_EQUALS) ascii = shifted ? '+' : '=';
+              else if (sc == SDL_SCANCODE_LEFTBRACKET) ascii = shifted ? '{' : '[';
+              else if (sc == SDL_SCANCODE_RIGHTBRACKET) ascii = shifted ? '}' : ']';
+              else if (sc == SDL_SCANCODE_BACKSLASH) ascii = shifted ? '|' : '\\';
+              else if (sc == SDL_SCANCODE_SEMICOLON) ascii = shifted ? ':' : ';';
+              else if (sc == SDL_SCANCODE_APOSTROPHE) ascii = shifted ? '"' : '\'';
+              else if (sc == SDL_SCANCODE_COMMA) ascii = shifted ? '<' : ',';
+              else if (sc == SDL_SCANCODE_PERIOD) ascii = shifted ? '>' : '.';
+              else if (sc == SDL_SCANCODE_SLASH) ascii = shifted ? '?' : '/';
+              else if (sc == SDL_SCANCODE_GRAVE) ascii = shifted ? '~' : '`';
+              if (ascii != 0u) {
+                  uint8_t next = (uint8_t)((comp->key_q_write_idx + 1u) & 0x0Fu);
+                  if (comp->key_queue != NULL && next != comp->key_q_read_idx) {
+                      comp->key_queue[comp->key_q_write_idx] = ascii;
+                      comp->key_q_write_idx = next;
+                  }
+              }
+          } else if (ev.type == SDL_KEYUP) {
+              SDL_Scancode sc = ev.key.keysym.scancode;
+              if (sc == SDL_SCANCODE_F2) {
+                  comp->consol_state = (uint8_t)(comp->consol_state | 0x04u);
+              } else if (sc == SDL_SCANCODE_F3) {
+                  comp->consol_state = (uint8_t)(comp->consol_state | 0x02u);
+              } else if (sc == SDL_SCANCODE_F4) {
+                  comp->consol_state = (uint8_t)(comp->consol_state | 0x01u);
+              } else if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_KP_8) {
+                  comp->joy0_state = (uint8_t)(comp->joy0_state | 0x01u);
+              } else if (sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_KP_2) {
+                  comp->joy0_state = (uint8_t)(comp->joy0_state | 0x02u);
+              } else if (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_KP_4) {
+                  comp->joy0_state = (uint8_t)(comp->joy0_state | 0x04u);
+              } else if (sc == SDL_SCANCODE_RIGHT || sc == SDL_SCANCODE_KP_6) {
+                  comp->joy0_state = (uint8_t)(comp->joy0_state | 0x08u);
+              } else if (
+                  sc == SDL_SCANCODE_RCTRL ||
+                  sc == SDL_SCANCODE_RALT ||
+                  sc == SDL_SCANCODE_SPACE ||
+                  sc == SDL_SCANCODE_KP_0
+              ) {
+                  comp->trig0 = 1u;
+              } else if (sc == SDL_SCANCODE_I) {
+                  comp->joy1_state = (uint8_t)(comp->joy1_state | 0x01u);
+              } else if (sc == SDL_SCANCODE_K) {
+                  comp->joy1_state = (uint8_t)(comp->joy1_state | 0x02u);
+              } else if (sc == SDL_SCANCODE_J) {
+                  comp->joy1_state = (uint8_t)(comp->joy1_state | 0x04u);
+              } else if (sc == SDL_SCANCODE_L) {
+                  comp->joy1_state = (uint8_t)(comp->joy1_state | 0x08u);
+              } else if (sc == SDL_SCANCODE_LCTRL) {
+                  comp->trig1 = 1u;
+              } else if (sc == SDL_SCANCODE_TAB) {
+                  comp->trig2 = 1u;
+              } else if (sc == SDL_SCANCODE_BACKSPACE) {
+                  comp->trig3 = 1u;
+              }
+          }
+      }
+      {
+          sms_overlay_update_perf(
+              SDL_GetTicks(),
+              (uint64_t)comp->frame_count,
+              cpu->total_cycles,
+              (uint64_t)CPU_SYSTEM_CLOCK_HZ,
+              &comp->overlay_last_ms,
+              &comp->overlay_last_frame_count,
+              &comp->overlay_last_cycle_count,
+              &comp->overlay_fps_x100,
+              &comp->overlay_cpu_hz,
+              &comp->overlay_cpu_pct_x10
+          );
+      }
+      if (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u && comp->audio_ring != NULL && comp->audio_ring_fill > 0u) {
+          uint32_t queued_samples = SDL_GetQueuedAudioSize(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
+          uint32_t device_samples = (comp->audio_device_samples > 0u) ? comp->audio_device_samples : 512u;
+          uint32_t low_watermark = device_samples * 2u;
+          uint32_t target_total = device_samples * 4u;
+          uint32_t max_total = device_samples * 8u;
+          if (queued_samples + comp->audio_ring_fill > max_total) {
+              uint32_t desired_ring_fill = (queued_samples < target_total) ? (target_total - queued_samples) : 0u;
+              while (comp->audio_ring_fill > desired_ring_fill) {
+                  comp->audio_ring_read_idx += 1u;
+                  if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+                  comp->audio_ring_fill -= 1u;
+              }
+          }
+          if (queued_samples < low_watermark) {
+              uint32_t desired = (queued_samples < target_total) ? (target_total - queued_samples) : 0u;
+              uint32_t to_send = (comp->audio_ring_fill < desired) ? comp->audio_ring_fill : desired;
+              while (to_send > 0u) {
+                  int16_t chunk[1024];
+                  uint32_t n = (to_send > 1024u) ? 1024u : to_send;
+                  for (uint32_t i = 0u; i < n; ++i) {
+                      chunk[i] = comp->audio_ring[comp->audio_ring_read_idx];
+                      comp->audio_ring_read_idx += 1u;
+                      if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+                  }
+                  comp->audio_ring_fill -= n;
+                  if (SDL_QueueAudio(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t)) != 0) {
+                      break;
+                  }
+                  to_send -= n;
+              }
+          }
+      }
+    destroy: |
+      if (comp->audio_out_dev != 0u) {
+          SDL_CloseAudioDevice(comp->audio_out_dev);
+          comp->audio_out_dev = 0u;
+      }
+      comp->audio_device_samples = 0u;
+      if (comp->audio_ring != NULL) {
+          SDL_free(comp->audio_ring);
+          comp->audio_ring = NULL;
+      }
+      if (comp->key_queue != NULL) {
+          SDL_free(comp->key_queue);
+          comp->key_queue = NULL;
+      }
+      comp->audio_ring_capacity = 0u;
+      comp->audio_ring_read_idx = 0u;
+      comp->audio_ring_write_idx = 0u;
+      comp->audio_ring_fill = 0u;
+      if (comp->texture != NULL) {
+          SDL_DestroyTexture((SDL_Texture *)comp->texture);
+          comp->texture = NULL;
+      }
+      if (comp->renderer != NULL) {
+          SDL_DestroyRenderer((SDL_Renderer *)comp->renderer);
+          comp->renderer = NULL;
+      }
+      if (comp->window != NULL) {
+          SDL_DestroyWindow((SDL_Window *)comp->window);
+          comp->window = NULL;
+      }
+      if (comp->sdl_inited != 0u) {
+          SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS);
+          SDL_Quit();
+          comp->sdl_inited = 0u;
+      }
+  callback_handlers:
+    keyboard_ascii: |
+      {
+          uint8_t value = 0u;
+          if (comp->key_queue != NULL && comp->key_q_read_idx != comp->key_q_write_idx) {
+              value = comp->key_queue[comp->key_q_read_idx];
+              comp->key_q_read_idx = (uint8_t)((comp->key_q_read_idx + 1u) & 0x0Fu);
+          }
+          return (uint64_t)value;
+      }
+    consol_state: |
+      return (uint64_t)(comp->consol_state & 0x07u);
+    joystick_porta: |
+      return (uint64_t)(((comp->joy1_state & 0x0Fu) << 4u) | (comp->joy0_state & 0x0Fu));
+    trigger0: |
+      return (uint64_t)(comp->trig0 & 0x01u);
+    trigger1: |
+      return (uint64_t)(comp->trig1 & 0x01u);
+    trigger2: |
+      return (uint64_t)(comp->trig2 & 0x01u);
+    trigger3: |
+      return (uint64_t)(comp->trig3 & 0x01u);
+  handler_bodies:
+    video_frame: |
+      if (comp->sdl_inited == 0u || argc < 4) return;
+      SDL_Renderer *renderer = (SDL_Renderer *)comp->renderer;
+      SDL_Texture *texture = (SDL_Texture *)comp->texture;
+      uint32_t frame = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      uint32_t *pixels = (uint32_t *)(uintptr_t)args[1];
+      uint32_t w = (uint32_t)(args[2] & 0xFFFFFFFFu);
+      uint32_t h = (uint32_t)(args[3] & 0xFFFFFFFFu);
+      if (renderer == NULL || texture == NULL || pixels == NULL || w == 0u || h == 0u) return;
+      comp->frame_count = frame;
+      if (cpu->debug_overlay_enabled) {
+          sms_overlay_draw_perf(
+              pixels,
+              w,
+              h,
+              comp->overlay_fps_x100,
+              comp->overlay_cpu_hz,
+              comp->overlay_cpu_pct_x10
+          );
+      }
+      if (comp->texture_w != w || comp->texture_h != h) {
+          SDL_DestroyTexture(texture);
+          texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, (int)w, (int)h);
+          if (texture == NULL) return;
+          comp->texture = (void *)texture;
+          comp->texture_w = w;
+          comp->texture_h = h;
+      }
+      if (SDL_UpdateTexture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
+      SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+      SDL_RenderClear(renderer);
+      int ww = 0;
+      int wh = 0;
+      if (SDL_GetRendererOutputSize(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
+      SDL_Rect dst;
+      int scaled_w = ww;
+      int scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);
+      if (scaled_h > wh) {
+          scaled_h = wh;
+          scaled_w = (int)((((int64_t)wh) * (int64_t)w) / (int64_t)h);
+      }
+      dst.w = (scaled_w > 0) ? scaled_w : ww;
+      dst.h = (scaled_h > 0) ? scaled_h : wh;
+      dst.x = (ww - dst.w) / 2;
+      dst.y = (wh - dst.h) / 2;
+      if (SDL_RenderCopy(renderer, texture, NULL, &dst) != 0) return;
+      SDL_RenderPresent(renderer);
+    audio_pcm: |
+      if (comp->audio_out_dev == 0u || comp->audio_out_ready == 0u || comp->audio_ring == NULL || comp->audio_ring_capacity == 0u || argc < 1) return;
+      uint8_t level_u = (uint8_t)(args[0] & 0xFFu);
+      uint64_t cycle = (argc > 1) ? (uint64_t)args[1] : cpu->total_cycles;
+      uint64_t sample_rate = (comp->audio_rate > 0u) ? (uint64_t)comp->audio_rate : ((CPU_AUDIO_SAMPLE_RATE > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u);
+      uint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? CPU_SYSTEM_CLOCK_HZ : 1u;
+      uint64_t target_sample_index = (cycle * sample_rate) / clock_hz;
+      int16_t next_level = (level_u != 0u) ? 9000 : -9000;
+
+      if (comp->audio_last_cycle == 0u && comp->audio_sample_cursor == 0u && comp->audio_samples == 0u) {
+          comp->audio_last_cycle = cycle;
+          comp->audio_sample_cursor = target_sample_index;
+          comp->audio_level = next_level;
+          return;
+      }
+
+      if (target_sample_index < comp->audio_sample_cursor) {
+          comp->audio_sample_cursor = target_sample_index;
+      }
+      {
+          uint64_t samples_to_emit = target_sample_index - comp->audio_sample_cursor;
+          while (samples_to_emit > 0u) {
+              uint64_t n = (samples_to_emit > 4096u) ? 4096u : samples_to_emit;
+              for (uint64_t i = 0u; i < n; ++i) {
+                  if (comp->audio_ring_fill >= comp->audio_ring_capacity) {
+                      comp->audio_ring_read_idx += 1u;
+                      if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+                      comp->audio_ring_fill -= 1u;
+                  }
+                  comp->audio_ring[comp->audio_ring_write_idx] = comp->audio_level;
+                  comp->audio_ring_write_idx += 1u;
+                  if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
+                  comp->audio_ring_fill += 1u;
+              }
+              comp->audio_samples += (uint32_t)n;
+              comp->audio_sample_cursor += n;
+              samples_to_emit -= n;
+          }
+      }
+      comp->audio_last_cycle = cycle;
+      comp->audio_level = next_level;
+
+coding:
+  headers: ["SDL2/SDL.h", "pasm_overlay.h"]
+  include_paths: ["include"]
+  linked_libraries:
+    - name: "SDL2"
+  library_paths: []

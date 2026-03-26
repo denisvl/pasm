@@ -1,0 +1,113 @@
+metadata:
+  name: Apple2InteractiveSystem
+  version: "0.1"
+
+clock_hz: 1023000
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: RAM_MAIN
+      start: 0x0000
+      size: 0xC000     # RAM from $0000 to $BFFF
+      read_write: true
+    # Note: $C000-$CFFF is usually handled by your apple2_io component
+    - name: ROM_SYSTEM
+      start: 0xD000    # Standard Apple II ROM start
+      size: 0x3000     # 12KB (Applesoft + Monitor)
+      read_only: true
+  rom_images:
+    - name: apple2plus_rom
+      file: ../roms/apple2.rom
+      target_region: ROM_SYSTEM
+      offset: 0        # Ensure your .rom file is exactly 12,288 bytes
+
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+
+components:
+  ics:
+    - apple2_io
+  devices:
+    - keyboard_apple2
+    - video_apple2
+    - speaker_apple2
+  hosts:
+    - host_apple2_sdl2
+
+connections:
+  - from:
+      component: apple2_io
+      kind: callback
+      name: keyboard_ascii
+    to:
+      component: keyboard_apple2
+      kind: callback
+      name: read_key
+
+  - from:
+      component: keyboard_apple2
+      kind: callback
+      name: host_key
+    to:
+      component: host_apple2_sdl2
+      kind: callback
+      name: keyboard_ascii
+
+  - from:
+      component: apple2_io
+      kind: signal
+      name: frame_ready
+    to:
+      component: video_apple2
+      kind: handler
+      name: on_frame_ready
+
+  - from:
+      component: video_apple2
+      kind: signal
+      name: frame_present
+    to:
+      component: host_apple2_sdl2
+      kind: handler
+      name: video_frame
+
+  - from:
+      component: apple2_io
+      kind: signal
+      name: audio_level
+    to:
+      component: speaker_apple2
+      kind: handler
+      name: on_audio_level
+
+  - from:
+      component: speaker_apple2
+      kind: signal
+      name: pcm_sample
+    to:
+      component: host_apple2_sdl2
+      kind: handler
+      name: audio_pcm
+
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+
+integrations:
+  profile: apple2_interactive

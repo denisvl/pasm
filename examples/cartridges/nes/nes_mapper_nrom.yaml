@@ -1,0 +1,300 @@
+metadata:
+  id: nes_cart0
+  type: cartridge_mapper
+  model: nes_mapper_nrom
+  version: "1.0"
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+  - name: ines_valid
+    type: uint8_t
+    initial: "0"
+  - name: mapper_id
+    type: uint8_t
+    initial: "0"
+  - name: mirroring_mode
+    type: uint8_t
+    initial: "0"
+  - name: prg_offset
+    type: uint32_t
+    initial: "0"
+  - name: prg_size
+    type: uint32_t
+    initial: "0"
+  - name: chr_offset
+    type: uint32_t
+    initial: "0"
+  - name: chr_size
+    type: uint32_t
+    initial: "0"
+  - name: chr_ram
+    type: uint8_t *
+    initial: "NULL"
+  - name: chr_ram_size
+    type: uint32_t
+    initial: "0"
+  - name: prg_ram
+    type: uint8_t *
+    initial: "NULL"
+  - name: prg_ram_size
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: chr_read
+      args: [u16]
+      returns: u8
+    - name: chr_write
+      args: [u16, u8]
+      returns: u8
+    - name: mirroring
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cpu_prg_window
+        start: 0x6000
+        size: 0xA000
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      comp->ines_valid = 0u;
+      comp->mapper_id = 0u;
+      comp->mirroring_mode = 0u;
+      comp->prg_offset = 0u;
+      comp->prg_size = 0u;
+      comp->chr_offset = 0u;
+      comp->chr_size = 0u;
+
+      if (comp->rom_data != NULL && comp->rom_size >= 16u) {
+          if (comp->rom_data[0] == 'N' && comp->rom_data[1] == 'E' && comp->rom_data[2] == 'S' && comp->rom_data[3] == 0x1Au) {
+              uint8_t prg_banks = comp->rom_data[4];
+              uint8_t chr_banks = comp->rom_data[5];
+              uint8_t flags6 = comp->rom_data[6];
+              uint8_t flags7 = comp->rom_data[7];
+              uint32_t off = 16u;
+              if ((flags6 & 0x04u) != 0u) {
+                  off += 512u;
+              }
+              comp->prg_offset = off;
+              comp->prg_size = (uint32_t)prg_banks * 16384u;
+              if (comp->prg_offset > comp->rom_size) comp->prg_offset = comp->rom_size;
+              if (comp->prg_size > (comp->rom_size - comp->prg_offset)) {
+                  comp->prg_size = comp->rom_size - comp->prg_offset;
+              }
+              comp->chr_offset = comp->prg_offset + comp->prg_size;
+              comp->chr_size = (uint32_t)chr_banks * 8192u;
+              if (comp->chr_offset > comp->rom_size) comp->chr_offset = comp->rom_size;
+              if (comp->chr_size > (comp->rom_size - comp->chr_offset)) {
+                  comp->chr_size = comp->rom_size - comp->chr_offset;
+              }
+              comp->mapper_id = (uint8_t)((flags7 & 0xF0u) | (flags6 >> 4));
+              comp->mirroring_mode = (uint8_t)(flags6 & 0x01u);
+              comp->ines_valid = 1u;
+          }
+      }
+
+      if (comp->chr_ram != NULL) {
+          free(comp->chr_ram);
+          comp->chr_ram = NULL;
+      }
+      comp->chr_ram_size = 0u;
+
+      if (comp->ines_valid != 0u && comp->chr_size == 0u) {
+          comp->chr_ram_size = 8192u;
+          comp->chr_ram = (uint8_t *)calloc(comp->chr_ram_size, sizeof(uint8_t));
+      }
+
+      if (comp->prg_ram == NULL) {
+          comp->prg_ram_size = 8192u;
+          comp->prg_ram = (uint8_t *)calloc(comp->prg_ram_size, sizeof(uint8_t));
+      }
+    reset: |
+      comp->ines_valid = 0u;
+      comp->mapper_id = 0u;
+      comp->mirroring_mode = 0u;
+      comp->prg_offset = 0u;
+      comp->prg_size = 0u;
+      comp->chr_offset = 0u;
+      comp->chr_size = 0u;
+
+      if (comp->rom_data != NULL && comp->rom_size >= 16u) {
+          if (comp->rom_data[0] == 'N' && comp->rom_data[1] == 'E' && comp->rom_data[2] == 'S' && comp->rom_data[3] == 0x1Au) {
+              uint8_t prg_banks = comp->rom_data[4];
+              uint8_t chr_banks = comp->rom_data[5];
+              uint8_t flags6 = comp->rom_data[6];
+              uint8_t flags7 = comp->rom_data[7];
+              uint32_t off = 16u;
+              if ((flags6 & 0x04u) != 0u) {
+                  off += 512u;
+              }
+              comp->prg_offset = off;
+              comp->prg_size = (uint32_t)prg_banks * 16384u;
+              if (comp->prg_offset > comp->rom_size) comp->prg_offset = comp->rom_size;
+              if (comp->prg_size > (comp->rom_size - comp->prg_offset)) {
+                  comp->prg_size = comp->rom_size - comp->prg_offset;
+              }
+              comp->chr_offset = comp->prg_offset + comp->prg_size;
+              comp->chr_size = (uint32_t)chr_banks * 8192u;
+              if (comp->chr_offset > comp->rom_size) comp->chr_offset = comp->rom_size;
+              if (comp->chr_size > (comp->rom_size - comp->chr_offset)) {
+                  comp->chr_size = comp->rom_size - comp->chr_offset;
+              }
+              comp->mapper_id = (uint8_t)((flags7 & 0xF0u) | (flags6 >> 4));
+              comp->mirroring_mode = (uint8_t)(flags6 & 0x01u);
+              comp->ines_valid = 1u;
+          }
+      }
+
+      if (comp->chr_size > 0u && comp->chr_ram != NULL) {
+          free(comp->chr_ram);
+          comp->chr_ram = NULL;
+          comp->chr_ram_size = 0u;
+      }
+      if (comp->ines_valid != 0u && comp->chr_size == 0u && comp->chr_ram == NULL) {
+          comp->chr_ram_size = 8192u;
+          comp->chr_ram = (uint8_t *)calloc(comp->chr_ram_size, sizeof(uint8_t));
+      }
+      if (comp->prg_ram == NULL) {
+          comp->prg_ram_size = 8192u;
+          comp->prg_ram = (uint8_t *)calloc(comp->prg_ram_size, sizeof(uint8_t));
+      }
+      if (comp->chr_ram != NULL && comp->chr_ram_size > 0u) {
+          memset(comp->chr_ram, 0, comp->chr_ram_size);
+      }
+      if (comp->prg_ram != NULL && comp->prg_ram_size > 0u) {
+          memset(comp->prg_ram, 0, comp->prg_ram_size);
+      }
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      if (comp->chr_ram != NULL) {
+          free(comp->chr_ram);
+          comp->chr_ram = NULL;
+      }
+      if (comp->prg_ram != NULL) {
+          free(comp->prg_ram);
+          comp->prg_ram = NULL;
+      }
+      comp->rom_size = 0u;
+      comp->chr_ram_size = 0u;
+      comp->prg_ram_size = 0u;
+    mem_read_pre: |
+      if (comp->ines_valid == 0u) {
+          if (comp->rom_data != NULL && comp->rom_size >= 16u) {
+              if (comp->rom_data[0] == 'N' && comp->rom_data[1] == 'E' && comp->rom_data[2] == 'S' && comp->rom_data[3] == 0x1Au) {
+                  uint8_t prg_banks = comp->rom_data[4];
+                  uint8_t chr_banks = comp->rom_data[5];
+                  uint8_t flags6 = comp->rom_data[6];
+                  uint8_t flags7 = comp->rom_data[7];
+                  uint32_t off = 16u;
+                  if ((flags6 & 0x04u) != 0u) {
+                      off += 512u;
+                  }
+                  comp->prg_offset = off;
+                  comp->prg_size = (uint32_t)prg_banks * 16384u;
+                  if (comp->prg_offset > comp->rom_size) comp->prg_offset = comp->rom_size;
+                  if (comp->prg_size > (comp->rom_size - comp->prg_offset)) {
+                      comp->prg_size = comp->rom_size - comp->prg_offset;
+                  }
+                  comp->chr_offset = comp->prg_offset + comp->prg_size;
+                  comp->chr_size = (uint32_t)chr_banks * 8192u;
+                  if (comp->chr_offset > comp->rom_size) comp->chr_offset = comp->rom_size;
+                  if (comp->chr_size > (comp->rom_size - comp->chr_offset)) {
+                      comp->chr_size = comp->rom_size - comp->chr_offset;
+                  }
+                  comp->mapper_id = (uint8_t)((flags7 & 0xF0u) | (flags6 >> 4));
+                  comp->mirroring_mode = (uint8_t)(flags6 & 0x01u);
+                  comp->ines_valid = 1u;
+                  if (comp->ines_valid != 0u && comp->chr_size == 0u && comp->chr_ram == NULL) {
+                      comp->chr_ram_size = 8192u;
+                      comp->chr_ram = (uint8_t *)calloc(comp->chr_ram_size, sizeof(uint8_t));
+                  }
+                  if (comp->prg_ram == NULL) {
+                      comp->prg_ram_size = 8192u;
+                      comp->prg_ram = (uint8_t *)calloc(comp->prg_ram_size, sizeof(uint8_t));
+                  }
+              }
+          }
+      }
+      if (comp->ines_valid == 0u) return 0xFFu;
+
+      if (addr >= 0x6000u && addr < 0x8000u) {
+          if (comp->prg_ram != NULL && comp->prg_ram_size > 0u) {
+              return comp->prg_ram[(uint32_t)(addr - 0x6000u) % comp->prg_ram_size];
+          }
+          return 0xFFu;
+      }
+
+      if (addr >= 0x8000u) {
+          if (comp->prg_size == 0u || comp->rom_data == NULL) return 0xFFu;
+          uint32_t rel = (uint32_t)(addr - 0x8000u);
+          uint32_t off;
+          if (comp->prg_size >= 32768u) {
+              off = rel & 0x7FFFu;
+          } else if (comp->prg_size >= 16384u) {
+              off = rel & 0x3FFFu;
+          } else {
+              off = rel % comp->prg_size;
+          }
+          return comp->rom_data[comp->prg_offset + off];
+      }
+    mem_write_pre: |
+      if (comp->ines_valid == 0u) return;
+      if (addr >= 0x6000u && addr < 0x8000u) {
+          if (comp->prg_ram != NULL && comp->prg_ram_size > 0u) {
+              comp->prg_ram[(uint32_t)(addr - 0x6000u) % comp->prg_ram_size] = value;
+          }
+          return;
+      }
+  callback_handlers:
+    chr_read: |
+      uint16_t ppu_addr = (argc > 0) ? (uint16_t)(args[0] & 0x3FFFu) : 0u;
+      if (ppu_addr >= 0x2000u) {
+          return 0x00u;
+      }
+      if (comp->ines_valid == 0u) {
+          return 0x00u;
+      }
+      if (comp->chr_size > 0u && comp->rom_data != NULL) {
+          uint32_t off = comp->chr_offset + ((uint32_t)ppu_addr % comp->chr_size);
+          if (off < comp->rom_size) {
+              return comp->rom_data[off];
+          }
+          return 0x00u;
+      }
+      if (comp->chr_ram != NULL && comp->chr_ram_size > 0u) {
+          return comp->chr_ram[(uint32_t)ppu_addr % comp->chr_ram_size];
+      }
+      return 0x00u;
+    chr_write: |
+      if (argc < 2) return 0u;
+      uint16_t ppu_addr = (uint16_t)(args[0] & 0x3FFFu);
+      uint8_t val = (uint8_t)(args[1] & 0xFFu);
+      if (ppu_addr < 0x2000u && comp->chr_size == 0u && comp->chr_ram != NULL && comp->chr_ram_size > 0u) {
+          comp->chr_ram[(uint32_t)ppu_addr % comp->chr_ram_size] = val;
+      }
+      return 0u;
+    mirroring: |
+      return (uint64_t)(comp->mirroring_mode & 0x01u);
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

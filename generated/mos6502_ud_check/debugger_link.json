@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "processor_name": "MOS6502",
+  "processor_version": "1.0",
+  "system_name": "MOS6502DefaultSystem",
+  "cpu_name": "MOS6502",
+  "cpu_prefix": "mos6502",
+  "cmake_library_target": "mos6502_emu",
+  "library_basename": "mos6502_emu",
+  "artifacts": {
+    "static": "libmos6502_emu.a",
+    "shared_linux": "libmos6502_emu.so",
+    "shared_macos": "libmos6502_emu.dylib",
+    "shared_windows": "mos6502_emu.dll",
+    "import_windows": "mos6502_emu.lib"
+  },
+  "headers": {
+    "cpu": "src/MOS6502.h",
+    "debug_abi": "src/MOS6502_debug_abi.h"
+  },
+  "link": {
+    "library_paths": [],
+    "library_names": [],
+    "library_files": []
+  },
+  "memory_default_size": 65536,
+  "cartridge": {
+    "enabled": false,
+    "id": "",
+    "default_rom_path": ""
+  }
+}

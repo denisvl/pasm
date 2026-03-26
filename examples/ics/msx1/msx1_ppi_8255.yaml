@@ -1,0 +1,117 @@
+metadata:
+  id: ppi0
+  type: io_controller
+  model: i8255_msx
+  version: "1.0"
+
+state:
+  - name: slot_select
+    type: uint8_t
+    initial: "0"
+  - name: keyboard_row
+    type: uint8_t
+    initial: "0"
+  - name: port_c
+    type: uint8_t
+    initial: "0x0F"
+  - name: control_reg
+    type: uint8_t
+    initial: "0x82"
+
+interfaces:
+  callbacks:
+    - name: keyboard_read_row
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  ports:
+    read:
+      - name: ppi_port_a_read
+        mask: 0x00FF
+        value: 0x00A8
+      - name: ppi_port_b_read
+        mask: 0x00FF
+        value: 0x00A9
+      - name: ppi_port_c_read
+        mask: 0x00FF
+        value: 0x00AA
+      - name: ppi_ctrl_read
+        mask: 0x00FF
+        value: 0x00AB
+    write:
+      - name: ppi_port_a_write
+        mask: 0x00FF
+        value: 0x00A8
+      - name: ppi_port_c_write
+        mask: 0x00FF
+        value: 0x00AA
+      - name: ppi_ctrl_write
+        mask: 0x00FF
+        value: 0x00AB
+
+behavior:
+  snippets:
+    port_read_post: |
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
+      if (p == 0xA8u) {
+          value = comp->slot_select;
+      } else if (p == 0xA9u) {
+          uint64_t cb_args[1] = { (uint64_t)comp->keyboard_row };
+          value = (uint8_t)cpu_component_call(cpu, "ppi0", "keyboard_read_row", cb_args, 1);
+      } else if (p == 0xAAu) {
+          value = comp->port_c;
+      } else if (p == 0xABu) {
+          value = comp->control_reg;
+      }
+    port_write_pre: |
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
+      if (p == 0xA8u) {
+          comp->slot_select = value;
+      } else if (p == 0xAAu) {
+          comp->port_c = value;
+          {
+              uint8_t lo = (uint8_t)(comp->port_c & 0x0Fu);
+              uint8_t hi = (uint8_t)((comp->port_c >> 4) & 0x0Fu);
+              if (lo <= 10u) {
+                  comp->keyboard_row = lo;
+              } else if (hi <= 10u) {
+                  comp->keyboard_row = hi;
+              } else {
+                  comp->keyboard_row = lo;
+              }
+          }
+      } else if (p == 0xABu) {
+          if ((value & 0x80u) != 0u) {
+              comp->control_reg = value;
+          } else {
+              uint8_t bit = (uint8_t)((value >> 1) & 0x07u);
+              uint8_t mask = (uint8_t)(1u << bit);
+              if ((value & 0x01u) != 0u) {
+                  comp->port_c = (uint8_t)(comp->port_c | mask);
+              } else {
+                  comp->port_c = (uint8_t)(comp->port_c & (uint8_t)~mask);
+              }
+              {
+                  uint8_t lo = (uint8_t)(comp->port_c & 0x0Fu);
+                  uint8_t hi = (uint8_t)((comp->port_c >> 4) & 0x0Fu);
+                  if (lo <= 10u) {
+                      comp->keyboard_row = lo;
+                  } else if (hi <= 10u) {
+                      comp->keyboard_row = hi;
+                  } else {
+                      comp->keyboard_row = lo;
+                  }
+              }
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

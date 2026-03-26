@@ -1,0 +1,164 @@
+metadata:
+  id: apple2_io
+  type: io_controller
+  model: apple2_softswitches
+  version: "1.0"
+
+state:
+  - name: keyboard_latch
+    type: uint8_t
+    initial: "0"
+  - name: keyboard_strobe
+    type: uint8_t
+    initial: "0"
+  - name: text_mode
+    type: uint8_t
+    initial: "1"
+  - name: mixed_mode
+    type: uint8_t
+    initial: "0"
+  - name: page2
+    type: uint8_t
+    initial: "0"
+  - name: hires
+    type: uint8_t
+    initial: "0"
+  - name: speaker_level
+    type: uint8_t
+    initial: "0"
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: last_frame_cycle
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_ascii
+      args: []
+      returns: u8
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32]
+    - name: audio_level
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges:
+      - name: softswitch_page
+        start: 0xC000
+        size: 0x0100
+        access: [read, write]
+
+behavior:
+  snippets:
+    mem_read_pre: |
+      if (addr >= 0xC050u && addr <= 0xC057u) {
+          switch (addr) {
+              case 0xC050u: comp->text_mode = 0u; break;
+              case 0xC051u: comp->text_mode = 1u; break;
+              case 0xC052u: comp->mixed_mode = 0u; break;
+              case 0xC053u: comp->mixed_mode = 1u; break;
+              case 0xC054u: comp->page2 = 0u; break;
+              case 0xC055u: comp->page2 = 1u; break;
+              case 0xC056u: comp->hires = 0u; break;
+              case 0xC057u: comp->hires = 1u; break;
+              default: break;
+          }
+          return 0u;
+      }
+      if (addr == 0xC01Au) {
+          return (comp->text_mode != 0u) ? 0x80u : 0u;
+      }
+      if (addr == 0xC01Bu) {
+          return (comp->mixed_mode != 0u) ? 0x80u : 0u;
+      }
+      if (addr == 0xC01Cu) {
+          return (comp->page2 != 0u) ? 0x80u : 0u;
+      }
+      if (addr == 0xC01Du) {
+          return (comp->hires != 0u) ? 0x80u : 0u;
+      }
+      if (addr == 0xC000u) {
+          uint8_t key = (uint8_t)cpu_component_call(cpu, "apple2_io", "keyboard_ascii", NULL, 0);
+          if (key != 0u) {
+              comp->keyboard_latch = (uint8_t)(key | 0x80u);
+              comp->keyboard_strobe = 1u;
+          }
+          if (comp->keyboard_strobe != 0u) {
+              return comp->keyboard_latch;
+          }
+          return 0u;
+      }
+      if (addr == 0xC010u) {
+          comp->keyboard_strobe = 0u;
+          return 0u;
+      }
+      if (addr == 0xC030u) {
+          comp->speaker_level ^= 1u;
+          {
+              uint64_t sig_args[2] = {
+                  (uint64_t)comp->speaker_level,
+                  cpu->total_cycles
+              };
+              cpu_component_emit_signal(cpu, "apple2_io", "audio_level", sig_args, 2);
+          }
+          return 0u;
+      }
+    mem_write_pre: |
+      if (addr >= 0xC050u && addr <= 0xC057u) {
+          switch (addr) {
+              case 0xC050u: comp->text_mode = 0u; break;
+              case 0xC051u: comp->text_mode = 1u; break;
+              case 0xC052u: comp->mixed_mode = 0u; break;
+              case 0xC053u: comp->mixed_mode = 1u; break;
+              case 0xC054u: comp->page2 = 0u; break;
+              case 0xC055u: comp->page2 = 1u; break;
+              case 0xC056u: comp->hires = 0u; break;
+              case 0xC057u: comp->hires = 1u; break;
+              default: break;
+          }
+          return;
+      }
+      if (addr == 0xC010u) {
+          comp->keyboard_strobe = 0u;
+          return;
+      }
+      if (addr == 0xC030u) {
+          comp->speaker_level ^= 1u;
+          {
+              uint64_t sig_args[2] = {
+                  (uint64_t)comp->speaker_level,
+                  cpu->total_cycles
+              };
+              cpu_component_emit_signal(cpu, "apple2_io", "audio_level", sig_args, 2);
+          }
+          return;
+      }
+    step_post: |
+      uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 17050u;
+      if (frame_period == 0u) frame_period = 1u;
+      if ((cpu->total_cycles - comp->last_frame_cycle) >= frame_period) {
+          comp->last_frame_cycle = cpu->total_cycles;
+          comp->frame_counter += 1u;
+          {
+              uint64_t sig_args[4] = {
+                  (uint64_t)comp->frame_counter,
+                  (uint64_t)(uintptr_t)(&cpu->memory[0x0400u]),
+                  40u,
+                  24u
+              };
+              cpu_component_emit_signal(cpu, "apple2_io", "frame_ready", sig_args, 4);
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

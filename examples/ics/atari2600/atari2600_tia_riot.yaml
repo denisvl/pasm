@@ -1,0 +1,1895 @@
+metadata:
+  id: atari2600_io
+  type: io_controller
+  model: atari2600_tia_riot
+  version: "1.0"
+
+clock_hz: 1193191
+
+state:
+  - name: riot_ram
+    type: uint8_t *
+    initial: "NULL"
+  - name: vsync
+    type: uint8_t
+    initial: "0"
+  - name: vsync_last
+    type: uint8_t
+    initial: "0"
+  - name: vblank_last
+    type: uint8_t
+    initial: "0"
+  - name: vsync_seen
+    type: uint8_t
+    initial: "0"
+  - name: vsync_rise_pending
+    type: uint8_t
+    initial: "0"
+  - name: vsync_emit_pending
+    type: uint8_t
+    initial: "0"
+  - name: vblank
+    type: uint8_t
+    initial: "0"
+  - name: colup0
+    type: uint8_t
+    initial: "0"
+  - name: colup1
+    type: uint8_t
+    initial: "0"
+  - name: colupf
+    type: uint8_t
+    initial: "0"
+  - name: colubk
+    type: uint8_t
+    initial: "0"
+  - name: ctrlpf
+    type: uint8_t
+    initial: "0"
+  - name: pf0
+    type: uint8_t
+    initial: "0"
+  - name: pf1
+    type: uint8_t
+    initial: "0"
+  - name: pf2
+    type: uint8_t
+    initial: "0"
+  - name: grp0
+    type: uint8_t
+    initial: "0"
+  - name: grp1
+    type: uint8_t
+    initial: "0"
+  - name: enam0
+    type: uint8_t
+    initial: "0"
+  - name: enam1
+    type: uint8_t
+    initial: "0"
+  - name: enabl
+    type: uint8_t
+    initial: "0"
+  - name: m0_x
+    type: int32_t
+    initial: "0"
+  - name: m1_x
+    type: int32_t
+    initial: "0"
+  - name: bl_x
+    type: int32_t
+    initial: "0"
+  - name: nusiz0
+    type: uint8_t
+    initial: "0"
+  - name: nusiz1
+    type: uint8_t
+    initial: "0"
+  - name: hmp0
+    type: uint8_t
+    initial: "0"
+  - name: hmp1
+    type: uint8_t
+    initial: "0"
+  - name: hmm0
+    type: uint8_t
+    initial: "0"
+  - name: hmm1
+    type: uint8_t
+    initial: "0"
+  - name: hmbl
+    type: uint8_t
+    initial: "0"
+  - name: grp0_latched
+    type: uint8_t
+    initial: "0"
+  - name: grp1_latched
+    type: uint8_t
+    initial: "0"
+  - name: grp0_prev
+    type: uint8_t
+    initial: "0"
+  - name: grp1_prev
+    type: uint8_t
+    initial: "0"
+  - name: bl_prev
+    type: uint8_t
+    initial: "0"
+  - name: vdelp0
+    type: uint8_t
+    initial: "0"
+  - name: vdelp1
+    type: uint8_t
+    initial: "0"
+  - name: vdelbl
+    type: uint8_t
+    initial: "0"
+  - name: refp0
+    type: uint8_t
+    initial: "0"
+  - name: refp1
+    type: uint8_t
+    initial: "0"
+  - name: resmp0
+    type: uint8_t
+    initial: "0"
+  - name: resmp1
+    type: uint8_t
+    initial: "0"
+  - name: pending_count
+    type: uint8_t
+    initial: "0"
+  - name: pending_reg
+    type: uint8_t *
+    initial: "NULL"
+  - name: pending_val
+    type: uint8_t *
+    initial: "NULL"
+  - name: pending_delay
+    type: uint8_t *
+    initial: "NULL"
+  - name: pl_swap_delay
+    type: uint8_t
+    initial: "1"
+  - name: p0_x
+    type: int32_t
+    initial: "0"
+  - name: p1_x
+    type: int32_t
+    initial: "0"
+  - name: p0_ctr
+    type: uint16_t
+    initial: "0"
+  - name: p0_counter
+    type: uint8_t
+    initial: "0"
+  - name: p1_ctr
+    type: uint16_t
+    initial: "0"
+  - name: p1_counter
+    type: uint8_t
+    initial: "0"
+  - name: m0_ctr
+    type: uint16_t
+    initial: "0"
+  - name: m0_counter
+    type: uint8_t
+    initial: "0"
+  - name: m1_ctr
+    type: uint16_t
+    initial: "0"
+  - name: m1_counter
+    type: uint8_t
+    initial: "0"
+  - name: p0_is_rendering
+    type: uint8_t
+    initial: "0"
+  - name: p1_is_rendering
+    type: uint8_t
+    initial: "0"
+  - name: m0_is_rendering
+    type: uint8_t
+    initial: "0"
+  - name: m1_is_rendering
+    type: uint8_t
+    initial: "0"
+  - name: bl_is_rendering
+    type: uint8_t
+    initial: "0"
+  - name: p0_render_counter
+    type: int8_t
+    initial: "0"
+  - name: p1_render_counter
+    type: int8_t
+    initial: "0"
+  - name: m0_render_counter
+    type: int8_t
+    initial: "0"
+  - name: m1_render_counter
+    type: int8_t
+    initial: "0"
+  - name: bl_render_counter
+    type: int8_t
+    initial: "0"
+  - name: p0_sample_counter
+    type: uint8_t
+    initial: "0"
+  - name: p1_sample_counter
+    type: uint8_t
+    initial: "0"
+  - name: p0_render_div
+    type: uint8_t
+    initial: "1"
+  - name: p1_render_div
+    type: uint8_t
+    initial: "1"
+  - name: bl_ctr
+    type: uint16_t
+    initial: "0"
+  - name: bl_counter
+    type: uint8_t
+    initial: "0"
+  - name: p0_active
+    type: uint8_t
+    initial: "0"
+  - name: p1_active
+    type: uint8_t
+    initial: "0"
+  - name: m0_active
+    type: uint8_t
+    initial: "0"
+  - name: m1_active
+    type: uint8_t
+    initial: "0"
+  - name: bl_active
+    type: uint8_t
+    initial: "0"
+  - name: color_clock
+    type: uint32_t
+    initial: "0"
+  - name: hctr
+    type: uint32_t
+    initial: "0"
+  - name: hctr_delta
+    type: int32_t
+    initial: "0"
+  - name: hstate
+    type: uint8_t
+    initial: "0"
+  - name: rsync_pending
+    type: uint8_t
+    initial: "0"
+  - name: rsync_blank_x
+    type: uint8_t
+    initial: "0"
+  - name: extended_hblank
+    type: uint8_t
+    initial: "0"
+  - name: scanline
+    type: uint32_t
+    initial: "0"
+  - name: visible_y
+    type: uint32_t
+    initial: "0"
+  - name: frame_scanlines
+    type: uint32_t
+    initial: "0"
+  - name: frame_started
+    type: uint8_t
+    initial: "0"
+  - name: frame_ready_pending
+    type: uint8_t
+    initial: "0"
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: frame_target_scanlines
+    type: uint32_t
+    initial: "262"
+  - name: hmove_pending
+    type: uint8_t
+    initial: "0"
+  - name: hmove_in_progress
+    type: uint8_t
+    initial: "0"
+  - name: hmove_clock
+    type: uint8_t
+    initial: "0"
+  - name: p0_moving
+    type: uint8_t
+    initial: "0"
+  - name: p1_moving
+    type: uint8_t
+    initial: "0"
+  - name: m0_moving
+    type: uint8_t
+    initial: "0"
+  - name: m1_moving
+    type: uint8_t
+    initial: "0"
+  - name: bl_moving
+    type: uint8_t
+    initial: "0"
+  - name: hmove_blank
+    type: uint8_t
+    initial: "0"
+  - name: wsync_extra_clocks
+    type: uint32_t
+    initial: "0"
+  - name: wsync_extra_cycles
+    type: uint32_t
+    initial: "0"
+  - name: wsync_overshoot_clocks
+    type: uint8_t
+    initial: "0"
+  - name: riot_timer
+    type: uint8_t
+    initial: "0"
+  - name: riot_swcha_out
+    type: uint8_t
+    initial: "0"
+  - name: riot_swacnt
+    type: uint8_t
+    initial: "0"
+  - name: riot_swchb_out
+    type: uint8_t
+    initial: "0"
+  - name: riot_swbcnt
+    type: uint8_t
+    initial: "0"
+  - name: riot_timer_interval
+    type: uint32_t
+    initial: "0"
+  - name: riot_timer_div
+    type: uint32_t
+    initial: "0"
+  - name: riot_timer_wrap_pending
+    type: uint8_t
+    initial: "0"
+  - name: riot_instat
+    type: uint8_t
+    initial: "0"
+  - name: riot_pa7_last
+    type: uint8_t
+    initial: "1"
+  - name: riot_pa7_irq_enable
+    type: uint8_t
+    initial: "1"
+  - name: riot_pa7_posedge
+    type: uint8_t
+    initial: "0"
+  - name: inpt4_latch
+    type: uint8_t
+    initial: "128"
+  - name: inpt5_latch
+    type: uint8_t
+    initial: "128"
+  - name: inpt0_latch
+    type: uint8_t
+    initial: "128"
+  - name: inpt1_latch
+    type: uint8_t
+    initial: "128"
+  - name: inpt2_latch
+    type: uint8_t
+    initial: "128"
+  - name: inpt3_latch
+    type: uint8_t
+    initial: "128"
+  - name: paddle0_timer
+    type: uint16_t
+    initial: "0"
+  - name: paddle1_timer
+    type: uint16_t
+    initial: "0"
+  - name: paddle2_timer
+    type: uint16_t
+    initial: "0"
+  - name: paddle3_timer
+    type: uint16_t
+    initial: "0"
+  - name: audc0
+    type: uint8_t
+    initial: "0"
+  - name: audc1
+    type: uint8_t
+    initial: "0"
+  - name: audf0
+    type: uint8_t
+    initial: "0"
+  - name: audf1
+    type: uint8_t
+    initial: "0"
+  - name: audv0
+    type: uint8_t
+    initial: "0"
+  - name: audv1
+    type: uint8_t
+    initial: "0"
+  - name: aud_div0
+    type: uint16_t
+    initial: "0"
+  - name: aud_div1
+    type: uint16_t
+    initial: "0"
+  - name: aud_out0
+    type: uint8_t
+    initial: "0"
+  - name: aud_out1
+    type: uint8_t
+    initial: "0"
+  - name: aud_lfsr0
+    type: uint8_t
+    initial: "31"
+  - name: aud_lfsr1
+    type: uint8_t
+    initial: "31"
+  - name: aud_lfsr4_0
+    type: uint8_t
+    initial: "15"
+  - name: aud_lfsr4_1
+    type: uint8_t
+    initial: "15"
+  - name: aud_clock
+    type: uint16_t
+    initial: "0"
+  - name: aud_sum0
+    type: uint32_t
+    initial: "0"
+  - name: aud_sum1
+    type: uint32_t
+    initial: "0"
+  - name: aud_sum_ct
+    type: uint32_t
+    initial: "0"
+  - name: cxm0p
+    type: uint8_t
+    initial: "0"
+  - name: cxm1p
+    type: uint8_t
+    initial: "0"
+  - name: cxp0fb
+    type: uint8_t
+    initial: "0"
+  - name: cxp1fb
+    type: uint8_t
+    initial: "0"
+  - name: cxm0fb
+    type: uint8_t
+    initial: "0"
+  - name: cxm1fb
+    type: uint8_t
+    initial: "0"
+  - name: cxblpf
+    type: uint8_t
+    initial: "0"
+  - name: cxppmm
+    type: uint8_t
+    initial: "0"
+  - name: audio_level
+    type: uint8_t
+    initial: "128"
+
+interfaces:
+  callbacks:
+    - name: joy0_read
+      args: []
+      returns: u8
+    - name: joy1_read
+      args: []
+      returns: u8
+    - name: console_read
+      args: []
+      returns: u8
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32]
+    - name: audio_level
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges:
+      - name: tia_regs
+        start: 0x0000
+        size: 0x0080
+        access: [read, write]
+      - name: riot_ram
+        start: 0x0080
+        size: 0x0080
+        access: [read, write]
+      - name: riot_io
+        start: 0x0280
+        size: 0x0080
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      if (comp->riot_ram == NULL) {
+          comp->riot_ram = (uint8_t *)calloc(128u, sizeof(uint8_t));
+      }
+      if (comp->pending_reg == NULL) {
+          comp->pending_reg = (uint8_t *)calloc(128u, sizeof(uint8_t));
+      }
+      if (comp->pending_val == NULL) {
+          comp->pending_val = (uint8_t *)calloc(128u, sizeof(uint8_t));
+      }
+      if (comp->pending_delay == NULL) {
+          comp->pending_delay = (uint8_t *)calloc(128u, sizeof(uint8_t));
+      }
+    reset: |
+      if (comp->riot_ram != NULL) memset(comp->riot_ram, 0, 128u);
+      if (comp->pending_reg != NULL) memset(comp->pending_reg, 0, 128u);
+      if (comp->pending_val != NULL) memset(comp->pending_val, 0, 128u);
+      if (comp->pending_delay != NULL) memset(comp->pending_delay, 0, 128u);
+      comp->vsync = 0u;
+      comp->vsync_last = 0u;
+      comp->vblank_last = 0u;
+      comp->vsync_seen = 0u;
+      comp->vsync_rise_pending = 0u;
+      comp->vsync_emit_pending = 0u;
+      comp->vblank = 0u;
+      comp->colup0 = 0u;
+      comp->colup1 = 0u;
+      comp->colupf = 0u;
+      comp->colubk = 0u;
+      comp->ctrlpf = 0u;
+      comp->pf0 = 0u;
+      comp->pf1 = 0u;
+      comp->pf2 = 0u;
+      comp->grp0 = 0u;
+      comp->grp1 = 0u;
+      comp->enam0 = 0u;
+      comp->enam1 = 0u;
+      comp->enabl = 0u;
+      comp->m0_x = 0;
+      comp->m1_x = 0;
+      comp->bl_x = 0;
+      comp->nusiz0 = 0u;
+      comp->nusiz1 = 0u;
+      comp->hmp0 = 0u;
+      comp->hmp1 = 0u;
+      comp->hmm0 = 0u;
+      comp->hmm1 = 0u;
+      comp->hmbl = 0u;
+      comp->p0_x = 0;
+      comp->p1_x = 0;
+      comp->p0_ctr = 0u;
+      comp->p0_counter = 0u;
+      comp->p1_ctr = 0u;
+      comp->p1_counter = 0u;
+      comp->m0_ctr = 0u;
+      comp->m0_counter = 0u;
+      comp->m1_ctr = 0u;
+      comp->m1_counter = 0u;
+      comp->p0_is_rendering = 0u;
+      comp->p1_is_rendering = 0u;
+      comp->m0_is_rendering = 0u;
+      comp->m1_is_rendering = 0u;
+      comp->bl_is_rendering = 0u;
+      comp->p0_render_counter = 0;
+      comp->p1_render_counter = 0;
+      comp->m0_render_counter = 0;
+      comp->m1_render_counter = 0;
+      comp->bl_render_counter = 0;
+      comp->p0_sample_counter = 0u;
+      comp->p1_sample_counter = 0u;
+      comp->p0_render_div = 1u;
+      comp->p1_render_div = 1u;
+      comp->bl_ctr = 0u;
+      comp->bl_counter = 0u;
+      comp->p0_active = 0u;
+      comp->p1_active = 0u;
+      comp->m0_active = 0u;
+      comp->m1_active = 0u;
+      comp->bl_active = 0u;
+      comp->grp0_latched = 0u;
+      comp->grp1_latched = 0u;
+      comp->grp0_prev = 0u;
+      comp->grp1_prev = 0u;
+      comp->bl_prev = 0u;
+      comp->vdelp0 = 0u;
+      comp->vdelp1 = 0u;
+      comp->vdelbl = 0u;
+      comp->refp0 = 0u;
+      comp->refp1 = 0u;
+      comp->resmp0 = 0u;
+      comp->resmp1 = 0u;
+      comp->pending_count = 0u;
+      comp->pl_swap_delay = 1u;
+      comp->color_clock = 0u;
+      comp->hctr = 0u;
+      comp->hctr_delta = 0;
+      comp->hstate = 0u;
+      comp->rsync_pending = 0u;
+      comp->rsync_blank_x = 0u;
+      comp->extended_hblank = 0u;
+      comp->scanline = 0u;
+      comp->visible_y = 0u;
+      comp->frame_scanlines = 0u;
+      comp->frame_started = 0u;
+      comp->frame_ready_pending = 0u;
+      comp->frame_counter = 0u;
+      comp->frame_target_scanlines = 262u;
+      comp->hmove_pending = 0u;
+      comp->hmove_in_progress = 0u;
+      comp->hmove_clock = 0u;
+      comp->p0_moving = 0u;
+      comp->p1_moving = 0u;
+      comp->m0_moving = 0u;
+      comp->m1_moving = 0u;
+      comp->bl_moving = 0u;
+      comp->hmove_blank = 0u;
+      comp->wsync_extra_clocks = 0u;
+      comp->wsync_extra_cycles = 0u;
+      comp->wsync_overshoot_clocks = 0u;
+      comp->cxm0p = 0u;
+      comp->cxm1p = 0u;
+      comp->cxp0fb = 0u;
+      comp->cxp1fb = 0u;
+      comp->cxm0fb = 0u;
+      comp->cxm1fb = 0u;
+      comp->cxblpf = 0u;
+      comp->cxppmm = 0u;
+      comp->riot_timer = 0u;
+      comp->riot_swcha_out = 0u;
+      comp->riot_swacnt = 0u;
+      comp->riot_swchb_out = 0u;
+      comp->riot_swbcnt = 0u;
+      comp->riot_timer_interval = 0u;
+      comp->riot_timer_div = 0u;
+      comp->riot_timer_wrap_pending = 0u;
+      comp->riot_instat = 0u;
+      comp->riot_pa7_last = 1u;
+      comp->riot_pa7_irq_enable = 1u;
+      comp->riot_pa7_posedge = 0u;
+      comp->inpt4_latch = 0x80u;
+      comp->inpt5_latch = 0x80u;
+      comp->inpt0_latch = 0x80u;
+      comp->inpt1_latch = 0x80u;
+      comp->inpt2_latch = 0x80u;
+      comp->inpt3_latch = 0x80u;
+      comp->paddle0_timer = 0u;
+      comp->paddle1_timer = 0u;
+      comp->paddle2_timer = 0u;
+      comp->paddle3_timer = 0u;
+      comp->audc0 = 0u;
+      comp->audc1 = 0u;
+      comp->audf0 = 0u;
+      comp->audf1 = 0u;
+      comp->audv0 = 0u;
+      comp->audv1 = 0u;
+      comp->aud_div0 = 0u;
+      comp->aud_div1 = 0u;
+      comp->aud_out0 = 0u;
+      comp->aud_out1 = 0u;
+      comp->aud_lfsr0 = 0x1Fu;
+      comp->aud_lfsr1 = 0x1Fu;
+      comp->aud_lfsr4_0 = 0x0Fu;
+      comp->aud_lfsr4_1 = 0x0Fu;
+      comp->aud_clock = 0u;
+      comp->aud_sum0 = 0u;
+      comp->aud_sum1 = 0u;
+      comp->aud_sum_ct = 0u;
+      comp->audio_level = 128u;
+    destroy: |
+      if (comp->riot_ram != NULL) {
+          free(comp->riot_ram);
+          comp->riot_ram = NULL;
+      }
+      if (comp->pending_reg != NULL) {
+          free(comp->pending_reg);
+          comp->pending_reg = NULL;
+      }
+      if (comp->pending_val != NULL) {
+          free(comp->pending_val);
+          comp->pending_val = NULL;
+      }
+      if (comp->pending_delay != NULL) {
+          free(comp->pending_delay);
+          comp->pending_delay = NULL;
+      }
+    mem_read_pre: |
+      uint16_t a = (uint16_t)(addr & 0x1FFFu);
+      if (a < 0x0080u) {
+          /* TIA read registers mirror every 16 bytes across this range. */
+          uint8_t r = (uint8_t)(a & 0x0Fu);
+          switch (r) {
+              case 0x00u: return comp->cxm0p;
+              case 0x01u: return comp->cxm1p;
+              case 0x02u: return comp->cxp0fb;
+              case 0x03u: return comp->cxp1fb;
+              case 0x04u: return comp->cxm0fb;
+              case 0x05u: return comp->cxm1fb;
+              case 0x06u: return comp->cxblpf;
+              case 0x07u: return comp->cxppmm;
+              case 0x08u: return comp->inpt0_latch;
+              case 0x09u: return comp->inpt1_latch;
+              case 0x0Au: return comp->inpt2_latch;
+              case 0x0Bu: return comp->inpt3_latch;
+              case 0x0Cu: {
+                  return comp->inpt4_latch;
+              }
+              case 0x0Du: {
+                  return comp->inpt5_latch;
+              }
+              default:
+                  return 0x00u;
+          }
+      }
+      if (a >= 0x0080u && a < 0x0200u) {
+          return comp->riot_ram[(uint16_t)(a & 0x007Fu)];
+      }
+      if ((a & 0xFF80u) == 0x0280u) {
+          uint8_t reg = (uint8_t)(a & 0x1Fu);
+          uint8_t r = (uint8_t)(reg & 0x07u);
+          if (r == 0x00u) {
+              uint8_t joy0 = (uint8_t)cpu_component_call(cpu, "atari2600_io", "joy0_read", NULL, 0);
+              uint8_t joy1 = (uint8_t)cpu_component_call(cpu, "atari2600_io", "joy1_read", NULL, 0);
+              uint8_t in = 0xFFu;
+              if ((joy0 & 0x01u) != 0u) in &= (uint8_t)~0x10u; /* up */
+              if ((joy0 & 0x02u) != 0u) in &= (uint8_t)~0x20u; /* down */
+              if ((joy0 & 0x04u) != 0u) in &= (uint8_t)~0x40u; /* left */
+              if ((joy0 & 0x08u) != 0u) in &= (uint8_t)~0x80u; /* right */
+              if ((joy1 & 0x01u) != 0u) in &= (uint8_t)~0x01u;
+              if ((joy1 & 0x02u) != 0u) in &= (uint8_t)~0x02u;
+              if ((joy1 & 0x04u) != 0u) in &= (uint8_t)~0x04u;
+              if ((joy1 & 0x08u) != 0u) in &= (uint8_t)~0x08u;
+              return (uint8_t)((in & (uint8_t)~comp->riot_swacnt) | (comp->riot_swcha_out & comp->riot_swacnt));
+          }
+          if (r == 0x01u) {
+              return comp->riot_swacnt;
+          }
+          if (r == 0x02u) {
+              uint8_t in = (uint8_t)cpu_component_call(cpu, "atari2600_io", "console_read", NULL, 0);
+              return (uint8_t)((in & (uint8_t)~comp->riot_swbcnt) | (comp->riot_swchb_out & comp->riot_swbcnt));
+          }
+          if (r == 0x03u) {
+              return comp->riot_swbcnt;
+          }
+          if (r == 0x04u || r == 0x06u) {
+              /* Reading INTIM acknowledges timer flag (PA7 flag unaffected). */
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0x7Fu);
+              return comp->riot_timer;
+          }
+          if (r == 0x05u || r == 0x07u) {
+              uint8_t v = comp->riot_instat;
+              /* Reading TIMINT/INSTAT acknowledges only PA7 edge flag. */
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0xBFu);
+              return v;
+          }
+      }
+    mem_write_pre: |
+      uint16_t a = (uint16_t)(addr & 0x1FFFu);
+      if (a < 0x0080u) {
+          uint8_t r = (uint8_t)(a & 0x3Fu);
+          #define TIA_ENQUEUE(_reg,_val,_delay) do { \
+              if (comp->pending_count < 128u) { \
+                  comp->pending_reg[comp->pending_count] = (uint8_t)(_reg); \
+                  comp->pending_val[comp->pending_count] = (uint8_t)(_val); \
+                  comp->pending_delay[comp->pending_count] = (uint8_t)(_delay); \
+                  comp->pending_count = (uint8_t)(comp->pending_count + 1u); \
+              } \
+          } while(0)
+          switch (r) {
+              case 0x00u: {
+                  uint8_t new_vsync = (uint8_t)(value & 0x02u);
+                  if (new_vsync != 0u && comp->vsync_last == 0u) {
+                      /* VSYNC rising edge: enter sync. */
+                      comp->vsync_rise_pending = 1u;
+                  } else if (new_vsync == 0u && comp->vsync_last != 0u) {
+                      /* VSYNC falling edge: end of frame. */
+                      comp->vsync_emit_pending = 1u;
+                  }
+                  comp->vsync = value;
+                  comp->vsync_last = new_vsync;
+                  return;
+              }
+              case 0x01u: TIA_ENQUEUE(0x01u, value, 1u); return; /* VBLANK */
+              case 0x02u: {
+                  /* WSYNC: halt CPU until next scanline boundary (approximate). */
+                  uint32_t cc = comp->color_clock;
+                  uint32_t remain = (cc < 228u) ? (228u - cc) : 0u;
+                  if (comp->wsync_overshoot_clocks != 0u) {
+                      uint32_t trim = (uint32_t)comp->wsync_overshoot_clocks;
+                      remain = (remain > trim) ? (remain - trim) : 0u;
+                      comp->wsync_overshoot_clocks = 0u;
+                  }
+                  uint64_t stall_cycles = (remain + 2u) / 3u;
+                  if (stall_cycles > 0u) {
+                      cpu->total_cycles += stall_cycles;
+                  }
+                  if (stall_cycles > 0u) {
+                      uint32_t covered = (uint32_t)(stall_cycles * 3u);
+                      comp->wsync_overshoot_clocks = (uint8_t)(covered > remain ? (covered - remain) : 0u);
+                      comp->wsync_extra_cycles += (uint32_t)stall_cycles;
+                  } else {
+                      comp->wsync_overshoot_clocks = 0u;
+                  }
+                  /* Stall is already accounted via wsync_extra_cycles.
+                     Do not also add raw clocks, or WSYNC time is double-counted. */
+                  return;
+              }
+              case 0x03u: {
+                  /* RSYNC: reset horizontal sync counter. */
+                  uint32_t rsx = (comp->color_clock > 68u) ? (comp->color_clock - 68u) : 0u;
+                  if (rsx > 159u) rsx = 159u;
+                  comp->rsync_blank_x = (uint8_t)rsx;
+                  comp->rsync_pending = 1u;
+                  comp->hctr_delta = (int32_t)(228u - 3u) - (int32_t)comp->color_clock;
+                  comp->color_clock = 228u - 3u;
+                  return;
+              }
+              case 0x04u: comp->nusiz0 = value; return;
+              case 0x05u: comp->nusiz1 = value; return;
+              case 0x06u: comp->colup0 = value; return;
+              case 0x07u: comp->colup1 = value; return;
+              case 0x08u: comp->colupf = value; return;
+              case 0x09u: comp->colubk = value; return;
+              case 0x0Au: comp->ctrlpf = value; return;
+              case 0x0Bu: TIA_ENQUEUE(0x0Bu, value, 1u); return; /* REFP0 */
+              case 0x0Cu: TIA_ENQUEUE(0x0Cu, value, 1u); return; /* REFP1 */
+              case 0x0Du: TIA_ENQUEUE(0x0Du, value, 2u); return; /* PF0 */
+              case 0x0Eu: TIA_ENQUEUE(0x0Eu, value, 2u); return; /* PF1 */
+              case 0x0Fu: TIA_ENQUEUE(0x0Fu, value, 2u); return; /* PF2 */
+              case 0x10u: {
+                  /* RESPx strobes are observed by the TIA a little later than the
+                     CPU-side memory hook sees them. Bias by one CPU cycle (3 color
+                     clocks) so coarse positioning lines up with the render pipeline. */
+                  uint32_t cc = (comp->color_clock + 3u) % 228u;
+                  uint8_t in_blank = (uint8_t)(cc < ((comp->extended_hblank != 0u) ? 76u : 68u));
+                  uint8_t resx = (in_blank != 0u) ? ((cc >= 73u) ? 158u : 159u) : 157u;
+                  comp->p0_counter = resx;
+                  int32_t x = (int32_t)cc - 68 - comp->hctr_delta;
+                  if (cc < 68u && cc >= 65u) x = 1;
+                  if (x < 0) x = 0;
+                  comp->p0_x = x;
+                  comp->p0_ctr = 0u;
+                  comp->p0_active = 1u;
+                  if (comp->p0_is_rendering != 0u && (comp->p0_render_counter + 5) < 4) {
+                      comp->p0_render_counter = (int8_t)(-5 + (int)resx - 157);
+                  }
+                  return;
+              }
+              case 0x11u: {
+                  uint32_t cc = (comp->color_clock + 3u) % 228u;
+                  uint8_t in_blank = (uint8_t)(cc < ((comp->extended_hblank != 0u) ? 76u : 68u));
+                  uint8_t resx = (in_blank != 0u) ? ((cc >= 73u) ? 158u : 159u) : 157u;
+                  comp->p1_counter = resx;
+                  int32_t x = (int32_t)cc - 68 - comp->hctr_delta;
+                  if (cc < 68u && cc >= 65u) x = 1;
+                  if (x < 0) x = 0;
+                  comp->p1_x = x;
+                  comp->p1_ctr = 0u;
+                  comp->p1_active = 1u;
+                  if (comp->p1_is_rendering != 0u && (comp->p1_render_counter + 5) < 4) {
+                      comp->p1_render_counter = (int8_t)(-5 + (int)resx - 157);
+                  }
+                  return;
+              }
+              case 0x12u: {
+                  uint32_t cc = (comp->color_clock + 3u) % 228u;
+                  uint8_t in_blank = (uint8_t)(cc < ((comp->extended_hblank != 0u) ? 76u : 68u));
+                  uint8_t resx = (in_blank != 0u) ? ((cc >= 73u) ? 158u : 159u) : 157u;
+                  comp->m0_counter = resx;
+                  int32_t x = (int32_t)cc - 68 - comp->hctr_delta;
+                  if (cc < 68u && cc >= 65u) x = 1;
+                  if (x < 0) x = 0;
+                  comp->m0_x = x;
+                  comp->m0_ctr = 0u;
+                  comp->m0_active = 1u;
+                  if (comp->m0_is_rendering != 0u) {
+                      uint8_t msize_bits = (uint8_t)((comp->nusiz0 >> 4) & 0x03u);
+                      int msize = (msize_bits == 0u) ? 1 : (msize_bits == 1u ? 2 : (msize_bits == 2u ? 4 : 8));
+                      if (comp->m0_render_counter < 0) {
+                          comp->m0_render_counter = (int8_t)(-4 + (int)resx - 157);
+                      } else {
+                          if (msize == 8) {
+                              comp->m0_render_counter = (int8_t)((int)resx - 157 + ((comp->m0_render_counter >= 4) ? 4 : 0));
+                          } else if (msize == 4) {
+                              comp->m0_render_counter = (int8_t)((int)resx - 157);
+                          } else if (msize == 2) {
+                              if (comp->hstate == 0u) comp->m0_is_rendering = (uint8_t)(comp->m0_render_counter > 1);
+                              else if (comp->m0_render_counter == 0) comp->m0_render_counter += 1;
+                          } else {
+                              if (comp->hstate == 0u) comp->m0_is_rendering = (uint8_t)(comp->m0_render_counter > 0);
+                          }
+                      }
+                  }
+                  return;
+              } /* RESM0 */
+              case 0x13u: {
+                  uint32_t cc = (comp->color_clock + 3u) % 228u;
+                  uint8_t in_blank = (uint8_t)(cc < ((comp->extended_hblank != 0u) ? 76u : 68u));
+                  uint8_t resx = (in_blank != 0u) ? ((cc >= 73u) ? 158u : 159u) : 157u;
+                  comp->m1_counter = resx;
+                  int32_t x = (int32_t)cc - 68 - comp->hctr_delta;
+                  if (cc < 68u && cc >= 65u) x = 1;
+                  if (x < 0) x = 0;
+                  comp->m1_x = x;
+                  comp->m1_ctr = 0u;
+                  comp->m1_active = 1u;
+                  if (comp->m1_is_rendering != 0u) {
+                      uint8_t msize_bits = (uint8_t)((comp->nusiz1 >> 4) & 0x03u);
+                      int msize = (msize_bits == 0u) ? 1 : (msize_bits == 1u ? 2 : (msize_bits == 2u ? 4 : 8));
+                      if (comp->m1_render_counter < 0) {
+                          comp->m1_render_counter = (int8_t)(-4 + (int)resx - 157);
+                      } else {
+                          if (msize == 8) {
+                              comp->m1_render_counter = (int8_t)((int)resx - 157 + ((comp->m1_render_counter >= 4) ? 4 : 0));
+                          } else if (msize == 4) {
+                              comp->m1_render_counter = (int8_t)((int)resx - 157);
+                          } else if (msize == 2) {
+                              if (comp->hstate == 0u) comp->m1_is_rendering = (uint8_t)(comp->m1_render_counter > 1);
+                              else if (comp->m1_render_counter == 0) comp->m1_render_counter += 1;
+                          } else {
+                              if (comp->hstate == 0u) comp->m1_is_rendering = (uint8_t)(comp->m1_render_counter > 0);
+                          }
+                      }
+                  }
+                  return;
+              } /* RESM1 */
+              case 0x14u: {
+                  uint32_t cc = (comp->color_clock + 3u) % 228u;
+                  uint8_t in_blank = (uint8_t)(cc < ((comp->extended_hblank != 0u) ? 76u : 68u));
+                  uint8_t resx = (in_blank != 0u) ? ((cc >= 73u) ? 158u : 159u) : 157u;
+                  comp->bl_counter = resx;
+                  int32_t x = (int32_t)cc - 68 - comp->hctr_delta;
+                  if (cc < 68u && cc >= 65u) x = 1;
+                  if (x < 0) x = 0;
+                  comp->bl_x = x;
+                  comp->bl_ctr = 0u;
+                  comp->bl_active = 1u;
+                  comp->bl_is_rendering = 1u;
+                  comp->bl_render_counter = (int8_t)(-4 + (int)resx - 157);
+                  return;
+              } /* RESBL */
+              case 0x15u: comp->audc0 = (uint8_t)(value & 0x0Fu); return; /* AUDC0 */
+              case 0x16u: comp->audc1 = (uint8_t)(value & 0x0Fu); return; /* AUDC1 */
+              case 0x17u: comp->audf0 = (uint8_t)(value & 0x1Fu); return; /* AUDF0 */
+              case 0x18u: comp->audf1 = (uint8_t)(value & 0x1Fu); return; /* AUDF1 */
+              case 0x19u: comp->audv0 = (uint8_t)(value & 0x0Fu); return; /* AUDV0 */
+              case 0x1Au: comp->audv1 = (uint8_t)(value & 0x0Fu); return; /* AUDV1 */
+              case 0x1Bu:
+                  TIA_ENQUEUE(0x1Bu, value, 1u);        /* GRP0 */
+                  TIA_ENQUEUE(0xF1u, 0u, comp->pl_swap_delay); /* shuffle P1 */
+                  return;
+              case 0x1Cu:
+                  TIA_ENQUEUE(0x1Cu, value, 1u);        /* GRP1 */
+                  TIA_ENQUEUE(0xF0u, 0u, comp->pl_swap_delay); /* shuffle P0 */
+                  TIA_ENQUEUE(0xF2u, 0u, 1u);           /* shuffle BL */
+                  return;
+              case 0x1Du: TIA_ENQUEUE(0x1Du, value, 1u); return; /* ENAM0 */
+              case 0x1Eu: TIA_ENQUEUE(0x1Eu, value, 1u); return; /* ENAM1 */
+              case 0x1Fu: TIA_ENQUEUE(0x1Fu, value, 1u); return; /* ENABL */
+              case 0x20u: TIA_ENQUEUE(0x20u, value, 2u); return; /* HMP0 */
+              case 0x21u: TIA_ENQUEUE(0x21u, value, 2u); return; /* HMP1 */
+              case 0x22u: TIA_ENQUEUE(0x22u, value, 2u); return; /* HMM0 */
+              case 0x23u: TIA_ENQUEUE(0x23u, value, 2u); return; /* HMM1 */
+              case 0x24u: TIA_ENQUEUE(0x24u, value, 2u); return; /* HMBL */
+              case 0x25u: comp->vdelp0 = value; return;
+              case 0x26u: comp->vdelp1 = value; return;
+              case 0x27u: comp->vdelbl = value; return;
+              case 0x28u: {
+                  uint8_t prev = (uint8_t)(comp->resmp0 & 0x02u);
+                  comp->resmp0 = value;
+                  if (prev != (comp->resmp0 & 0x02u) && (comp->resmp0 & 0x02u) == 0u) {
+                      uint8_t div = ((comp->nusiz0 & 0x07u) == 0x05u) ? 2u : (((comp->nusiz0 & 0x07u) == 0x07u) ? 4u : 1u);
+                      uint8_t offset = (div == 1u) ? 5u : (div == 2u ? 8u : 12u);
+                      comp->m0_counter = (uint8_t)((comp->p0_counter + 160u - offset) % 160u);
+                  }
+                  return;
+              }
+              case 0x29u: {
+                  uint8_t prev = (uint8_t)(comp->resmp1 & 0x02u);
+                  comp->resmp1 = value;
+                  if (prev != (comp->resmp1 & 0x02u) && (comp->resmp1 & 0x02u) == 0u) {
+                      uint8_t div = ((comp->nusiz1 & 0x07u) == 0x05u) ? 2u : (((comp->nusiz1 & 0x07u) == 0x07u) ? 4u : 1u);
+                      uint8_t offset = (div == 1u) ? 5u : (div == 2u ? 8u : 12u);
+                      comp->m1_counter = (uint8_t)((comp->p1_counter + 160u - offset) % 160u);
+                  }
+                  return;
+              }
+              case 0x2Au: TIA_ENQUEUE(0x2Au, value, 6u); return; /* HMOVE */
+              case 0x2Bu: TIA_ENQUEUE(0x2Bu, value, 2u); return; /* HMCLR */
+              case 0x2Cu: {
+                  comp->cxm0p = 0u;
+                  comp->cxm1p = 0u;
+                  comp->cxp0fb = 0u;
+                  comp->cxp1fb = 0u;
+                  comp->cxm0fb = 0u;
+                  comp->cxm1fb = 0u;
+                  comp->cxblpf = 0u;
+                  comp->cxppmm = 0u;
+                  return;
+              }
+              default: return;
+          }
+          #undef TIA_ENQUEUE
+      }
+      if (a >= 0x0080u && a < 0x0200u) {
+          comp->riot_ram[(uint16_t)(a & 0x007Fu)] = value;
+          return;
+      }
+      if ((a & 0xFF80u) == 0x0280u) {
+          uint8_t reg = (uint8_t)(a & 0x1Fu);
+          if (reg == 0x00u || reg == 0x08u || reg == 0x10u || reg == 0x18u) { /* SWCHA out latch (+ mirrors) */
+              comp->riot_swcha_out = value;
+              return;
+          }
+          if (reg == 0x01u || reg == 0x09u || reg == 0x11u || reg == 0x19u) { /* SWACNT (DDRA) (+ mirrors) */
+              comp->riot_swacnt = value;
+              return;
+          }
+          if (reg == 0x02u || reg == 0x0Au || reg == 0x12u || reg == 0x1Au) { /* SWCHB out latch (+ mirrors) */
+              comp->riot_swchb_out = value;
+              return;
+          }
+          if (reg == 0x03u || reg == 0x0Bu || reg == 0x13u || reg == 0x1Bu) { /* SWBCNT (DDRB) (+ mirrors) */
+              comp->riot_swbcnt = value;
+              return;
+          }
+          if (reg == 0x14u) { /* TIM1T */
+              comp->riot_timer = value;
+              comp->riot_timer_interval = 1u;
+              comp->riot_timer_div = 0u;
+              comp->riot_timer_wrap_pending = 0u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u);
+              return;
+          }
+          if (reg == 0x15u) { /* TIM8T */
+              comp->riot_timer = value;
+              comp->riot_timer_interval = 8u;
+              comp->riot_timer_div = 0u;
+              comp->riot_timer_wrap_pending = 0u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u);
+              return;
+          }
+          if (reg == 0x16u) { /* TIM64T */
+              comp->riot_timer = value;
+              comp->riot_timer_interval = 64u;
+              comp->riot_timer_div = 0u;
+              comp->riot_timer_wrap_pending = 0u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u);
+              return;
+          }
+          if (reg == 0x17u) { /* T1024T */
+              comp->riot_timer = value;
+              comp->riot_timer_interval = 1024u;
+              comp->riot_timer_div = 0u;
+              comp->riot_timer_wrap_pending = 0u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u);
+              return;
+          }
+          if (reg == 0x1Cu) { /* TIM1T mirror */
+              comp->riot_timer = value;
+              comp->riot_timer_interval = 1u;
+              comp->riot_timer_div = 0u;
+              comp->riot_timer_wrap_pending = 0u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u);
+              return;
+          }
+          if (reg == 0x1Du) { /* TIM8T mirror */
+              comp->riot_timer = value;
+              comp->riot_timer_interval = 8u;
+              comp->riot_timer_div = 0u;
+              comp->riot_timer_wrap_pending = 0u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u);
+              return;
+          }
+          if (reg == 0x1Eu) { /* TIM64T mirror */
+              comp->riot_timer = value;
+              comp->riot_timer_interval = 64u;
+              comp->riot_timer_div = 0u;
+              comp->riot_timer_wrap_pending = 0u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u);
+              return;
+          }
+          if (reg == 0x1Fu) { /* T1024T mirror */
+              comp->riot_timer = value;
+              comp->riot_timer_interval = 1024u;
+              comp->riot_timer_div = 0u;
+              comp->riot_timer_wrap_pending = 0u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u);
+              return;
+          }
+          if (reg == 0x04u || reg == 0x0Cu) { /* PA7 edge control: negative */
+              comp->riot_pa7_irq_enable = 1u;
+              comp->riot_pa7_posedge = 0u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0xBFu);
+              return;
+          }
+          if (reg == 0x05u || reg == 0x0Du) { /* PA7 edge control: positive */
+              comp->riot_pa7_irq_enable = 1u;
+              comp->riot_pa7_posedge = 1u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0xBFu);
+              return;
+          }
+          if (reg == 0x06u || reg == 0x0Eu) { /* PA7 edge control: disable */
+              comp->riot_pa7_irq_enable = 0u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0xBFu);
+              return;
+          }
+          if (reg == 0x07u || reg == 0x0Fu) { /* PA7 edge control: enable */
+              comp->riot_pa7_irq_enable = 1u;
+              comp->riot_instat = (uint8_t)(comp->riot_instat & 0xBFu);
+              return;
+          }
+      }
+    step_post: |
+      static uint32_t framebuf[160u * 192u];
+      static const uint32_t tia_ntsc_palette[128] = {
+          0x000000u,0x4a4a4au,0x6f6f6fu,0x8e8e8eu,0xaaaaaau,0xc0c0c0u,0xd6d6d6u,0xecececu,
+          0x484800u,0x69690fu,0x86861du,0xa2a22au,0xbbbb35u,0xd2d240u,0xe8e84au,0xfcfc54u,
+          0x7c2c00u,0x904811u,0xa26221u,0xb47a30u,0xc3903du,0xd2a44au,0xdfb755u,0xecc860u,
+          0x901c00u,0xa33915u,0xb55328u,0xc66c3au,0xd5824au,0xe39759u,0xf0aa67u,0xfcbc74u,
+          0x940000u,0xa71a1au,0xb83232u,0xc84848u,0xd65c5cu,0xe46f6fu,0xf08080u,0xfc9090u,
+          0x840064u,0x97197au,0xa8308fu,0xb846a2u,0xc659b3u,0xd46cc3u,0xe07cd2u,0xec8ce0u,
+          0x500084u,0x68199au,0x7d30adu,0x9246c0u,0xa459d0u,0xb56ce0u,0xc57ceeu,0xd48cfcu,
+          0x140090u,0x331aa3u,0x4e32b5u,0x6848c6u,0x7f5cd5u,0x956fe3u,0xa980f0u,0xbc90fcu,
+          0x000094u,0x181aa7u,0x2d32b8u,0x4248c8u,0x545cd6u,0x656fe4u,0x7580f0u,0x8490fcu,
+          0x001c88u,0x183b9du,0x2d57b0u,0x4272c2u,0x548ad2u,0x65a0e1u,0x75b5efu,0x84c8fcu,
+          0x003064u,0x185080u,0x2d6d98u,0x4288b0u,0x54a0c5u,0x65b7d9u,0x75ccebu,0x84e0fcu,
+          0x004030u,0x18624eu,0x2d8169u,0x429e82u,0x54b899u,0x65d1aeu,0x75e7c2u,0x84fcd4u,
+          0x004400u,0x1a661au,0x328432u,0x48a048u,0x5cba5cu,0x6fd26fu,0x80e880u,0x90fc90u,
+          0x143c00u,0x355f18u,0x527e2du,0x6e9c42u,0x87b754u,0x9ed065u,0xb4e775u,0xc8fc84u,
+          0x303800u,0x505916u,0x6d762bu,0x88923eu,0xa0ab4fu,0xb7c25fu,0xccd86eu,0xe0ec7cu,
+          0x482c00u,0x694d14u,0x866a26u,0xa28638u,0xbb9f47u,0xd2b656u,0xe8cc63u,0xfce070u
+      };
+      static uint8_t decodes0[160u];
+      static uint8_t decodes1[160u];
+      static uint8_t decodes2[160u];
+      static uint8_t decodes3[160u];
+      static uint8_t decodes4[160u];
+      static uint8_t decodes6[160u];
+      static uint8_t *player_decodes[8];
+      static uint8_t *missile_decodes[8];
+      static uint8_t decodes_init = 0u;
+      uint8_t aud_emitted = 0u;
+
+      uint64_t cycles = inst->cycles;
+      if (comp->wsync_extra_cycles != 0u) {
+          cycles += (uint64_t)comp->wsync_extra_cycles;
+          comp->wsync_extra_cycles = 0u;
+      }
+      uint64_t clocks = cycles * 3u;
+      if (comp->wsync_extra_clocks != 0u) {
+          clocks += (uint64_t)comp->wsync_extra_clocks;
+          comp->wsync_extra_clocks = 0u;
+      }
+      if (comp->riot_timer_interval != 0u) {
+          uint32_t add = (cycles > 0xFFFFFFFFu) ? 0xFFFFFFFFu : (uint32_t)cycles;
+          comp->riot_timer_div += add;
+          while (comp->riot_timer_div >= comp->riot_timer_interval) {
+              comp->riot_timer_div -= comp->riot_timer_interval;
+              if (comp->riot_timer > 0u) {
+                  comp->riot_timer = (uint8_t)(comp->riot_timer - 1u);
+                  if (comp->riot_timer == 0u) {
+                      /* RIOT timer timeout: latch flag and enter 1-cycle underflow mode. */
+                      comp->riot_instat = (uint8_t)(comp->riot_instat | 0x80u);
+                      comp->riot_timer_interval = 1u;
+                      /* Preserve INTIM==0 visibility for at least one CPU step. */
+                      comp->riot_timer_wrap_pending = 1u;
+                      break;
+                  }
+              } else {
+                  if (comp->riot_timer_wrap_pending != 0u) {
+                      comp->riot_timer = 0xFFu;
+                      comp->riot_timer_wrap_pending = 0u;
+                  } else {
+                      comp->riot_timer = (uint8_t)(comp->riot_timer - 1u);
+                  }
+                  comp->riot_instat = (uint8_t)(comp->riot_instat | 0x80u);
+                  comp->riot_timer_interval = 1u;
+              }
+          }
+      }
+      {
+          /* Coarse paddle-cap model for INPT0..3. */
+          uint8_t joy0 = (uint8_t)cpu_component_call(cpu, "atari2600_io", "joy0_read", NULL, 0);
+          uint8_t joy1 = (uint8_t)cpu_component_call(cpu, "atari2600_io", "joy1_read", NULL, 0);
+          uint16_t pad_add = (cycles > 0xFFFFu) ? 0xFFFFu : (uint16_t)cycles;
+          uint16_t th0 = (uint16_t)(((joy0 & 0x04u) != 0u) ? 64u : (((joy0 & 0x08u) != 0u) ? 1024u : 320u));
+          uint16_t th1 = (uint16_t)(((joy0 & 0x08u) != 0u) ? 64u : (((joy0 & 0x04u) != 0u) ? 1024u : 320u));
+          uint16_t th2 = (uint16_t)(((joy1 & 0x04u) != 0u) ? 64u : (((joy1 & 0x08u) != 0u) ? 1024u : 320u));
+          uint16_t th3 = (uint16_t)(((joy1 & 0x08u) != 0u) ? 64u : (((joy1 & 0x04u) != 0u) ? 1024u : 320u));
+          if ((comp->vblank & 0x80u) != 0u) {
+              comp->inpt0_latch = 0x00u;
+              comp->inpt1_latch = 0x00u;
+              comp->inpt2_latch = 0x00u;
+              comp->inpt3_latch = 0x00u;
+              comp->paddle0_timer = 0u;
+              comp->paddle1_timer = 0u;
+              comp->paddle2_timer = 0u;
+              comp->paddle3_timer = 0u;
+          } else {
+              comp->paddle0_timer = (uint16_t)((comp->paddle0_timer + pad_add > 0xFFFFu) ? 0xFFFFu : (comp->paddle0_timer + pad_add));
+              comp->paddle1_timer = (uint16_t)((comp->paddle1_timer + pad_add > 0xFFFFu) ? 0xFFFFu : (comp->paddle1_timer + pad_add));
+              comp->paddle2_timer = (uint16_t)((comp->paddle2_timer + pad_add > 0xFFFFu) ? 0xFFFFu : (comp->paddle2_timer + pad_add));
+              comp->paddle3_timer = (uint16_t)((comp->paddle3_timer + pad_add > 0xFFFFu) ? 0xFFFFu : (comp->paddle3_timer + pad_add));
+              comp->inpt0_latch = (uint8_t)(comp->paddle0_timer >= th0 ? 0x80u : 0x00u);
+              comp->inpt1_latch = (uint8_t)(comp->paddle1_timer >= th1 ? 0x80u : 0x00u);
+              comp->inpt2_latch = (uint8_t)(comp->paddle2_timer >= th2 ? 0x80u : 0x00u);
+              comp->inpt3_latch = (uint8_t)(comp->paddle3_timer >= th3 ? 0x80u : 0x00u);
+          }
+      }
+      {
+          /* Update trigger latches: when VBLANK bit 6 is set, inputs are transparent/reset. */
+          uint8_t joy0 = (uint8_t)cpu_component_call(cpu, "atari2600_io", "joy0_read", NULL, 0);
+          uint8_t joy1 = (uint8_t)cpu_component_call(cpu, "atari2600_io", "joy1_read", NULL, 0);
+          uint8_t trig4 = (uint8_t)(((joy0 & 0x10u) != 0u) ? 0x00u : 0x80u);
+          uint8_t trig5 = (uint8_t)(((joy1 & 0x10u) != 0u) ? 0x00u : 0x80u);
+          if ((comp->vblank & 0x40u) != 0u) {
+              comp->inpt4_latch = trig4;
+              comp->inpt5_latch = trig5;
+          } else {
+              if (trig4 == 0x00u) comp->inpt4_latch = 0x00u;
+              if (trig5 == 0x00u) comp->inpt5_latch = 0x00u;
+          }
+      }
+      {
+          /* Latch RIOT PA7 edge flag from current SWCHA effective state. */
+          uint8_t joy0 = (uint8_t)cpu_component_call(cpu, "atari2600_io", "joy0_read", NULL, 0);
+          uint8_t joy1 = (uint8_t)cpu_component_call(cpu, "atari2600_io", "joy1_read", NULL, 0);
+          uint8_t in = 0xFFu;
+          if ((joy0 & 0x01u) != 0u) in &= (uint8_t)~0x10u; /* up */
+          if ((joy0 & 0x02u) != 0u) in &= (uint8_t)~0x20u; /* down */
+          if ((joy0 & 0x04u) != 0u) in &= (uint8_t)~0x40u; /* left */
+          if ((joy0 & 0x08u) != 0u) in &= (uint8_t)~0x80u; /* right / PA7 */
+          if ((joy1 & 0x01u) != 0u) in &= (uint8_t)~0x01u;
+          if ((joy1 & 0x02u) != 0u) in &= (uint8_t)~0x02u;
+          if ((joy1 & 0x04u) != 0u) in &= (uint8_t)~0x04u;
+          if ((joy1 & 0x08u) != 0u) in &= (uint8_t)~0x08u;
+          {
+              uint8_t swcha = (uint8_t)((in & (uint8_t)~comp->riot_swacnt) | (comp->riot_swcha_out & comp->riot_swacnt));
+              uint8_t pa7 = (uint8_t)((swcha & 0x80u) != 0u);
+              uint8_t rising = (uint8_t)(comp->riot_pa7_last == 0u && pa7 != 0u);
+              uint8_t falling = (uint8_t)(comp->riot_pa7_last != 0u && pa7 == 0u);
+              if (comp->riot_pa7_irq_enable != 0u &&
+                  ((comp->riot_pa7_posedge != 0u && rising != 0u) ||
+                   (comp->riot_pa7_posedge == 0u && falling != 0u))) {
+                  comp->riot_instat = (uint8_t)(comp->riot_instat | 0x40u);
+              }
+              comp->riot_pa7_last = pa7;
+          }
+      }
+      if (decodes_init == 0u) {
+          for (uint32_t i = 0u; i < 160u; ++i) {
+              decodes0[i] = 0u;
+              decodes1[i] = 0u;
+              decodes2[i] = 0u;
+              decodes3[i] = 0u;
+              decodes4[i] = 0u;
+              decodes6[i] = 0u;
+          }
+          decodes0[156u] = 1u;
+          decodes1[156u] = 1u; decodes1[12u] = 2u;
+          decodes2[156u] = 1u; decodes2[28u] = 2u;
+          decodes3[156u] = 1u; decodes3[12u] = 2u; decodes3[28u] = 3u;
+          decodes4[156u] = 1u; decodes4[60u] = 2u;
+          decodes6[156u] = 1u; decodes6[28u] = 2u; decodes6[60u] = 3u;
+          player_decodes[0] = decodes0;
+          player_decodes[1] = decodes1;
+          player_decodes[2] = decodes2;
+          player_decodes[3] = decodes3;
+          player_decodes[4] = decodes4;
+          player_decodes[5] = decodes0;
+          player_decodes[6] = decodes6;
+          player_decodes[7] = decodes0;
+          missile_decodes[0] = decodes0;
+          missile_decodes[1] = decodes1;
+          missile_decodes[2] = decodes2;
+          missile_decodes[3] = decodes3;
+          missile_decodes[4] = decodes4;
+          missile_decodes[5] = decodes0;
+          missile_decodes[6] = decodes6;
+          missile_decodes[7] = decodes0;
+          decodes_init = 1u;
+      }
+      while (clocks > 0u) {
+      if (comp->vsync_emit_pending != 0u) {
+              uint8_t can_emit = (uint8_t)((comp->frame_ready_pending != 0u) || (comp->frame_started != 0u) || (comp->visible_y != 0u));
+              if (can_emit != 0u) {
+                  uint64_t sig_args[4] = {
+                      (uint64_t)comp->frame_counter,
+                      (uint64_t)(uintptr_t)framebuf,
+                      160u,
+                      192u
+                  };
+                  cpu_component_emit_signal(cpu, "atari2600_io", "frame_ready", sig_args, 4);
+                  comp->frame_counter += 1u;
+              }
+              if (comp->frame_scanlines >= 200u && comp->frame_scanlines <= 312u) {
+                  comp->frame_target_scanlines = comp->frame_scanlines;
+              }
+              comp->vsync_emit_pending = 0u;
+              comp->vsync_rise_pending = 0u;
+              comp->visible_y = 0u;
+              comp->frame_scanlines = 0u;
+              comp->frame_started = 0u;
+              comp->frame_ready_pending = 0u;
+              comp->vsync_seen = 0u;
+          }
+          if (comp->vsync_rise_pending != 0u) {
+              comp->vsync_seen = 1u;
+              comp->vsync_rise_pending = 0u;
+          }
+          uint32_t cc = comp->color_clock;
+          uint32_t sl = comp->scanline;
+
+          /* Apply delayed TIA register updates. */
+          if (comp->pending_count != 0u) {
+              /* Stella-like slot semantics: execute current-delay writes first,
+                 then advance all remaining delays by one color clock. */
+              {
+                  uint8_t i = 0u;
+                  while (i < comp->pending_count) {
+                      if (comp->pending_delay[i] != 0u) {
+                          i = (uint8_t)(i + 1u);
+                          continue;
+                      }
+                      {
+                          uint8_t reg = comp->pending_reg[i];
+                          uint8_t val = comp->pending_val[i];
+                          if (reg == 0x1Bu) { comp->grp0 = val; comp->grp0_latched = val; }
+                          else if (reg == 0x1Cu) { comp->grp1 = val; comp->grp1_latched = val; }
+                          else if (reg == 0xF0u) { comp->grp0_prev = comp->grp0_latched; }
+                          else if (reg == 0xF1u) { comp->grp1_prev = comp->grp1_latched; }
+                          else if (reg == 0xF2u) { comp->bl_prev = comp->enabl; }
+                          else if (reg == 0x0Du) { comp->pf0 = val; }
+                          else if (reg == 0x0Eu) { comp->pf1 = val; }
+                          else if (reg == 0x0Fu) { comp->pf2 = val; }
+                          else if (reg == 0x0Bu) { comp->refp0 = val; }
+                          else if (reg == 0x0Cu) { comp->refp1 = val; }
+                          else if (reg == 0x1Du) { comp->enam0 = val; }
+                          else if (reg == 0x1Eu) { comp->enam1 = val; }
+                          else if (reg == 0x1Fu) { comp->enabl = val; }
+                          else if (reg == 0x01u) { comp->vblank = val; }
+                          else if (reg == 0x20u) { comp->hmp0 = val; }
+                          else if (reg == 0x21u) { comp->hmp1 = val; }
+                          else if (reg == 0x22u) { comp->hmm0 = val; }
+                          else if (reg == 0x23u) { comp->hmm1 = val; }
+                          else if (reg == 0x24u) { comp->hmbl = val; }
+                          else if (reg == 0x2Au) { comp->hmove_pending = 1u; }
+                          else if (reg == 0x2Bu) { comp->hmp0 = 0u; comp->hmp1 = 0u; comp->hmm0 = 0u; comp->hmm1 = 0u; comp->hmbl = 0u; }
+                      }
+                      {
+                          uint8_t k = i;
+                          uint8_t last = (uint8_t)(comp->pending_count - 1u);
+                          while (k < last) {
+                              comp->pending_reg[k] = comp->pending_reg[(uint8_t)(k + 1u)];
+                              comp->pending_val[k] = comp->pending_val[(uint8_t)(k + 1u)];
+                              comp->pending_delay[k] = comp->pending_delay[(uint8_t)(k + 1u)];
+                              k = (uint8_t)(k + 1u);
+                          }
+                          comp->pending_count = last;
+                      }
+                  }
+              }
+              {
+                  uint8_t j = 0u;
+                  while (j < comp->pending_count) {
+                      if (comp->pending_delay[j] > 0u) comp->pending_delay[j] -= 1u;
+                      j = (uint8_t)(j + 1u);
+                  }
+              }
+          }
+
+          if (comp->hmove_pending != 0u) {
+              comp->hmove_pending = 0u;
+              comp->hmove_blank = 8u;
+              comp->extended_hblank = 1u;
+              comp->hmove_in_progress = 1u;
+              comp->hmove_clock = 0u;
+              comp->p0_moving = 1u;
+              comp->p1_moving = 1u;
+              comp->m0_moving = 1u;
+              comp->m1_moving = 1u;
+              comp->bl_moving = 1u;
+          }
+          comp->hctr = cc;
+          {
+              uint32_t blank_end = (comp->extended_hblank != 0u) ? 76u : 68u;
+              comp->hstate = (uint8_t)((cc < blank_end) ? 0u : 1u);
+          }
+          if (comp->hmove_in_progress != 0u && (cc & 0x03u) == 0u) {
+              uint8_t mc = comp->hmove_clock;
+              uint8_t hm_p0 = (uint8_t)(((comp->hmp0 >> 4) ^ 0x08u) & 0x0Fu);
+              uint8_t hm_p1 = (uint8_t)(((comp->hmp1 >> 4) ^ 0x08u) & 0x0Fu);
+              uint8_t hm_m0 = (uint8_t)(((comp->hmm0 >> 4) ^ 0x08u) & 0x0Fu);
+              uint8_t hm_m1 = (uint8_t)(((comp->hmm1 >> 4) ^ 0x08u) & 0x0Fu);
+              uint8_t hm_bl = (uint8_t)(((comp->hmbl >> 4) ^ 0x08u) & 0x0Fu);
+              uint8_t any_moving = 0u;
+
+              if (comp->p0_moving != 0u) {
+                  if (mc == hm_p0) comp->p0_moving = 0u;
+                  else {
+                      if (comp->hstate == 0u) {
+                          /* During HBLANK HMOVE, adjust position counter only.
+                             Keep player render/sample phase updates in the
+                             normal per-color-clock render path. */
+                          comp->p0_counter = (uint8_t)(comp->p0_counter + 1u);
+                          if (comp->p0_counter >= 160u) comp->p0_counter = 0u;
+                      }
+                      any_moving = 1u;
+                  }
+              }
+              if (comp->p1_moving != 0u) {
+                  if (mc == hm_p1) comp->p1_moving = 0u;
+                  else {
+                      if (comp->hstate == 0u) {
+                          /* During HBLANK HMOVE, adjust position counter only.
+                             Keep player render/sample phase updates in the
+                             normal per-color-clock render path. */
+                          comp->p1_counter = (uint8_t)(comp->p1_counter + 1u);
+                          if (comp->p1_counter >= 160u) comp->p1_counter = 0u;
+                      }
+                      any_moving = 1u;
+                  }
+              }
+              if (comp->m0_moving != 0u) {
+                  if (mc == hm_m0) comp->m0_moving = 0u;
+                  else {
+                      if (comp->hstate == 0u) {
+                          comp->m0_counter = (uint8_t)(comp->m0_counter + 1u);
+                          if (comp->m0_counter >= 160u) comp->m0_counter = 0u;
+                      }
+                      any_moving = 1u;
+                  }
+              }
+              if (comp->m1_moving != 0u) {
+                  if (mc == hm_m1) comp->m1_moving = 0u;
+                  else {
+                      if (comp->hstate == 0u) {
+                          comp->m1_counter = (uint8_t)(comp->m1_counter + 1u);
+                          if (comp->m1_counter >= 160u) comp->m1_counter = 0u;
+                      }
+                      any_moving = 1u;
+                  }
+              }
+              if (comp->bl_moving != 0u) {
+                  if (mc == hm_bl) comp->bl_moving = 0u;
+                  else {
+                      if (comp->hstate == 0u) {
+                          comp->bl_counter = (uint8_t)(comp->bl_counter + 1u);
+                          if (comp->bl_counter >= 160u) comp->bl_counter = 0u;
+                      }
+                      any_moving = 1u;
+                  }
+              }
+              comp->hmove_in_progress = any_moving;
+              comp->hmove_clock = (uint8_t)(comp->hmove_clock + 1u);
+          }
+          uint8_t p0_live_div = ((comp->nusiz0 & 0x07u) == 0x05u) ? 2u : (((comp->nusiz0 & 0x07u) == 0x07u) ? 4u : 1u);
+          uint8_t p1_live_div = ((comp->nusiz1 & 0x07u) == 0x05u) ? 2u : (((comp->nusiz1 & 0x07u) == 0x07u) ? 4u : 1u);
+          uint8_t p0_div = (comp->p0_is_rendering != 0u) ? comp->p0_render_div : p0_live_div;
+          uint8_t p1_div = (comp->p1_is_rendering != 0u) ? comp->p1_render_div : p1_live_div;
+          if (p0_div == 0u) p0_div = 1u;
+          if (p1_div == 0u) p1_div = 1u;
+          uint8_t p0_trip = (p0_div == 1u) ? 0u : 1u;
+          uint8_t p1_trip = (p1_div == 1u) ? 0u : 1u;
+
+          uint8_t vblank_active = (uint8_t)((comp->vblank & 0x02u) != 0u);
+          if (vblank_active == 0u && comp->vblank_last != 0u) {
+              comp->visible_y = 0u;
+              comp->frame_started = 1u;
+              comp->frame_ready_pending = 0u;
+              for (uint32_t i = 0u; i < 160u * 192u; ++i) {
+                  framebuf[i] = 0xFF000000u;
+              }
+          }
+          comp->vblank_last = vblank_active;
+          if (comp->rsync_pending != 0u) {
+              if (comp->frame_started != 0u && vblank_active == 0u) {
+                  uint32_t y = comp->visible_y;
+                  if (y < 192u) {
+                      uint32_t start = comp->rsync_blank_x;
+                      for (uint32_t i = start; i < 160u; ++i) {
+                          framebuf[y * 160u + i] = 0xFF000000u;
+                      }
+                  }
+              }
+              comp->rsync_pending = 0u;
+          }
+          if ((comp->resmp0 & 0x02u) != 0u) comp->m0_is_rendering = 0u;
+          if ((comp->resmp1 & 0x02u) != 0u) comp->m1_is_rendering = 0u;
+          /* Snapshot pre-tick object visibility state for this color clock. */
+          uint8_t p0_draw_on = (uint8_t)(comp->p0_is_rendering != 0u && comp->p0_render_counter >= (int)p0_trip);
+          uint8_t p1_draw_on = (uint8_t)(comp->p1_is_rendering != 0u && comp->p1_render_counter >= (int)p1_trip);
+          uint8_t p0_draw_sample = comp->p0_sample_counter;
+          uint8_t p1_draw_sample = comp->p1_sample_counter;
+          uint8_t m0_draw_on = (uint8_t)(comp->m0_is_rendering != 0u && comp->m0_render_counter >= 0);
+          uint8_t m1_draw_on = (uint8_t)(comp->m1_is_rendering != 0u && comp->m1_render_counter >= 0);
+          uint8_t bl_draw_on = (uint8_t)(comp->bl_is_rendering != 0u && comp->bl_render_counter >= 0);
+          /* Tick object render state before sampling this color clock. */
+          if (comp->hstate != 0u) {
+              uint8_t p0_decode = player_decodes[(uint32_t)(comp->nusiz0 & 0x07u)][comp->p0_counter];
+              if (p0_decode != 0u) {
+                  comp->p0_is_rendering = 1u;
+                  comp->p0_render_counter = -5;
+                  comp->p0_sample_counter = 0u;
+                  comp->p0_render_div = p0_live_div;
+              } else if (comp->p0_is_rendering != 0u) {
+                  comp->p0_render_counter += 1;
+                  if (p0_div == 1u) {
+                      if (comp->p0_render_counter > 0) comp->p0_sample_counter = (uint8_t)(comp->p0_sample_counter + 1u);
+                  } else {
+                      if (comp->p0_render_counter > 1 && (((comp->p0_render_counter - 1) % (int)p0_div) == 0)) {
+                          comp->p0_sample_counter = (uint8_t)(comp->p0_sample_counter + 1u);
+                      }
+                  }
+                  if (comp->p0_sample_counter > 7u) comp->p0_is_rendering = 0u;
+              }
+              uint8_t p1_decode = player_decodes[(uint32_t)(comp->nusiz1 & 0x07u)][comp->p1_counter];
+              if (p1_decode != 0u) {
+                  comp->p1_is_rendering = 1u;
+                  comp->p1_render_counter = -5;
+                  comp->p1_sample_counter = 0u;
+                  comp->p1_render_div = p1_live_div;
+              } else if (comp->p1_is_rendering != 0u) {
+                  comp->p1_render_counter += 1;
+                  if (p1_div == 1u) {
+                      if (comp->p1_render_counter > 0) comp->p1_sample_counter = (uint8_t)(comp->p1_sample_counter + 1u);
+                  } else {
+                      if (comp->p1_render_counter > 1 && (((comp->p1_render_counter - 1) % (int)p1_div) == 0)) {
+                          comp->p1_sample_counter = (uint8_t)(comp->p1_sample_counter + 1u);
+                      }
+                  }
+                  if (comp->p1_sample_counter > 7u) comp->p1_is_rendering = 0u;
+              }
+              uint8_t m0_decode = missile_decodes[(uint32_t)(comp->nusiz0 & 0x07u)][comp->m0_counter];
+              if (m0_decode != 0u && (comp->resmp0 & 0x02u) == 0u) {
+                  comp->m0_is_rendering = 1u;
+                  comp->m0_render_counter = -4;
+              } else if (comp->m0_is_rendering != 0u) {
+                  comp->m0_render_counter += 1;
+                  uint8_t msize_bits = (uint8_t)((comp->nusiz0 >> 4) & 0x03u);
+                  int msize = (msize_bits == 0u) ? 1 : (msize_bits == 1u ? 2 : (msize_bits == 2u ? 4 : 8));
+                  if (comp->m0_render_counter >= (int)msize) comp->m0_is_rendering = 0u;
+              }
+              uint8_t m1_decode = missile_decodes[(uint32_t)(comp->nusiz1 & 0x07u)][comp->m1_counter];
+              if (m1_decode != 0u && (comp->resmp1 & 0x02u) == 0u) {
+                  comp->m1_is_rendering = 1u;
+                  comp->m1_render_counter = -4;
+              } else if (comp->m1_is_rendering != 0u) {
+                  comp->m1_render_counter += 1;
+                  uint8_t msize_bits = (uint8_t)((comp->nusiz1 >> 4) & 0x03u);
+                  int msize = (msize_bits == 0u) ? 1 : (msize_bits == 1u ? 2 : (msize_bits == 2u ? 4 : 8));
+                  if (comp->m1_render_counter >= (int)msize) comp->m1_is_rendering = 0u;
+              }
+              if (comp->bl_counter == 156u) {
+                  comp->bl_is_rendering = 1u;
+                  comp->bl_render_counter = -4;
+              } else if (comp->bl_is_rendering != 0u) {
+                  comp->bl_render_counter += 1;
+                  uint8_t bsize_bits = (uint8_t)((comp->ctrlpf >> 4) & 0x03u);
+                  int bsize = (bsize_bits == 0u) ? 1 : (bsize_bits == 1u ? 2 : (bsize_bits == 2u ? 4 : 8));
+                  if (comp->bl_render_counter >= (int)bsize) comp->bl_is_rendering = 0u;
+              }
+          }
+          if (comp->frame_started != 0u && vblank_active == 0u && comp->hstate != 0u) {
+              int32_t x_i = (int32_t)cc - 68 - comp->hctr_delta;
+              if (x_i >= 0 && x_i < 160) {
+                  uint32_t x = (uint32_t)x_i;
+                  uint32_t y = comp->visible_y;
+                  if (x < 160u) {
+                      uint8_t color = comp->colubk;
+                      uint8_t hit_p0 = 0u;
+                      uint8_t hit_p1 = 0u;
+                      uint8_t hit_pf = 0u;
+                      uint8_t hit_m0 = 0u;
+                      uint8_t hit_m1 = 0u;
+                      uint8_t hit_bl = 0u;
+                      {
+                          uint8_t pf_color = comp->colubk;
+                          uint8_t pfbit = 0u;
+                          uint8_t idx = (uint8_t)(x >> 2);
+                          uint8_t left_idx = idx;
+                          uint8_t right = 0u;
+                          if (idx >= 20u) {
+                              right = 1u;
+                              left_idx = (uint8_t)(idx - 20u);
+                          }
+                          if (right != 0u && (comp->ctrlpf & 0x01u) != 0u) {
+                              left_idx = (uint8_t)(19u - left_idx);
+                          }
+                          if (left_idx < 4u) {
+                              /* PF0 uses high nibble bits 4..7 in left-to-right order. */
+                              pfbit = (uint8_t)((comp->pf0 >> (4u + left_idx)) & 1u);
+                          } else if (left_idx < 12u) {
+                              pfbit = (uint8_t)((comp->pf1 >> (7u - (left_idx - 4u))) & 1u);
+                          } else {
+                              /* PF2 bits 0..7 map to playfield bits 12..19 (normal). */
+                              pfbit = (uint8_t)((comp->pf2 >> (left_idx - 12u)) & 1u);
+                          }
+                          if (pfbit != 0u) {
+                              hit_pf = 1u;
+                              if ((comp->ctrlpf & 0x02u) != 0u) {
+                                  pf_color = (right == 0u) ? comp->colup0 : comp->colup1;
+                              } else {
+                                  pf_color = comp->colupf;
+                              }
+                              color = pf_color;
+                          }
+
+                          /* Player 0 */
+                          {
+                              if (p0_draw_on != 0u) {
+                                  uint8_t g0 = (comp->vdelp0 != 0u) ? comp->grp0_prev : comp->grp0_latched;
+                                  uint8_t refl = (uint8_t)((comp->refp0 & 0x08u) != 0u);
+                                  uint8_t bit = p0_draw_sample;
+                                  if (bit <= 7u) {
+                                      uint8_t bidx = (refl != 0u) ? bit : (uint8_t)(7u - bit);
+                                      if (((g0 >> bidx) & 1u) != 0u) {
+                                          hit_p0 = 1u;
+                                      }
+                                  }
+                              }
+                          }
+                          /* Player 1 */
+                          {
+                              if (p1_draw_on != 0u) {
+                                  uint8_t g1 = (comp->vdelp1 != 0u) ? comp->grp1_prev : comp->grp1_latched;
+                                  uint8_t refl = (uint8_t)((comp->refp1 & 0x08u) != 0u);
+                                  uint8_t bit = p1_draw_sample;
+                                  if (bit <= 7u) {
+                                      uint8_t bidx = (refl != 0u) ? bit : (uint8_t)(7u - bit);
+                                      if (((g1 >> bidx) & 1u) != 0u) {
+                                          hit_p1 = 1u;
+                                      }
+                                  }
+                              }
+                          }
+                          /* Missile 0 */
+                          {
+                              if ((comp->enam0 & 0x02u) != 0u && m0_draw_on != 0u) {
+                                  hit_m0 = 1u;
+                              }
+                          }
+                          /* Missile 1 */
+                          {
+                              if ((comp->enam1 & 0x02u) != 0u && m1_draw_on != 0u) {
+                                  hit_m1 = 1u;
+                              }
+                          }
+                          /* Ball */
+                          {
+                              uint8_t enb = (comp->vdelbl != 0u) ? comp->bl_prev : comp->enabl;
+                              if ((enb & 0x02u) != 0u && bl_draw_on != 0u) {
+                                  hit_bl = 1u;
+                              }
+                          }
+                          if ((comp->ctrlpf & 0x04u) != 0u) {
+                              /* PF priority mode: PF > BL > P0 > M0 > P1 > M1 > BK */
+                              if (hit_pf != 0u) color = pf_color;
+                              else if (hit_bl != 0u) color = comp->colupf;
+                              else if (hit_p0 != 0u) color = comp->colup0;
+                              else if (hit_m0 != 0u) color = comp->colup0;
+                              else if (hit_p1 != 0u) color = comp->colup1;
+                              else if (hit_m1 != 0u) color = comp->colup1;
+                              else color = comp->colubk;
+                          } else if ((comp->ctrlpf & 0x02u) != 0u) {
+                              /* Score mode: P0/M0 > PF > P1/M1 > BL > BK */
+                              if (hit_p0 != 0u) color = comp->colup0;
+                              else if (hit_m0 != 0u) color = comp->colup0;
+                              else if (hit_pf != 0u) color = pf_color;
+                              else if (hit_p1 != 0u) color = comp->colup1;
+                              else if (hit_m1 != 0u) color = comp->colup1;
+                              else if (hit_bl != 0u) color = comp->colupf;
+                              else color = comp->colubk;
+                          } else {
+                              /* Normal mode: P0/M0 > P1/M1 > PF/BL > BK */
+                              if (hit_p0 != 0u) color = comp->colup0;
+                              else if (hit_m0 != 0u) color = comp->colup0;
+                              else if (hit_p1 != 0u) color = comp->colup1;
+                              else if (hit_m1 != 0u) color = comp->colup1;
+                              else if (hit_pf != 0u) color = pf_color;
+                              else if (hit_bl != 0u) color = comp->colupf;
+                              else color = comp->colubk;
+                          }
+                          if (hit_p0 != 0u && hit_pf != 0u) comp->cxp0fb |= 0x80u;
+                          if (hit_p1 != 0u && hit_pf != 0u) comp->cxp1fb |= 0x80u;
+                          if (hit_p0 != 0u && hit_bl != 0u) comp->cxp0fb |= 0x40u;
+                          if (hit_p1 != 0u && hit_bl != 0u) comp->cxp1fb |= 0x40u;
+                          if (hit_p0 != 0u && hit_p1 != 0u) comp->cxppmm |= 0x80u;
+                          if (hit_m0 != 0u && hit_p1 != 0u) comp->cxm0p |= 0x80u;
+                          if (hit_m0 != 0u && hit_p0 != 0u) comp->cxm0p |= 0x40u;
+                          if (hit_m1 != 0u && hit_p0 != 0u) comp->cxm1p |= 0x80u;
+                          if (hit_m1 != 0u && hit_p1 != 0u) comp->cxm1p |= 0x40u;
+                          if (hit_m0 != 0u && hit_pf != 0u) comp->cxm0fb |= 0x80u;
+                          if (hit_m0 != 0u && hit_bl != 0u) comp->cxm0fb |= 0x40u;
+                          if (hit_m1 != 0u && hit_pf != 0u) comp->cxm1fb |= 0x80u;
+                          if (hit_m1 != 0u && hit_bl != 0u) comp->cxm1fb |= 0x40u;
+                          if (hit_bl != 0u && hit_pf != 0u) comp->cxblpf |= 0x80u;
+                          if (hit_m0 != 0u && hit_m1 != 0u) comp->cxppmm |= 0x40u;
+                      }
+
+                      if (comp->hmove_blank != 0u && x < (uint32_t)comp->hmove_blank) {
+                          color = 0x00u;
+                      }
+                      if (y < 192u) {
+                          uint8_t idx = (uint8_t)(color & 0xFEu);
+                          uint32_t rgb = tia_ntsc_palette[(uint32_t)(idx >> 1)];
+                          framebuf[y * 160u + x] = 0xFF000000u | rgb;
+                      }
+                  }
+              }
+          }
+          /* Advance TIA audio model each color clock (mode-driven approximation). */
+          {
+              uint16_t p0 = (uint16_t)(comp->audf0 & 0x1Fu) + 1u;
+              uint16_t p1 = (uint16_t)(comp->audf1 & 0x1Fu) + 1u;
+              uint8_t c0 = (uint8_t)(comp->audc0 & 0x0Fu);
+              uint8_t c1 = (uint8_t)(comp->audc1 & 0x0Fu);
+
+              comp->aud_div0 = (uint16_t)(comp->aud_div0 + 1u);
+              if (comp->aud_div0 >= p0) {
+                  comp->aud_div0 = 0u;
+                  switch (c0) {
+                      case 0x00u:
+                      case 0x0Bu:
+                          comp->aud_out0 = (uint8_t)(comp->aud_out0 ^ 1u);
+                          break;
+                      case 0x0Cu:
+                      case 0x0Du:
+                          comp->aud_out0 = 0u;
+                          break;
+                      case 0x0Fu:
+                          comp->aud_out0 = 1u;
+                          break;
+                      default: {
+                          uint8_t bit0;
+                          if (c0 == 0x08u || c0 == 0x09u) {
+                              uint8_t fb4 = (uint8_t)(((comp->aud_lfsr4_0 >> 0) ^ (comp->aud_lfsr4_0 >> 1)) & 1u);
+                              comp->aud_lfsr4_0 = (uint8_t)(((comp->aud_lfsr4_0 >> 1) | (uint8_t)(fb4 << 3)) & 0x0Fu);
+                              bit0 = (uint8_t)(comp->aud_lfsr4_0 & 1u);
+                          } else {
+                              uint8_t fb = (uint8_t)(((comp->aud_lfsr0 >> 0) ^ (comp->aud_lfsr0 >> 2)) & 1u);
+                              comp->aud_lfsr0 = (uint8_t)(((comp->aud_lfsr0 >> 1) | (uint8_t)(fb << 4)) & 0x1Fu);
+                              bit0 = (uint8_t)(comp->aud_lfsr0 & 1u);
+                          }
+                          if (c0 == 0x04u || c0 == 0x05u || c0 == 0x08u || c0 == 0x09u) {
+                              comp->aud_out0 = bit0;
+                          } else if (c0 == 0x06u || c0 == 0x0Au) {
+                              comp->aud_out0 = (uint8_t)((comp->aud_out0 ^ 1u) & bit0);
+                          } else {
+                              comp->aud_out0 = bit0;
+                          }
+                          break;
+                      }
+                  }
+              }
+
+              comp->aud_div1 = (uint16_t)(comp->aud_div1 + 1u);
+              if (comp->aud_div1 >= p1) {
+                  comp->aud_div1 = 0u;
+                  switch (c1) {
+                      case 0x00u:
+                      case 0x0Bu:
+                          comp->aud_out1 = (uint8_t)(comp->aud_out1 ^ 1u);
+                          break;
+                      case 0x0Cu:
+                      case 0x0Du:
+                          comp->aud_out1 = 0u;
+                          break;
+                      case 0x0Fu:
+                          comp->aud_out1 = 1u;
+                          break;
+                      default: {
+                          uint8_t bit1;
+                          if (c1 == 0x08u || c1 == 0x09u) {
+                              uint8_t fb4 = (uint8_t)(((comp->aud_lfsr4_1 >> 0) ^ (comp->aud_lfsr4_1 >> 1)) & 1u);
+                              comp->aud_lfsr4_1 = (uint8_t)(((comp->aud_lfsr4_1 >> 1) | (uint8_t)(fb4 << 3)) & 0x0Fu);
+                              bit1 = (uint8_t)(comp->aud_lfsr4_1 & 1u);
+                          } else {
+                              uint8_t fb = (uint8_t)(((comp->aud_lfsr1 >> 0) ^ (comp->aud_lfsr1 >> 2)) & 1u);
+                              comp->aud_lfsr1 = (uint8_t)(((comp->aud_lfsr1 >> 1) | (uint8_t)(fb << 4)) & 0x1Fu);
+                              bit1 = (uint8_t)(comp->aud_lfsr1 & 1u);
+                          }
+                          if (c1 == 0x04u || c1 == 0x05u || c1 == 0x08u || c1 == 0x09u) {
+                              comp->aud_out1 = bit1;
+                          } else if (c1 == 0x06u || c1 == 0x0Au) {
+                              comp->aud_out1 = (uint8_t)((comp->aud_out1 ^ 1u) & bit1);
+                          } else {
+                              comp->aud_out1 = bit1;
+                          }
+                          break;
+                      }
+                  }
+              }
+
+              {
+                  uint8_t v0 = (uint8_t)(comp->audv0 & 0x0Fu);
+                  uint8_t v1 = (uint8_t)(comp->audv1 & 0x0Fu);
+                  comp->aud_sum0 += (uint32_t)(comp->aud_out0 != 0u ? v0 : 0u);
+                  comp->aud_sum1 += (uint32_t)(comp->aud_out1 != 0u ? v1 : 0u);
+                  comp->aud_sum_ct += 1u;
+                  if (comp->aud_clock == 37u || comp->aud_clock == 149u) {
+                      if (comp->aud_sum_ct != 0u) {
+                          uint32_t avg0 = comp->aud_sum0 / comp->aud_sum_ct;
+                          uint32_t avg1 = comp->aud_sum1 / comp->aud_sum_ct;
+                          uint32_t mix = avg0 + avg1;
+                          comp->audio_level = (uint8_t)((mix * 255u) / 30u);
+                          {
+                              uint64_t sig_args[2] = { (uint64_t)comp->audio_level, cpu->total_cycles };
+                              cpu_component_emit_signal(cpu, "atari2600_io", "audio_level", sig_args, 2);
+                              aud_emitted = 1u;
+                          }
+                      }
+                      comp->aud_sum0 = 0u;
+                      comp->aud_sum1 = 0u;
+                      comp->aud_sum_ct = 0u;
+                  }
+              }
+              comp->aud_clock = (uint16_t)(comp->aud_clock + 1u);
+              if (comp->aud_clock >= 228u) comp->aud_clock = 0u;
+          }
+
+          /* Advance object counters only during the current clock's visible phase.
+             Do this before color_clock wraps, otherwise the last visible clock of a
+             scanline incorrectly advances the counters once into the next line. */
+          if (comp->hstate != 0u) {
+              comp->p0_counter = (uint8_t)(comp->p0_counter + 1u);
+              if (comp->p0_counter >= 160u) comp->p0_counter = 0u;
+              comp->p1_counter = (uint8_t)(comp->p1_counter + 1u);
+              if (comp->p1_counter >= 160u) comp->p1_counter = 0u;
+              comp->m0_counter = (uint8_t)(comp->m0_counter + 1u);
+              if (comp->m0_counter >= 160u) comp->m0_counter = 0u;
+              comp->m1_counter = (uint8_t)(comp->m1_counter + 1u);
+              if (comp->m1_counter >= 160u) comp->m1_counter = 0u;
+              comp->bl_counter = (uint8_t)(comp->bl_counter + 1u);
+              if (comp->bl_counter >= 160u) comp->bl_counter = 0u;
+              if (comp->p0_active != 0u) comp->p0_ctr += 1u;
+              if (comp->p1_active != 0u) comp->p1_ctr += 1u;
+              if (comp->m0_active != 0u) comp->m0_ctr += 1u;
+              if (comp->m1_active != 0u) comp->m1_ctr += 1u;
+              if (comp->bl_active != 0u) comp->bl_ctr += 1u;
+          }
+          comp->color_clock += 1u;
+          if (comp->color_clock >= 228u) {
+              comp->color_clock = 0u;
+              comp->hctr = 0u;
+              comp->hctr_delta = 0;
+              comp->scanline += 1u;
+              comp->frame_scanlines += 1u;
+              if (((comp->vblank & 0x02u) == 0u) && comp->frame_started != 0u) {
+                  comp->visible_y += 1u;
+                  if (comp->visible_y == 192u) {
+                      comp->frame_ready_pending = 1u;
+                  }
+              }
+              comp->p0_ctr = 0u;
+              comp->p1_ctr = 0u;
+              comp->m0_ctr = 0u;
+              comp->m1_ctr = 0u;
+              comp->bl_ctr = 0u;
+              /* Re-arm objects each scanline using their start positions. */
+              comp->p0_active = 0u;
+              comp->p1_active = 0u;
+              comp->m0_active = 0u;
+              comp->m1_active = 0u;
+              comp->bl_active = 0u;
+              if (comp->hmove_blank != 0u) comp->hmove_blank = 0u;
+              comp->extended_hblank = 0u;
+              {
+                  /* Do not force frame boundaries by scanline budget here.
+                     Frame end should be driven by VSYNC falling edge. */
+              }
+          }
+          clocks -= 1u;
+      }
+
+      if (aud_emitted == 0u) {
+          uint64_t sig_args[2] = { (uint64_t)comp->audio_level, cpu->total_cycles };
+          cpu_component_emit_signal(cpu, "atari2600_io", "audio_level", sig_args, 2);
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

@@ -1,0 +1,81 @@
+metadata:
+  id: video0
+  type: video
+  model: zx48_framebuffer_256x192_border
+  version: "1.0"
+
+state:
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: border_color
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: on_frame_boundary
+      args: [u32]
+    - name: on_border_changed
+      args: [u8]
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32, u8]
+    - name: border_present
+      args: [u8]
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies:
+    on_frame_boundary: |
+      comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      static uint32_t framebuf[256u * 192u];
+      static const uint32_t palette[16] = {
+          0xFF000000u, 0xFF0000D7u, 0xFFD70000u, 0xFFD700D7u,
+          0xFF00D700u, 0xFF00D7D7u, 0xFFD7D700u, 0xFFD7D7D7u,
+          0xFF000000u, 0xFF0000FFu, 0xFFFF0000u, 0xFFFF00FFu,
+          0xFF00FF00u, 0xFF00FFFFu, 0xFFFFFF00u, 0xFFFFFFFFu
+      };
+      uint8_t flash_phase = (uint8_t)((comp->frame_count >> 5) & 1u);
+      for (uint32_t y = 0; y < 192u; y++) {
+          uint16_t pix_row = (uint16_t)(0x4000u + ((y & 0xC0u) << 5) + ((y & 0x07u) << 8) + ((y & 0x38u) << 2));
+          uint16_t attr_row = (uint16_t)(0x5800u + ((y >> 3) * 32u));
+          for (uint32_t xb = 0; xb < 32u; xb++) {
+              uint8_t bits = cpu->memory[pix_row + xb];
+              uint8_t attr = cpu->memory[attr_row + xb];
+              uint8_t ink = (uint8_t)(attr & 0x07u);
+              uint8_t paper = (uint8_t)((attr >> 3) & 0x07u);
+              uint8_t bright = (uint8_t)((attr >> 6) & 0x01u);
+              uint8_t flash = (uint8_t)((attr >> 7) & 0x01u);
+              if (flash && flash_phase) {
+                  uint8_t t = ink;
+                  ink = paper;
+                  paper = t;
+              }
+              uint8_t ink_idx = (uint8_t)(ink + (bright ? 8u : 0u));
+              uint8_t paper_idx = (uint8_t)(paper + (bright ? 8u : 0u));
+              for (uint32_t b = 0; b < 8u; b++) {
+                  uint8_t on = (uint8_t)((bits & (0x80u >> b)) != 0u);
+                  framebuf[y * 256u + xb * 8u + b] = on ? palette[ink_idx] : palette[paper_idx];
+              }
+          }
+      }
+      uint64_t sig_args[5] = {
+          (uint64_t)comp->frame_count,
+          (uint64_t)(uintptr_t)framebuf,
+          256u,
+          192u,
+          (uint64_t)comp->border_color
+      };
+      cpu_component_emit_signal(cpu, "video0", "frame_ready", sig_args, 5);
+    on_border_changed: |
+      comp->border_color = (uint8_t)(args[0] & 0xFFu);
+      cpu_component_emit_signal(cpu, "video0", "border_present", args, argc);
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

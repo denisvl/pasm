@@ -1,0 +1,4098 @@
+{
+  "00:00:BRK": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:01:ORA_INDX": {
+    "executed_cycles": 6,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:02:KIL_02_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:03:SLO_INDX_UD": {
+    "executed_cycles": 8,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:04:NOP_04_ZP_UD": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:05:ORA_ZP": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:06:ASL_ZP": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:07:SLO_ZP_UD": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      14,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:08:PHP": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      255
+    ],
+    "sp": 255
+  },
+  "00:09:ORA_IMM": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:0A:ASL_ACC": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:0B:ANC_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:0C:NOP_0C_ABS_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:0D:ORA_ABS": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      13,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:0E:ASL_ABS": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:0F:SLO_ABS_UD": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      30,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:10:BPL": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:11:ORA_INDY": {
+    "executed_cycles": 5,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:12:KIL_12_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:13:SLO_INDY_UD": {
+    "executed_cycles": 8,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:14:NOP_14_ZPX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:15:ORA_ZPX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      21,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:16:ASL_ZPX": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:17:SLO_ZPX_UD": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      46,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:18:CLC": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:19:ORA_ABSY": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      25,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:1A:NOP_1A_UD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:1B:SLO_ABSY_UD": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      54,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:1C:NOP_1C_ABSX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:1D:ORA_ABSX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      29,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:1E:ASL_ABSX": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:1F:SLO_ABSX_UD": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      62,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:20:JSR_ABS": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 0,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      254
+    ],
+    "sp": 254
+  },
+  "00:21:AND_INDX": {
+    "executed_cycles": 6,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:22:KIL_22_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:23:RLA_INDX_UD": {
+    "executed_cycles": 8,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:24:BIT_ZP": {
+    "executed_cycles": 3,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:25:AND_ZP": {
+    "executed_cycles": 3,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:26:ROL_ZP": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:27:RLA_ZP_UD": {
+    "executed_cycles": 5,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:28:PLP": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+    ],
+    "sp": 1
+  },
+  "00:29:AND_IMM": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:2A:ROL_ACC": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:2B:ANC2_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:2C:BIT_ABS": {
+    "executed_cycles": 4,
+    "flags": 2,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:2D:AND_ABS": {
+    "executed_cycles": 4,
+    "flags": 2,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:2E:ROL_ABS": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:2F:RLA_ABS_UD": {
+    "executed_cycles": 6,
+    "flags": 2,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:30:BMI": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:31:AND_INDY": {
+    "executed_cycles": 5,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:32:KIL_32_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:33:RLA_INDY_UD": {
+    "executed_cycles": 8,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:34:NOP_34_ZPX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:35:AND_ZPX": {
+    "executed_cycles": 4,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:36:ROL_ZPX": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:37:RLA_ZPX_UD": {
+    "executed_cycles": 6,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:38:SEC": {
+    "executed_cycles": 2,
+    "flags": 1,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:39:AND_ABSY": {
+    "executed_cycles": 4,
+    "flags": 2,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:3A:NOP_3A_UD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:3B:RLA_ABSY_UD": {
+    "executed_cycles": 7,
+    "flags": 2,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:3C:NOP_3C_ABSX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:3D:AND_ABSX": {
+    "executed_cycles": 4,
+    "flags": 2,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:3E:ROL_ABSX": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:3F:RLA_ABSX_UD": {
+    "executed_cycles": 7,
+    "flags": 2,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:40:RTI": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 0,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3
+    ],
+    "sp": 3
+  },
+  "00:41:EOR_INDX": {
+    "executed_cycles": 6,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:42:KIL_42_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:43:SRE_INDX_UD": {
+    "executed_cycles": 8,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:44:NOP_44_ZP_UD": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:45:EOR_ZP": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      69,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:46:LSR_ZP": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:47:SRE_ZP_UD": {
+    "executed_cycles": 5,
+    "flags": 1,
+    "pc": 2,
+    "regs": [
+      35,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:48:PHA": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      255
+    ],
+    "sp": 255
+  },
+  "00:49:EOR_IMM": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:4A:LSR_ACC": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:4B:ALR_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:4C:JMP_ABS": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 0,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:4D:EOR_ABS": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      77,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:4E:LSR_ABS": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:4F:SRE_ABS_UD": {
+    "executed_cycles": 6,
+    "flags": 1,
+    "pc": 3,
+    "regs": [
+      39,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:50:BVC": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:51:EOR_INDY": {
+    "executed_cycles": 5,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:52:KIL_52_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:53:SRE_INDY_UD": {
+    "executed_cycles": 8,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:54:NOP_54_ZPX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:55:EOR_ZPX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      85,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:56:LSR_ZPX": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:57:SRE_ZPX_UD": {
+    "executed_cycles": 6,
+    "flags": 1,
+    "pc": 2,
+    "regs": [
+      43,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:58:CLI": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:59:EOR_ABSY": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      89,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:5A:NOP_5A_UD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:5B:SRE_ABSY_UD": {
+    "executed_cycles": 7,
+    "flags": 1,
+    "pc": 3,
+    "regs": [
+      45,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:5C:NOP_5C_ABSX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:5D:EOR_ABSX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      93,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:5E:LSR_ABSX": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:5F:SRE_ABSX_UD": {
+    "executed_cycles": 7,
+    "flags": 1,
+    "pc": 3,
+    "regs": [
+      47,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:60:RTS": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2
+    ],
+    "sp": 2
+  },
+  "00:61:ADC_INDX": {
+    "executed_cycles": 6,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:62:KIL_62_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:63:RRA_INDX_UD": {
+    "executed_cycles": 8,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:64:NOP_64_ZP_UD": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:65:ADC_ZP": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      101,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:66:ROR_ZP": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:67:RRA_ZP_UD": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      52,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:68:PLA": {
+    "executed_cycles": 4,
+    "flags": 2,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+    ],
+    "sp": 1
+  },
+  "00:69:ADC_IMM": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:6A:ROR_ACC": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:6B:ARR_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:6C:JMP_IND": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 108,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:6D:ADC_ABS": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      109,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:6E:ROR_ABS": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:6F:RRA_ABS_UD": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      56,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:70:BVS": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:71:ADC_INDY": {
+    "executed_cycles": 5,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:72:KIL_72_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:73:RRA_INDY_UD": {
+    "executed_cycles": 8,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:74:NOP_74_ZPX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:75:ADC_ZPX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      117,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:76:ROR_ZPX": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:77:RRA_ZPX_UD": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      60,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:78:SEI": {
+    "executed_cycles": 2,
+    "flags": 4,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:79:ADC_ABSY": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      121,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:7A:NOP_7A_UD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:7B:RRA_ABSY_UD": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      62,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:7C:NOP_7C_ABSX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:7D:ADC_ABSX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      125,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:7E:ROR_ABSX": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:7F:RRA_ABSX_UD": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      64,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:80:NOP_80_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:81:STA_INDX": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:82:NOP_82_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:83:SAX_INDX_UD": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:84:STY_ZP": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:85:STA_ZP": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:86:STX_ZP": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:87:SAX_ZP_UD": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:88:DEY": {
+    "executed_cycles": 2,
+    "flags": 128,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      255,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:89:NOP_89_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:8A:TXA": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:8B:XAA_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:8C:STY_ABS": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:8D:STA_ABS": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:8E:STX_ABS": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:8F:SAX_ABS_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:90:BCC": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:91:STA_INDY": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:92:KIL_92_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:93:AHX_INDY_UD": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:94:STY_ZPX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:95:STA_ZPX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:96:STX_ZPY": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:97:SAX_ZPY_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:98:TYA": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:99:STA_ABSY": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:9A:TXS": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:9B:TAS_ABSY_UD": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:9C:SHY_ABSX_UD": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:9D:STA_ABSX": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:9E:SHX_ABSY_UD": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:9F:AHX_ABSY_UD": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:A0:LDY_IMM": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:A1:LDA_INDX": {
+    "executed_cycles": 6,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:A2:LDX_IMM": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:A3:LAX_INDX_UD": {
+    "executed_cycles": 6,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:A4:LDY_ZP": {
+    "executed_cycles": 3,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      164,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:A5:LDA_ZP": {
+    "executed_cycles": 3,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:A6:LDX_ZP": {
+    "executed_cycles": 3,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      0,
+      166,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:A7:LAX_ZP_UD": {
+    "executed_cycles": 3,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      167,
+      167,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:A8:TAY": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:A9:LDA_IMM": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:AA:TAX": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:AB:LXA_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:AC:LDY_ABS": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      172,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:AD:LDA_ABS": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      173,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:AE:LDX_ABS": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      0,
+      174,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:AF:LAX_ABS_UD": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      175,
+      175,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:B0:BCS": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:B1:LDA_INDY": {
+    "executed_cycles": 5,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:B2:KIL_B2_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:B3:LAX_INDY_UD": {
+    "executed_cycles": 5,
+    "flags": 2,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:B4:LDY_ZPX": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      180,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:B5:LDA_ZPX": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      181,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:B6:LDX_ZPY": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      0,
+      182,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:B7:LAX_ZPY_UD": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      183,
+      183,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:B8:CLV": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:B9:LDA_ABSY": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      185,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:BA:TSX": {
+    "executed_cycles": 2,
+    "flags": 2,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:BB:LAS_ABSY_UD": {
+    "executed_cycles": 4,
+    "flags": 2,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:BC:LDY_ABSX": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      188,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:BD:LDA_ABSX": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      189,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:BE:LDX_ABSY": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      0,
+      190,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:BF:LAX_ABSY_UD": {
+    "executed_cycles": 4,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      191,
+      191,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:C0:CPY_IMM": {
+    "executed_cycles": 2,
+    "flags": 3,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:C1:CMP_INDX": {
+    "executed_cycles": 6,
+    "flags": 3,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:C2:NOP_C2_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:C3:DCP_INDX_UD": {
+    "executed_cycles": 8,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:C4:CPY_ZP": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:C5:CMP_ZP": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:C6:DEC_ZP": {
+    "executed_cycles": 5,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:C7:DCP_ZP_UD": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:C8:INY": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:C9:CMP_IMM": {
+    "executed_cycles": 2,
+    "flags": 3,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:CA:DEX": {
+    "executed_cycles": 2,
+    "flags": 128,
+    "pc": 1,
+    "regs": [
+      0,
+      255,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:CB:AXS_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 3,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:CC:CPY_ABS": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:CD:CMP_ABS": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:CE:DEC_ABS": {
+    "executed_cycles": 6,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:CF:DCP_ABS_UD": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:D0:BNE": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:D1:CMP_INDY": {
+    "executed_cycles": 5,
+    "flags": 3,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:D2:KIL_D2_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:D3:DCP_INDY_UD": {
+    "executed_cycles": 8,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:D4:NOP_D4_ZPX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:D5:CMP_ZPX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:D6:DEC_ZPX": {
+    "executed_cycles": 6,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:D7:DCP_ZPX_UD": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:D8:CLD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:D9:CMP_ABSY": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:DA:NOP_DA_UD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:DB:DCP_ABSY_UD": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:DC:NOP_DC_ABSX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:DD:CMP_ABSX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:DE:DEC_ABSX": {
+    "executed_cycles": 7,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:DF:DCP_ABSX_UD": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:E0:CPX_IMM": {
+    "executed_cycles": 2,
+    "flags": 3,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:E1:SBC_INDX": {
+    "executed_cycles": 6,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      255,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:E2:NOP_E2_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:E3:ISC_INDX_UD": {
+    "executed_cycles": 8,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      254,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:E4:CPX_ZP": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:E5:SBC_ZP": {
+    "executed_cycles": 3,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      26,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:E6:INC_ZP": {
+    "executed_cycles": 5,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:E7:ISC_ZP_UD": {
+    "executed_cycles": 5,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      23,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:E8:INX": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:E9:SBC_IMM": {
+    "executed_cycles": 2,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      255,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:EA:NOP": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:EB:SBC_IMM_UD": {
+    "executed_cycles": 2,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      255,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:EC:CPX_ABS": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:ED:SBC_ABS": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      18,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:EE:INC_ABS": {
+    "executed_cycles": 6,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:EF:ISC_ABS_UD": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:F0:BEQ": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:F1:SBC_INDY": {
+    "executed_cycles": 5,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      255,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:F2:KIL_F2_UD": {
+    "executed_cycles": 1,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:F3:ISC_INDY_UD": {
+    "executed_cycles": 8,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      254,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:F4:NOP_F4_ZPX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:F5:SBC_ZPX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      10,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:F6:INC_ZPX": {
+    "executed_cycles": 6,
+    "flags": 128,
+    "pc": 2,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:F7:ISC_ZPX_UD": {
+    "executed_cycles": 6,
+    "flags": 0,
+    "pc": 2,
+    "regs": [
+      7,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:F8:SED": {
+    "executed_cycles": 2,
+    "flags": 8,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:F9:SBC_ABSY": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      6,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:FA:NOP_FA_UD": {
+    "executed_cycles": 2,
+    "flags": 0,
+    "pc": 1,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:FB:ISC_ABSY_UD": {
+    "executed_cycles": 7,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:FC:NOP_FC_ABSX_UD": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:FD:SBC_ABSX": {
+    "executed_cycles": 4,
+    "flags": 0,
+    "pc": 3,
+    "regs": [
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:FE:INC_ABSX": {
+    "executed_cycles": 7,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  },
+  "00:FF:ISC_ABSX_UD": {
+    "executed_cycles": 7,
+    "flags": 128,
+    "pc": 3,
+    "regs": [
+      255,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sp": 0
+  }
+}

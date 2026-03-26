@@ -1,0 +1,62 @@
+metadata:
+  id: host_sg1000
+  type: host_adapter
+  model: sg1000_headless_stub
+  version: "1.0"
+
+state:
+  - name: joy1
+    type: uint8_t
+    initial: "0xFF"
+  - name: joy2
+    type: uint8_t
+    initial: "0xFF"
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: irq_edges
+    type: uint32_t
+    initial: "0"
+  - name: audio_samples
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: read_joy1
+      args: []
+      returns: u8
+    - name: read_joy2
+      args: []
+      returns: u8
+  handlers:
+    - name: video_frame
+      args: [u32, u64, u32, u32]
+    - name: irq_edge
+      args: [u8]
+    - name: audio_pcm
+      args: [u8, u64]
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_joy1: |
+      return (uint64_t)comp->joy1;
+    read_joy2: |
+      return (uint64_t)comp->joy2;
+  handler_bodies:
+    video_frame: |
+      if (argc > 0) comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+    irq_edge: |
+      if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {
+          comp->irq_edges += 1u;
+      }
+    audio_pcm: |
+      comp->audio_samples += 1u;
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

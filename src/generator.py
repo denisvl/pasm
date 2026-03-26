@@ -1,8 +1,9 @@
 """Main code generator orchestrator."""
 
 import os
+import json
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 import sys
 
 # Ensure parent directory is in path
@@ -14,20 +15,50 @@ from src.parser.yaml_loader import ProcessorSystemLoader
 from src.codegen.cpu_header import generate_cpu_header
 from src.codegen.cpu_impl import generate_cpu_impl
 from src.codegen.cpu_decoder import generate_decoder
+from src.codegen.cpu_debug_abi import generate_debug_abi
 from src.codegen.cpu_hooks import HOOK_NAMES, generate_hooks
 from src.codegen.build_system import generate_cmake, generate_makefile
 from src.codegen.test_harness import generate_test_c
+from src.logging_utils import logger
 
 
 class EmulatorGenerator:
     """Main generator class for creating CPU emulators."""
 
-    def __init__(self, processor_path: str, system_path: str):
+    def __init__(
+        self,
+        processor_path: str,
+        system_path: str,
+        ic_paths: List[str] | None = None,
+        device_paths: List[str] | None = None,
+        host_paths: List[str] | None = None,
+        cartridge_map_path: str | None = None,
+        cartridge_rom_path: str | None = None,
+    ):
         """Initialize generator with processor/system YAML paths."""
+        if ic_paths is None:
+            ic_paths = []
+        if device_paths is None:
+            device_paths = []
+        if host_paths is None:
+            host_paths = []
         self.loader = ProcessorSystemLoader()
-        self.isa_data = self.loader.load(processor_path, system_path)
+        self.isa_data = self.loader.load(
+            processor_path,
+            system_path,
+            ic_paths=ic_paths,
+            device_paths=device_paths,
+            host_paths=host_paths,
+            cartridge_path=cartridge_map_path,
+            cartridge_rom_path=cartridge_rom_path,
+        )
         self.processor_path = Path(processor_path)
         self.system_path = Path(system_path)
+        self.ic_paths = [Path(path) for path in ic_paths]
+        self.device_paths = [Path(path) for path in device_paths]
+        self.host_paths = [Path(path) for path in host_paths]
+        self.cartridge_map_path = Path(cartridge_map_path) if cartridge_map_path else None
+        self.cartridge_rom_path = cartridge_rom_path or ""
 
         # Get CPU name from metadata
         self.cpu_name = self.isa_data.get("metadata", {}).get("name", "CPU")
@@ -59,25 +90,37 @@ class EmulatorGenerator:
         system_name = (
             self.isa_data.get("system", {}).get("metadata", {}).get("name", "system")
         )
-        print(f"Generating {self.cpu_name} emulator ({system_name}) to {output_dir}")
+        logger.info(
+            f"Generating {self.cpu_name} emulator "
+            f"({system_name}, {len(self.isa_data.get('ics', []))} IC(s), "
+            f"{len(self.isa_data.get('devices', []))} device(s), "
+            f"{len(self.isa_data.get('hosts', []))} host(s), "
+            f"{1 if self.isa_data.get('cartridge') else 0} cartridge(s)) to {output_dir}"
+        )
 
         # Generate main CPU header
-        print("  - Generating cpu.h...")
+        logger.info("  - Generating cpu.h...")
         header_code = generate_cpu_header(self.isa_data, self.cpu_name)
         (src_dir / f"{self.cpu_name}.h").write_text(header_code)
 
         # Generate CPU implementation
-        print("  - Generating cpu.c...")
+        logger.info("  - Generating cpu.c...")
         impl_code = generate_cpu_impl(
             self.isa_data, self.cpu_name, dispatch_mode=dispatch_mode
         )
         (src_dir / f"{self.cpu_name}.c").write_text(impl_code)
 
         # Generate decoder
-        print("  - Generating cpu_decoder.h/c...")
+        logger.info("  - Generating cpu_decoder.h/c...")
         decoder_header, decoder_impl = generate_decoder(self.isa_data, self.cpu_name)
         (src_dir / f"{self.cpu_name}_decoder.h").write_text(decoder_header)
         (src_dir / f"{self.cpu_name}_decoder.c").write_text(decoder_impl)
+
+        # Generate debug ABI bridge
+        logger.info("  - Generating cpu_debug_abi.h/c...")
+        debug_header, debug_impl = generate_debug_abi(self.isa_data, self.cpu_name)
+        (src_dir / f"{self.cpu_name}_debug_abi.h").write_text(debug_header)
+        (src_dir / f"{self.cpu_name}_debug_abi.c").write_text(debug_impl)
 
         # Generate hooks if enabled in ISA
         hooks_header, hooks_impl = None, None
@@ -89,24 +132,24 @@ class EmulatorGenerator:
             hooks_header, hooks_impl = generate_hooks(self.isa_data, self.cpu_name)
 
         if hooks_header:
-            print("  - Generating cpu_hooks.h/c...")
+            logger.info("  - Generating cpu_hooks.h/c...")
             (src_dir / f"{self.cpu_name}_hooks.h").write_text(hooks_header)
             (src_dir / f"{self.cpu_name}_hooks.c").write_text(hooks_impl)
         hooks_generated = hooks_header is not None
 
         # Generate main.c
-        print("  - Generating main.c...")
+        logger.info("  - Generating main.c...")
         main_code = self._generate_main()
         (src_dir / "main.c").write_text(main_code)
 
         # Generate minimal C test harness scaffold
-        print("  - Generating tests/test_cpu.c...")
+        logger.info("  - Generating tests/test_cpu.c...")
         test_c_code = generate_test_c(self.isa_data, self.cpu_name)
         (tests_dir / "test_cpu.c").write_text(test_c_code)
 
         # Generate build system (always generated; may be extended to depend on
         # features/dispatch_mode in the future)
-        print("  - Generating CMakeLists.txt...")
+        logger.info("  - Generating CMakeLists.txt...")
         cmake_code = generate_cmake(
             self.isa_data,
             self.cpu_name,
@@ -115,7 +158,7 @@ class EmulatorGenerator:
         )
         (output_path / "CMakeLists.txt").write_text(cmake_code)
 
-        print("  - Generating Makefile...")
+        logger.info("  - Generating Makefile...")
         makefile_code = generate_makefile(
             self.isa_data,
             self.cpu_name,
@@ -128,19 +171,58 @@ class EmulatorGenerator:
         defs_code = self._generate_defs_header()
         (include_dir / "cpu_defs.h").write_text(defs_code)
 
-        print(f"\nEmulator generated successfully!")
-        print(f"  CPU: {self.cpu_name}")
-        print(f"  Registers: {len(self.isa_data.get('registers', []))}")
-        print(f"  Instructions: {len(self.isa_data.get('instructions', []))}")
+        # Generate debugger linkage manifest used by external debugger frontends.
+        logger.info("  - Generating debugger_link.json...")
+        debugger_manifest = self._generate_debugger_link_manifest()
+        (output_path / "debugger_link.json").write_text(
+            json.dumps(debugger_manifest, indent=2) + "\n"
+        )
+
+        logger.info("\nEmulator generated successfully!")
+        logger.info(f"  CPU: {self.cpu_name}")
+        logger.info(f"  Registers: {len(self.isa_data.get('registers', []))}")
+        logger.info(f"  Instructions: {len(self.isa_data.get('instructions', []))}")
 
         hooks = self.isa_data.get("hooks", {})
         if any(h.get("enabled") for h in hooks.values()):
-            print(f"  Hooks: enabled")
+            logger.info("  Hooks: enabled")
 
     def _generate_main(self) -> str:
         """Generate main.c template."""
 
         memory_default_size = int(self.isa_data.get("memory", {}).get("default_size", 65536))
+        default_cart_rom = (
+            str(self.isa_data.get("cartridge_rom", {}).get("path", ""))
+            .replace("\\", "\\\\")
+            .replace('"', '\\"')
+        )
+        has_cartridge = bool(self.isa_data.get("cartridge"))
+        cart_usage_line = (
+            '    printf("  --cart-rom <file>  Load cartridge ROM file (overrides generated default)\\n");'
+            if has_cartridge
+            else ""
+        )
+        cart_cli_parse = (
+            '        } else if (strcmp(argv[i], "--cart-rom") == 0 && i + 1 < argc) {\n'
+            "            cart_rom_file = argv[++i];\n"
+            if has_cartridge
+            else ""
+        )
+        cart_default_decl = (
+            f'    const char *cart_rom_file = "{default_cart_rom}";' if has_cartridge else ""
+        )
+        cart_load_block = (
+            "    if (cart_rom_file && cart_rom_file[0]) {\n"
+            f"        if ({self.cpu_prefix}_load_cartridge_rom(cpu, cart_rom_file) != 0) {{\n"
+            '            fprintf(stderr, "Failed to load cartridge ROM: %s\\n", cart_rom_file);\n'
+            "            return 1;\n"
+            "        }\n"
+            f"        {self.cpu_prefix}_reset(cpu);\n"
+            '        printf("Loaded cartridge ROM: %s\\n", cart_rom_file);\n'
+            "    }\n"
+            if has_cartridge
+            else ""
+        )
 
         template = """/*
  * Auto-generated main.c
@@ -155,7 +237,9 @@ class EmulatorGenerator:
 void print_usage(const char *prog) {{
     printf("Usage: %s [options]\\n", prog);
     printf("Options:\\n");
+    printf("  --system-dir <dir>  Load system ROM manifests relative to this directory\\n");
     printf("  --rom <file>    Load ROM file\\n");
+{cart_usage_line}
     printf("  --addr <addr>   Load address (default: 0x0000)\\n");
     printf("  --run           Run emulator\\n");
     printf("  --cycles <n>    Run for n cycles\\n");
@@ -172,14 +256,18 @@ int main(int argc, char *argv[]) {{
     
     bool run_emulator = false;
     uint64_t max_cycles = 0;
+    const char *system_dir = NULL;
     const char *rom_file = NULL;
+{cart_default_decl}
     uint16_t load_addr = 0;
     const char *test_name = NULL;
     
     for (int i = 1; i < argc; i++) {{
-        if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {{
+        if (strcmp(argv[i], "--system-dir") == 0 && i + 1 < argc) {{
+            system_dir = argv[++i];
+        }} else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {{
             rom_file = argv[++i];
-        }} else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {{
+{cart_cli_parse}        }} else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {{
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
         }} else if (strcmp(argv[i], "--run") == 0) {{
             run_emulator = true;
@@ -193,11 +281,21 @@ int main(int argc, char *argv[]) {{
         }}
     }}
     
-    if (rom_file) {{
+    if (system_dir) {{
+        if ({cpu_prefix}_load_system_roms(cpu, system_dir) != 0) {{
+            fprintf(stderr, "Failed to load system ROMs from: %s\\n", system_dir);
+            return 1;
+        }}
+        {cpu_prefix}_reset(cpu);
+        printf("Loaded system ROMs from: %s\\n", system_dir);
+    }}
+    
+{cart_load_block}    if (rom_file) {{
         if ({cpu_prefix}_load_rom(cpu, rom_file, load_addr) != 0) {{
             fprintf(stderr, "Failed to load ROM: %s\\n", rom_file);
             return 1;
         }}
+        cpu->pc = load_addr;
         printf("Loaded ROM: %s at 0x%04X\\n", rom_file, load_addr);
     }}
     
@@ -229,6 +327,10 @@ int main(int argc, char *argv[]) {{
             cpu_name=self.cpu_name,
             cpu_prefix=self.cpu_prefix,
             memory_default_size=memory_default_size,
+            cart_usage_line=cart_usage_line,
+            cart_default_decl=cart_default_decl,
+            cart_cli_parse=cart_cli_parse,
+            cart_load_block=cart_load_block,
         )
 
     def _generate_defs_header(self) -> str:
@@ -247,6 +349,58 @@ int main(int argc, char *argv[]) {{
 #endif /* CPU_DEFS_H */
 """
 
+    def _generate_debugger_link_manifest(self) -> Dict[str, Any]:
+        """Generate debugger linkage metadata for Rust/C host frontends."""
+
+        metadata = self.isa_data.get("metadata", {})
+        system_meta = self.isa_data.get("system", {}).get("metadata", {})
+        memory = self.isa_data.get("memory", {})
+        coding = self.isa_data.get("coding", {})
+        linked_libraries = coding.get("linked_libraries", [])
+        link_library_names: List[str] = []
+        link_library_files: List[str] = []
+        for lib in linked_libraries:
+            if isinstance(lib, dict):
+                if "name" in lib:
+                    link_library_names.append(str(lib["name"]))
+                elif "path" in lib:
+                    link_library_files.append(str(lib["path"]))
+            elif isinstance(lib, str):
+                link_library_names.append(lib)
+
+        return {
+            "schema_version": 1,
+            "processor_name": metadata.get("name", self.cpu_name),
+            "processor_version": metadata.get("version", ""),
+            "system_name": system_meta.get("name", "system"),
+            "cpu_name": self.cpu_name,
+            "cpu_prefix": self.cpu_prefix,
+            "cmake_library_target": f"{self.cpu_prefix}_emu",
+            "library_basename": f"{self.cpu_prefix}_emu",
+            "artifacts": {
+                "static": f"lib{self.cpu_prefix}_emu.a",
+                "shared_linux": f"lib{self.cpu_prefix}_emu.so",
+                "shared_macos": f"lib{self.cpu_prefix}_emu.dylib",
+                "shared_windows": f"{self.cpu_prefix}_emu.dll",
+                "import_windows": f"{self.cpu_prefix}_emu.lib",
+            },
+            "headers": {
+                "cpu": f"src/{self.cpu_name}.h",
+                "debug_abi": f"src/{self.cpu_name}_debug_abi.h",
+            },
+            "link": {
+                "library_paths": list(coding.get("library_paths", [])),
+                "library_names": link_library_names,
+                "library_files": link_library_files,
+            },
+            "memory_default_size": int(memory.get("default_size", 65536)),
+            "cartridge": {
+                "enabled": bool(self.isa_data.get("cartridge")),
+                "id": self.isa_data.get("cartridge", {}).get("metadata", {}).get("id", ""),
+                "default_rom_path": self.isa_data.get("cartridge_rom", {}).get("path", ""),
+            },
+        }
+
     def get_summary(self) -> Dict[str, Any]:
         """Get a summary of the ISA."""
         return self.loader.get_summary(self.isa_data)
@@ -256,8 +410,21 @@ def generate(
     processor_path: str,
     system_path: str,
     output_dir: str,
+    ic_paths: List[str] | None = None,
+    device_paths: List[str] | None = None,
+    host_paths: List[str] | None = None,
+    cartridge_map_path: str | None = None,
+    cartridge_rom_path: str | None = None,
     dispatch_mode: str = "switch",
 ) -> None:
     """Convenience function to generate an emulator from processor+system YAML files."""
-    generator = EmulatorGenerator(processor_path, system_path)
+    generator = EmulatorGenerator(
+        processor_path,
+        system_path,
+        ic_paths=ic_paths,
+        device_paths=device_paths,
+        host_paths=host_paths,
+        cartridge_map_path=cartridge_map_path,
+        cartridge_rom_path=cartridge_rom_path,
+    )
     generator.generate(output_dir, dispatch_mode=dispatch_mode)

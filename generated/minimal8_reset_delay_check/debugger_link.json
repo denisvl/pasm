@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "processor_name": "Minimal8",
+  "processor_version": "1.0",
+  "system_name": "Minimal8DefaultSystem",
+  "cpu_name": "Minimal8",
+  "cpu_prefix": "minimal8",
+  "cmake_library_target": "minimal8_emu",
+  "library_basename": "minimal8_emu",
+  "artifacts": {
+    "static": "libminimal8_emu.a",
+    "shared_linux": "libminimal8_emu.so",
+    "shared_macos": "libminimal8_emu.dylib",
+    "shared_windows": "minimal8_emu.dll",
+    "import_windows": "minimal8_emu.lib"
+  },
+  "headers": {
+    "cpu": "src/Minimal8.h",
+    "debug_abi": "src/Minimal8_debug_abi.h"
+  },
+  "link": {
+    "library_paths": [],
+    "library_names": [],
+    "library_files": []
+  },
+  "memory_default_size": 65536,
+  "cartridge": {
+    "enabled": false,
+    "id": "",
+    "default_rom_path": ""
+  }
+}

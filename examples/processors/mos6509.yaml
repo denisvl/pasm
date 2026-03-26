@@ -1,0 +1,6943 @@
+metadata:
+  name: MOS6509
+  version: '1.0'
+  bits: 8
+  address_bits: 20
+  endian: little
+  undefined_opcode_policy: trap
+registers:
+- name: A
+  display_name: A
+  type: general
+  bits: 8
+- name: X
+  display_name: X
+  type: general
+  bits: 8
+- name: Y
+  display_name: Y
+  type: general
+  bits: 8
+- name: SP
+  display_name: SP
+  type: stack_pointer
+  bits: 8
+- name: PC
+  display_name: PC
+  type: program_counter
+  bits: 16
+- name: BANK_EXEC
+  type: special
+  bits: 8
+  display_name: BANK_EXEC
+- name: BANK_INDIR
+  type: special
+  bits: 8
+  display_name: BANK_INDIR
+flags:
+- name: C
+  bit: 0
+- name: Z
+  bit: 1
+- name: I
+  bit: 2
+- name: D
+  bit: 3
+- name: B
+  bit: 4
+- name: V
+  bit: 6
+- name: N
+  bit: 7
+interrupts:
+  model: mos6502
+instructions:
+- name: NOP
+  display: NOP
+  category: control
+  encoding:
+    opcode: 234
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: LDA_IMM
+  display: 'LDA #imm'
+  category: data_transfer
+  encoding:
+    opcode: 169
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'cpu->registers[REG_A] = inst->imm;
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: LDA_ZP
+  display: LDA zp
+  category: data_transfer
+  encoding:
+    opcode: 165
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: "if (inst->zp == 0u) {\n  cpu->registers[REG_A] = cpu->registers[REG_BANK_EXEC];\n\
+    } else if (inst->zp == 1u) {\n  cpu->registers[REG_A] = cpu->registers[REG_BANK_INDIR];\n\
+    } else {\n  cpu->registers[REG_A] = mos6509_read_byte(cpu, inst->zp);\n}\n\ncpu->flags.Z\
+    \ = (cpu->registers[REG_A] == 0);\ncpu->flags.N = ((cpu->registers[REG_A] & 0x80u)\
+    \ != 0u);\n"
+- name: LDA_INDY
+  display: LDA (zp),Y
+  category: data_transfer
+  encoding:
+    opcode: 177
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: "uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);\nuint8_t hi\
+    \ = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));\nuint16_t addr16\
+    \ = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);\naddr16 = (uint16_t)(addr16\
+    \ + (uint16_t)cpu->registers[REG_Y]);\n\nuint32_t phys = (((uint32_t)cpu->registers[REG_BANK_INDIR])\
+    \ << 16) | (uint32_t)addr16;\nif (phys < (uint32_t)cpu->memory_size) {\n  cpu->registers[REG_A]\
+    \ = cpu->memory[phys];\n} else {\n  cpu->registers[REG_A] = mos6509_read_byte(cpu,\
+    \ addr16);\n}\n\ncpu->flags.Z = (cpu->registers[REG_A] == 0);\ncpu->flags.N =\
+    \ ((cpu->registers[REG_A] & 0x80u) != 0u);\n"
+- name: STA_ZP
+  display: STA zp
+  category: data_transfer
+  encoding:
+    opcode: 133
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: "if (inst->zp == 0u) {\n  cpu->registers[REG_BANK_EXEC] = cpu->registers[REG_A];\n\
+    } else if (inst->zp == 1u) {\n  cpu->registers[REG_BANK_INDIR] = cpu->registers[REG_A];\n\
+    }\nmos6509_write_byte(cpu, inst->zp, cpu->registers[REG_A]);\n"
+- name: STA_INDY
+  display: STA (zp),Y
+  category: data_transfer
+  encoding:
+    opcode: 145
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 6
+  behavior: "uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);\nuint8_t hi\
+    \ = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));\nuint16_t addr16\
+    \ = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);\naddr16 = (uint16_t)(addr16\
+    \ + (uint16_t)cpu->registers[REG_Y]);\n\nuint32_t phys = (((uint32_t)cpu->registers[REG_BANK_INDIR])\
+    \ << 16) | (uint32_t)addr16;\nif (phys < (uint32_t)cpu->memory_size) {\n  cpu->memory[phys]\
+    \ = cpu->registers[REG_A];\n} else {\n  mos6509_write_byte(cpu, addr16, cpu->registers[REG_A]);\n\
+    }\n"
+- name: TAX
+  display: TAX
+  category: data_transfer
+  encoding:
+    opcode: 170
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->registers[REG_X] = cpu->registers[REG_A];
+
+    cpu->flags.Z = (cpu->registers[REG_X] == 0);
+
+    cpu->flags.N = ((cpu->registers[REG_X] & 0x80u) != 0u);
+
+    '
+- name: INX
+  display: INX
+  category: arithmetic
+  encoding:
+    opcode: 232
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->registers[REG_X] = (uint8_t)(cpu->registers[REG_X] + 1u);
+
+    cpu->flags.Z = (cpu->registers[REG_X] == 0);
+
+    cpu->flags.N = ((cpu->registers[REG_X] & 0x80u) != 0u);
+
+    '
+- name: LAX_ZP_UD
+  display: LAX zp (UD)
+  category: data_transfer
+  encoding:
+    opcode: 167
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'uint8_t v = mos6509_read_byte(cpu, inst->zp);
+
+    cpu->registers[REG_A] = v;
+
+    cpu->registers[REG_X] = v;
+
+    cpu->flags.Z = (v == 0u);
+
+    cpu->flags.N = ((v & 0x80u) != 0u);
+
+    '
+- name: LAX_INDY_UD
+  display: LAX (zp),Y (UD)
+  category: data_transfer
+  encoding:
+    opcode: 179
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    addr = (uint16_t)(addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = v;
+
+    cpu->registers[REG_X] = v;
+
+    cpu->flags.Z = (v == 0u);
+
+    cpu->flags.N = ((v & 0x80u) != 0u);
+
+    '
+- name: LAX_ABS_UD
+  display: LAX abs (UD)
+  category: data_transfer
+  encoding:
+    opcode: 175
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint8_t v = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->registers[REG_A] = v;
+
+    cpu->registers[REG_X] = v;
+
+    cpu->flags.Z = (v == 0u);
+
+    cpu->flags.N = ((v & 0x80u) != 0u);
+
+    '
+- name: SAX_ZP_UD
+  display: SAX zp (UD)
+  category: data_transfer
+  encoding:
+    opcode: 135
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'uint8_t v = (uint8_t)(cpu->registers[REG_A] & cpu->registers[REG_X]);
+
+    mos6509_write_byte(cpu, inst->zp, v);
+
+    '
+- name: SAX_ABS_UD
+  display: SAX abs (UD)
+  category: data_transfer
+  encoding:
+    opcode: 143
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint8_t v = (uint8_t)(cpu->registers[REG_A] & cpu->registers[REG_X]);
+
+    mos6509_write_byte(cpu, inst->addr, v);
+
+    '
+- name: DCP_ZP_UD
+  display: DCP zp (UD)
+  category: arithmetic
+  encoding:
+    opcode: 199
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    m = (uint8_t)(m - 1u);
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint16_t diff = (uint16_t)a - (uint16_t)m;
+
+    cpu->flags.C = (a >= m);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: DCP_ABS_UD
+  display: DCP abs (UD)
+  category: arithmetic
+  encoding:
+    opcode: 207
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    m = (uint8_t)(m - 1u);
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint16_t diff = (uint16_t)a - (uint16_t)m;
+
+    cpu->flags.C = (a >= m);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: ISC_ZP_UD
+  display: ISC zp (UD)
+  category: arithmetic
+  encoding:
+    opcode: 231
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    m = (uint8_t)(m + 1u);
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: ISC_ABS_UD
+  display: ISC abs (UD)
+  category: arithmetic
+  encoding:
+    opcode: 239
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    m = (uint8_t)(m + 1u);
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: SLO_ZP_UD
+  display: SLO zp (UD)
+  category: arithmetic
+  encoding:
+    opcode: 7
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)(m << 1);
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SLO_ABS_UD
+  display: SLO abs (UD)
+  category: arithmetic
+  encoding:
+    opcode: 15
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)(m << 1);
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: RLA_ZP_UD
+  display: RLA zp (UD)
+  category: arithmetic
+  encoding:
+    opcode: 39
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)((m << 1) | carry_in);
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: RLA_ABS_UD
+  display: RLA abs (UD)
+  category: arithmetic
+  encoding:
+    opcode: 47
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)((m << 1) | carry_in);
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SRE_ZP_UD
+  display: SRE zp (UD)
+  category: arithmetic
+  encoding:
+    opcode: 71
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)(m >> 1);
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SRE_ABS_UD
+  display: SRE abs (UD)
+  category: arithmetic
+  encoding:
+    opcode: 79
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)(m >> 1);
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: RRA_ZP_UD
+  display: RRA zp (UD)
+  category: arithmetic
+  encoding:
+    opcode: 103
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    uint8_t rotate_carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)((m >> 1) | (uint8_t)(rotate_carry_in << 7));
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t adc_carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)adc_carry_in;
+
+    uint8_t r = (uint8_t)sum;
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.C = (sum > 0xFFu);
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+
+    '
+- name: RRA_ABS_UD
+  display: RRA abs (UD)
+  category: arithmetic
+  encoding:
+    opcode: 111
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    uint8_t rotate_carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)((m >> 1) | (uint8_t)(rotate_carry_in << 7));
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t adc_carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)adc_carry_in;
+
+    uint8_t r = (uint8_t)sum;
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.C = (sum > 0xFFu);
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+
+    '
+- name: ANC_IMM_UD
+  display: ANC
+  category: logic
+  encoding:
+    opcode: 11
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & inst->imm);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    cpu->flags.C = cpu->flags.N;
+
+    '
+- name: ANC2_IMM_UD
+  display: ANC
+  category: logic
+  encoding:
+    opcode: 43
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & inst->imm);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    cpu->flags.C = cpu->flags.N;
+
+    '
+- name: ALR_IMM_UD
+  display: ALR
+  category: logic
+  encoding:
+    opcode: 75
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t t = (uint8_t)(cpu->registers[REG_A] & inst->imm);
+
+    cpu->flags.C = ((t & 0x01u) != 0u);
+
+    t = (uint8_t)(t >> 1);
+
+    cpu->registers[REG_A] = t;
+
+    cpu->flags.Z = (t == 0u);
+
+    cpu->flags.N = false;
+
+    cpu->flags.V = (cpu->flags.N != cpu->flags.C);
+
+    '
+- name: ARR_IMM_UD
+  display: ARR
+  category: logic
+  encoding:
+    opcode: 107
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t t = (uint8_t)(cpu->registers[REG_A] & inst->imm);
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint8_t r = (uint8_t)((t >> 1) | (uint8_t)(carry_in << 7));
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.C = ((r & 0x40u) != 0u);
+
+    cpu->flags.V = ((((r >> 6) ^ (r >> 5)) & 0x01u) != 0u);
+
+    '
+- name: AXS_IMM_UD
+  display: AXS
+  category: arithmetic
+  encoding:
+    opcode: 203
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t ax = (uint8_t)(cpu->registers[REG_A] & cpu->registers[REG_X]);
+
+    uint16_t diff = (uint16_t)ax - (uint16_t)inst->imm;
+
+    uint8_t r = (uint8_t)diff;
+
+    cpu->registers[REG_X] = r;
+
+    cpu->flags.C = (ax >= inst->imm);
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    '
+- name: XAA_IMM_UD
+  display: XAA
+  category: logic
+  encoding:
+    opcode: 139
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t t = (uint8_t)(cpu->registers[REG_A] & cpu->registers[REG_X]);
+
+    t = (uint8_t)(t & inst->imm);
+
+    cpu->registers[REG_A] = t;
+
+    cpu->flags.Z = (t == 0u);
+
+    cpu->flags.N = ((t & 0x80u) != 0u);
+
+    '
+- name: LXA_IMM_UD
+  display: LXA
+  category: data_transfer
+  encoding:
+    opcode: 171
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t t = (uint8_t)(cpu->registers[REG_A] & inst->imm);
+
+    cpu->registers[REG_A] = t;
+
+    cpu->registers[REG_X] = t;
+
+    cpu->flags.Z = (t == 0u);
+
+    cpu->flags.N = ((t & 0x80u) != 0u);
+
+    '
+- name: LAS_ABSY_UD
+  display: LAS abs,Y (UD)
+  category: data_transfer
+  encoding:
+    opcode: 187
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+    uint8_t t = (uint8_t)(m & cpu->sp);
+
+    cpu->registers[REG_A] = t;
+
+    cpu->registers[REG_X] = t;
+
+    cpu->sp = t;
+
+    cpu->flags.Z = (t == 0u);
+
+    cpu->flags.N = ((t & 0x80u) != 0u);
+
+    '
+- name: AHX_INDY_UD
+  display: AHX (zp),Y (UD)
+  category: data_transfer
+  encoding:
+    opcode: 147
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));
+
+    uint16_t base = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint16_t ea = (uint16_t)(base + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t high_plus_one = (uint8_t)(((ea >> 8) + 1u) & 0xFFu);
+
+    uint8_t v = (uint8_t)(cpu->registers[REG_A] & cpu->registers[REG_X] & high_plus_one);
+
+    mos6509_write_byte(cpu, ea, v);
+
+    '
+- name: AHX_ABSY_UD
+  display: AHX abs,Y (UD)
+  category: data_transfer
+  encoding:
+    opcode: 159
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t high_plus_one = (uint8_t)(((ea >> 8) + 1u) & 0xFFu);
+
+    uint8_t v = (uint8_t)(cpu->registers[REG_A] & cpu->registers[REG_X] & high_plus_one);
+
+    mos6509_write_byte(cpu, ea, v);
+
+    '
+- name: SHY_ABSX_UD
+  display: SHY abs,X (UD)
+  category: data_transfer
+  encoding:
+    opcode: 156
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    uint8_t high_plus_one = (uint8_t)(((ea >> 8) + 1u) & 0xFFu);
+
+    uint8_t v = (uint8_t)(cpu->registers[REG_Y] & high_plus_one);
+
+    mos6509_write_byte(cpu, ea, v);
+
+    '
+- name: SHX_ABSY_UD
+  display: SHX abs,Y (UD)
+  category: data_transfer
+  encoding:
+    opcode: 158
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t high_plus_one = (uint8_t)(((ea >> 8) + 1u) & 0xFFu);
+
+    uint8_t v = (uint8_t)(cpu->registers[REG_X] & high_plus_one);
+
+    mos6509_write_byte(cpu, ea, v);
+
+    '
+- name: TAS_ABSY_UD
+  display: TAS abs,Y (UD)
+  category: data_transfer
+  encoding:
+    opcode: 155
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'cpu->sp = (uint8_t)(cpu->registers[REG_A] & cpu->registers[REG_X]);
+
+    uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t high_plus_one = (uint8_t)(((ea >> 8) + 1u) & 0xFFu);
+
+    uint8_t v = (uint8_t)(cpu->sp & high_plus_one);
+
+    mos6509_write_byte(cpu, ea, v);
+
+    '
+- name: JMP_ABS
+  display: JMP abs
+  category: control
+  encoding:
+    opcode: 76
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'cpu->pc = inst->addr;
+
+    '
+- name: BRK
+  display: BRK
+  category: control
+  encoding:
+    opcode: 0
+    mask: 255
+    length: 1
+  cycles: 7
+  behavior: 'uint16_t ret_pc = (uint16_t)(inst->pc + 2u);
+
+    uint8_t sp8 = (uint8_t)cpu->sp;
+
+    mos6509_write_byte(cpu, (uint16_t)(0x0100u | sp8), (uint8_t)((ret_pc >> 8) &
+    0xFFu));
+
+    sp8 = (uint8_t)(sp8 - 1u);
+
+    mos6509_write_byte(cpu, (uint16_t)(0x0100u | sp8), (uint8_t)(ret_pc &
+    0xFFu));
+
+    sp8 = (uint8_t)(sp8 - 1u);
+
+    {
+
+    uint8_t p = (uint8_t)(cpu->flags.raw | FLAG_B | 0x20u);
+
+    mos6509_write_byte(cpu, (uint16_t)(0x0100u | sp8), p);
+
+    }
+
+    sp8 = (uint8_t)(sp8 - 1u);
+
+    cpu->sp = sp8;
+
+    cpu->flags.I = true;
+
+    cpu->interrupts_enabled = false;
+
+    cpu->pc = mos6509_read_word(cpu, 0xFFFEu);
+
+    cpu->pc_modified = true;
+
+    '
+- name: LAX_INDX_UD
+  display: LAX (zp,X) (UD)
+  category: data_transfer
+  encoding:
+    opcode: 163
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(ptr + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t v = mos6509_read_byte(cpu, ea);
+
+
+    cpu->registers[REG_A] = v;
+
+    cpu->registers[REG_X] = v;
+
+
+    cpu->flags.Z = (v == 0u);
+
+    cpu->flags.N = ((v & 0x80u) != 0u);
+
+    '
+- name: LAX_ZPY_UD
+  display: LAX zp,Y (UD)
+  category: data_transfer
+  encoding:
+    opcode: 183
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_Y]);
+
+    uint8_t v = mos6509_read_byte(cpu, ea);
+
+
+    cpu->registers[REG_A] = v;
+
+    cpu->registers[REG_X] = v;
+
+
+    cpu->flags.Z = (v == 0u);
+
+    cpu->flags.N = ((v & 0x80u) != 0u);
+
+    '
+- name: LAX_ABSY_UD
+  display: LAX abs,Y (UD)
+  category: data_transfer
+  encoding:
+    opcode: 191
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t v = mos6509_read_byte(cpu, ea);
+
+
+    cpu->registers[REG_A] = v;
+
+    cpu->registers[REG_X] = v;
+
+
+    cpu->flags.Z = (v == 0u);
+
+    cpu->flags.N = ((v & 0x80u) != 0u);
+
+    '
+- name: SAX_INDX_UD
+  display: SAX (zp,X) (UD)
+  category: data_transfer
+  encoding:
+    opcode: 131
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(ptr + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t v = (uint8_t)(cpu->registers[REG_A] & cpu->registers[REG_X]);
+
+
+    mos6509_write_byte(cpu, ea, v);
+
+    '
+- name: SAX_ZPY_UD
+  display: SAX zp,Y (UD)
+  category: data_transfer
+  encoding:
+    opcode: 151
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_Y]);
+
+    uint8_t v = (uint8_t)(cpu->registers[REG_A] & cpu->registers[REG_X]);
+
+
+    mos6509_write_byte(cpu, ea, v);
+
+    '
+- name: SLO_INDX_UD
+  display: SLO (zp,X) (UD)
+  category: arithmetic
+  encoding:
+    opcode: 3
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(ptr + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)(m << 1);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SLO_INDY_UD
+  display: SLO (zp),Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 19
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(inst->zp + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    ea = (uint16_t)(ea + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)(m << 1);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SLO_ZPX_UD
+  display: SLO zp,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 23
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)(m << 1);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SLO_ABSY_UD
+  display: SLO abs,Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 27
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)(m << 1);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SLO_ABSX_UD
+  display: SLO abs,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 31
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)(m << 1);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: RLA_INDX_UD
+  display: RLA (zp,X) (UD)
+  category: arithmetic
+  encoding:
+    opcode: 35
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(ptr + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)((m << 1) | carry_in);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: RLA_INDY_UD
+  display: RLA (zp),Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 51
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(inst->zp + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    ea = (uint16_t)(ea + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)((m << 1) | carry_in);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: RLA_ZPX_UD
+  display: RLA zp,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 55
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)((m << 1) | carry_in);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: RLA_ABSY_UD
+  display: RLA abs,Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 59
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)((m << 1) | carry_in);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: RLA_ABSX_UD
+  display: RLA abs,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 63
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)((m << 1) | carry_in);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SRE_INDX_UD
+  display: SRE (zp,X) (UD)
+  category: arithmetic
+  encoding:
+    opcode: 67
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(ptr + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)(m >> 1);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SRE_INDY_UD
+  display: SRE (zp),Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 83
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(inst->zp + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    ea = (uint16_t)(ea + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)(m >> 1);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SRE_ZPX_UD
+  display: SRE zp,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 87
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)(m >> 1);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SRE_ABSY_UD
+  display: SRE abs,Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 91
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)(m >> 1);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: SRE_ABSX_UD
+  display: SRE abs,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 95
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)(m >> 1);
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ m);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: RRA_INDX_UD
+  display: RRA (zp,X) (UD)
+  category: arithmetic
+  encoding:
+    opcode: 99
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(ptr + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    uint8_t rotate_carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)((m >> 1) | (uint8_t)(rotate_carry_in << 7));
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t adc_carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)adc_carry_in;
+
+    uint8_t r = (uint8_t)sum;
+
+    cpu->registers[REG_A] = r;
+
+
+    cpu->flags.C = (sum > 0xFFu);
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+
+    '
+- name: RRA_INDY_UD
+  display: RRA (zp),Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 115
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(inst->zp + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    ea = (uint16_t)(ea + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    uint8_t rotate_carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)((m >> 1) | (uint8_t)(rotate_carry_in << 7));
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t adc_carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)adc_carry_in;
+
+    uint8_t r = (uint8_t)sum;
+
+    cpu->registers[REG_A] = r;
+
+
+    cpu->flags.C = (sum > 0xFFu);
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+
+    '
+- name: RRA_ZPX_UD
+  display: RRA zp,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 119
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    uint8_t rotate_carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)((m >> 1) | (uint8_t)(rotate_carry_in << 7));
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t adc_carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)adc_carry_in;
+
+    uint8_t r = (uint8_t)sum;
+
+    cpu->registers[REG_A] = r;
+
+
+    cpu->flags.C = (sum > 0xFFu);
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+
+    '
+- name: RRA_ABSY_UD
+  display: RRA abs,Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 123
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    uint8_t rotate_carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)((m >> 1) | (uint8_t)(rotate_carry_in << 7));
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t adc_carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)adc_carry_in;
+
+    uint8_t r = (uint8_t)sum;
+
+    cpu->registers[REG_A] = r;
+
+
+    cpu->flags.C = (sum > 0xFFu);
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+
+    '
+- name: RRA_ABSX_UD
+  display: RRA abs,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 127
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    uint8_t rotate_carry_in = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)((m >> 1) | (uint8_t)(rotate_carry_in << 7));
+
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t adc_carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)adc_carry_in;
+
+    uint8_t r = (uint8_t)sum;
+
+    cpu->registers[REG_A] = r;
+
+
+    cpu->flags.C = (sum > 0xFFu);
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+
+    '
+- name: DCP_INDX_UD
+  display: DCP (zp,X) (UD)
+  category: arithmetic
+  encoding:
+    opcode: 195
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(ptr + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    m = (uint8_t)(m - 1u);
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint16_t diff = (uint16_t)a - (uint16_t)m;
+
+
+    cpu->flags.C = (a >= m);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: DCP_INDY_UD
+  display: DCP (zp),Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 211
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(inst->zp + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    ea = (uint16_t)(ea + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    m = (uint8_t)(m - 1u);
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint16_t diff = (uint16_t)a - (uint16_t)m;
+
+
+    cpu->flags.C = (a >= m);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: DCP_ZPX_UD
+  display: DCP zp,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 215
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    m = (uint8_t)(m - 1u);
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint16_t diff = (uint16_t)a - (uint16_t)m;
+
+
+    cpu->flags.C = (a >= m);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: DCP_ABSY_UD
+  display: DCP abs,Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 219
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    m = (uint8_t)(m - 1u);
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint16_t diff = (uint16_t)a - (uint16_t)m;
+
+
+    cpu->flags.C = (a >= m);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: DCP_ABSX_UD
+  display: DCP abs,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 223
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    m = (uint8_t)(m - 1u);
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint16_t diff = (uint16_t)a - (uint16_t)m;
+
+
+    cpu->flags.C = (a >= m);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: ISC_INDX_UD
+  display: ISC (zp,X) (UD)
+  category: arithmetic
+  encoding:
+    opcode: 227
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(ptr + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    m = (uint8_t)(m + 1u);
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: ISC_INDY_UD
+  display: ISC (zp),Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 243
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 8
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(uint8_t)(inst->zp + 1u));
+
+    uint16_t ea = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    ea = (uint16_t)(ea + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    m = (uint8_t)(m + 1u);
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: ISC_ZPX_UD
+  display: ISC zp,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 247
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    m = (uint8_t)(m + 1u);
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: ISC_ABSY_UD
+  display: ISC abs,Y (UD)
+  category: arithmetic
+  encoding:
+    opcode: 251
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    m = (uint8_t)(m + 1u);
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: ISC_ABSX_UD
+  display: ISC abs,X (UD)
+  category: arithmetic
+  encoding:
+    opcode: 255
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 7
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    uint8_t m = mos6509_read_byte(cpu, ea);
+
+
+    m = (uint8_t)(m + 1u);
+
+    mos6509_write_byte(cpu, ea, m);
+
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: KIL_02_UD
+  display: KIL $02 (UD)
+  category: control
+  encoding:
+    opcode: 2
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: KIL_12_UD
+  display: KIL $12 (UD)
+  category: control
+  encoding:
+    opcode: 18
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: KIL_22_UD
+  display: KIL $22 (UD)
+  category: control
+  encoding:
+    opcode: 34
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: KIL_32_UD
+  display: KIL $32 (UD)
+  category: control
+  encoding:
+    opcode: 50
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: KIL_42_UD
+  display: KIL $42 (UD)
+  category: control
+  encoding:
+    opcode: 66
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: KIL_52_UD
+  display: KIL $52 (UD)
+  category: control
+  encoding:
+    opcode: 82
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: KIL_62_UD
+  display: KIL $62 (UD)
+  category: control
+  encoding:
+    opcode: 98
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: KIL_72_UD
+  display: KIL $72 (UD)
+  category: control
+  encoding:
+    opcode: 114
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: KIL_92_UD
+  display: KIL $92 (UD)
+  category: control
+  encoding:
+    opcode: 146
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: KIL_B2_UD
+  display: KIL $B2 (UD)
+  category: control
+  encoding:
+    opcode: 178
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: KIL_D2_UD
+  display: KIL $D2 (UD)
+  category: control
+  encoding:
+    opcode: 210
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: KIL_F2_UD
+  display: KIL $F2 (UD)
+  category: control
+  encoding:
+    opcode: 242
+    mask: 255
+    length: 1
+  cycles: 1
+  behavior: 'cpu->halted = true;
+
+    cpu->running = false;
+
+    cpu->error_code = CPU_ERROR_HALT;
+
+    '
+- name: NOP_1A_UD
+  display: NOP $1A (UD)
+  category: control
+  encoding:
+    opcode: 26
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: NOP_3A_UD
+  display: NOP $3A (UD)
+  category: control
+  encoding:
+    opcode: 58
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: NOP_5A_UD
+  display: NOP $5A (UD)
+  category: control
+  encoding:
+    opcode: 90
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: NOP_7A_UD
+  display: NOP $7A (UD)
+  category: control
+  encoding:
+    opcode: 122
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: NOP_DA_UD
+  display: NOP $DA (UD)
+  category: control
+  encoding:
+    opcode: 218
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: NOP_FA_UD
+  display: NOP $FA (UD)
+  category: control
+  encoding:
+    opcode: 250
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: NOP_80_IMM_UD
+  display: 'NOP #80 (UD)'
+  category: control
+  encoding:
+    opcode: 128
+    mask: 255
+    length: 2
+    fields: &id00001
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: NOP_82_IMM_UD
+  display: 'NOP #82 (UD)'
+  category: control
+  encoding:
+    opcode: 130
+    mask: 255
+    length: 2
+    fields: *id00001
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: NOP_89_IMM_UD
+  display: 'NOP #89 (UD)'
+  category: control
+  encoding:
+    opcode: 137
+    mask: 255
+    length: 2
+    fields: *id00001
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: NOP_C2_IMM_UD
+  display: 'NOP #C2 (UD)'
+  category: control
+  encoding:
+    opcode: 194
+    mask: 255
+    length: 2
+    fields: *id00001
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: NOP_E2_IMM_UD
+  display: 'NOP #E2 (UD)'
+  category: control
+  encoding:
+    opcode: 226
+    mask: 255
+    length: 2
+    fields: *id00001
+  cycles: 2
+  behavior: '(void)cpu;
+
+    '
+- name: NOP_04_ZP_UD
+  display: NOP zp $04 (UD)
+  category: control
+  encoding:
+    opcode: 4
+    mask: 255
+    length: 2
+    fields: &id00002
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: '(void)mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    '
+- name: NOP_44_ZP_UD
+  display: NOP zp $44 (UD)
+  category: control
+  encoding:
+    opcode: 68
+    mask: 255
+    length: 2
+    fields: *id00002
+  cycles: 3
+  behavior: '(void)mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    '
+- name: NOP_64_ZP_UD
+  display: NOP zp $64 (UD)
+  category: control
+  encoding:
+    opcode: 100
+    mask: 255
+    length: 2
+    fields: *id00002
+  cycles: 3
+  behavior: '(void)mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    '
+- name: NOP_14_ZPX_UD
+  display: NOP zp,X $14 (UD)
+  category: control
+  encoding:
+    opcode: 20
+    mask: 255
+    length: 2
+    fields: *id00002
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: NOP_34_ZPX_UD
+  display: NOP zp,X $34 (UD)
+  category: control
+  encoding:
+    opcode: 52
+    mask: 255
+    length: 2
+    fields: *id00002
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: NOP_54_ZPX_UD
+  display: NOP zp,X $54 (UD)
+  category: control
+  encoding:
+    opcode: 84
+    mask: 255
+    length: 2
+    fields: *id00002
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: NOP_74_ZPX_UD
+  display: NOP zp,X $74 (UD)
+  category: control
+  encoding:
+    opcode: 116
+    mask: 255
+    length: 2
+    fields: *id00002
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: NOP_D4_ZPX_UD
+  display: NOP zp,X $D4 (UD)
+  category: control
+  encoding:
+    opcode: 212
+    mask: 255
+    length: 2
+    fields: *id00002
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: NOP_F4_ZPX_UD
+  display: NOP zp,X $F4 (UD)
+  category: control
+  encoding:
+    opcode: 244
+    mask: 255
+    length: 2
+    fields: *id00002
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: NOP_0C_ABS_UD
+  display: NOP abs $0C (UD)
+  category: control
+  encoding:
+    opcode: 12
+    mask: 255
+    length: 3
+    fields: &id00003
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: '(void)mos6509_read_byte(cpu, inst->addr);
+
+    '
+- name: NOP_1C_ABSX_UD
+  display: NOP abs,X $1C (UD)
+  category: control
+  encoding:
+    opcode: 28
+    mask: 255
+    length: 3
+    fields: *id00003
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: NOP_3C_ABSX_UD
+  display: NOP abs,X $3C (UD)
+  category: control
+  encoding:
+    opcode: 60
+    mask: 255
+    length: 3
+    fields: *id00003
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: NOP_5C_ABSX_UD
+  display: NOP abs,X $5C (UD)
+  category: control
+  encoding:
+    opcode: 92
+    mask: 255
+    length: 3
+    fields: *id00003
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: NOP_7C_ABSX_UD
+  display: NOP abs,X $7C (UD)
+  category: control
+  encoding:
+    opcode: 124
+    mask: 255
+    length: 3
+    fields: *id00003
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: NOP_DC_ABSX_UD
+  display: NOP abs,X $DC (UD)
+  category: control
+  encoding:
+    opcode: 220
+    mask: 255
+    length: 3
+    fields: *id00003
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: NOP_FC_ABSX_UD
+  display: NOP abs,X $FC (UD)
+  category: control
+  encoding:
+    opcode: 252
+    mask: 255
+    length: 3
+    fields: *id00003
+  cycles: 4
+  behavior: 'uint16_t ea = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    (void)mos6509_read_byte(cpu, ea);
+
+    '
+- name: SBC_IMM_UD
+  display: 'SBC #imm (UD)'
+  category: arithmetic
+  encoding:
+    opcode: 235
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t m = inst->imm;
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: ORA_IMM
+  display: 'ORA #imm'
+  category: logic
+  encoding:
+    opcode: 9
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t v = inst->imm;
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ORA_ZP
+  display: ORA zp
+  category: logic
+  encoding:
+    opcode: 5
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'uint8_t v = mos6509_read_byte(cpu, inst->zp);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ORA_ABS
+  display: ORA abs
+  category: logic
+  encoding:
+    opcode: 13
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint8_t v = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: AND_IMM
+  display: 'AND #imm'
+  category: logic
+  encoding:
+    opcode: 41
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t v = inst->imm;
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: AND_ZP
+  display: AND zp
+  category: logic
+  encoding:
+    opcode: 37
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'uint8_t v = mos6509_read_byte(cpu, inst->zp);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: AND_ABS
+  display: AND abs
+  category: logic
+  encoding:
+    opcode: 45
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint8_t v = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: EOR_IMM
+  display: 'EOR #imm'
+  category: logic
+  encoding:
+    opcode: 73
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t v = inst->imm;
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: EOR_ZP
+  display: EOR zp
+  category: logic
+  encoding:
+    opcode: 69
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'uint8_t v = mos6509_read_byte(cpu, inst->zp);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: EOR_ABS
+  display: EOR abs
+  category: logic
+  encoding:
+    opcode: 77
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint8_t v = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ADC_IMM
+  display: 'ADC #imm'
+  category: arithmetic
+  encoding:
+    opcode: 105
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t m = inst->imm;
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+
+        uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+
+        if (ad > 9u) {
+
+            ad = (uint8_t)(ad + 6u);
+
+            ah = (uint8_t)(ah + 1u);
+
+        }
+
+        if (ah > 9u) {
+
+            ah = (uint8_t)(ah + 6u);
+
+        }
+
+        r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+
+        cpu->flags.C = (ah > 0x0Fu);
+
+    } else {
+
+        r = (uint8_t)bin_sum;
+
+        cpu->flags.C = (bin_sum > 0xFFu);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
+
+    '
+- name: ADC_ZP
+  display: ADC zp
+  category: arithmetic
+  encoding:
+    opcode: 101
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+
+        uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+
+        if (ad > 9u) {
+
+            ad = (uint8_t)(ad + 6u);
+
+            ah = (uint8_t)(ah + 1u);
+
+        }
+
+        if (ah > 9u) {
+
+            ah = (uint8_t)(ah + 6u);
+
+        }
+
+        r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+
+        cpu->flags.C = (ah > 0x0Fu);
+
+    } else {
+
+        r = (uint8_t)bin_sum;
+
+        cpu->flags.C = (bin_sum > 0xFFu);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
+
+    '
+- name: ADC_ABS
+  display: ADC abs
+  category: arithmetic
+  encoding:
+    opcode: 109
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+
+        uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+
+        if (ad > 9u) {
+
+            ad = (uint8_t)(ad + 6u);
+
+            ah = (uint8_t)(ah + 1u);
+
+        }
+
+        if (ah > 9u) {
+
+            ah = (uint8_t)(ah + 6u);
+
+        }
+
+        r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+
+        cpu->flags.C = (ah > 0x0Fu);
+
+    } else {
+
+        r = (uint8_t)bin_sum;
+
+        cpu->flags.C = (bin_sum > 0xFFu);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
+
+    '
+- name: SBC_IMM
+  display: 'SBC #imm'
+  category: arithmetic
+  encoding:
+    opcode: 233
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t m = inst->imm;
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: SBC_ZP
+  display: SBC zp
+  category: arithmetic
+  encoding:
+    opcode: 229
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: SBC_ABS
+  display: SBC abs
+  category: arithmetic
+  encoding:
+    opcode: 237
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: CMP_IMM
+  display: 'CMP #imm'
+  category: arithmetic
+  encoding:
+    opcode: 201
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t lhs = cpu->registers[REG_A];
+
+    uint8_t rhs = inst->imm;
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: CMP_ZP
+  display: CMP zp
+  category: arithmetic
+  encoding:
+    opcode: 197
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'uint8_t lhs = cpu->registers[REG_A];
+
+    uint8_t rhs = mos6509_read_byte(cpu, inst->zp);
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: CMP_ABS
+  display: CMP abs
+  category: arithmetic
+  encoding:
+    opcode: 205
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint8_t lhs = cpu->registers[REG_A];
+
+    uint8_t rhs = mos6509_read_byte(cpu, inst->addr);
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: CPX_IMM
+  display: 'CPX #imm'
+  category: arithmetic
+  encoding:
+    opcode: 224
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t lhs = cpu->registers[REG_X];
+
+    uint8_t rhs = inst->imm;
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: CPX_ZP
+  display: CPX zp
+  category: arithmetic
+  encoding:
+    opcode: 228
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'uint8_t lhs = cpu->registers[REG_X];
+
+    uint8_t rhs = mos6509_read_byte(cpu, inst->zp);
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: CPX_ABS
+  display: CPX abs
+  category: arithmetic
+  encoding:
+    opcode: 236
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint8_t lhs = cpu->registers[REG_X];
+
+    uint8_t rhs = mos6509_read_byte(cpu, inst->addr);
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: CPY_IMM
+  display: 'CPY #imm'
+  category: arithmetic
+  encoding:
+    opcode: 192
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'uint8_t lhs = cpu->registers[REG_Y];
+
+    uint8_t rhs = inst->imm;
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: CPY_ZP
+  display: CPY zp
+  category: arithmetic
+  encoding:
+    opcode: 196
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'uint8_t lhs = cpu->registers[REG_Y];
+
+    uint8_t rhs = mos6509_read_byte(cpu, inst->zp);
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: CPY_ABS
+  display: CPY abs
+  category: arithmetic
+  encoding:
+    opcode: 204
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint8_t lhs = cpu->registers[REG_Y];
+
+    uint8_t rhs = mos6509_read_byte(cpu, inst->addr);
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: LDX_IMM
+  display: 'LDX #imm'
+  category: data_transfer
+  encoding:
+    opcode: 162
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'cpu->registers[REG_X] = inst->imm;
+
+    cpu->flags.Z = (cpu->registers[REG_X] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_X] & 0x80u) != 0u);
+
+    '
+- name: LDX_ZP
+  display: LDX zp
+  category: data_transfer
+  encoding:
+    opcode: 166
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'cpu->registers[REG_X] = mos6509_read_byte(cpu, inst->zp);
+
+    cpu->flags.Z = (cpu->registers[REG_X] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_X] & 0x80u) != 0u);
+
+    '
+- name: LDX_ABS
+  display: LDX abs
+  category: data_transfer
+  encoding:
+    opcode: 174
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'cpu->registers[REG_X] = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->flags.Z = (cpu->registers[REG_X] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_X] & 0x80u) != 0u);
+
+    '
+- name: LDY_IMM
+  display: 'LDY #imm'
+  category: data_transfer
+  encoding:
+    opcode: 160
+    mask: 255
+    length: 2
+    fields:
+    - name: imm
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: 'cpu->registers[REG_Y] = inst->imm;
+
+    cpu->flags.Z = (cpu->registers[REG_Y] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_Y] & 0x80u) != 0u);
+
+    '
+- name: LDY_ZP
+  display: LDY zp
+  category: data_transfer
+  encoding:
+    opcode: 164
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'cpu->registers[REG_Y] = mos6509_read_byte(cpu, inst->zp);
+
+    cpu->flags.Z = (cpu->registers[REG_Y] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_Y] & 0x80u) != 0u);
+
+    '
+- name: LDY_ABS
+  display: LDY abs
+  category: data_transfer
+  encoding:
+    opcode: 172
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'cpu->registers[REG_Y] = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->flags.Z = (cpu->registers[REG_Y] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_Y] & 0x80u) != 0u);
+
+    '
+- name: STX_ZP
+  display: STX zp
+  category: data_transfer
+  encoding:
+    opcode: 134
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'mos6509_write_byte(cpu, inst->zp, cpu->registers[REG_X]);
+
+    '
+- name: STX_ABS
+  display: STX abs
+  category: data_transfer
+  encoding:
+    opcode: 142
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'mos6509_write_byte(cpu, inst->addr, cpu->registers[REG_X]);
+
+    '
+- name: STY_ZP
+  display: STY zp
+  category: data_transfer
+  encoding:
+    opcode: 132
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'mos6509_write_byte(cpu, inst->zp, cpu->registers[REG_Y]);
+
+    '
+- name: STY_ABS
+  display: STY abs
+  category: data_transfer
+  encoding:
+    opcode: 140
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'mos6509_write_byte(cpu, inst->addr, cpu->registers[REG_Y]);
+
+    '
+- name: TXA
+  display: TXA
+  category: data_transfer
+  encoding:
+    opcode: 138
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->registers[REG_A] = (uint8_t)cpu->registers[REG_X];
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: TAY
+  display: TAY
+  category: data_transfer
+  encoding:
+    opcode: 168
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->registers[REG_Y] = (uint8_t)cpu->registers[REG_A];
+
+    cpu->flags.Z = (cpu->registers[REG_Y] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_Y] & 0x80u) != 0u);
+
+    '
+- name: TYA
+  display: TYA
+  category: data_transfer
+  encoding:
+    opcode: 152
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->registers[REG_A] = (uint8_t)cpu->registers[REG_Y];
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: TSX
+  display: TSX
+  category: data_transfer
+  encoding:
+    opcode: 186
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->registers[REG_X] = (uint8_t)cpu->sp;
+
+    cpu->flags.Z = (cpu->registers[REG_X] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_X] & 0x80u) != 0u);
+
+    '
+- name: TXS
+  display: TXS
+  category: data_transfer
+  encoding:
+    opcode: 154
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->sp = cpu->registers[REG_X];
+
+    '
+- name: DEX
+  display: DEX
+  category: arithmetic
+  encoding:
+    opcode: 202
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->registers[REG_X] = (uint8_t)(cpu->registers[REG_X] - 1u);
+
+    cpu->flags.Z = (cpu->registers[REG_X] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_X] & 0x80u) != 0u);
+
+    '
+- name: DEY
+  display: DEY
+  category: arithmetic
+  encoding:
+    opcode: 136
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->registers[REG_Y] = (uint8_t)(cpu->registers[REG_Y] - 1u);
+
+    cpu->flags.Z = (cpu->registers[REG_Y] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_Y] & 0x80u) != 0u);
+
+    '
+- name: INY
+  display: INY
+  category: arithmetic
+  encoding:
+    opcode: 200
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->registers[REG_Y] = (uint8_t)(cpu->registers[REG_Y] + 1u);
+
+    cpu->flags.Z = (cpu->registers[REG_Y] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_Y] & 0x80u) != 0u);
+
+    '
+- name: INC_ZP
+  display: INC zp
+  category: arithmetic
+  encoding:
+    opcode: 230
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    m = (uint8_t)(m + 1u);
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: INC_ABS
+  display: INC abs
+  category: arithmetic
+  encoding:
+    opcode: 238
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    m = (uint8_t)(m + 1u);
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: DEC_ZP
+  display: DEC zp
+  category: arithmetic
+  encoding:
+    opcode: 198
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    m = (uint8_t)(m - 1u);
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: DEC_ABS
+  display: DEC abs
+  category: arithmetic
+  encoding:
+    opcode: 206
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    m = (uint8_t)(m - 1u);
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: ASL_ACC
+  display: ASL ACC
+  category: rotate
+  encoding:
+    opcode: 10
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->flags.C = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] << 1);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: LSR_ACC
+  display: LSR ACC
+  category: rotate
+  encoding:
+    opcode: 74
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->flags.C = ((cpu->registers[REG_A] & 0x01u) != 0u);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] >> 1);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ROL_ACC
+  display: ROL ACC
+  category: rotate
+  encoding:
+    opcode: 42
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'uint8_t c = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    cpu->registers[REG_A] = (uint8_t)((cpu->registers[REG_A] << 1) | c);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ROR_ACC
+  display: ROR ACC
+  category: rotate
+  encoding:
+    opcode: 106
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'uint8_t c = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((cpu->registers[REG_A] & 0x01u) != 0u);
+
+    cpu->registers[REG_A] = (uint8_t)((cpu->registers[REG_A] >> 1) | (uint8_t)(c <<
+    7));
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ASL_ZP
+  display: ASL zp
+  category: rotate
+  encoding:
+    opcode: 6
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)(m << 1);
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: ASL_ABS
+  display: ASL abs
+  category: rotate
+  encoding:
+    opcode: 14
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)(m << 1);
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: LSR_ZP
+  display: LSR zp
+  category: rotate
+  encoding:
+    opcode: 70
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)(m >> 1);
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: LSR_ABS
+  display: LSR abs
+  category: rotate
+  encoding:
+    opcode: 78
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)(m >> 1);
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: ROL_ZP
+  display: ROL zp
+  category: rotate
+  encoding:
+    opcode: 38
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    uint8_t c = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)((m << 1) | c);
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: ROL_ABS
+  display: ROL abs
+  category: rotate
+  encoding:
+    opcode: 46
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    uint8_t c = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)((m << 1) | c);
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: ROR_ZP
+  display: ROR zp
+  category: rotate
+  encoding:
+    opcode: 102
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    uint8_t c = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)((m >> 1) | (uint8_t)(c << 7));
+
+    mos6509_write_byte(cpu, inst->zp, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: ROR_ABS
+  display: ROR abs
+  category: rotate
+  encoding:
+    opcode: 110
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    uint8_t c = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)((m >> 1) | (uint8_t)(c << 7));
+
+    mos6509_write_byte(cpu, inst->addr, m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: BIT_ZP
+  display: BIT zp
+  category: bit
+  encoding:
+    opcode: 36
+    mask: 255
+    length: 2
+    fields:
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 3
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->zp);
+
+    cpu->flags.Z = ((cpu->registers[REG_A] & m) == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    cpu->flags.V = ((m & 0x40u) != 0u);
+
+    '
+- name: BIT_ABS
+  display: BIT abs
+  category: bit
+  encoding:
+    opcode: 44
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->flags.Z = ((cpu->registers[REG_A] & m) == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    cpu->flags.V = ((m & 0x40u) != 0u);
+
+    '
+- name: BPL
+  display: BPL
+  category: control
+  encoding:
+    opcode: 16
+    mask: 255
+    length: 2
+    fields:
+    - name: rel
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: "int8_t off = (int8_t)inst->rel;\nif (!cpu->flags.N) {\n  cpu->pc = (uint16_t)(cpu->pc\
+    \ + (int16_t)off);\n}\n"
+- name: BMI
+  display: BMI
+  category: control
+  encoding:
+    opcode: 48
+    mask: 255
+    length: 2
+    fields:
+    - name: rel
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: "int8_t off = (int8_t)inst->rel;\nif (cpu->flags.N) {\n  cpu->pc = (uint16_t)(cpu->pc\
+    \ + (int16_t)off);\n}\n"
+- name: BVC
+  display: BVC
+  category: control
+  encoding:
+    opcode: 80
+    mask: 255
+    length: 2
+    fields:
+    - name: rel
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: "int8_t off = (int8_t)inst->rel;\nif (!cpu->flags.V) {\n  cpu->pc = (uint16_t)(cpu->pc\
+    \ + (int16_t)off);\n}\n"
+- name: BVS
+  display: BVS
+  category: control
+  encoding:
+    opcode: 112
+    mask: 255
+    length: 2
+    fields:
+    - name: rel
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: "int8_t off = (int8_t)inst->rel;\nif (cpu->flags.V) {\n  cpu->pc = (uint16_t)(cpu->pc\
+    \ + (int16_t)off);\n}\n"
+- name: BCC
+  display: BCC
+  category: control
+  encoding:
+    opcode: 144
+    mask: 255
+    length: 2
+    fields:
+    - name: rel
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: "int8_t off = (int8_t)inst->rel;\nif (!cpu->flags.C) {\n  cpu->pc = (uint16_t)(cpu->pc\
+    \ + (int16_t)off);\n}\n"
+- name: BCS
+  display: BCS
+  category: control
+  encoding:
+    opcode: 176
+    mask: 255
+    length: 2
+    fields:
+    - name: rel
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: "int8_t off = (int8_t)inst->rel;\nif (cpu->flags.C) {\n  cpu->pc = (uint16_t)(cpu->pc\
+    \ + (int16_t)off);\n}\n"
+- name: BNE
+  display: BNE
+  category: control
+  encoding:
+    opcode: 208
+    mask: 255
+    length: 2
+    fields:
+    - name: rel
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: "int8_t off = (int8_t)inst->rel;\nif (!cpu->flags.Z) {\n  cpu->pc = (uint16_t)(cpu->pc\
+    \ + (int16_t)off);\n}\n"
+- name: BEQ
+  display: BEQ
+  category: control
+  encoding:
+    opcode: 240
+    mask: 255
+    length: 2
+    fields:
+    - name: rel
+      position:
+      - 15
+      - 8
+      type: immediate
+  cycles: 2
+  behavior: "int8_t off = (int8_t)inst->rel;\nif (cpu->flags.Z) {\n  cpu->pc = (uint16_t)(cpu->pc\
+    \ + (int16_t)off);\n}\n"
+- name: JSR_ABS
+  display: JSR abs
+  category: control
+  encoding:
+    opcode: 32
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint16_t ret = (uint16_t)(cpu->pc + 2u);
+
+    uint8_t sp8 = (uint8_t)cpu->sp;
+
+    mos6509_write_byte(cpu, (uint16_t)(0x0100u | sp8), (uint8_t)((ret >> 8) & 0xFFu));
+
+    sp8 = (uint8_t)(sp8 - 1u);
+
+    mos6509_write_byte(cpu, (uint16_t)(0x0100u | sp8), (uint8_t)(ret & 0xFFu));
+
+    sp8 = (uint8_t)(sp8 - 1u);
+
+    cpu->sp = sp8;
+
+    cpu->pc = inst->addr;
+
+    '
+- name: RTS
+  display: RTS
+  category: control
+  encoding:
+    opcode: 96
+    mask: 255
+    length: 1
+  cycles: 6
+  behavior: 'uint8_t sp8 = (uint8_t)cpu->sp;
+
+    sp8 = (uint8_t)(sp8 + 1u);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)(0x0100u | sp8));
+
+    sp8 = (uint8_t)(sp8 + 1u);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(0x0100u | sp8));
+
+    cpu->sp = sp8;
+
+    uint16_t ret = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    cpu->pc = (uint16_t)(ret + 1u);
+
+    '
+- name: RTI
+  display: RTI
+  category: control
+  encoding:
+    opcode: 64
+    mask: 255
+    length: 1
+  cycles: 6
+  behavior: 'uint8_t sp8 = (uint8_t)cpu->sp;
+
+    sp8 = (uint8_t)(sp8 + 1u);
+
+    cpu->flags.raw = mos6509_read_byte(cpu, (uint16_t)(0x0100u | sp8));
+
+    cpu->interrupts_enabled = !cpu->flags.I;
+
+    sp8 = (uint8_t)(sp8 + 1u);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)(0x0100u | sp8));
+
+    sp8 = (uint8_t)(sp8 + 1u);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)(0x0100u | sp8));
+
+    cpu->sp = sp8;
+
+    cpu->pc = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    '
+- name: JMP_IND
+  display: JMP (abs)
+  category: control
+  encoding:
+    opcode: 108
+    mask: 255
+    length: 3
+    fields:
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 5
+  behavior: 'uint16_t ptr = inst->addr;
+
+    uint16_t ptr_hi_wrap = (uint16_t)((ptr & 0xFF00u) | ((ptr + 1u) & 0x00FFu));
+
+    uint8_t lo = mos6509_read_byte(cpu, ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, ptr_hi_wrap);
+
+    cpu->pc = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    '
+- name: PHA
+  display: PHA
+  category: control
+  encoding:
+    opcode: 72
+    mask: 255
+    length: 1
+  cycles: 3
+  behavior: 'uint8_t sp8 = (uint8_t)cpu->sp;
+
+    mos6509_write_byte(cpu, (uint16_t)(0x0100u | sp8), cpu->registers[REG_A]);
+
+    sp8 = (uint8_t)(sp8 - 1u);
+
+    cpu->sp = sp8;
+
+    '
+- name: PLA
+  display: PLA
+  category: control
+  encoding:
+    opcode: 104
+    mask: 255
+    length: 1
+  cycles: 4
+  behavior: 'uint8_t sp8 = (uint8_t)cpu->sp;
+
+    sp8 = (uint8_t)(sp8 + 1u);
+
+    cpu->registers[REG_A] = mos6509_read_byte(cpu, (uint16_t)(0x0100u | sp8));
+
+    cpu->sp = sp8;
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: PHP
+  display: PHP
+  category: control
+  encoding:
+    opcode: 8
+    mask: 255
+    length: 1
+  cycles: 3
+  behavior: 'uint8_t sp8 = (uint8_t)cpu->sp;
+
+    uint8_t p = (uint8_t)(cpu->flags.raw | 0x30u);
+
+    mos6509_write_byte(cpu, (uint16_t)(0x0100u | sp8), p);
+
+    sp8 = (uint8_t)(sp8 - 1u);
+
+    cpu->sp = sp8;
+
+    '
+- name: PLP
+  display: PLP
+  category: control
+  encoding:
+    opcode: 40
+    mask: 255
+    length: 1
+  cycles: 4
+  behavior: 'uint8_t sp8 = (uint8_t)cpu->sp;
+
+    sp8 = (uint8_t)(sp8 + 1u);
+
+    cpu->flags.raw = mos6509_read_byte(cpu, (uint16_t)(0x0100u | sp8));
+
+    cpu->interrupts_enabled = !cpu->flags.I;
+
+    cpu->sp = sp8;
+
+    '
+- name: CLC
+  display: CLC
+  category: control
+  encoding:
+    opcode: 24
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->flags.C = false;
+
+    '
+- name: SEC
+  display: SEC
+  category: control
+  encoding:
+    opcode: 56
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->flags.C = true;
+
+    '
+- name: CLI
+  display: CLI
+  category: control
+  encoding:
+    opcode: 88
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->flags.I = false;
+
+    cpu->interrupts_enabled = true;
+
+    '
+- name: SEI
+  display: SEI
+  category: control
+  encoding:
+    opcode: 120
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->flags.I = true;
+
+    cpu->interrupts_enabled = false;
+
+    '
+- name: CLV
+  display: CLV
+  category: control
+  encoding:
+    opcode: 184
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->flags.V = false;
+
+    '
+- name: CLD
+  display: CLD
+  category: control
+  encoding:
+    opcode: 216
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->flags.D = false;
+
+    '
+- name: SED
+  display: SED
+  category: control
+  encoding:
+    opcode: 248
+    mask: 255
+    length: 1
+  cycles: 2
+  behavior: 'cpu->flags.D = true;
+
+    '
+- name: ORA_INDX
+  display: ORA (zp,X)
+  category: logic
+  encoding:
+    opcode: 1
+    mask: 255
+    length: 2
+    fields: &id00004
+    - name: zp
+      position:
+      - 15
+      - 8
+      type: address
+  cycles: 6
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(ptr + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ORA_INDY
+  display: ORA (zp),Y
+  category: logic
+  encoding:
+    opcode: 17
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 5
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    addr = (uint16_t)(addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ORA_ZPX
+  display: ORA zp,X
+  category: logic
+  encoding:
+    opcode: 21
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'uint16_t addr = (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X]));
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ORA_ABSY
+  display: ORA abs,Y
+  category: logic
+  encoding:
+    opcode: 25
+    mask: 255
+    length: 3
+    fields: &id00005
+    - name: addr
+      position:
+      - 23
+      - 8
+      type: address
+  cycles: 4
+  behavior: 'uint16_t addr = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ORA_ABSX
+  display: ORA abs,X
+  category: logic
+  encoding:
+    opcode: 29
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'uint16_t addr = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] | v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ASL_ZPX
+  display: ASL zp,X
+  category: rotate
+  encoding:
+    opcode: 22
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)(m << 1);
+
+    mos6509_write_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: ASL_ABSX
+  display: ASL abs,X
+  category: rotate
+  encoding:
+    opcode: 30
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 7
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)(m << 1);
+
+    mos6509_write_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: AND_INDX
+  display: AND (zp,X)
+  category: logic
+  encoding:
+    opcode: 33
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(ptr + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: AND_INDY
+  display: AND (zp),Y
+  category: logic
+  encoding:
+    opcode: 49
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 5
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    addr = (uint16_t)(addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: AND_ZPX
+  display: AND zp,X
+  category: logic
+  encoding:
+    opcode: 53
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'uint16_t addr = (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X]));
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: AND_ABSY
+  display: AND abs,Y
+  category: logic
+  encoding:
+    opcode: 57
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'uint16_t addr = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: AND_ABSX
+  display: AND abs,X
+  category: logic
+  encoding:
+    opcode: 61
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'uint16_t addr = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] & v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: ROL_ZPX
+  display: ROL zp,X
+  category: rotate
+  encoding:
+    opcode: 54
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
+
+    uint8_t c = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)((m << 1) | c);
+
+    mos6509_write_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: ROL_ABSX
+  display: ROL abs,X
+  category: rotate
+  encoding:
+    opcode: 62
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 7
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
+
+    uint8_t c = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x80u) != 0u);
+
+    m = (uint8_t)((m << 1) | c);
+
+    mos6509_write_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: EOR_INDX
+  display: EOR (zp,X)
+  category: logic
+  encoding:
+    opcode: 65
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(ptr + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: EOR_INDY
+  display: EOR (zp),Y
+  category: logic
+  encoding:
+    opcode: 81
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 5
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    addr = (uint16_t)(addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: EOR_ZPX
+  display: EOR zp,X
+  category: logic
+  encoding:
+    opcode: 85
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'uint16_t addr = (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X]));
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: EOR_ABSY
+  display: EOR abs,Y
+  category: logic
+  encoding:
+    opcode: 89
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'uint16_t addr = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: EOR_ABSX
+  display: EOR abs,X
+  category: logic
+  encoding:
+    opcode: 93
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'uint16_t addr = (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]);
+
+    uint8_t v = mos6509_read_byte(cpu, addr);
+
+    cpu->registers[REG_A] = (uint8_t)(cpu->registers[REG_A] ^ v);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: LSR_ZPX
+  display: LSR zp,X
+  category: rotate
+  encoding:
+    opcode: 86
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)(m >> 1);
+
+    mos6509_write_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: LSR_ABSX
+  display: LSR abs,X
+  category: rotate
+  encoding:
+    opcode: 94
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 7
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)(m >> 1);
+
+    mos6509_write_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: ADC_INDX
+  display: ADC (zp,X)
+  category: arithmetic
+  encoding:
+    opcode: 97
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(ptr + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t m = mos6509_read_byte(cpu, addr);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+
+        uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+
+        if (ad > 9u) {
+
+            ad = (uint8_t)(ad + 6u);
+
+            ah = (uint8_t)(ah + 1u);
+
+        }
+
+        if (ah > 9u) {
+
+            ah = (uint8_t)(ah + 6u);
+
+        }
+
+        r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+
+        cpu->flags.C = (ah > 0x0Fu);
+
+    } else {
+
+        r = (uint8_t)bin_sum;
+
+        cpu->flags.C = (bin_sum > 0xFFu);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
+
+    '
+- name: ADC_INDY
+  display: ADC (zp),Y
+  category: arithmetic
+  encoding:
+    opcode: 113
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 5
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    addr = (uint16_t)(addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, addr);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+
+        uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+
+        if (ad > 9u) {
+
+            ad = (uint8_t)(ad + 6u);
+
+            ah = (uint8_t)(ah + 1u);
+
+        }
+
+        if (ah > 9u) {
+
+            ah = (uint8_t)(ah + 6u);
+
+        }
+
+        r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+
+        cpu->flags.C = (ah > 0x0Fu);
+
+    } else {
+
+        r = (uint8_t)bin_sum;
+
+        cpu->flags.C = (bin_sum > 0xFFu);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
+
+    '
+- name: ADC_ZPX
+  display: ADC zp,X
+  category: arithmetic
+  encoding:
+    opcode: 117
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+
+        uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+
+        if (ad > 9u) {
+
+            ad = (uint8_t)(ad + 6u);
+
+            ah = (uint8_t)(ah + 1u);
+
+        }
+
+        if (ah > 9u) {
+
+            ah = (uint8_t)(ah + 6u);
+
+        }
+
+        r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+
+        cpu->flags.C = (ah > 0x0Fu);
+
+    } else {
+
+        r = (uint8_t)bin_sum;
+
+        cpu->flags.C = (bin_sum > 0xFFu);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
+
+    '
+- name: ADC_ABSY
+  display: ADC abs,Y
+  category: arithmetic
+  encoding:
+    opcode: 121
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]));
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+
+        uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+
+        if (ad > 9u) {
+
+            ad = (uint8_t)(ad + 6u);
+
+            ah = (uint8_t)(ah + 1u);
+
+        }
+
+        if (ah > 9u) {
+
+            ah = (uint8_t)(ah + 6u);
+
+        }
+
+        r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+
+        cpu->flags.C = (ah > 0x0Fu);
+
+    } else {
+
+        r = (uint8_t)bin_sum;
+
+        cpu->flags.C = (bin_sum > 0xFFu);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
+
+    '
+- name: ADC_ABSX
+  display: ADC abs,X
+  category: arithmetic
+  encoding:
+    opcode: 125
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+
+        uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+
+        if (ad > 9u) {
+
+            ad = (uint8_t)(ad + 6u);
+
+            ah = (uint8_t)(ah + 1u);
+
+        }
+
+        if (ah > 9u) {
+
+            ah = (uint8_t)(ah + 6u);
+
+        }
+
+        r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+
+        cpu->flags.C = (ah > 0x0Fu);
+
+    } else {
+
+        r = (uint8_t)bin_sum;
+
+        cpu->flags.C = (bin_sum > 0xFFu);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
+
+    '
+- name: ROR_ZPX
+  display: ROR zp,X
+  category: rotate
+  encoding:
+    opcode: 118
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
+
+    uint8_t c = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)((m >> 1) | (uint8_t)(c << 7));
+
+    mos6509_write_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: ROR_ABSX
+  display: ROR abs,X
+  category: rotate
+  encoding:
+    opcode: 126
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 7
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
+
+    uint8_t c = cpu->flags.C ? 1u : 0u;
+
+    cpu->flags.C = ((m & 0x01u) != 0u);
+
+    m = (uint8_t)((m >> 1) | (uint8_t)(c << 7));
+
+    mos6509_write_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: STA_INDX
+  display: STA (zp,X)
+  category: data_transfer
+  encoding:
+    opcode: 129
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(ptr + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    mos6509_write_byte(cpu, addr, cpu->registers[REG_A]);
+
+    '
+- name: STA_ABS
+  display: STA abs
+  category: data_transfer
+  encoding:
+    opcode: 141
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'mos6509_write_byte(cpu, inst->addr, cpu->registers[REG_A]);
+
+    '
+- name: STY_ZPX
+  display: STY zp,X
+  category: data_transfer
+  encoding:
+    opcode: 148
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'mos6509_write_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])), cpu->registers[REG_Y]);
+
+    '
+- name: STA_ZPX
+  display: STA zp,X
+  category: data_transfer
+  encoding:
+    opcode: 149
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'mos6509_write_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])), cpu->registers[REG_A]);
+
+    '
+- name: STX_ZPY
+  display: STX zp,Y
+  category: data_transfer
+  encoding:
+    opcode: 150
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'mos6509_write_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_Y])), cpu->registers[REG_X]);
+
+    '
+- name: STA_ABSY
+  display: STA abs,Y
+  category: data_transfer
+  encoding:
+    opcode: 153
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 5
+  behavior: 'mos6509_write_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]), cpu->registers[REG_A]);
+
+    '
+- name: STA_ABSX
+  display: STA abs,X
+  category: data_transfer
+  encoding:
+    opcode: 157
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 5
+  behavior: 'mos6509_write_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]), cpu->registers[REG_A]);
+
+    '
+- name: LDA_INDX
+  display: LDA (zp,X)
+  category: data_transfer
+  encoding:
+    opcode: 161
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(ptr + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    cpu->registers[REG_A] = mos6509_read_byte(cpu, addr);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: LDA_ABS
+  display: LDA abs
+  category: data_transfer
+  encoding:
+    opcode: 173
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'cpu->registers[REG_A] = mos6509_read_byte(cpu, inst->addr);
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: LDY_ZPX
+  display: LDY zp,X
+  category: data_transfer
+  encoding:
+    opcode: 180
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'cpu->registers[REG_Y] = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
+
+    cpu->flags.Z = (cpu->registers[REG_Y] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_Y] & 0x80u) != 0u);
+
+    '
+- name: LDA_ZPX
+  display: LDA zp,X
+  category: data_transfer
+  encoding:
+    opcode: 181
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'cpu->registers[REG_A] = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: LDX_ZPY
+  display: LDX zp,Y
+  category: data_transfer
+  encoding:
+    opcode: 182
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'cpu->registers[REG_X] = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_Y])));
+
+    cpu->flags.Z = (cpu->registers[REG_X] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_X] & 0x80u) != 0u);
+
+    '
+- name: LDA_ABSY
+  display: LDA abs,Y
+  category: data_transfer
+  encoding:
+    opcode: 185
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'cpu->registers[REG_A] = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]));
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: LDY_ABSX
+  display: LDY abs,X
+  category: data_transfer
+  encoding:
+    opcode: 188
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'cpu->registers[REG_Y] = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
+
+    cpu->flags.Z = (cpu->registers[REG_Y] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_Y] & 0x80u) != 0u);
+
+    '
+- name: LDA_ABSX
+  display: LDA abs,X
+  category: data_transfer
+  encoding:
+    opcode: 189
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'cpu->registers[REG_A] = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
+
+    cpu->flags.Z = (cpu->registers[REG_A] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_A] & 0x80u) != 0u);
+
+    '
+- name: LDX_ABSY
+  display: LDX abs,Y
+  category: data_transfer
+  encoding:
+    opcode: 190
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'cpu->registers[REG_X] = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]));
+
+    cpu->flags.Z = (cpu->registers[REG_X] == 0u);
+
+    cpu->flags.N = ((cpu->registers[REG_X] & 0x80u) != 0u);
+
+    '
+- name: CMP_INDX
+  display: CMP (zp,X)
+  category: arithmetic
+  encoding:
+    opcode: 193
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(ptr + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t lhs = cpu->registers[REG_A];
+
+    uint8_t rhs = mos6509_read_byte(cpu, addr);
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: CMP_INDY
+  display: CMP (zp),Y
+  category: arithmetic
+  encoding:
+    opcode: 209
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 5
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    addr = (uint16_t)(addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t lhs = cpu->registers[REG_A];
+
+    uint8_t rhs = mos6509_read_byte(cpu, addr);
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: CMP_ZPX
+  display: CMP zp,X
+  category: arithmetic
+  encoding:
+    opcode: 213
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'uint8_t lhs = cpu->registers[REG_A];
+
+    uint8_t rhs = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: DEC_ZPX
+  display: DEC zp,X
+  category: arithmetic
+  encoding:
+    opcode: 214
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
+
+    m = (uint8_t)(m - 1u);
+
+    mos6509_write_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: CMP_ABSY
+  display: CMP abs,Y
+  category: arithmetic
+  encoding:
+    opcode: 217
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'uint8_t lhs = cpu->registers[REG_A];
+
+    uint8_t rhs = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]));
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: CMP_ABSX
+  display: CMP abs,X
+  category: arithmetic
+  encoding:
+    opcode: 221
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'uint8_t lhs = cpu->registers[REG_A];
+
+    uint8_t rhs = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
+
+    uint16_t diff = (uint16_t)lhs - (uint16_t)rhs;
+
+    cpu->flags.C = (lhs >= rhs);
+
+    cpu->flags.Z = (((uint8_t)diff) == 0u);
+
+    cpu->flags.N = ((((uint8_t)diff) & 0x80u) != 0u);
+
+    '
+- name: DEC_ABSX
+  display: DEC abs,X
+  category: arithmetic
+  encoding:
+    opcode: 222
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 7
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
+
+    m = (uint8_t)(m - 1u);
+
+    mos6509_write_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: SBC_INDX
+  display: SBC (zp,X)
+  category: arithmetic
+  encoding:
+    opcode: 225
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t ptr = (uint8_t)(inst->zp + cpu->registers[REG_X]);
+
+    uint8_t lo = mos6509_read_byte(cpu, (uint16_t)ptr);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(ptr + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    uint8_t m = mos6509_read_byte(cpu, addr);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: SBC_INDY
+  display: SBC (zp),Y
+  category: arithmetic
+  encoding:
+    opcode: 241
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 5
+  behavior: 'uint8_t lo = mos6509_read_byte(cpu, (uint16_t)inst->zp);
+
+    uint8_t hi = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));
+
+    uint16_t addr = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    addr = (uint16_t)(addr + (uint16_t)cpu->registers[REG_Y]);
+
+    uint8_t m = mos6509_read_byte(cpu, addr);
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: SBC_ZPX
+  display: SBC zp,X
+  category: arithmetic
+  encoding:
+    opcode: 245
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 4
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: INC_ZPX
+  display: INC zp,X
+  category: arithmetic
+  encoding:
+    opcode: 246
+    mask: 255
+    length: 2
+    fields: *id00004
+  cycles: 6
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
+
+    m = (uint8_t)(m + 1u);
+
+    mos6509_write_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+- name: SBC_ABSY
+  display: SBC abs,Y
+  category: arithmetic
+  encoding:
+    opcode: 249
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]));
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: SBC_ABSX
+  display: SBC abs,X
+  category: arithmetic
+  encoding:
+    opcode: 253
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 4
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
+
+    uint8_t a = cpu->registers[REG_A];
+
+    uint8_t carry_in = cpu->flags.C ? 1u : 0u;
+
+    uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
+
+    uint16_t bin_diff = (uint16_t)a - sub;
+
+    uint8_t r;
+
+    if (cpu->flags.D) {
+
+        int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+
+        int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+
+        if (ad < 0) {
+
+            ad -= 6;
+
+            ah -= 1;
+
+        }
+
+        if (ah < 0) {
+
+            ah -= 6;
+
+        }
+
+        r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    } else {
+
+        r = (uint8_t)bin_diff;
+
+        cpu->flags.C = ((uint16_t)a >= sub);
+
+    }
+
+    cpu->registers[REG_A] = r;
+
+    cpu->flags.Z = (r == 0u);
+
+    cpu->flags.N = ((r & 0x80u) != 0u);
+
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
+
+    '
+- name: INC_ABSX
+  display: INC abs,X
+  category: arithmetic
+  encoding:
+    opcode: 254
+    mask: 255
+    length: 3
+    fields: *id00005
+  cycles: 7
+  behavior: 'uint8_t m = mos6509_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
+
+    m = (uint8_t)(m + 1u);
+
+    mos6509_write_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]), m);
+
+    cpu->flags.Z = (m == 0u);
+
+    cpu->flags.N = ((m & 0x80u) != 0u);
+
+    '
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

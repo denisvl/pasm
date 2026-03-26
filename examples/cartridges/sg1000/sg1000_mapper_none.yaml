@@ -1,0 +1,56 @@
+metadata:
+  id: sg_cart0
+  type: cartridge_mapper
+  model: sg1000_mapper_none
+  version: "1.0"
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cart_window
+        start: 0x0000
+        size: 0xC000
+        access: [read]
+
+behavior:
+  snippets:
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      comp->rom_size = 0u;
+    mem_read_pre: |
+      if (addr < 0xC000u) {
+          if (comp->rom_data == NULL || comp->rom_size == 0u) {
+              return 0xFFu;
+          }
+          {
+              uint32_t off = (uint32_t)addr;
+              if (off < comp->rom_size) {
+                  return comp->rom_data[off];
+              }
+          }
+          return 0xFFu;
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

@@ -1,0 +1,46 @@
+metadata:
+  id: mic0
+  type: audio_input
+  model: zx48_mic_pcm
+  version: "1.0"
+
+state:
+  - name: current_level
+    type: uint8_t
+    initial: "0"
+  - name: next_sample_cycle
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: sample_input
+      args: []
+      returns: u8
+  handlers: []
+  signals:
+    - name: mic_level
+      args: [u8]
+
+behavior:
+  snippets:
+    step_post: |
+      if (CPU_AUDIO_SAMPLE_RATE > 0u && CPU_SYSTEM_CLOCK_HZ > 0u) {
+          uint64_t period = CPU_SYSTEM_CLOCK_HZ / CPU_AUDIO_SAMPLE_RATE;
+          if (period == 0u) period = 1u;
+          while (cpu->total_cycles >= comp->next_sample_cycle) {
+              uint8_t sample = (uint8_t)cpu_component_call(cpu, "mic0", "sample_input", NULL, 0);
+              comp->current_level = sample;
+              uint64_t sig_args[1] = { (uint64_t)sample };
+              cpu_component_emit_signal(cpu, "mic0", "mic_level", sig_args, 1);
+              comp->next_sample_cycle += period;
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

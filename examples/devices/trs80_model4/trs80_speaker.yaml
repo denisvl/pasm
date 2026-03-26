@@ -1,0 +1,37 @@
+metadata:
+  id: speaker_trs80
+  type: audio_output
+  model: trs80_model4_beeper_pcm_bridge
+  version: "1.0"
+
+state:
+  - name: level
+    type: uint8_t
+    initial: "0"
+  - name: last_cycle
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: on_audio_level
+      args: [u8, u64]
+  signals:
+    - name: pcm_sample
+      args: [u8, u64]
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies:
+    on_audio_level: |
+      comp->level = (uint8_t)(args[0] & 0xFFu);
+      comp->last_cycle = (uint64_t)args[1];
+      cpu_component_emit_signal(cpu, "speaker_trs80", "pcm_sample", args, argc);
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

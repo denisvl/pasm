@@ -1,0 +1,10 @@
+^D:\PROJECTS\PASM\GENERATED\Z80_TRS80_MODEL4_SDL\BUILD_FRESH\CMAKEFILES\E634047A72E5BD0EC68575295F396711\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/pasm/generated/z80_trs80_model4_sdl -BD:/Projects/pasm/generated/z80_trs80_model4_sdl/build_fresh --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/Projects/pasm/generated/z80_trs80_model4_sdl/build_fresh/z80_emulator.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

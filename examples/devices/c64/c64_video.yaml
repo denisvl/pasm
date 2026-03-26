@@ -1,0 +1,159 @@
+metadata:
+  id: video_c64
+  type: video
+  model: c64_vicii_renderer
+  version: "1.1"
+
+state:
+  - { name: frame_count, type: uint32_t, initial: "0u" }
+  - { name: width, type: uint32_t, initial: "384u" }
+  - { name: height, type: uint32_t, initial: "272u" }
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: on_frame_ready
+      args: [u32, u64, u64, u64, u64, u32, u32, u32]
+  signals:
+    - name: frame_present
+      args: [u32, u64, u32, u32]
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies:
+    on_frame_ready: |
+      if (argc < 8) return;
+      comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      {
+          uint8_t *screen = (uint8_t *)(uintptr_t)args[1];
+          uint8_t *color = (uint8_t *)(uintptr_t)args[2];
+          uint8_t *charset = (uint8_t *)(uintptr_t)args[3];
+          uint8_t *bitmap = (uint8_t *)(uintptr_t)args[4];
+          uint32_t mode_flags = (uint32_t)(args[5] & 0xFFFFFFFFu);
+          uint32_t cols = (uint32_t)(args[6] & 0xFFFFFFFFu);
+          uint32_t rows = (uint32_t)(args[7] & 0xFFFFFFFFu);
+          if (screen == NULL || color == NULL || charset == NULL || bitmap == NULL || cols == 0u || rows == 0u) return;
+
+          static uint32_t framebuf[384u * 272u];
+          static const uint32_t c64_palette[16] = {
+              0xFF000000u, 0xFFFFFFFFu, 0xFF813338u, 0xFF75CEC8u,
+              0xFF8E3C97u, 0xFF56AC4Du, 0xFF2E2C9Bu, 0xFFEDF171u,
+              0xFF8E5029u, 0xFF553800u, 0xFFC46C71u, 0xFF4A4A4Au,
+              0xFF7B7B7Bu, 0xFFA9FF9Fu, 0xFF706DEBu, 0xFFB2B2B2u
+          };
+
+          uint8_t border_idx = (cpu->comp_c64_io.vic_regs != NULL) ? (uint8_t)(cpu->comp_c64_io.vic_regs[0x20u] & 0x0Fu) : 0x0Eu;
+          uint8_t bg0 = (cpu->comp_c64_io.vic_regs != NULL) ? (uint8_t)(cpu->comp_c64_io.vic_regs[0x21u] & 0x0Fu) : 0x06u;
+          uint8_t bg1 = (cpu->comp_c64_io.vic_regs != NULL) ? (uint8_t)(cpu->comp_c64_io.vic_regs[0x22u] & 0x0Fu) : bg0;
+          uint8_t bg2 = (cpu->comp_c64_io.vic_regs != NULL) ? (uint8_t)(cpu->comp_c64_io.vic_regs[0x23u] & 0x0Fu) : bg0;
+          uint8_t bg3 = (cpu->comp_c64_io.vic_regs != NULL) ? (uint8_t)(cpu->comp_c64_io.vic_regs[0x24u] & 0x0Fu) : bg0;
+
+          uint8_t bitmap_mode = (uint8_t)((mode_flags & 0x01u) != 0u);
+          uint8_t multicolor = (uint8_t)((mode_flags & 0x02u) != 0u);
+          uint8_t ext_color = (uint8_t)((mode_flags & 0x04u) != 0u);
+
+          const uint32_t out_w = 384u;
+          const uint32_t out_h = 272u;
+          const uint32_t x_off = 32u;
+          const uint32_t y_off = 36u;
+
+          comp->width = out_w;
+          comp->height = out_h;
+
+          {
+              uint32_t bc = c64_palette[border_idx];
+              for (uint32_t i = 0u; i < out_w * out_h; ++i) framebuf[i] = bc;
+          }
+
+          if (bitmap_mode != 0u) {
+              for (uint32_t row = 0u; row < rows; ++row) {
+                  for (uint32_t col = 0u; col < cols; ++col) {
+                      uint32_t idx = row * cols + col;
+                      uint8_t s = screen[idx];
+                      uint8_t c = (uint8_t)(color[idx] & 0x0Fu);
+                      uint8_t fg0 = (uint8_t)(s >> 4u);
+                      uint8_t fg1 = (uint8_t)(s & 0x0Fu);
+                      for (uint32_t py = 0u; py < 8u; ++py) {
+                          uint8_t bits = bitmap[idx * 8u + py];
+                          uint32_t y = y_off + row * 8u + py;
+                          uint32_t x0 = x_off + col * 8u;
+                          if (multicolor != 0u) {
+                              for (uint32_t gx = 0u; gx < 4u; ++gx) {
+                                  uint8_t two = (uint8_t)((bits >> (6u - gx * 2u)) & 0x03u);
+                                  uint8_t ci = bg0;
+                                  if (two == 1u) ci = fg0;
+                                  else if (two == 2u) ci = fg1;
+                                  else if (two == 3u) ci = c;
+                                  framebuf[y * out_w + x0 + gx * 2u] = c64_palette[ci & 0x0Fu];
+                                  framebuf[y * out_w + x0 + gx * 2u + 1u] = c64_palette[ci & 0x0Fu];
+                              }
+                          } else {
+                              for (uint32_t gx = 0u; gx < 8u; ++gx) {
+                                  uint8_t on = (uint8_t)((bits >> (7u - gx)) & 0x01u);
+                                  uint8_t ci = on ? fg0 : fg1;
+                                  framebuf[y * out_w + x0 + gx] = c64_palette[ci & 0x0Fu];
+                              }
+                          }
+                      }
+                  }
+              }
+          } else {
+              for (uint32_t row = 0u; row < rows; ++row) {
+                  for (uint32_t col = 0u; col < cols; ++col) {
+                      uint32_t idx = row * cols + col;
+                      uint8_t sc = screen[idx];
+                      uint8_t rev = (uint8_t)((sc & 0x80u) != 0u);
+                      uint8_t ch = (uint8_t)(sc & 0x7Fu);
+                      uint8_t fg = (uint8_t)(color[idx] & 0x0Fu);
+                      uint8_t bg = bg0;
+
+                      if (ext_color != 0u) {
+                          uint8_t sel = (uint8_t)((sc >> 6u) & 0x03u);
+                          ch = (uint8_t)(sc & 0x3Fu);
+                          bg = (sel == 0u) ? bg0 : (sel == 1u) ? bg1 : (sel == 2u) ? bg2 : bg3;
+                      }
+
+                      for (uint32_t py = 0u; py < 8u; ++py) {
+                          uint8_t bits = charset[((uint16_t)ch << 3u) + py];
+                          if (rev != 0u) bits = (uint8_t)~bits;
+                          uint32_t y = y_off + row * 8u + py;
+                          uint32_t x0 = x_off + col * 8u;
+                          if (multicolor != 0u && (fg & 0x08u) != 0u) {
+                              for (uint32_t gx = 0u; gx < 4u; ++gx) {
+                                  uint8_t two = (uint8_t)((bits >> (6u - gx * 2u)) & 0x03u);
+                                  uint8_t ci = bg;
+                                  if (two == 1u) ci = bg1;
+                                  else if (two == 2u) ci = bg2;
+                                  else if (two == 3u) ci = (uint8_t)(fg & 0x07u);
+                                  framebuf[y * out_w + x0 + gx * 2u] = c64_palette[ci & 0x0Fu];
+                                  framebuf[y * out_w + x0 + gx * 2u + 1u] = c64_palette[ci & 0x0Fu];
+                              }
+                          } else {
+                              for (uint32_t gx = 0u; gx < 8u; ++gx) {
+                                  uint8_t on = (uint8_t)((bits >> (7u - gx)) & 0x01u);
+                                  uint8_t ci = on ? fg : bg;
+                                  framebuf[y * out_w + x0 + gx] = c64_palette[ci & 0x0Fu];
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          {
+              uint64_t sig_args[4] = {
+                  (uint64_t)comp->frame_count,
+                  (uint64_t)(uintptr_t)framebuf,
+                  (uint64_t)out_w,
+                  (uint64_t)out_h
+              };
+              cpu_component_emit_signal(cpu, "video_c64", "frame_present", sig_args, 4);
+          }
+      }
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

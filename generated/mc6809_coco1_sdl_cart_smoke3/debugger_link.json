@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "processor_name": "MC6809",
+  "processor_version": "0.2",
+  "system_name": "MC6809CoCo1InteractiveSystem",
+  "cpu_name": "MC6809",
+  "cpu_prefix": "mc6809",
+  "cmake_library_target": "mc6809_emu",
+  "library_basename": "mc6809_emu",
+  "artifacts": {
+    "static": "libmc6809_emu.a",
+    "shared_linux": "libmc6809_emu.so",
+    "shared_macos": "libmc6809_emu.dylib",
+    "shared_windows": "mc6809_emu.dll",
+    "import_windows": "mc6809_emu.lib"
+  },
+  "headers": {
+    "cpu": "src/MC6809.h",
+    "debug_abi": "src/MC6809_debug_abi.h"
+  },
+  "link": {
+    "library_paths": [],
+    "library_names": [
+      "SDL2"
+    ],
+    "library_files": []
+  },
+  "memory_default_size": 65536,
+  "cartridge": {
+    "enabled": true,
+    "id": "coco_cart0",
+    "default_rom_path": "D:\\Projects\\pasm\\examples\\roms\\Dungeons of Daggorath (1982) (26-3093) (DynaMicro) [!].ccc"
+  }
+}

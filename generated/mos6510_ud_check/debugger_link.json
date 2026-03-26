@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "processor_name": "MOS6510",
+  "processor_version": "1.0",
+  "system_name": "MOS6510DefaultSystem",
+  "cpu_name": "MOS6510",
+  "cpu_prefix": "mos6510",
+  "cmake_library_target": "mos6510_emu",
+  "library_basename": "mos6510_emu",
+  "artifacts": {
+    "static": "libmos6510_emu.a",
+    "shared_linux": "libmos6510_emu.so",
+    "shared_macos": "libmos6510_emu.dylib",
+    "shared_windows": "mos6510_emu.dll",
+    "import_windows": "mos6510_emu.lib"
+  },
+  "headers": {
+    "cpu": "src/MOS6510.h",
+    "debug_abi": "src/MOS6510_debug_abi.h"
+  },
+  "link": {
+    "library_paths": [],
+    "library_names": [],
+    "library_files": []
+  },
+  "memory_default_size": 65536,
+  "cartridge": {
+    "enabled": false,
+    "id": "",
+    "default_rom_path": ""
+  }
+}

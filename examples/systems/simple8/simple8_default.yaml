@@ -1,0 +1,22 @@
+metadata:
+  name: Simple8DefaultSystem
+  version: '1.0'
+clock_hz: 1000000
+reset_delay_seconds: 0
+memory:
+  default_size: 65536
+  regions: []
+hooks:
+  pre_fetch:
+    enabled: false
+  post_execute:
+    enabled: false
+integrations: {}
+
+components:
+  ics: []
+  devices: []
+  hosts: []
+
+connections: []
+

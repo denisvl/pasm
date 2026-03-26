@@ -1,0 +1,179 @@
+metadata:
+  id: ula0
+  type: video_controller
+  model: zx_spectrum_48k_ula
+  version: "2.0"
+
+clock_hz: 3500000
+
+state:
+  - name: tstate_global
+    type: uint64_t
+    initial: "0"
+  - name: tstate_frame
+    type: uint64_t
+    initial: "0"
+  - name: frame_index
+    type: uint32_t
+    initial: "0"
+  - name: irq_active
+    type: uint8_t
+    initial: "0"
+  - name: irq_pulse_remaining
+    type: uint64_t
+    initial: "0"
+  - name: border_color
+    type: uint8_t
+    initial: "0"
+  - name: beeper_level
+    type: uint8_t
+    initial: "0"
+  - name: mic_level
+    type: uint8_t
+    initial: "0"
+  - name: render_dirty
+    type: uint8_t
+    initial: "1"
+  - name: last_render_tstate
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_read
+      args: [u8]
+      returns: u8
+  handlers:
+    - name: mic_input
+      args: [u8]
+  signals:
+    - name: frame_boundary
+      args: [u32]
+    - name: irq_edge
+      args: [u8]
+    - name: border_changed
+      args: [u8]
+    - name: beeper_level
+      args: [u8]
+
+maps:
+  ports:
+    read:
+      - name: fe_read
+        mask: 0x0001
+        value: 0x0000
+    write:
+      - name: fe_write
+        mask: 0x0001
+        value: 0x0000
+  memory:
+    ranges:
+      - name: contended_ram
+        start: 0x4000
+        size: 0x4000
+        access: [read, write]
+
+behavior:
+  snippets:
+    mem_read_pre: |
+      if (addr >= 0x4000u && addr < 0x8000u) {
+          uint64_t line = comp->tstate_frame / 224u;
+          uint64_t tline = comp->tstate_frame % 224u;
+          if (line <= 191u && tline <= 127u) {
+              cpu->total_cycles += 1u;
+              comp->tstate_global += 1u;
+              comp->tstate_frame += 1u;
+              if (comp->tstate_frame >= 69888u) {
+                  comp->tstate_frame = 0u;
+                  comp->frame_index += 1u;
+                  uint64_t sig_args[1] = { (uint64_t)comp->frame_index };
+                  cpu_component_emit_signal(cpu, "ula0", "frame_boundary", sig_args, 1);
+              }
+          }
+      }
+    mem_write_pre: |
+      if (addr >= 0x4000u && addr < 0x8000u) {
+          if (addr < 0x5B00u) {
+              comp->render_dirty = 1u;
+          }
+          uint64_t line = comp->tstate_frame / 224u;
+          uint64_t tline = comp->tstate_frame % 224u;
+          if (line <= 191u && tline <= 127u) {
+              cpu->total_cycles += 1u;
+              comp->tstate_global += 1u;
+              comp->tstate_frame += 1u;
+              if (comp->tstate_frame >= 69888u) {
+                  comp->tstate_frame = 0u;
+                  comp->frame_index += 1u;
+                  uint64_t sig_args[1] = { (uint64_t)comp->frame_index };
+                  cpu_component_emit_signal(cpu, "ula0", "frame_boundary", sig_args, 1);
+              }
+          }
+      }
+    port_read_post: |
+      if ((((uint16_t)port) & 0x0001u) == 0u) {
+          uint8_t row_mask = (uint8_t)(((uint16_t)port >> 8) & 0xFFu);
+          if (row_mask == 0u) {
+              /* Some decoder paths expose ED in hook_opcode with hook_prefix=0x00. */
+              if (cpu->hook_prefix == 0xEDu || cpu->hook_opcode == 0xEDu) {
+                  row_mask = cpu->registers[REG_B];
+              } else {
+                  row_mask = cpu->registers[REG_A];
+              }
+          }
+          uint64_t call_args[1] = { (uint64_t)row_mask };
+          value = (uint8_t)cpu_component_call(cpu, "ula0", "keyboard_read", call_args, 1);
+      }
+    port_write_pre: |
+      if ((((uint16_t)port) & 0x0001u) == 0u) {
+          uint8_t border = (uint8_t)(value & 0x07u);
+          if (comp->border_color != border) {
+              comp->border_color = border;
+              uint64_t sig_args[1] = { (uint64_t)border };
+              cpu_component_emit_signal(cpu, "ula0", "border_changed", sig_args, 1);
+          }
+          uint8_t beep = (uint8_t)((value >> 4) & 0x01u);
+          if (comp->beeper_level != beep) {
+              comp->beeper_level = beep;
+              uint64_t sig_args[1] = { (uint64_t)beep };
+              cpu_component_emit_signal(cpu, "ula0", "beeper_level", sig_args, 1);
+          }
+      }
+    step_post: |
+      for (uint32_t _t = 0; _t < (uint32_t)inst->cycles; _t++) {
+          comp->tstate_global += 1u;
+          if (comp->tstate_frame == 0u && comp->irq_active == 0u) {
+              comp->irq_active = 1u;
+              comp->irq_pulse_remaining = 32u;
+              cpu->interrupt_pending = true;
+              uint64_t sig_args[1] = { 1u };
+              cpu_component_emit_signal(cpu, "ula0", "irq_edge", sig_args, 1);
+          }
+          if (comp->irq_pulse_remaining > 0u) {
+              comp->irq_pulse_remaining -= 1u;
+              if (comp->irq_pulse_remaining == 0u && comp->irq_active != 0u) {
+                  comp->irq_active = 0u;
+                  uint64_t sig_args[1] = { 0u };
+                  cpu_component_emit_signal(cpu, "ula0", "irq_edge", sig_args, 1);
+              }
+          }
+          comp->tstate_frame += 1u;
+          if (comp->tstate_frame >= 69888u) {
+              comp->tstate_frame = 0u;
+              comp->frame_index += 1u;
+              uint64_t sig_args[1] = { (uint64_t)comp->frame_index };
+              cpu_component_emit_signal(cpu, "ula0", "frame_boundary", sig_args, 1);
+              comp->render_dirty = 0u;
+              comp->last_render_tstate = comp->tstate_global;
+          }
+      }
+  callback_handlers: {}
+  handler_bodies:
+    mic_input: |
+      comp->mic_level = (uint8_t)(args[0] & 0xFFu);
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

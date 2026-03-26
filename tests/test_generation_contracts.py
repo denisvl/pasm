@@ -2,14 +2,17 @@ import os
 import pathlib
 import shutil
 import subprocess
+import json
 
 import pytest
+import yaml
 
 from src import generator as gen_mod
-from src.codegen.build_system import generate_cmake
+from src.codegen.build_system import generate_cmake, generate_makefile
 from src.codegen.cpu_decoder import generate_decoder
 from src.codegen.cpu_header import generate_cpu_header
 from src.codegen.cpu_impl import generate_cpu_impl
+from src.parser import yaml_loader
 from tests.support import example_pair, write_pair_from_legacy
 
 
@@ -142,6 +145,48 @@ def test_cmake_template_does_not_reference_runtime_stub():
     assert "_runtime.c" not in cmake
 
 
+def test_cmake_emits_linkable_emulator_library_target():
+    isa = _base_isa("BuildLib8")
+    cmake = generate_cmake(isa, "BuildLib8")
+    assert "add_library(buildlib8_emu STATIC ${EMU_SOURCES})" in cmake
+    assert "add_executable(buildlib8_test src/main.c)" in cmake
+    assert "target_link_libraries(buildlib8_test PRIVATE buildlib8_emu)" in cmake
+
+
+def test_makefile_emits_linkable_emulator_library_target():
+    isa = _base_isa("BuildLib8")
+    makefile = generate_makefile(isa, "BuildLib8")
+    assert "EMU_LIB = libbuildlib8_emu.a" in makefile
+    assert "$(TARGET): $(MAIN_OBJ) $(EMU_LIB)" in makefile
+    assert "$(EMU_LIB): $(OBJECTS)" in makefile
+
+
+def test_build_system_normalizes_windows_paths_for_cross_platform_outputs():
+    isa = _base_isa("BuildPath8")
+    isa["coding"] = {
+        "headers": [],
+        "include_paths": [r"D:\Projects\pasm\examples\hosts\include"],
+        "linked_libraries": [
+            {"name": "SDL2"},
+            {"path": r"D:\Development\vcpkg\installed\x64-windows\lib\SDL2.lib"},
+        ],
+        "library_paths": [r"D:\Development\vcpkg\installed\x64-windows\lib"],
+    }
+
+    cmake = generate_cmake(isa, "BuildPath8")
+    makefile = generate_makefile(isa, "BuildPath8")
+
+    assert r"D:\Projects\pasm\examples\hosts\include" not in cmake
+    assert r"D:\Development\vcpkg\installed\x64-windows\lib\SDL2.lib" not in cmake
+    assert r"D:\Development\vcpkg\installed\x64-windows\lib" not in cmake
+    assert '"D:/Projects/pasm/examples/hosts/include"' in cmake
+    assert '"D:/Development/vcpkg/installed/x64-windows/lib/SDL2.lib"' in cmake
+    assert '"D:/Development/vcpkg/installed/x64-windows/lib"' in cmake
+    assert '-I"D:/Projects/pasm/examples/hosts/include"' in makefile
+    assert '-L"D:/Development/vcpkg/installed/x64-windows/lib"' in makefile
+    assert '"D:/Development/vcpkg/installed/x64-windows/lib/SDL2.lib"' in makefile
+
+
 def test_memory_read_only_regions_emit_write_guards():
     isa = _base_isa("MemGuard8")
     isa["memory"]["regions"] = [
@@ -226,6 +271,316 @@ int main(void) {
     assert "ROM=00" in proc.stdout
     assert "ERR_RAM=0" in proc.stdout
     assert "ERR_ROM=2" in proc.stdout
+
+
+def test_system_rom_loader_api_is_emitted(tmp_path):
+    isa = _base_isa("RomApi8")
+    isa["memory"]["regions"] = [
+        {"name": "ROM", "start": 0x8000, "size": 0x8000, "read_only": True},
+    ]
+    processor_path, system_path = write_pair_from_legacy(
+        tmp_path,
+        "rom_api8",
+        isa,
+        system_overrides={
+            "memory": {
+                "regions": isa["memory"]["regions"],
+            }
+        },
+    )
+    system_data = yaml.safe_load(pathlib.Path(system_path).read_text(encoding="utf-8"))
+    system_data["memory"]["rom_images"] = [
+        {
+            "name": "test_rom",
+            "file": "rom.bin",
+            "target_region": "ROM",
+            "offset": 0,
+        }
+    ]
+    pathlib.Path(system_path).write_text(
+        yaml.safe_dump(system_data, sort_keys=False), encoding="utf-8"
+    )
+    (tmp_path / "rom.bin").write_bytes(b"\x01\x02\x03")
+
+    outdir = tmp_path / "rom_api8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+    header = (outdir / "src" / "RomApi8.h").read_text(encoding="utf-8")
+    impl = (outdir / "src" / "RomApi8.c").read_text(encoding="utf-8")
+
+    assert "int romapi8_load_system_roms(CPUState *cpu, const char *system_base_dir);" in header
+    assert "static const SystemRomImage g_system_rom_images[]" in impl
+    assert "int romapi8_load_system_roms(CPUState *cpu, const char *system_base_dir)" in impl
+
+
+def test_cartridge_loader_api_is_emitted():
+    isa = _base_isa("CartApi8")
+    isa["cartridge"] = {
+        "metadata": {"id": "cart0", "type": "cartridge_mapper", "model": "none"},
+        "state": [
+            {"name": "rom_data", "type": "uint8_t *", "initial": "NULL"},
+            {"name": "rom_size", "type": "uint32_t", "initial": "0"},
+        ],
+        "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+        "behavior": {
+            "snippets": {
+                "mem_read_pre": (
+                    "if (addr < 0xC000u && comp->rom_data != NULL && comp->rom_size > 0u) {\n"
+                    "    uint32_t off = (uint32_t)addr;\n"
+                    "    if (off < comp->rom_size) return comp->rom_data[off];\n"
+                    "    return 0xFFu;\n"
+                    "}"
+                )
+            },
+            "callback_handlers": {},
+            "handler_bodies": {},
+        },
+        "coding": {
+            "headers": [],
+            "include_paths": [],
+            "linked_libraries": [],
+            "library_paths": [],
+        },
+    }
+    isa["cartridge_rom"] = {"path": "/tmp/test.rom"}
+    header = generate_cpu_header(isa, "CartApi8")
+    impl = generate_cpu_impl(isa, "CartApi8")
+
+    assert "int cartapi8_load_cartridge_rom(CPUState *cpu, const char *path);" in header
+    assert "int cartapi8_load_cartridge_rom(CPUState *cpu, const char *path)" in impl
+    assert "comp->rom_data = buf;" in impl
+    assert "comp->rom_size = (uint32_t)file_size;" in impl
+
+
+def test_generator_emits_debug_abi_files(tmp_path):
+    isa = _base_isa("DbgApi8")
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "dbg_api8", isa)
+    outdir = tmp_path / "dbg_api8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    dbg_h = outdir / "src" / "DbgApi8_debug_abi.h"
+    dbg_c = outdir / "src" / "DbgApi8_debug_abi.c"
+    assert dbg_h.exists()
+    assert dbg_c.exists()
+    header = dbg_h.read_text(encoding="utf-8")
+    impl = dbg_c.read_text(encoding="utf-8")
+    assert "int dbgapi8_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);" in header
+    assert "int dbgapi8_dbg_snapshot_fill(" in header
+    assert "CPUState *pasm_dbg_create(size_t memory_size);" in header
+    assert "int pasm_dbg_snapshot_fill(" in header
+    assert "int pasm_dbg_set_pc(CPUState *cpu, uint64_t address);" in header
+    assert '#include "DbgApi8_debug_abi.h"' in impl
+    assert "CPUState *pasm_dbg_create(size_t memory_size)" in impl
+    assert "int pasm_dbg_snapshot_fill(" in impl
+    assert "int pasm_dbg_set_pc(CPUState *cpu, uint64_t address)" in impl
+
+
+def test_debug_abi_disasm_row_formats_only_instruction_length_bytes(tmp_path):
+    isa = _base_isa("DbgBytes8")
+    isa["instructions"] = [
+        {
+            "name": "NOP",
+            "category": "control",
+            "encoding": {"opcode": 0x00, "mask": 0xFF, "length": 1},
+            "cycles": 1,
+            "behavior": "(void)cpu;",
+        },
+        {
+            "name": "LDI",
+            "category": "data_transfer",
+            "encoding": {
+                "opcode": 0x3E,
+                "mask": 0xFF,
+                "length": 2,
+                "fields": [{"name": "n", "position": [15, 8], "type": "immediate"}],
+            },
+            "cycles": 1,
+            "behavior": "(void)cpu;",
+        },
+    ]
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "dbg_bytes8", isa)
+    outdir = tmp_path / "dbg_bytes8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    impl = (outdir / "src" / "DbgBytes8_debug_abi.c").read_text(encoding="utf-8")
+    assert "len = dbg_instruction_len(cpu, addr);" in impl
+    assert "for (uint8_t i = 0u; i < len" in impl
+    assert "\"%02X %02X %02X %02X\"" not in impl
+
+
+def test_debug_abi_uses_register_display_name_when_present(tmp_path):
+    isa = _base_isa("DbgLabel8")
+    isa["registers"][0]["display_name"] = "ACC"
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "dbg_label8", isa)
+    outdir = tmp_path / "dbg_label8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    impl = (outdir / "src" / "DbgLabel8_debug_abi.c").read_text(encoding="utf-8")
+    assert 'dbg_copy(r->name, sizeof(r->name), "ACC");' in impl
+
+
+def test_debug_abi_special_registers_use_register_bank_values(tmp_path):
+    isa = _base_isa("DbgSpecial8")
+    isa["registers"].append({"name": "I", "type": "special", "bits": 8})
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "dbg_special8", isa)
+    outdir = tmp_path / "dbg_special8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    impl = (outdir / "src" / "DbgSpecial8_debug_abi.c").read_text(encoding="utf-8")
+    assert "uint64_t val = (uint64_t)(cpu->registers[REG_I]);" in impl
+
+
+def test_generator_emits_debugger_link_manifest(tmp_path):
+    isa = _base_isa("DbgLink8")
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "dbg_link8", isa)
+    outdir = tmp_path / "dbg_link8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    manifest_path = outdir / "debugger_link.json"
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == 1
+    assert manifest["cpu_name"] == "DbgLink8"
+    assert manifest["cpu_prefix"] == "dbglink8"
+    assert manifest["library_basename"] == "dbglink8_emu"
+    assert manifest["headers"]["debug_abi"] == "src/DbgLink8_debug_abi.h"
+    assert "link" in manifest
+    assert isinstance(manifest["link"]["library_names"], list)
+
+
+@pytest.mark.skipif(
+    (shutil.which("cc") is None and shutil.which("gcc") is None and shutil.which("clang") is None),
+    reason="C compiler not available on PATH",
+)
+def test_runtime_loads_system_rom_images(tmp_path):
+    isa = _base_isa("RomLoad8")
+    isa["memory"]["regions"] = [
+        {"name": "ROM", "start": 0x8000, "size": 0x8000, "read_only": True},
+    ]
+    processor_path, system_path = write_pair_from_legacy(
+        tmp_path,
+        "rom_load8",
+        isa,
+        system_overrides={
+            "memory": {
+                "regions": isa["memory"]["regions"],
+            }
+        },
+    )
+    system_data = yaml.safe_load(pathlib.Path(system_path).read_text(encoding="utf-8"))
+    system_data["memory"]["rom_images"] = [
+        {
+            "name": "test_rom",
+            "file": "rom.bin",
+            "target_region": "ROM",
+            "offset": 2,
+        }
+    ]
+    pathlib.Path(system_path).write_text(
+        yaml.safe_dump(system_data, sort_keys=False), encoding="utf-8"
+    )
+    (tmp_path / "rom.bin").write_bytes(bytes([0x11, 0x22, 0x33]))
+
+    outdir = tmp_path / "rom_load8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    harness_c = outdir / "rom_loader_harness.c"
+    harness_c.write_text(
+        """
+#include <stdio.h>
+#include "RomLoad8.h"
+
+int main(void) {
+    CPUState *cpu = romload8_create(65536);
+    if (!cpu) return 2;
+    if (romload8_load_system_roms(cpu, ".") != 0) return 3;
+
+    printf("R0=%02X\\n", (unsigned int)romload8_read_byte(cpu, 0x8002));
+    printf("R1=%02X\\n", (unsigned int)romload8_read_byte(cpu, 0x8003));
+    printf("R2=%02X\\n", (unsigned int)romload8_read_byte(cpu, 0x8004));
+
+    romload8_destroy(cpu);
+    return 0;
+}
+""",
+        encoding="utf-8",
+    )
+
+    compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
+    binary_name = "rom_loader_harness.exe" if os.name == "nt" else "rom_loader_harness"
+    binary = outdir / binary_name
+    subprocess.check_call(
+        [
+            compiler,
+            "-std=c11",
+            "-O2",
+            "-I",
+            str(outdir / "src"),
+            str(outdir / "src" / "RomLoad8.c"),
+            str(outdir / "src" / "RomLoad8_decoder.c"),
+            str(harness_c),
+            "-o",
+            str(binary),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
+
+    proc = subprocess.run([str(binary)], check=True, capture_output=True, text=True, cwd=tmp_path)
+    assert "R0=11" in proc.stdout
+    assert "R1=22" in proc.stdout
+    assert "R2=33" in proc.stdout
+
+
+def test_generated_main_resets_after_system_rom_load_and_preserves_direct_rom_entry(tmp_path):
+    isa = _base_isa("MainBoot8")
+    isa["interrupts"] = {"model": "mos6502"}
+    isa["registers"] = [
+        {"name": "A", "type": "general", "bits": 8},
+        {"name": "X", "type": "general", "bits": 8},
+        {"name": "Y", "type": "general", "bits": 8},
+        {"name": "PC", "type": "program_counter", "bits": 16},
+        {"name": "SP", "type": "stack_pointer", "bits": 8},
+    ]
+    isa["flags"] = [
+        {"name": "C", "bit": 0},
+        {"name": "Z", "bit": 1},
+        {"name": "I", "bit": 2},
+        {"name": "D", "bit": 3},
+        {"name": "B", "bit": 4},
+        {"name": "V", "bit": 6},
+        {"name": "N", "bit": 7},
+    ]
+    isa["memory"]["regions"] = [
+        {"name": "RAM", "start": 0x0000, "size": 0xD000, "read_write": True},
+        {"name": "ROM", "start": 0xD000, "size": 0x3000, "read_only": True},
+    ]
+    processor_path, system_path = write_pair_from_legacy(
+        tmp_path,
+        "main_boot8",
+        isa,
+        system_overrides={
+            "memory": {
+                "regions": isa["memory"]["regions"],
+                "rom_images": [
+                    {
+                        "name": "boot_rom",
+                        "file": "boot.bin",
+                        "target_region": "ROM",
+                        "offset": 0,
+                    }
+                ],
+            }
+        },
+    )
+    (tmp_path / "boot.bin").write_bytes(b"\x00" * 0x3000)
+
+    outdir = tmp_path / "main_boot8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    main_c = (outdir / "src" / "main.c").read_text(encoding="utf-8")
+    assert "if (mainboot8_load_system_roms(cpu, system_dir) != 0) {" in main_c
+    assert "mainboot8_reset(cpu);" in main_c
+    assert "cpu->pc = load_addr;" in main_c
 
 
 @pytest.mark.parametrize(
@@ -356,8 +711,158 @@ def test_disassembler_prefers_display_text_when_present():
     ]
 
     impl = generate_cpu_impl(isa, "Display8")
-    assert 'mnemonic = "RLC (IY+d)";' in impl
+    assert (
+        'mnemonic = "RLC (IY+d)";' in impl
+        or 'snprintf(rendered, sizeof(rendered), "RLC (IY+%s)"' in impl
+    )
     assert 'mnemonic = "RLC_IYD";' not in impl
+
+
+def test_disassembler_supports_display_templates_with_operand_tables():
+    isa = _base_isa("DisplayTpl8")
+    isa["instructions"] = [
+        {
+            "name": "LD_R_R",
+            "display": "LD r, r'",
+            "display_template": "LD {rd:table}, {rs:table}",
+            "display_operands": {
+                "rd": {"kind": "table", "table": ["B", "C", "D", "E", "H", "L", "(HL)", "A"]},
+                "rs": {"kind": "table", "table": ["B", "C", "D", "E", "H", "L", "(HL)", "A"]},
+            },
+            "category": "data_transfer",
+            "encoding": {
+                "opcode": 0x40,
+                "mask": 0xC0,
+                "length": 1,
+                "fields": [
+                    {"name": "rd", "position": [5, 3], "type": "register"},
+                    {"name": "rs", "position": [2, 0], "type": "register"},
+                ],
+            },
+            "cycles": 1,
+            "behavior": "(void)cpu;",
+        }
+    ]
+
+    impl = generate_cpu_impl(isa, "DisplayTpl8")
+    assert "op_table_LD_R_R_rd_0" in impl
+    assert "op_table_LD_R_R_rs_1" in impl
+    assert 'snprintf(rendered, sizeof(rendered), "LD %s, %s"' in impl
+    assert 'mnemonic = "LD r, r\'";' not in impl
+
+
+def test_disassembler_supports_mc6809_stack_mask_display_formatter():
+    isa = _base_isa("Display6809Mask")
+    isa["instructions"] = [
+        {
+            "name": "PSHS",
+            "display": "PSHS m",
+            "display_template": "PSHS {mask:mc6809_pshs_mask}",
+            "category": "control",
+            "encoding": {
+                "opcode": 0x34,
+                "mask": 0xFF,
+                "length": 2,
+                "fields": [{"name": "mask", "position": [15, 8], "type": "immediate"}],
+            },
+            "cycles": 1,
+            "behavior": "(void)cpu;",
+        }
+    ]
+
+    impl = generate_cpu_impl(isa, "Display6809Mask")
+    assert "dbg_mc6809_format_stack_mask" in impl
+    assert '"U", 0u, op_buf_0' in impl
+    assert 'snprintf(rendered, sizeof(rendered), "PSHS %s"' in impl
+
+
+def test_disassembler_infers_mos6502_immediate_and_zero_page_templates():
+    isa = _base_isa("MOS6502Display8")
+    isa["instructions"] = [
+        {
+            "name": "LDA_IMM",
+            "display": "LDA #n",
+            "category": "data_transfer",
+            "encoding": {
+                "opcode": 0xA9,
+                "mask": 0xFF,
+                "length": 2,
+                "fields": [{"name": "imm", "position": [15, 8], "type": "immediate"}],
+            },
+            "cycles": 2,
+            "behavior": "(void)cpu;",
+        },
+        {
+            "name": "LDA_ZP",
+            "display": "LDA n",
+            "category": "data_transfer",
+            "encoding": {
+                "opcode": 0xA5,
+                "mask": 0xFF,
+                "length": 2,
+                "fields": [{"name": "zp", "position": [15, 8], "type": "address"}],
+            },
+            "cycles": 3,
+            "behavior": "(void)cpu;",
+        },
+        {
+            "name": "LDA_INDY",
+            "display": "LDA (n),Y",
+            "category": "data_transfer",
+            "encoding": {
+                "opcode": 0xB1,
+                "mask": 0xFF,
+                "length": 2,
+                "fields": [{"name": "zp", "position": [15, 8], "type": "address"}],
+            },
+            "cycles": 5,
+            "behavior": "(void)cpu;",
+        },
+        {
+            "name": "JMP_ABS",
+            "display": "JMP nn",
+            "category": "control",
+            "encoding": {
+                "opcode": 0x4C,
+                "mask": 0xFF,
+                "length": 3,
+                "fields": [{"name": "addr", "position": [23, 8], "type": "address"}],
+            },
+            "cycles": 3,
+            "behavior": "(void)cpu;",
+        },
+    ]
+
+    impl = generate_cpu_impl(isa, "MOS6502Display8")
+    assert 'snprintf(rendered, sizeof(rendered), "LDA #%s"' in impl
+    assert 'snprintf(rendered, sizeof(rendered), "LDA %s"' in impl
+    assert 'snprintf(rendered, sizeof(rendered), "LDA (%s),Y"' in impl
+    assert 'snprintf(rendered, sizeof(rendered), "JMP %s"' in impl
+    assert 'snprintf(op_buf_0, sizeof(op_buf_0), "$%02X"' in impl
+    assert 'snprintf(op_buf_0, sizeof(op_buf_0), "$%04X"' in impl
+    assert 'mnemonic = "LDA #n";' not in impl
+    assert 'mnemonic = "LDA n";' not in impl
+    assert 'mnemonic = "LDA (n),Y";' not in impl
+    assert 'mnemonic = "JMP nn";' not in impl
+    assert 'snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X"' not in impl
+    assert 'snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X"' not in impl
+
+
+def test_disassembler_rejects_unknown_display_template_field():
+    isa = _base_isa("DisplayBadField8")
+    isa["instructions"] = [
+        {
+            "name": "BAD",
+            "display_template": "BAD {missing}",
+            "category": "control",
+            "encoding": {"opcode": 0x00, "mask": 0xFF, "length": 1},
+            "cycles": 1,
+            "behavior": "(void)cpu;",
+        }
+    ]
+
+    with pytest.raises(ValueError, match="unknown decoded field"):
+        generate_cpu_impl(isa, "DisplayBadField8")
 
 
 def test_shadow_flags_bank_is_generated_for_prime_register_sets():
@@ -496,7 +1001,8 @@ def test_undefined_opcode_policy_defaults_to_trap():
     isa = _base_isa("TrapDefault8")
     code = generate_cpu_impl(isa, "TrapDefault8")
     assert "cpu->error_code = CPU_ERROR_INVALID_OPCODE;" in code
-    assert "cpu->total_cycles += inst.cycles;" not in code
+    invalid_block = code.split("if (!inst.valid) {", 1)[1].split("}", 1)[0]
+    assert "cpu->total_cycles += inst.cycles;" not in invalid_block
 
 
 def test_undefined_opcode_policy_nop_emits_skip_path():
@@ -583,6 +1089,17 @@ def test_interrupt_dispatch_block_is_generated_when_interrupts_declared():
     assert "cpu->interrupts_enabled = false;" in code
 
 
+def test_breakpoint_check_precedes_interrupt_dispatch():
+    isa = _base_isa("IntBpOrder8")
+    isa["interrupts"] = {"modes": [{"name": "IM1"}]}
+    code = generate_cpu_impl(isa, "IntBpOrder8")
+    bp_idx = code.find("if (cpu_check_breakpoints(cpu)) {")
+    irq_idx = code.find("if (cpu->interrupt_pending && cpu->interrupts_enabled) {")
+    assert bp_idx >= 0
+    assert irq_idx >= 0
+    assert bp_idx < irq_idx
+
+
 def test_interrupt_api_queues_pending_even_when_irq_disabled():
     isa = _base_isa("IntApi8")
     isa["interrupts"] = {"modes": [{"name": "IM1"}]}
@@ -649,6 +1166,53 @@ def test_interrupt_model_fixed_vector_generates_direct_jump():
     assert "cpu->interrupt_pending && cpu->interrupts_enabled" in code
     assert "cpu->pc = 0x1234;" in code
     assert "switch (irq_mode)" not in code
+
+
+def test_interrupt_model_mos6502_generates_page1_stack_and_vectors():
+    isa = _base_isa("MosIrq8")
+    isa["flags"] = [
+        {"name": "C", "bit": 0},
+        {"name": "Z", "bit": 1},
+        {"name": "I", "bit": 2},
+        {"name": "D", "bit": 3},
+        {"name": "B", "bit": 4},
+        {"name": "V", "bit": 6},
+        {"name": "N", "bit": 7},
+    ]
+    isa["interrupts"] = {"model": "mos6502"}
+    code = generate_cpu_impl(isa, "MosIrq8")
+    assert "0x0100u | sp8" in code
+    assert "cpu->sp = 0xFDu;" in code
+    assert "cpu->flags.I = true;" in code
+    assert "cpu->pc = mosirq8_read_word(cpu, 0xFFFCu);" in code
+    assert "read_word(cpu, 0xFFFAu)" in code
+    assert "read_word(cpu, 0xFFFEu)" in code
+
+
+def test_interrupt_model_mc6809_generates_ffi_vectors():
+    isa = _base_isa("M6809Irq8")
+    isa["flags"] = [
+        {"name": "C", "bit": 0},
+        {"name": "V", "bit": 1},
+        {"name": "Z", "bit": 2},
+        {"name": "N", "bit": 3},
+        {"name": "I", "bit": 4},
+        {"name": "H", "bit": 5},
+        {"name": "F", "bit": 6},
+        {"name": "E", "bit": 7},
+    ]
+    isa["interrupts"] = {"model": "mc6809"}
+    code = generate_cpu_impl(isa, "M6809Irq8")
+    assert "vector_addr = 0xFFF8u;" in code
+    assert "vector_addr = 0xFFFCu;" in code
+    assert "vector_addr = 0xFFF6u;" in code
+    assert "bool full_frame = true;" in code
+    assert "cpu->flags.E = true;" in code
+    assert "cpu->flags.E = false;" in code
+    assert "if (full_frame) {" in code
+    assert "cpu->registers[REG_DP]" in code
+    assert "(uint8_t)(cpu->u & 0xFFu)" in code
+    assert "cpu->flags.F = true;" in code
 
 
 def test_interrupt_model_validation_rejects_unknown_model():
@@ -775,13 +1339,35 @@ def test_both_dispatch_mode_generates_toggle_macro_path(tmp_path):
     assert "USE_THREADED_DISPATCH" in cmake_text
 
 
+def test_interactive_host_uses_declarative_keyboard_map_generation():
+    data = yaml_loader.load_processor_system(
+        str(BASE_DIR / "examples" / "processors" / "z80.yaml"),
+        str(BASE_DIR / "examples" / "systems" / "z80_spectrum48k_interactive.yaml"),
+        ic_paths=[str(BASE_DIR / "examples" / "ics" / "zx_spectrum_48k_ula.yaml")],
+        device_paths=[
+            str(BASE_DIR / "examples" / "devices" / "zx48_keyboard.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "zx48_video.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "zx48_speaker.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "zx48_mic.yaml"),
+        ],
+        host_paths=[str(BASE_DIR / "examples" / "hosts" / "zx48_host_sdl2_interactive.yaml")],
+    )
+    code = generate_cpu_impl(data, "Z80")
+    assert "cpu_component_apply_declared_keymap(" in code
+    assert "if (map->focus_required && has_focus == 0u) return;" in code
+    assert "SDL_SCANCODE_BACKSPACE" in code
+    assert "SDL_SCANCODE_LEFT" in code
+    assert "{ SDL_SCANCODE_BACKSPACE, component_host_sdl2_keyboard_presses_" in code
+    assert "ks[SDL_SCANCODE_A]" not in code
+
+
 @pytest.mark.skipif(
     not shutil.which("cmake"),
     reason="cmake not available on PATH",
 )
 @pytest.mark.parametrize(
     "example_name",
-    ["minimal8", "simple8", "z80", "mos6502", "mos6510"],
+    ["minimal8", "simple8", "z80", "mos6502", "mos6510", "mc6809"],
 )
 def test_compile_smoke_generated_examples(tmp_path, example_name):
     processor_path, system_path = example_pair(example_name)

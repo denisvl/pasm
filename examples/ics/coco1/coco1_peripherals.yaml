@@ -1,0 +1,700 @@
+metadata:
+  id: coco1_io
+  type: io_controller
+  model: motorola_mc6883_sam_with_dual_pia
+  version: "0.1"
+
+state:
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: tstate_accum
+    type: uint64_t
+    initial: "0"
+  - name: hsync_tstate_accum
+    type: uint64_t
+    initial: "0"
+  - name: audio_level
+    type: uint8_t
+    initial: "0"
+  - name: pia0_ora
+    type: uint8_t
+    initial: "0xFF"
+  - name: pia0_orb
+    type: uint8_t
+    initial: "0xFF"
+  - name: pia0_ddra
+    type: uint8_t
+    initial: "0x00"
+  - name: pia0_ddrb
+    type: uint8_t
+    initial: "0xFF"
+  - name: pia0_cra
+    type: uint8_t
+    initial: "0x34"
+  - name: pia0_crb
+    type: uint8_t
+    initial: "0x34"
+  - name: pia0_cra_irq1
+    type: uint8_t
+    initial: "0"
+  - name: pia0_cra_irq2
+    type: uint8_t
+    initial: "0"
+  - name: pia0_crb_irq1
+    type: uint8_t
+    initial: "0"
+  - name: pia0_crb_irq2
+    type: uint8_t
+    initial: "0"
+  - name: pia1_ora
+    type: uint8_t
+    initial: "0x00"
+  - name: pia1_orb
+    type: uint8_t
+    initial: "0x00"
+  - name: pia1_ddra
+    type: uint8_t
+    initial: "0x01"
+  - name: pia1_ddrb
+    type: uint8_t
+    initial: "0x00"
+  - name: pia1_cra
+    type: uint8_t
+    initial: "0x34"
+  - name: pia1_crb
+    type: uint8_t
+    initial: "0x34"
+  - name: pia1_cra_irq1
+    type: uint8_t
+    initial: "0"
+  - name: pia1_cra_irq2
+    type: uint8_t
+    initial: "0"
+  - name: pia1_crb_irq1
+    type: uint8_t
+    initial: "0"
+  - name: pia1_crb_irq2
+    type: uint8_t
+    initial: "0"
+  - name: pia0_ca1_level
+    type: uint8_t
+    initial: "0"
+  - name: pia0_cb1_level
+    type: uint8_t
+    initial: "0"
+  - name: sam_ctrl
+    type: uint16_t
+    initial: "0x4010"
+  - name: sam_vdg_bits
+    type: uint8_t
+    initial: "0"
+  - name: sam_vdg_mode
+    type: uint8_t
+    initial: "0"
+  - name: sam_css
+    type: uint8_t
+    initial: "0"
+  - name: sam_gm0
+    type: uint8_t
+    initial: "0"
+  - name: sam_gm1
+    type: uint8_t
+    initial: "0"
+  - name: sam_gm2
+    type: uint8_t
+    initial: "0"
+  - name: sam_ag
+    type: uint8_t
+    initial: "0"
+  - name: sam_display_base
+    type: uint16_t
+    initial: "0x0400"
+  - name: sam_page_switch
+    type: uint8_t
+    initial: "0"
+  - name: sam_mpu_rate
+    type: uint8_t
+    initial: "0"
+  - name: sam_mem_size_mode
+    type: uint8_t
+    initial: "2"
+  - name: sam_map_type
+    type: uint8_t
+    initial: "0"
+  - name: sam_all_ram
+    type: uint8_t
+    initial: "0"
+  - name: sam_ram_limit
+    type: uint32_t
+    initial: "65536"
+  - name: sam_rom_a000
+    type: uint8_t *
+    initial: "NULL"
+  - name: sam_rom_e000
+    type: uint8_t *
+    initial: "NULL"
+  - name: sam_rom_shadow_ready
+    type: uint8_t
+    initial: "0"
+  - name: cart_firq_armed
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_read_row
+      args: [u8]
+      returns: u8
+    - name: joystick_read_axis
+      args: [u8]
+      returns: u8
+    - name: joystick_read_button
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32, u32, u32, u32, u32, u32]
+    - name: irq_edge
+      args: [u8]
+    - name: audio_level
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges:
+      - name: coco_io_page
+        start: 0xFF00
+        size: 0x0100
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      if (comp->sam_rom_a000 == NULL) {
+          comp->sam_rom_a000 = (uint8_t *)calloc(0x2000u, sizeof(uint8_t));
+      }
+      if (comp->sam_rom_e000 == NULL) {
+          comp->sam_rom_e000 = (uint8_t *)calloc(0x2000u, sizeof(uint8_t));
+      }
+      if (comp->sam_rom_a000 == NULL || comp->sam_rom_e000 == NULL) {
+          cpu->error_code = CPU_ERROR_INVALID_MEMORY;
+      }
+    destroy: |
+      if (comp->sam_rom_a000 != NULL) {
+          free(comp->sam_rom_a000);
+          comp->sam_rom_a000 = NULL;
+      }
+      if (comp->sam_rom_e000 != NULL) {
+          free(comp->sam_rom_e000);
+          comp->sam_rom_e000 = NULL;
+      }
+      comp->sam_rom_shadow_ready = 0u;
+    reset: |
+      comp->frame_counter = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->tstate_accum = 0u;
+      comp->hsync_tstate_accum = 0u;
+      comp->audio_level = 0u;
+      comp->pia0_ora = 0xFFu;
+      comp->pia0_orb = 0xFFu;
+      comp->pia0_ddra = 0x00u;
+      comp->pia0_ddrb = 0xFFu;
+      comp->pia0_cra = 0x34u;
+      comp->pia0_crb = 0x34u;
+      comp->pia0_cra_irq1 = 0u;
+      comp->pia0_cra_irq2 = 0u;
+      comp->pia0_crb_irq1 = 0u;
+      comp->pia0_crb_irq2 = 0u;
+      comp->pia1_ora = 0x00u;
+      comp->pia1_orb = 0x00u;
+      comp->pia1_ddra = 0x01u;
+      comp->pia1_ddrb = 0x00u;
+      comp->pia1_cra = 0x34u;
+      comp->pia1_crb = 0x34u;
+      comp->pia1_cra_irq1 = 0u;
+      comp->pia1_cra_irq2 = 0u;
+      comp->pia1_crb_irq1 = 0u;
+      comp->pia1_crb_irq2 = 0u;
+      comp->pia0_ca1_level = 0u;
+      comp->pia0_cb1_level = 0u;
+      comp->sam_ctrl = 0x4010u;
+      comp->sam_vdg_bits = 0u;
+      comp->sam_vdg_mode = 0u;
+      comp->sam_css = 0u;
+      comp->sam_gm0 = 0u;
+      comp->sam_gm1 = 0u;
+      comp->sam_gm2 = 0u;
+      comp->sam_ag = 0u;
+      comp->sam_display_base = 0x0400u;
+      comp->sam_page_switch = 0u;
+      comp->sam_mpu_rate = 0u;
+      comp->sam_mem_size_mode = 2u;
+      comp->sam_map_type = 0u;
+      comp->sam_all_ram = 0u;
+      comp->sam_ram_limit = 65536u;
+      comp->sam_rom_shadow_ready = 0u;
+      comp->cart_firq_armed = 0u;
+    mem_read_pre: |
+      if (addr >= 0xFFC0u && addr <= 0xFFDFu) {
+          uint8_t bit = (uint8_t)((addr - 0xFFC0u) >> 1);
+          uint8_t bit_set = (uint8_t)((comp->sam_ctrl >> bit) & 0x01u);
+          return bit_set ? 0xFFu : 0x00u;
+      }
+      if (
+          (comp->sam_rom_shadow_ready == 0u || cpu->total_cycles == 0u) &&
+          comp->sam_rom_a000 != NULL &&
+          comp->sam_rom_e000 != NULL
+      ) {
+          for (uint16_t i = 0u; i < 0x2000u; ++i) {
+              uint16_t a0 = (uint16_t)(0xA000u + i);
+              uint16_t a1 = (uint16_t)(0xE000u + i);
+              comp->sam_rom_a000[i] = ((uint64_t)a0 < cpu->memory_size) ? cpu->memory[a0] : 0xFFu;
+              comp->sam_rom_e000[i] = ((uint64_t)a1 < cpu->memory_size) ? cpu->memory[a1] : 0xFFu;
+          }
+          comp->sam_rom_shadow_ready = 1u;
+      }
+      if (addr >= 0xFF00u && addr <= 0xFF03u) {
+          uint8_t reg = (uint8_t)(addr & 0x03u);
+          if (reg == 0u) {
+              if ((comp->pia0_cra & 0x04u) == 0u) {
+                  return comp->pia0_ddra;
+              }
+              /*
+               * CoCo keyboard scan: PIA0 port B drives column lines (active-low),
+               * and PIA0 port A reads row lines (active-low). Build PA from the
+               * host matrix by checking each row against currently selected columns.
+               */
+              uint8_t out_b = (uint8_t)((comp->pia0_orb & comp->pia0_ddrb) | ((uint8_t)(~comp->pia0_ddrb)));
+              uint8_t selected_cols = (uint8_t)(~out_b); /* bit=1 => column selected */
+              uint8_t in_a = 0xFFu;
+              for (uint8_t row = 0u; row < 8u; ++row) {
+                  uint64_t cb_args[1] = { (uint64_t)row };
+                  uint8_t host_row = (uint8_t)cpu_component_call(cpu, "coco1_io", "keyboard_read_row", cb_args, 1);
+                  uint8_t pressed_cols = (uint8_t)(~host_row); /* bit=1 => key pressed on that column */
+                  if ((pressed_cols & selected_cols) != 0u) {
+                      in_a = (uint8_t)(in_a & (uint8_t)(~(uint8_t)(1u << row)));
+                  }
+              }
+              /*
+               * CoCo joystick model:
+               * - MUX select lines come from PIA0 CA2/CB2 output state
+               *   (derived from CRA/CRB control mode bits 5..3):
+               *   100 => output low, 101 => output high.
+               *   0=J1-X, 1=J1-Y, 2=J2-X, 3=J2-Y
+               * - PIA1 PA[7:2] is 6-bit DAC reference.
+               * - Comparator result is wired to PIA0 PA7 (high when axis >= DAC).
+               * - Joystick buttons are active-low on FF00 low bits:
+               *   joystick 1 -> PA0, joystick 2 -> PA1.
+               */
+              {
+                  uint8_t ca2_mode = (uint8_t)((comp->pia0_cra >> 3u) & 0x07u);
+                  uint8_t cb2_mode = (uint8_t)((comp->pia0_crb >> 3u) & 0x07u);
+                  uint8_t mux0 = (uint8_t)((ca2_mode == 0x05u) ? 1u : 0u);
+                  uint8_t mux1 = (uint8_t)((cb2_mode == 0x05u) ? 1u : 0u);
+                  uint8_t mux = (uint8_t)((mux1 << 1u) | mux0);
+                  uint64_t axis_args[1] = { (uint64_t)mux };
+                  uint8_t axis = (uint8_t)cpu_component_call(cpu, "coco1_io", "joystick_read_axis", axis_args, 1);
+                  uint8_t cmp_high = 1u;
+                  if (axis != 0xFFu) {
+                      uint8_t dac6 = (uint8_t)((comp->pia1_ora >> 2u) & 0x3Fu);
+                      uint8_t axis6 = (uint8_t)(axis & 0x3Fu);
+                      cmp_high = (uint8_t)((axis6 >= dac6) ? 1u : 0u);
+                  }
+                  if (cmp_high == 0u) {
+                      in_a = (uint8_t)(in_a & (uint8_t)(~0x80u));
+                  }
+
+                  {
+                      uint64_t btn0_args[1] = { 0u };
+                      uint64_t btn1_args[1] = { 1u };
+                      uint8_t joy1_pressed = (uint8_t)(cpu_component_call(cpu, "coco1_io", "joystick_read_button", btn0_args, 1) & 0x01u);
+                      uint8_t joy2_pressed = (uint8_t)(cpu_component_call(cpu, "coco1_io", "joystick_read_button", btn1_args, 1) & 0x01u);
+                      if (joy1_pressed != 0u) in_a = (uint8_t)(in_a & (uint8_t)(~0x01u));
+                      if (joy2_pressed != 0u) in_a = (uint8_t)(in_a & (uint8_t)(~0x02u));
+                  }
+              }
+              /*
+               * Reading PIA0 port A acknowledges the channel-A interrupt latch.
+               */
+              comp->pia0_cra_irq1 = 0u;
+              comp->pia0_cra_irq2 = 0u;
+              return (uint8_t)((comp->pia0_ora & comp->pia0_ddra) | (in_a & (uint8_t)(~comp->pia0_ddra)));
+          }
+          if (reg == 1u) {
+              return (uint8_t)((comp->pia0_cra & 0x3Fu) | comp->pia0_cra_irq1 | comp->pia0_cra_irq2);
+          }
+          if (reg == 2u) {
+              if ((comp->pia0_crb & 0x04u) == 0u) {
+                  return comp->pia0_ddrb;
+              }
+              {
+                  uint8_t in_b = 0xFFu;
+                  /*
+                   * Reading PIA0 port B acknowledges the channel-B interrupt latch.
+                   */
+                  comp->pia0_crb_irq1 = 0u;
+                  comp->pia0_crb_irq2 = 0u;
+                  return (uint8_t)((comp->pia0_orb & comp->pia0_ddrb) | (in_b & (uint8_t)(~comp->pia0_ddrb)));
+              }
+          }
+          return (uint8_t)((comp->pia0_crb & 0x3Fu) | comp->pia0_crb_irq1 | comp->pia0_crb_irq2);
+      }
+      if (addr >= 0xFF20u && addr <= 0xFF23u) {
+          uint8_t reg = (uint8_t)(addr & 0x03u);
+          if (reg == 0u) {
+              if ((comp->pia1_cra & 0x04u) == 0u) {
+                  return comp->pia1_ddra;
+              }
+              {
+                  uint8_t in_a = 0xFFu;
+                  comp->pia1_cra_irq1 = 0u;
+                  comp->pia1_cra_irq2 = 0u;
+                  return (uint8_t)((comp->pia1_ora & comp->pia1_ddra) | (in_a & (uint8_t)(~comp->pia1_ddra)));
+              }
+          }
+          if (reg == 1u) {
+              return (uint8_t)((comp->pia1_cra & 0x3Fu) | comp->pia1_cra_irq1 | comp->pia1_cra_irq2);
+          }
+          if (reg == 2u) {
+              if ((comp->pia1_crb & 0x04u) == 0u) {
+                  return comp->pia1_ddrb;
+              }
+              {
+                  uint8_t in_b = 0xFFu;
+                  comp->pia1_crb_irq1 = 0u;
+                  comp->pia1_crb_irq2 = 0u;
+                  return (uint8_t)((comp->pia1_orb & comp->pia1_ddrb) | (in_b & (uint8_t)(~comp->pia1_ddrb)));
+              }
+          }
+          {
+              return (uint8_t)((comp->pia1_crb & 0x3Fu) | comp->pia1_crb_irq1 | comp->pia1_crb_irq2);
+          }
+      }
+      /*
+       * MC6883/SAM memory decode (CoCo wiring model):
+       * - TY=0 (map type 0): ROM-visible mode with lower 32K RAM page switch.
+       * - TY=1 (map type 1): all-RAM mode except fixed I/O aperture FF00-FFDF.
+       */
+      if (comp->sam_map_type != 0u) {
+          if ((addr < 0xFF00u) || (addr >= 0xFFE0u)) {
+              if ((uint64_t)addr < cpu->memory_size) {
+                  return cpu->memory[addr];
+              }
+              return 0xFFu;
+          }
+          if (addr >= 0xFF00u && addr < 0xFFE0u) {
+              return 0xFFu;
+          }
+      } else {
+          if (addr < 0xA000u) {
+              if ((uint64_t)addr < cpu->memory_size) {
+                  return cpu->memory[addr];
+              }
+              return 0xFFu;
+          }
+          if (addr >= 0xA000u && addr < 0xC000u) {
+              if (comp->sam_rom_shadow_ready != 0u && comp->sam_rom_a000 != NULL) {
+                  return comp->sam_rom_a000[(uint16_t)(addr - 0xA000u)];
+              }
+          }
+          if (addr >= 0xE000u && (addr < 0xFF00u || addr >= 0xFFE0u)) {
+              if (comp->sam_rom_shadow_ready != 0u && comp->sam_rom_e000 != NULL) {
+                  return comp->sam_rom_e000[(uint16_t)(addr - 0xE000u)];
+              }
+          }
+      }
+    mem_write_pre: |
+      if (addr >= 0xFFC0u && addr <= 0xFFDFu) {
+          uint8_t bit = (uint8_t)((addr - 0xFFC0u) >> 1);
+          uint16_t mask = (uint16_t)(1u << bit);
+          if ((addr & 0x0001u) != 0u) {
+              comp->sam_ctrl = (uint16_t)(comp->sam_ctrl | mask);
+          } else {
+              comp->sam_ctrl = (uint16_t)(comp->sam_ctrl & (uint16_t)(~mask));
+          }
+          comp->sam_vdg_bits = (uint8_t)(comp->sam_ctrl & 0x0007u);
+          comp->sam_vdg_mode = (uint8_t)(comp->sam_vdg_bits & 0x07u);
+          comp->sam_css = (uint8_t)((comp->pia1_orb >> 3) & 0x01u);
+          comp->sam_gm0 = (uint8_t)((comp->pia1_orb >> 4) & 0x01u);
+          comp->sam_gm1 = (uint8_t)((comp->pia1_orb >> 5) & 0x01u);
+          comp->sam_gm2 = (uint8_t)((comp->pia1_orb >> 6) & 0x01u);
+          comp->sam_ag = (uint8_t)((comp->pia1_orb >> 7) & 0x01u);
+          comp->sam_display_base = (uint16_t)((((comp->sam_ctrl >> 3) & 0x007Fu) << 9) & 0xFE00u);
+          comp->sam_page_switch = (uint8_t)((comp->sam_ctrl >> 10) & 0x01u);
+          comp->sam_mpu_rate = (uint8_t)((comp->sam_ctrl >> 11) & 0x03u);
+          comp->sam_mem_size_mode = (uint8_t)((comp->sam_ctrl >> 13) & 0x03u);
+          comp->sam_map_type = (uint8_t)((comp->sam_ctrl >> 15) & 0x01u);
+          comp->sam_all_ram = comp->sam_map_type;
+          switch (comp->sam_mem_size_mode) {
+              case 0u: comp->sam_ram_limit = 0x1000u; break; /* 4K */
+              case 1u: comp->sam_ram_limit = 0x4000u; break; /* 16K */
+              default: comp->sam_ram_limit = 0x10000u; break; /* 64K */
+          }
+          return;
+      }
+      if (comp->sam_map_type != 0u) {
+          if ((addr < 0xFF00u) || (addr >= 0xFFE0u)) {
+              if ((uint64_t)addr < cpu->memory_size) {
+                  cpu->memory[addr] = value;
+              }
+              return;
+          }
+      } else {
+          if (addr < 0xA000u) {
+              if ((uint64_t)addr < cpu->memory_size) {
+                  cpu->memory[addr] = value;
+              }
+              return;
+          }
+          if ((addr >= 0xA000u && addr < 0xC000u) || (addr >= 0xE000u && (addr < 0xFF00u || addr >= 0xFFE0u))) {
+              return;
+          }
+      }
+      if (addr >= 0xFF00u && addr <= 0xFF03u) {
+          uint8_t reg = (uint8_t)(addr & 0x03u);
+          if (reg == 0u) {
+              if ((comp->pia0_cra & 0x04u) == 0u) comp->pia0_ddra = value;
+              else comp->pia0_ora = value;
+              return;
+          }
+          if (reg == 1u) {
+              comp->pia0_cra = (uint8_t)(value & 0x3Fu);
+              if ((comp->pia0_cra & 0x20u) != 0u) {
+                  comp->pia0_cra_irq2 = 0u;
+              }
+              if ((comp->pia0_cra & 0x01u) != 0u && (comp->pia0_cra_irq1 != 0u || comp->pia0_cra_irq2 != 0u)) {
+                  mc6809_interrupt(cpu, 0x00u); /* IRQ */
+              }
+              return;
+          }
+          if (reg == 2u) {
+              if ((comp->pia0_crb & 0x04u) == 0u) comp->pia0_ddrb = value;
+              else comp->pia0_orb = value;
+              return;
+          }
+          comp->pia0_crb = (uint8_t)(value & 0x3Fu);
+          if ((comp->pia0_crb & 0x20u) != 0u) {
+              comp->pia0_crb_irq2 = 0u;
+          }
+          if ((comp->pia0_crb & 0x01u) != 0u && (comp->pia0_crb_irq1 != 0u || comp->pia0_crb_irq2 != 0u)) {
+              mc6809_interrupt(cpu, 0x00u); /* IRQ */
+          }
+          return;
+      }
+      if (addr >= 0xFF20u && addr <= 0xFF23u) {
+          uint8_t reg = (uint8_t)(addr & 0x03u);
+          uint8_t old_pia1_crb = comp->pia1_crb;
+          if (reg == 0u) {
+              if ((comp->pia1_cra & 0x04u) == 0u) comp->pia1_ddra = value;
+              else comp->pia1_ora = value;
+          } else if (reg == 1u) {
+              comp->pia1_cra = (uint8_t)(value & 0x3Fu);
+              if ((comp->pia1_cra & 0x20u) != 0u) {
+                  comp->pia1_cra_irq2 = 0u;
+              }
+              if ((comp->pia1_cra & 0x01u) != 0u && (comp->pia1_cra_irq1 != 0u || comp->pia1_cra_irq2 != 0u)) {
+                  mc6809_interrupt(cpu, 0x02u); /* FIRQ */
+              }
+          } else if (reg == 2u) {
+              if ((comp->pia1_crb & 0x04u) == 0u) comp->pia1_ddrb = value;
+              else comp->pia1_orb = value;
+          } else {
+              comp->pia1_crb = (uint8_t)(value & 0x3Fu);
+              if ((comp->pia1_crb & 0x20u) != 0u) {
+                  comp->pia1_crb_irq2 = 0u;
+              }
+              if ((comp->pia1_crb & 0x01u) != 0u && (comp->pia1_crb_irq1 != 0u || comp->pia1_crb_irq2 != 0u)) {
+                  mc6809_interrupt(cpu, 0x02u); /* FIRQ */
+              }
+          }
+          /*
+           * CoCo cartridge handoff model:
+           * - FF23 bit7 reports cartridge interrupt latch state.
+           * - FF23 bit0 enables CART* routing to CPU FIRQ*.
+           */
+      #if CPU_CARTRIDGE_COUNT > 0
+          {
+              uint8_t cart_present = (uint8_t)((cpu->comp_coco_cart0.rom_data != NULL && cpu->comp_coco_cart0.rom_size > 0u) ? 1u : 0u);
+              if (cart_present != 0u && comp->pia1_crb_irq1 == 0u) {
+                  comp->pia1_crb_irq1 = 0x80u;
+                  comp->cart_firq_armed = 1u;
+              }
+              /*
+               * Model CART* routing edge: when ROM enables CRB bit0 with a
+               * cartridge already latched, arm a one-shot FIRQ request.
+               */
+              if (
+                  (reg == 3u) &&
+                  ((old_pia1_crb & 0x01u) == 0u) &&
+                  ((comp->pia1_crb & 0x01u) != 0u) &&
+                  (comp->pia1_crb_irq1 != 0u)
+              ) {
+                  comp->cart_firq_armed = 1u;
+              }
+              if ((comp->pia1_crb & 0x01u) != 0u && comp->pia1_crb_irq1 != 0u && comp->cart_firq_armed != 0u) {
+                  mc6809_interrupt(cpu, 0x02u); /* FIRQ */
+                  comp->cart_firq_armed = 0u;
+                  {
+                      uint64_t sig_args[1] = { 2u };
+                      cpu_component_emit_signal(cpu, "coco1_io", "irq_edge", sig_args, 1);
+                  }
+              }
+          }
+      #endif
+          {
+              /*
+               * CoCo audio:
+               * - DAC ladder is PIA1A bits A7..A2 (already 0..252 range).
+               * - Single-bit sound is PIA1B bit 1 when configured as output.
+               */
+              uint8_t out_a = (uint8_t)(comp->pia1_ora & comp->pia1_ddra);
+              uint8_t dac8 = (uint8_t)(out_a & 0xFCu);
+              uint8_t sbs_enabled = (uint8_t)((comp->pia1_ddrb & 0x02u) != 0u);
+              uint8_t sbs_high = (uint8_t)((comp->pia1_orb & 0x02u) != 0u);
+              uint8_t next = (sbs_enabled != 0u) ? (uint8_t)(sbs_high != 0u ? 0xFFu : 0x00u) : dac8;
+              comp->sam_vdg_mode = (uint8_t)(comp->sam_vdg_bits & 0x07u);
+              comp->sam_css = (uint8_t)((comp->pia1_orb >> 3) & 0x01u);
+              comp->sam_gm0 = (uint8_t)((comp->pia1_orb >> 4) & 0x01u);
+              comp->sam_gm1 = (uint8_t)((comp->pia1_orb >> 5) & 0x01u);
+              comp->sam_gm2 = (uint8_t)((comp->pia1_orb >> 6) & 0x01u);
+              comp->sam_ag = (uint8_t)((comp->pia1_orb >> 7) & 0x01u);
+              if (next != comp->audio_level) {
+                  comp->audio_level = next;
+                  {
+                      uint64_t sig_args[2] = { (uint64_t)next, cpu->total_cycles };
+                      cpu_component_emit_signal(cpu, "coco1_io", "audio_level", sig_args, 2);
+                  }
+              }
+          }
+          return;
+      }
+      if (addr >= 0xFF00u) {
+          return;
+      }
+    step_post: |
+      uint64_t now = cpu->total_cycles;
+      uint64_t frame_tstates = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 14915u;
+      uint64_t hsync_tstates = frame_tstates / 262u;
+      if (frame_tstates == 0u) frame_tstates = 14915u;
+      if (hsync_tstates == 0u) hsync_tstates = 57u;
+
+      /* Keep cartridge FIRQ wiring live independently of frame cadence. */
+      #if CPU_CARTRIDGE_COUNT > 0
+      {
+          uint8_t cart_present = (uint8_t)((cpu->comp_coco_cart0.rom_data != NULL && cpu->comp_coco_cart0.rom_size > 0u) ? 1u : 0u);
+          if (cart_present != 0u && comp->pia1_crb_irq1 == 0u) {
+              comp->pia1_crb_irq1 = 0x80u;
+              comp->cart_firq_armed = 1u;
+          }
+          if ((comp->pia1_crb & 0x01u) != 0u && comp->pia1_crb_irq1 != 0u && comp->cart_firq_armed != 0u) {
+              mc6809_interrupt(cpu, 0x02u); /* FIRQ */
+              comp->cart_firq_armed = 0u;
+              {
+                  uint64_t sig_args[1] = { 2u };
+                  cpu_component_emit_signal(cpu, "coco1_io", "irq_edge", sig_args, 1);
+              }
+          }
+      }
+      #endif
+
+      if (comp->last_cycle == 0u) {
+          comp->last_cycle = now;
+      }
+      if (now >= comp->last_cycle) {
+          uint64_t delta = (now - comp->last_cycle);
+          comp->tstate_accum += delta;
+          comp->hsync_tstate_accum += delta;
+      }
+      comp->last_cycle = now;
+
+      /*
+       * HSYNC interrupt model:
+       * - Each horizontal period latches PIA0-A IRQ flag (CRA bit7, FF01).
+       * - If PIA0-A IRQ routing is enabled (CRA bit0), raise CPU IRQ.
+       */
+      while (comp->hsync_tstate_accum >= hsync_tstates) {
+          comp->hsync_tstate_accum -= hsync_tstates;
+          uint8_t old_irq = comp->pia0_cra_irq1;
+          /* Pulse CA1 high then low each HSync period. */
+          if (comp->pia0_ca1_level == 0u) {
+              comp->pia0_ca1_level = 1u;
+              if ((comp->pia0_cra & 0x02u) != 0u) {
+                  comp->pia0_cra_irq1 = 0x80u;
+              }
+          }
+          if (comp->pia0_ca1_level != 0u) {
+              comp->pia0_ca1_level = 0u;
+              if ((comp->pia0_cra & 0x02u) == 0u) {
+                  comp->pia0_cra_irq1 = 0x80u;
+              }
+          }
+          if (old_irq == 0u && comp->pia0_cra_irq1 != 0u && (comp->pia0_cra & 0x01u) != 0u) {
+              mc6809_interrupt(cpu, 0x00u); /* IRQ */
+              {
+                  uint64_t sig_args[1] = { 0u };
+                  cpu_component_emit_signal(cpu, "coco1_io", "irq_edge", sig_args, 1);
+              }
+          }
+      }
+
+      if (comp->tstate_accum < frame_tstates) return;
+      comp->tstate_accum -= frame_tstates;
+      comp->frame_counter += 1u;
+
+      /*
+       * VSync interrupt model:
+       * - Each video frame latches PIA0-B IRQ flag (CRB bit7, FF03).
+       * - If PIA0-B IRQ routing is enabled (CRB bit0), raise CPU IRQ.
+       */
+      {
+          uint8_t old_irq = comp->pia0_crb_irq1;
+          /* Pulse CB1 high then low on each frame boundary. */
+          if (comp->pia0_cb1_level == 0u) {
+              comp->pia0_cb1_level = 1u;
+              if ((comp->pia0_crb & 0x02u) != 0u) {
+                  comp->pia0_crb_irq1 = 0x80u;
+              }
+          }
+          if (comp->pia0_cb1_level != 0u) {
+              comp->pia0_cb1_level = 0u;
+              if ((comp->pia0_crb & 0x02u) == 0u) {
+                  comp->pia0_crb_irq1 = 0x80u;
+              }
+          }
+      if (old_irq == 0u && comp->pia0_crb_irq1 != 0u && (comp->pia0_crb & 0x01u) != 0u) {
+          mc6809_interrupt(cpu, 0x00u); /* IRQ */
+          {
+              uint64_t sig_args[1] = { 0u };
+              cpu_component_emit_signal(cpu, "coco1_io", "irq_edge", sig_args, 1);
+          }
+      }
+      }
+
+      {
+          uint64_t sig_args[9] = {
+              (uint64_t)comp->frame_counter,
+              (uint64_t)now,
+              (uint64_t)comp->sam_display_base,
+              (uint64_t)(comp->sam_vdg_mode & 0x07u),
+              (uint64_t)(comp->sam_css & 0x01u),
+              (uint64_t)(comp->sam_gm0 & 0x01u),
+              (uint64_t)(comp->sam_gm1 & 0x01u),
+              (uint64_t)(comp->sam_gm2 & 0x01u),
+              (uint64_t)(comp->sam_ag & 0x01u)
+          };
+          cpu_component_emit_signal(cpu, "coco1_io", "frame_ready", sig_args, 9);
+      }
+
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: ["../hosts/include"]
+  linked_libraries: []
+  library_paths: []

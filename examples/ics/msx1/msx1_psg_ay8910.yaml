@@ -1,0 +1,274 @@
+metadata:
+  id: psg0
+  type: audio_generator
+  model: ay8910_msx
+  version: "1.0"
+
+clock_hz: 1789772
+
+state:
+  - name: audio_enabled
+    type: uint8_t
+    initial: "0"
+  - name: selected_reg
+    type: uint8_t
+    initial: "0"
+  - name: reg0
+    type: uint8_t
+    initial: "0"
+  - name: reg1
+    type: uint8_t
+    initial: "0"
+  - name: reg2
+    type: uint8_t
+    initial: "0"
+  - name: reg3
+    type: uint8_t
+    initial: "0"
+  - name: reg4
+    type: uint8_t
+    initial: "0"
+  - name: reg5
+    type: uint8_t
+    initial: "0"
+  - name: reg6
+    type: uint8_t
+    initial: "0"
+  - name: reg7
+    type: uint8_t
+    initial: "0"
+  - name: reg8
+    type: uint8_t
+    initial: "0"
+  - name: reg9
+    type: uint8_t
+    initial: "0"
+  - name: reg10
+    type: uint8_t
+    initial: "0"
+  - name: reg11
+    type: uint8_t
+    initial: "0"
+  - name: reg12
+    type: uint8_t
+    initial: "0"
+  - name: reg13
+    type: uint8_t
+    initial: "0"
+  - name: reg14
+    type: uint8_t
+    initial: "0xFF"
+  - name: reg15
+    type: uint8_t
+    initial: "0"
+  - name: level_a
+    type: uint8_t
+    initial: "0"
+  - name: level_b
+    type: uint8_t
+    initial: "0"
+  - name: level_c
+    type: uint8_t
+    initial: "0"
+  - name: audio_tick_accum
+    type: uint64_t
+    initial: "0"
+  - name: tone_ctr_a
+    type: uint16_t
+    initial: "1"
+  - name: tone_ctr_b
+    type: uint16_t
+    initial: "1"
+  - name: tone_ctr_c
+    type: uint16_t
+    initial: "1"
+  - name: tone_out_a
+    type: uint8_t
+    initial: "1"
+  - name: tone_out_b
+    type: uint8_t
+    initial: "1"
+  - name: tone_out_c
+    type: uint8_t
+    initial: "1"
+  - name: last_mix
+    type: uint8_t
+    initial: "255"
+  - name: last_emitted_mix
+    type: uint8_t
+    initial: "255"
+  - name: emit_accum
+    type: uint64_t
+    initial: "0"
+  - name: emit_keepalive
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: joy_read
+      args: []
+      returns: u8
+  handlers: []
+  signals:
+    - name: audio_level
+      args: [u8, u64]
+
+maps:
+  ports:
+    read:
+      - name: psg_data_read
+        mask: 0x00FF
+        value: 0x00A2
+    write:
+      - name: psg_addr_write
+        mask: 0x00FF
+        value: 0x00A0
+      - name: psg_data_write
+        mask: 0x00FF
+        value: 0x00A1
+
+behavior:
+  snippets:
+    init: |
+      {
+          const char *audio_env = getenv("PASM_SDL_AUDIO");
+          comp->audio_enabled = (audio_env != NULL && audio_env[0] == '1') ? 1u : 0u;
+      }
+    reset: |
+      {
+          const char *audio_env = getenv("PASM_SDL_AUDIO");
+          comp->audio_enabled = (audio_env != NULL && audio_env[0] == '1') ? 1u : 0u;
+      }
+      comp->emit_accum = 0u;
+      comp->emit_keepalive = 0u;
+      comp->last_mix = 15u;
+      comp->last_emitted_mix = 255u;
+    port_read_post: |
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
+      if (p == 0xA2u) {
+          uint8_t reg = (uint8_t)(comp->selected_reg & 0x0Fu);
+          switch (reg) {
+              case 0u: value = comp->reg0; break;
+              case 1u: value = comp->reg1; break;
+              case 2u: value = comp->reg2; break;
+              case 3u: value = comp->reg3; break;
+              case 4u: value = comp->reg4; break;
+              case 5u: value = comp->reg5; break;
+              case 6u: value = comp->reg6; break;
+              case 7u: value = comp->reg7; break;
+              case 8u: value = comp->reg8; break;
+              case 9u: value = comp->reg9; break;
+              case 10u: value = comp->reg10; break;
+              case 11u: value = comp->reg11; break;
+              case 12u: value = comp->reg12; break;
+              case 13u: value = comp->reg13; break;
+              case 14u: {
+                  uint64_t joy = cpu_component_call(cpu, "psg0", "joy_read", NULL, 0);
+                  comp->reg14 = (uint8_t)(joy & 0xFFu);
+                  value = comp->reg14;
+                  break;
+              }
+              case 15u: value = comp->reg15; break;
+              default: value = 0xFFu; break;
+          }
+      }
+    port_write_pre: |
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
+      if (p == 0xA0u) {
+          comp->selected_reg = (uint8_t)(value & 0x0Fu);
+      } else if (p == 0xA1u) {
+          uint8_t reg = (uint8_t)(comp->selected_reg & 0x0Fu);
+          uint8_t v = (uint8_t)value;
+          switch (reg) {
+              case 0u: comp->reg0 = v; break;
+              case 1u: comp->reg1 = v; break;
+              case 2u: comp->reg2 = v; break;
+              case 3u: comp->reg3 = v; break;
+              case 4u: comp->reg4 = v; break;
+              case 5u: comp->reg5 = v; break;
+              case 6u: comp->reg6 = v; break;
+              case 7u: comp->reg7 = v; break;
+              case 8u: comp->reg8 = v; comp->level_a = (uint8_t)(v & 0x0Fu); break;
+              case 9u: comp->reg9 = v; comp->level_b = (uint8_t)(v & 0x0Fu); break;
+              case 10u: comp->reg10 = v; comp->level_c = (uint8_t)(v & 0x0Fu); break;
+              case 11u: comp->reg11 = v; break;
+              case 12u: comp->reg12 = v; break;
+              case 13u: comp->reg13 = v; break;
+              case 14u: comp->reg14 = v; break;
+              case 15u: comp->reg15 = v; break;
+              default: break;
+          }
+      }
+    step_post: |
+      if (comp->audio_enabled == 0u) {
+          return;
+      }
+      comp->audio_tick_accum += (uint64_t)inst->cycles;
+      while (comp->audio_tick_accum >= 64u) {
+          comp->audio_tick_accum -= 64u;
+
+          uint16_t pa = (uint16_t)((((uint16_t)(comp->reg1 & 0x0Fu)) << 8) | comp->reg0);
+          uint16_t pb = (uint16_t)((((uint16_t)(comp->reg3 & 0x0Fu)) << 8) | comp->reg2);
+          uint16_t pc = (uint16_t)((((uint16_t)(comp->reg5 & 0x0Fu)) << 8) | comp->reg4);
+          if (pa == 0u) pa = 1u;
+          if (pb == 0u) pb = 1u;
+          if (pc == 0u) pc = 1u;
+
+          if (comp->tone_ctr_a == 0u) comp->tone_ctr_a = pa;
+          if (comp->tone_ctr_b == 0u) comp->tone_ctr_b = pb;
+          if (comp->tone_ctr_c == 0u) comp->tone_ctr_c = pc;
+
+          if (--comp->tone_ctr_a == 0u) {
+              comp->tone_ctr_a = pa;
+              comp->tone_out_a ^= 1u;
+          }
+          if (--comp->tone_ctr_b == 0u) {
+              comp->tone_ctr_b = pb;
+              comp->tone_out_b ^= 1u;
+          }
+          if (--comp->tone_ctr_c == 0u) {
+              comp->tone_ctr_c = pc;
+              comp->tone_out_c ^= 1u;
+          }
+
+          uint8_t mixer = comp->reg7;
+          uint8_t va = (uint8_t)(comp->reg8 & 0x0Fu);
+          uint8_t vb = (uint8_t)(comp->reg9 & 0x0Fu);
+          uint8_t vc = (uint8_t)(comp->reg10 & 0x0Fu);
+
+          uint8_t tone_a_on = ((mixer & 0x01u) == 0u) ? comp->tone_out_a : 1u;
+          uint8_t tone_b_on = ((mixer & 0x02u) == 0u) ? comp->tone_out_b : 1u;
+          uint8_t tone_c_on = ((mixer & 0x04u) == 0u) ? comp->tone_out_c : 1u;
+
+          int16_t sa = (va == 0u) ? 0 : (tone_a_on ? (int16_t)va : (int16_t)(-((int16_t)va)));
+          int16_t sb = (vb == 0u) ? 0 : (tone_b_on ? (int16_t)vb : (int16_t)(-((int16_t)vb)));
+          int16_t sc = (vc == 0u) ? 0 : (tone_c_on ? (int16_t)vc : (int16_t)(-((int16_t)vc)));
+          int16_t mix = (int16_t)((sa + sb + sc) / 3);
+          comp->last_mix = (uint8_t)(mix + 15); /* 0..30 with silence midpoint at 15 */
+      }
+
+      comp->emit_accum += (uint64_t)inst->cycles;
+      {
+          uint64_t emit_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 4096u) : 874u;
+          if (emit_period == 0u) emit_period = 1u;
+          while (comp->emit_accum >= emit_period) {
+              comp->emit_accum -= emit_period;
+              if (comp->last_mix != comp->last_emitted_mix || comp->emit_keepalive >= 15u) {
+                  uint64_t sig_args[2] = { (uint64_t)comp->last_mix, cpu->total_cycles };
+                  cpu_component_emit_signal(cpu, "psg0", "audio_level", sig_args, 2);
+                  comp->last_emitted_mix = comp->last_mix;
+                  comp->emit_keepalive = 0u;
+              } else {
+                  comp->emit_keepalive += 1u;
+              }
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

@@ -1,0 +1,612 @@
+metadata:
+  id: video_coco
+  type: video
+  model: motorola_mc6847_vdg
+  version: "1.0"
+
+state:
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: width
+    type: uint32_t
+    initial: "256"
+  - name: height
+    type: uint32_t
+    initial: "192"
+  - name: sam_base
+    type: uint16_t
+    initial: "0x0400"
+  - name: sam_mode
+    type: uint8_t
+    initial: "0"
+  - name: color_set
+    type: uint8_t
+    initial: "0"
+  - name: gm0
+    type: uint8_t
+    initial: "0"
+  - name: gm1
+    type: uint8_t
+    initial: "0"
+  - name: gm2
+    type: uint8_t
+    initial: "0"
+  - name: ag
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: on_frame_ready
+      args: [u32, u64, u32, u32, u32, u32, u32, u32, u32]
+  signals:
+    - name: frame_present
+      args: [u32, u64, u32, u32]
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies:
+    on_frame_ready: |
+        comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+        comp->sam_base = (uint16_t)(args[2] & 0xFFFFu);
+        comp->sam_mode = (uint8_t)(args[3] & 0x07u);
+        comp->color_set = (uint8_t)((argc > 4) ? (args[4] & 0x01u) : 0u);
+        comp->gm0 = (uint8_t)((argc > 5) ? (args[5] & 0x01u) : 0u);
+        comp->gm1 = (uint8_t)((argc > 6) ? (args[6] & 0x01u) : 0u);
+        comp->gm2 = (uint8_t)((argc > 7) ? (args[7] & 0x01u) : 0u);
+        comp->ag = (uint8_t)((argc > 8) ? (args[8] & 0x01u) : 0u);
+        comp->width = 256u;
+        comp->height = 192u;
+
+        static uint32_t framebuf[256u * 192u];
+
+        /* MAME-like MC6847 palette */
+        #define COLOR_BLACK         0xFF000000u
+        #define COLOR_GREEN         0xFF30D200u
+        #define COLOR_YELLOW        0xFFC1E500u
+        #define COLOR_BLUE          0xFF4C3AB4u
+        #define COLOR_RED           0xFF9A3236u
+        #define COLOR_BUFF          0xFFBFC8ADu
+        #define COLOR_CYAN          0xFF41AF71u
+        #define COLOR_MAGENTA       0xFFC84EF0u
+        #define COLOR_ORANGE        0xFFD47F00u
+
+        #define ALPHA_BRIGHT_GREEN  0xFF30D200u
+        #define ALPHA_BRIGHT_ORANGE 0xFFFFB700u
+
+        /* Tuned closer to CoCo NTSC composite artifact hues (Downland). */
+        #define ART_BLUE_BRIGHT     0xFF12B8FFu
+        #define ART_ORANGE_BRIGHT   0xFFFF9C20u
+        #define ART_BLUE_DARK       0xFF0075B8u
+        #define ART_ORANGE_DARK     0xFFC56A00u
+
+        static const uint32_t palette4_cg[4] = {
+            COLOR_GREEN,
+            COLOR_YELLOW,
+            COLOR_BLUE,
+            COLOR_RED
+        };
+        static const uint32_t palette4_cg_css1[4] = {
+            COLOR_BUFF,
+            COLOR_CYAN,
+            COLOR_MAGENTA,
+            COLOR_ORANGE
+        };
+        static const uint32_t palette2_css0[2] = {
+            COLOR_BLACK,
+            COLOR_GREEN
+        };
+        static const uint32_t palette2_css1[2] = {
+            COLOR_BLACK,
+            COLOR_BUFF
+        };
+        static const uint32_t sg4_palette[8] = {
+            COLOR_GREEN,
+            COLOR_YELLOW,
+            COLOR_BLUE,
+            COLOR_RED,
+            COLOR_BUFF,
+            COLOR_CYAN,
+            COLOR_MAGENTA,
+            COLOR_ORANGE
+        };
+
+        static const uint8_t mc6847_glyph[64][7] = {
+            {0x0E,0x11,0x15,0x1D,0x15,0x11,0x0E}, /* @  */
+            {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11}, /* A  */
+            {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E}, /* B  */
+            {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E}, /* C  */
+            {0x1E,0x11,0x11,0x11,0x11,0x11,0x1E}, /* D  */
+            {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F}, /* E  */
+            {0x1F,0x10,0x10,0x1E,0x10,0x10,0x10}, /* F  */
+            {0x0E,0x11,0x10,0x17,0x11,0x11,0x0E}, /* G  */
+            {0x11,0x11,0x11,0x1F,0x11,0x11,0x11}, /* H  */
+            {0x1F,0x04,0x04,0x04,0x04,0x04,0x1F}, /* I  */
+            {0x01,0x01,0x01,0x01,0x11,0x11,0x0E}, /* J  */
+            {0x11,0x12,0x14,0x18,0x14,0x12,0x11}, /* K  */
+            {0x10,0x10,0x10,0x10,0x10,0x10,0x1F}, /* L  */
+            {0x11,0x1B,0x15,0x15,0x11,0x11,0x11}, /* M  */
+            {0x11,0x19,0x15,0x13,0x11,0x11,0x11}, /* N  */
+            {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E}, /* O  */
+            {0x1E,0x11,0x11,0x1E,0x10,0x10,0x10}, /* P  */
+            {0x0E,0x11,0x11,0x11,0x15,0x12,0x0D}, /* Q  */
+            {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11}, /* R  */
+            {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E}, /* S  */
+            {0x1F,0x04,0x04,0x04,0x04,0x04,0x04}, /* T  */
+            {0x11,0x11,0x11,0x11,0x11,0x11,0x0E}, /* U  */
+            {0x11,0x11,0x11,0x11,0x11,0x0A,0x04}, /* V  */
+            {0x11,0x11,0x11,0x15,0x15,0x15,0x0A}, /* W  */
+            {0x11,0x11,0x0A,0x04,0x0A,0x11,0x11}, /* X  */
+            {0x11,0x11,0x0A,0x04,0x04,0x04,0x04}, /* Y  */
+            {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F}, /* Z  */
+            {0x0E,0x08,0x08,0x08,0x08,0x08,0x0E}, /* [  */
+            {0x10,0x08,0x04,0x02,0x01,0x00,0x00}, /* \  */
+            {0x0E,0x02,0x02,0x02,0x02,0x02,0x0E}, /* ]  */
+            {0x04,0x0E,0x15,0x04,0x04,0x04,0x04}, /* up */
+            {0x04,0x08,0x1F,0x08,0x04,0x00,0x00}, /* left */
+            {0x00,0x00,0x00,0x00,0x00,0x00,0x00}, /* sp */
+            {0x04,0x04,0x04,0x04,0x04,0x00,0x04}, /* !  */
+            {0x0A,0x0A,0x0A,0x00,0x00,0x00,0x00}, /* "  */
+            {0x0A,0x1F,0x0A,0x0A,0x1F,0x0A,0x00}, /* #  */
+            {0x04,0x0F,0x14,0x0E,0x05,0x1E,0x04}, /* $  */
+            {0x19,0x19,0x02,0x04,0x08,0x13,0x13}, /* %  */
+            {0x0C,0x12,0x14,0x08,0x15,0x12,0x0D}, /* &  */
+            {0x04,0x04,0x08,0x00,0x00,0x00,0x00}, /* '  */
+            {0x02,0x04,0x08,0x08,0x08,0x04,0x02}, /* (  */
+            {0x08,0x04,0x02,0x02,0x02,0x04,0x08}, /* )  */
+            {0x00,0x0A,0x04,0x1F,0x04,0x0A,0x00}, /* *  */
+            {0x00,0x04,0x04,0x1F,0x04,0x04,0x00}, /* +  */
+            {0x00,0x00,0x00,0x00,0x0C,0x0C,0x08}, /* ,  */
+            {0x00,0x00,0x00,0x1F,0x00,0x00,0x00}, /* -  */
+            {0x00,0x00,0x00,0x00,0x00,0x0C,0x0C}, /* .  */
+            {0x01,0x02,0x04,0x08,0x10,0x00,0x00}, /* /  */
+            {0x0E,0x11,0x13,0x15,0x19,0x11,0x0E}, /* 0  */
+            {0x04,0x0C,0x04,0x04,0x04,0x04,0x0E}, /* 1  */
+            {0x0E,0x11,0x01,0x02,0x04,0x08,0x1F}, /* 2  */
+            {0x1E,0x01,0x01,0x06,0x01,0x01,0x1E}, /* 3  */
+            {0x02,0x06,0x0A,0x12,0x1F,0x02,0x02}, /* 4  */
+            {0x1F,0x10,0x10,0x1E,0x01,0x01,0x1E}, /* 5  */
+            {0x06,0x08,0x10,0x1E,0x11,0x11,0x0E}, /* 6  */
+            {0x1F,0x01,0x02,0x04,0x08,0x08,0x08}, /* 7  */
+            {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E}, /* 8  */
+            {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C}, /* 9  */
+            {0x00,0x0C,0x0C,0x00,0x0C,0x0C,0x00}, /* :  */
+            {0x00,0x0C,0x0C,0x00,0x0C,0x0C,0x08}, /* ;  */
+            {0x02,0x04,0x08,0x10,0x08,0x04,0x02}, /* <  */
+            {0x00,0x1F,0x00,0x1F,0x00,0x00,0x00}, /* =  */
+            {0x08,0x04,0x02,0x01,0x02,0x04,0x08}, /* >  */
+            {0x0E,0x11,0x01,0x02,0x04,0x00,0x04}  /* ?  */
+        };
+
+        uint16_t base = comp->sam_base;
+        uint8_t mode = (uint8_t)(comp->sam_mode & 0x07u);
+        const uint32_t *palette4 = (comp->color_set != 0u) ? palette4_cg_css1 : palette4_cg;
+        const uint32_t *palette2 = (comp->color_set != 0u) ? palette2_css1 : palette2_css0;
+        uint8_t gm0 = (uint8_t)(comp->gm0 & 0x01u);
+        uint8_t gm1 = (uint8_t)(comp->gm1 & 0x01u);
+        uint8_t gm2 = (uint8_t)(comp->gm2 & 0x01u);
+        uint8_t ag = (uint8_t)(comp->ag & 0x01u);
+        uint8_t gm = (uint8_t)((gm2 << 2u) | (gm1 << 1u) | gm0);
+
+        static int video_trace = -1;
+        static FILE *video_trace_fp = NULL;
+        static int rg6_mono = -1;
+        static int artifact_phase = -1;
+
+        if (video_trace < 0) {
+            const char *trace_env = getenv("PASM_COCO_VIDEO_TRACE");
+            video_trace = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
+            if (video_trace != 0) {
+                const char *trace_file = getenv("PASM_COCO_VIDEO_TRACE_FILE");
+                if (trace_file == NULL || trace_file[0] == '\0') trace_file = "coco_video_trace.log";
+                video_trace_fp = fopen(trace_file, "a");
+            }
+        }
+        if (rg6_mono < 0) {
+            const char *mono_env = getenv("PASM_COCO_RG6_MONO");
+            rg6_mono = (mono_env != NULL && mono_env[0] != '\0' && mono_env[0] != '0') ? 1 : 0;
+        }
+        if (artifact_phase < 0) {
+            const char *phase_env = getenv("PASM_COCO_ARTIFACT_PHASE");
+            artifact_phase = 0;
+            if (phase_env != NULL && phase_env[0] != '\0') {
+                artifact_phase = (atoi(phase_env) & 1);
+            }
+        }
+
+        if (video_trace != 0 && video_trace_fp != NULL && (comp->frame_count % 30u) == 0u) {
+            uint32_t rg6_sum = 0u;
+            uint8_t b0 = 0u, b1 = 0u, b2 = 0u, b3 = 0u;
+            if ((uint64_t)base < cpu->memory_size) {
+                b0 = cpu->memory[base];
+                if ((uint64_t)(base + 1u) < cpu->memory_size) b1 = cpu->memory[(uint16_t)(base + 1u)];
+                if ((uint64_t)(base + 2u) < cpu->memory_size) b2 = cpu->memory[(uint16_t)(base + 2u)];
+                if ((uint64_t)(base + 3u) < cpu->memory_size) b3 = cpu->memory[(uint16_t)(base + 3u)];
+            }
+            if (ag != 0u && mode == 6u && gm == 7u) {
+                for (uint32_t i = 0u; i < 6144u; ++i) {
+                    uint16_t a = (uint16_t)(base + i);
+                    if ((uint64_t)a >= cpu->memory_size) break;
+                    rg6_sum = (rg6_sum * 33u) ^ (uint32_t)cpu->memory[a];
+                }
+            }
+            fprintf(
+                video_trace_fp,
+                "coco-video frame=%u base=%04X sam=%u ag=%u gm=%u css=%u phase=%u b=%02X%02X%02X%02X rg6sum=%08X\n",
+                (unsigned)comp->frame_count,
+                (unsigned)base,
+                (unsigned)mode,
+                (unsigned)ag,
+                (unsigned)gm,
+                (unsigned)comp->color_set,
+                (unsigned)artifact_phase,
+                (unsigned)b0,
+                (unsigned)b1,
+                (unsigned)b2,
+                (unsigned)b3,
+                (unsigned)rg6_sum
+            );
+            fflush(video_trace_fp);
+        }
+
+        for (uint32_t i = 0u; i < 256u * 192u; ++i) {
+            framebuf[i] = COLOR_BLACK;
+        }
+
+        if (ag == 0u && gm0 == 0u) {
+            for (uint32_t row = 0u; row < 16u; ++row) {
+                for (uint32_t col = 0u; col < 32u; ++col) {
+                    uint16_t a = (uint16_t)(base + row * 32u + col);
+                    uint8_t raw = ((uint64_t)a < cpu->memory_size) ? cpu->memory[a] : 0x20u;
+                    int x0 = (int)(col * 8u);
+                    int y0 = (int)(row * 12u);
+
+                    if ((raw & 0x80u) != 0u) {
+                        uint32_t sg_color = sg4_palette[(raw >> 4) & 0x07u];
+                        for (int py = 0; py < 12; ++py) {
+                            for (int px = 0; px < 8; ++px) {
+                                sms_overlay_put_pixel(framebuf, 256u, 192u, x0 + px, y0 + py, COLOR_BLACK);
+                            }
+                        }
+                        if ((raw & 0x01u) != 0u) {
+                            for (int py = 0; py < 6; ++py) for (int px = 0; px < 4; ++px) sms_overlay_put_pixel(framebuf, 256u, 192u, x0 + px, y0 + py, sg_color);
+                        }
+                        if ((raw & 0x02u) != 0u) {
+                            for (int py = 0; py < 6; ++py) for (int px = 4; px < 8; ++px) sms_overlay_put_pixel(framebuf, 256u, 192u, x0 + px, y0 + py, sg_color);
+                        }
+                        if ((raw & 0x04u) != 0u) {
+                            for (int py = 6; py < 12; ++py) for (int px = 0; px < 4; ++px) sms_overlay_put_pixel(framebuf, 256u, 192u, x0 + px, y0 + py, sg_color);
+                        }
+                        if ((raw & 0x08u) != 0u) {
+                            for (int py = 6; py < 12; ++py) for (int px = 4; px < 8; ++px) sms_overlay_put_pixel(framebuf, 256u, 192u, x0 + px, y0 + py, sg_color);
+                        }
+                    } else {
+                        uint8_t glyph_idx = (uint8_t)(raw & 0x3Fu);
+                        const uint8_t *glyph = mc6847_glyph[glyph_idx];
+                        uint32_t normal_fg = (comp->color_set != 0u) ? ALPHA_BRIGHT_ORANGE : ALPHA_BRIGHT_GREEN;
+                        uint32_t normal_bg = COLOR_BLACK;
+                        uint32_t fg = ((raw & 0x40u) != 0u) ? normal_bg : normal_fg;
+                        uint32_t bg = ((raw & 0x40u) != 0u) ? normal_fg : normal_bg;
+
+                        for (int py = 0; py < 12; ++py) {
+                            for (int px = 0; px < 8; ++px) {
+                                sms_overlay_put_pixel(framebuf, 256u, 192u, x0 + px, y0 + py, bg);
+                            }
+                        }
+                        for (int gy = 0; gy < 7; ++gy) {
+                            uint8_t bits = glyph[gy];
+                            for (int gx = 0; gx < 5; ++gx) {
+                                if ((bits & (uint8_t)(1u << (4 - gx))) == 0u) continue;
+                                sms_overlay_put_pixel(framebuf, 256u, 192u, x0 + gx + 1, y0 + gy + 2, fg);
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (ag == 0u && gm0 != 0u) {
+            for (uint32_t row = 0u; row < 16u; ++row) {
+                for (uint32_t col = 0u; col < 32u; ++col) {
+                    uint16_t a = (uint16_t)(base + row * 32u + col);
+                    uint8_t raw = ((uint64_t)a < cpu->memory_size) ? cpu->memory[a] : 0u;
+                    uint32_t sg_color = palette4[(raw >> 6) & 0x03u];
+                    int x0 = (int)(col * 8u);
+                    int y0 = (int)(row * 12u);
+                    for (int py = 0; py < 12; ++py) {
+                        for (int px = 0; px < 8; ++px) {
+                            sms_overlay_put_pixel(framebuf, 256u, 192u, x0 + px, y0 + py, COLOR_BLACK);
+                        }
+                    }
+                    for (int blk = 0; blk < 6; ++blk) {
+                        if ((raw & (uint8_t)(1u << blk)) == 0u) continue;
+                        int by = blk / 2;
+                        int bx = blk % 2;
+                        int sx0 = x0 + bx * 4;
+                        int sy0 = y0 + by * 4;
+                        for (int py = 0; py < 4; ++py) {
+                            for (int px = 0; px < 4; ++px) {
+                                sms_overlay_put_pixel(framebuf, 256u, 192u, sx0 + px, sy0 + py, sg_color);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            uint32_t logical_w;
+            uint32_t logical_h;
+            uint32_t bits_per_pixel;
+
+            {
+                uint32_t row_bytes;
+                switch (mode) {
+                    case 1u: logical_h = 64u;  row_bytes = 16u; break;
+                    case 2u: logical_h = 64u;  row_bytes = 32u; break;
+                    case 3u: logical_h = 96u;  row_bytes = 16u; break;
+                    case 4u: logical_h = 96u;  row_bytes = 32u; break;
+                    case 5u: logical_h = 192u; row_bytes = 16u; break;
+                    case 6u: logical_h = 192u; row_bytes = 32u; break;
+                    default: logical_h = 192u; row_bytes = 32u; break;
+                }
+                bits_per_pixel = (uint32_t)((gm & 0x01u) != 0u ? 1u : 2u);
+                logical_w = (row_bytes * 8u) / bits_per_pixel;
+                if (logical_w == 0u) logical_w = 256u;
+            }
+
+            {
+                uint32_t sx = 256u / logical_w;
+                uint32_t sy = 192u / logical_h;
+                uint32_t stride = (logical_w * bits_per_pixel) / 8u;
+                static const uint8_t sam_ydiv_tbl[8] = { 12u, 1u, 3u, 1u, 2u, 1u, 1u, 1u };
+                static const uint8_t sam_xdiv_tbl[8] = { 1u, 3u, 1u, 2u, 1u, 1u, 1u, 1u };
+                static const uint8_t sam_hclr_tbl[8] = { 4u, 3u, 4u, 3u, 4u, 3u, 4u, 0u };
+                uint8_t sam_mode = (uint8_t)(mode & 0x07u);
+                uint8_t sam_xdiv = sam_xdiv_tbl[sam_mode];
+                uint8_t sam_ydiv = sam_ydiv_tbl[sam_mode];
+                uint8_t sam_hclr = sam_hclr_tbl[sam_mode];
+                uint16_t sam_b15 = (uint16_t)((base >> 5u) & 0x07FFu);
+                uint8_t sam_b4 = 0u;
+                uint8_t sam_b3 = 0u;
+                uint8_t sam_b4_in = 0u;
+                uint8_t sam_b3_out = 0u;
+                uint8_t sam_x2_in = 0u;
+                uint8_t sam_x2_out = 0u;
+                uint8_t sam_x2_val = 0u;
+                uint8_t sam_x3_in = 0u;
+                uint8_t sam_x3_out = 0u;
+                uint8_t sam_x3_val = 0u;
+                uint8_t sam_y2_in = 0u;
+                uint8_t sam_y2_out = 0u;
+                uint8_t sam_y2_val = 0u;
+                uint8_t sam_y3_in = 0u;
+                uint8_t sam_y3_out = 0u;
+                uint8_t sam_y3_val = 0u;
+                uint8_t sam_y4_in = 0u;
+                uint8_t sam_y4_out = 0u;
+                uint8_t sam_y4_val = 0u;
+                uint8_t sam_b15_in = 0u;
+                uint8_t row_bytes_buf[64];
+                if (stride > 64u) stride = 64u;
+
+                #define SAM_STEP_NODE(IN_FIELD, NEW_IN, VAL_FIELD, MODULO, OUT_FIELD, OUT_MASK) \
+                    do { \
+                        uint8_t __prev_in = (IN_FIELD); \
+                        uint8_t __new_in = (uint8_t)(NEW_IN); \
+                        if (__new_in != __prev_in) { \
+                            (IN_FIELD) = __new_in; \
+                            if (__new_in == 0u) { \
+                                (VAL_FIELD) = (uint8_t)(((VAL_FIELD) + 1u) % (MODULO)); \
+                                (OUT_FIELD) = (uint8_t)(((VAL_FIELD) & (OUT_MASK)) != 0u); \
+                            } \
+                        } \
+                    } while (0)
+
+                #define SAM_PROPAGATE_CHAIN() \
+                    do { \
+                        SAM_STEP_NODE(sam_x2_in, sam_b3_out, sam_x2_val, 2u, sam_x2_out, 1u); \
+                        SAM_STEP_NODE(sam_x3_in, sam_b3_out, sam_x3_val, 3u, sam_x3_out, 2u); \
+                        { \
+                            uint8_t __b4_src = sam_b3_out; \
+                            if (sam_xdiv == 2u) __b4_src = sam_x2_out; \
+                            else if (sam_xdiv == 3u) __b4_src = sam_x3_out; \
+                            SAM_STEP_NODE(sam_b4_in, __b4_src, sam_b4, 2u, sam_b4, 1u); \
+                        } \
+                        SAM_STEP_NODE(sam_y2_in, sam_b4, sam_y2_val, 2u, sam_y2_out, 1u); \
+                        SAM_STEP_NODE(sam_y3_in, sam_b4, sam_y3_val, 3u, sam_y3_out, 2u); \
+                        SAM_STEP_NODE(sam_y4_in, sam_y3_out, sam_y4_val, 4u, sam_y4_out, 2u); \
+                        { \
+                            uint8_t __b15_src = sam_b4; \
+                            if (sam_ydiv == 2u) __b15_src = sam_y2_out; \
+                            else if (sam_ydiv == 3u) __b15_src = sam_y3_out; \
+                            else if (sam_ydiv == 12u) __b15_src = sam_y4_out; \
+                            { \
+                                uint8_t __prev_in = sam_b15_in; \
+                                if (__b15_src != __prev_in) { \
+                                    sam_b15_in = __b15_src; \
+                                    if (__b15_src == 0u) sam_b15 = (uint16_t)((sam_b15 + 1u) & 0x07FFu); \
+                                } \
+                            } \
+                        } \
+                    } while (0)
+
+                #define SAM_ADVANCE_BYTE() \
+                    do { \
+                        sam_b3 = (uint8_t)((sam_b3 + 1u) & 0x0Fu); \
+                        sam_b3_out = (uint8_t)((sam_b3 & 0x08u) != 0u); \
+                        SAM_PROPAGATE_CHAIN(); \
+                    } while (0)
+
+                #define SAM_READ_ADDR() \
+                    ((uint16_t)(((uint16_t)(sam_b15 & 0x07FFu) << 5u) | ((uint16_t)(sam_b4 & 0x01u) << 4u) | (uint16_t)(sam_b3 & 0x0Fu)))
+
+                #define SAM_HSYNC() \
+                    do { \
+                        if (sam_hclr == 3u) { \
+                            sam_b3 = 0u; \
+                            sam_b3_out = 0u; \
+                            SAM_PROPAGATE_CHAIN(); \
+                        } else if (sam_hclr == 4u) { \
+                            sam_b3 = 0u; \
+                            sam_b3_out = 0u; \
+                            sam_x2_in = 0u; \
+                            sam_x3_in = 0u; \
+                            sam_b4_in = 0u; \
+                            sam_b4 = 0u; \
+                            SAM_STEP_NODE(sam_y2_in, sam_b4, sam_y2_val, 2u, sam_y2_out, 1u); \
+                            SAM_STEP_NODE(sam_y3_in, sam_b4, sam_y3_val, 3u, sam_y3_out, 2u); \
+                            SAM_STEP_NODE(sam_y4_in, sam_y3_out, sam_y4_val, 4u, sam_y4_out, 2u); \
+                            { \
+                                uint8_t __b15_src = sam_b4; \
+                                if (sam_ydiv == 2u) __b15_src = sam_y2_out; \
+                                else if (sam_ydiv == 3u) __b15_src = sam_y3_out; \
+                                else if (sam_ydiv == 12u) __b15_src = sam_y4_out; \
+                                { \
+                                    uint8_t __prev_in = sam_b15_in; \
+                                    if (__b15_src != __prev_in) { \
+                                        sam_b15_in = __b15_src; \
+                                        if (__b15_src == 0u) sam_b15 = (uint16_t)((sam_b15 + 1u) & 0x07FFu); \
+                                    } \
+                                } \
+                            } \
+                        } \
+                    } while (0)
+
+                for (uint32_t y = 0u; y < logical_h; ++y) {
+                    for (uint32_t xb = 0u; xb < stride; ++xb) {
+                        uint16_t a = SAM_READ_ADDR();
+                        row_bytes_buf[xb] = ((uint64_t)a < cpu->memory_size) ? cpu->memory[a] : 0u;
+                        SAM_ADVANCE_BYTE();
+                    }
+                    SAM_HSYNC();
+
+                    if (bits_per_pixel == 1u && logical_w == 256u) {
+                        if (rg6_mono != 0) {
+                            for (uint32_t xb = 0u; xb < stride; ++xb) {
+                                uint8_t v = row_bytes_buf[xb];
+                                for (uint32_t b = 0u; b < 8u; ++b) {
+                                    uint32_t x = xb * 8u + b;
+                                    uint32_t on = (v >> (7u - b)) & 0x01u;
+                                    uint32_t color = palette2[on];
+                                    uint32_t px0 = x * sx;
+                                    uint32_t py0 = y * sy;
+                                    for (uint32_t yy = 0u; yy < sy; ++yy) {
+                                        for (uint32_t xx = 0u; xx < sx; ++xx) {
+                                            framebuf[(py0 + yy) * 256u + (px0 + xx)] = color;
+                                        }
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+
+                        for (uint32_t x = 0u; x < logical_w; ++x) {
+                            uint8_t b_m2 = 0u, b_m1 = 0u, b_0 = 0u, b_p1 = 0u, b_p2 = 0u;
+
+                            {
+                                uint32_t xs[5];
+                                xs[0] = (x >= 2u) ? (x - 2u) : x;
+                                xs[1] = (x >= 1u) ? (x - 1u) : x;
+                                xs[2] = x;
+                                xs[3] = (x + 1u < logical_w) ? (x + 1u) : x;
+                                xs[4] = (x + 2u < logical_w) ? (x + 2u) : x;
+
+                                uint8_t *outs[5];
+                                outs[0] = &b_m2;
+                                outs[1] = &b_m1;
+                                outs[2] = &b_0;
+                                outs[3] = &b_p1;
+                                outs[4] = &b_p2;
+
+                                for (int k = 0; k < 5; ++k) {
+                                    uint32_t xx = xs[k];
+                                    uint8_t v = row_bytes_buf[xx >> 3u];
+                                    *outs[k] = (uint8_t)((v >> (7u - (xx & 7u))) & 0x01u);
+                                }
+                            }
+
+                            {
+                                uint32_t color = COLOR_BLACK;
+                                uint32_t px0 = x * sx;
+                                uint32_t py0 = y * sy;
+
+                                {
+                                    uint8_t phase = (uint8_t)(((x ^ (uint32_t)artifact_phase ^ (uint32_t)(comp->color_set & 0x01u)) & 0x01u) != 0u);
+                                    if (b_0 != 0u) {
+                                        if (b_m1 != 0u && b_p1 != 0u) {
+                                            color = 0xFFFFFFFFu;
+                                        } else if (b_m1 != 0u || b_p1 != 0u || b_m2 != 0u || b_p2 != 0u) {
+                                            color = (phase != 0u) ? ART_ORANGE_DARK : ART_BLUE_DARK;
+                                        } else {
+                                            color = (phase != 0u) ? ART_ORANGE_BRIGHT : ART_BLUE_BRIGHT;
+                                        }
+                                    } else if ((b_m1 ^ b_p1) != 0u) {
+                                        color = (phase != 0u) ? ART_BLUE_DARK : ART_ORANGE_DARK;
+                                    }
+                                }
+
+                                for (uint32_t yy = 0u; yy < sy; ++yy) {
+                                    for (uint32_t xx = 0u; xx < sx; ++xx) {
+                                        framebuf[(py0 + yy) * 256u + (px0 + xx)] = color;
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    for (uint32_t xb = 0u; xb < stride; ++xb) {
+                        uint8_t v = row_bytes_buf[xb];
+                        if (bits_per_pixel == 2u) {
+                            for (uint32_t p = 0u; p < 4u; ++p) {
+                                uint32_t cidx = (v >> (6u - p * 2u)) & 0x03u;
+                                uint32_t x = xb * 4u + p;
+                                uint32_t color = palette4[cidx];
+                                uint32_t px0 = x * sx;
+                                uint32_t py0 = y * sy;
+                                for (uint32_t yy = 0u; yy < sy; ++yy) {
+                                    for (uint32_t xx = 0u; xx < sx; ++xx) {
+                                        framebuf[(py0 + yy) * 256u + (px0 + xx)] = color;
+                                    }
+                                }
+                            }
+                        } else {
+                            for (uint32_t b = 0u; b < 8u; ++b) {
+                                uint32_t x = xb * 8u + b;
+                                uint32_t on = (v >> (7u - b)) & 0x01u;
+                                uint32_t color = palette2[on];
+                                uint32_t px0 = x * sx;
+                                uint32_t py0 = y * sy;
+                                for (uint32_t yy = 0u; yy < sy; ++yy) {
+                                    for (uint32_t xx = 0u; xx < sx; ++xx) {
+                                        framebuf[(py0 + yy) * 256u + (px0 + xx)] = color;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                #undef SAM_HSYNC
+                #undef SAM_READ_ADDR
+                #undef SAM_ADVANCE_BYTE
+                #undef SAM_PROPAGATE_CHAIN
+                #undef SAM_STEP_NODE
+            }
+        }
+
+        {
+            uint64_t out_args[4] = {
+                (uint64_t)comp->frame_count,
+                (uint64_t)(uintptr_t)framebuf,
+                256u,
+                192u
+            };
+            cpu_component_emit_signal(cpu, "video_coco", "frame_present", out_args, 4);
+        }
+
+coding:
+  headers: ["pasm_overlay.h", "stdio.h", "stdlib.h"]
+  include_paths: ["../hosts/include"]
+  linked_libraries: []
+  library_paths: []

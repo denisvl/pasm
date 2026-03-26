@@ -29,6 +29,12 @@ def _split_legacy_isa(isa: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
         "registers": copy.deepcopy(isa.get("registers", [])),
         "flags": copy.deepcopy(isa.get("flags", [])),
         "instructions": copy.deepcopy(isa.get("instructions", [])),
+        "coding": {
+            "headers": [],
+            "include_paths": [],
+            "linked_libraries": [],
+            "library_paths": [],
+        },
     }
     if "ports" in isa:
         processor["ports"] = copy.deepcopy(isa.get("ports"))
@@ -47,6 +53,12 @@ def _split_legacy_isa(isa: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
             "regions": copy.deepcopy(memory.get("regions", [])),
         },
         "hooks": copy.deepcopy(isa.get("hooks", {})),
+        "components": {
+            "ics": [],
+            "devices": [],
+            "hosts": [],
+        },
+        "connections": [],
         "integrations": copy.deepcopy(isa.get("integrations", {})),
     }
     return processor, system

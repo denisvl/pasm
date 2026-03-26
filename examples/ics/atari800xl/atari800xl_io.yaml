@@ -1,0 +1,1008 @@
+metadata:
+  id: atari_io
+  type: io_controller
+  model: atari800xl_core_io
+  version: "1.0"
+
+clock_hz: 1789773
+
+state:
+  - name: portb
+    type: uint8_t
+    initial: "0xFF"
+  - name: pia_ora
+    type: uint8_t
+    initial: "0xFF"
+  - name: pia_orb
+    type: uint8_t
+    initial: "0xFF"
+  - name: pia_ddra
+    type: uint8_t
+    initial: "0x00"
+  - name: pia_ddrb
+    type: uint8_t
+    initial: "0x00"
+  - name: pia_cra
+    type: uint8_t
+    initial: "0x00"
+  - name: pia_crb
+    type: uint8_t
+    initial: "0x00"
+  - name: keyboard_code
+    type: uint8_t
+    initial: "0xFF"
+  - name: keyboard_atascii
+    type: uint8_t
+    initial: "0xFF"
+  - name: keyboard_sticky
+    type: uint8_t
+    initial: "0"
+  - name: nmi_enable
+    type: uint8_t
+    initial: "0"
+  - name: nmi_status
+    type: uint8_t
+    initial: "0"
+  - name: antic_dmactl
+    type: uint8_t
+    initial: "0"
+  - name: antic_chactl
+    type: uint8_t
+    initial: "0"
+  - name: antic_dlistl
+    type: uint8_t
+    initial: "0"
+  - name: antic_dlisth
+    type: uint8_t
+    initial: "0"
+  - name: antic_hscrol
+    type: uint8_t
+    initial: "0"
+  - name: antic_vscrol
+    type: uint8_t
+    initial: "0"
+  - name: antic_pmbase
+    type: uint8_t
+    initial: "0"
+  - name: antic_chbase
+    type: uint8_t
+    initial: "0"
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: last_frame_cycle
+    type: uint64_t
+    initial: "0"
+  - name: random_lfsr
+    type: uint32_t
+    initial: "0xACE1u"
+  - name: pokey_audf1
+    type: uint8_t
+    initial: "0"
+  - name: pokey_audc1
+    type: uint8_t
+    initial: "0"
+  - name: pokey_serout
+    type: uint8_t
+    initial: "0"
+  - name: pokey_irqen
+    type: uint8_t
+    initial: "0"
+  - name: pokey_irqst
+    type: uint8_t
+    initial: "0xF7"
+  - name: pokey_skctl
+    type: uint8_t
+    initial: "0"
+  - name: pokey_skstat
+    type: uint8_t
+    initial: "0x7F"
+  - name: pokey_serout_busy
+    type: uint8_t
+    initial: "0"
+  - name: pokey_serout_done_cycle
+    type: uint64_t
+    initial: "0"
+  - name: pokey_serout_done_latch
+    type: uint8_t
+    initial: "0"
+  - name: pokey_serout_need_cycle
+    type: uint64_t
+    initial: "0"
+  - name: pokey_serout_need_fired
+    type: uint8_t
+    initial: "0"
+  - name: speaker_level
+    type: uint8_t
+    initial: "0"
+  - name: ram_under_basic
+    type: uint8_t *
+    initial: "NULL"
+  - name: ram_under_os_low
+    type: uint8_t *
+    initial: "NULL"
+  - name: ram_under_os_high
+    type: uint8_t *
+    initial: "NULL"
+  - name: selftest_rom
+    type: uint8_t *
+    initial: "NULL"
+
+interfaces:
+  callbacks:
+    - name: keyboard_ascii
+      args: []
+      returns: u8
+    - name: consol_state
+      args: []
+      returns: u8
+    - name: joystick_porta
+      args: []
+      returns: u8
+    - name: trigger0
+      args: []
+      returns: u8
+    - name: trigger1
+      args: []
+      returns: u8
+    - name: trigger2
+      args: []
+      returns: u8
+    - name: trigger3
+      args: []
+      returns: u8
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32]
+    - name: audio_level
+      args: [u8, u64]
+    - name: irq_edge
+      args: [u8]
+
+maps:
+  memory:
+    ranges:
+      - name: low_space
+        start: 0x0000
+        size: 0xA000
+        access: [read, write]
+      - name: high_space
+        start: 0xC000
+        size: 0x4000
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      if (comp->ram_under_basic == NULL) {
+          comp->ram_under_basic = (uint8_t *)calloc(0x2000u, sizeof(uint8_t));
+      }
+      if (comp->ram_under_os_low == NULL) {
+          comp->ram_under_os_low = (uint8_t *)calloc(0x1000u, sizeof(uint8_t));
+      }
+      if (comp->ram_under_os_high == NULL) {
+          comp->ram_under_os_high = (uint8_t *)calloc(0x2800u, sizeof(uint8_t));
+      }
+      if (comp->selftest_rom == NULL) {
+          comp->selftest_rom = (uint8_t *)calloc(0x0800u, sizeof(uint8_t));
+          if (comp->selftest_rom != NULL) {
+              FILE *f = fopen("examples/roms/ATARIXL.ROM", "rb");
+              if (f != NULL) {
+                  if (fseek(f, 0x1000L, SEEK_SET) == 0) {
+                      (void)fread(comp->selftest_rom, 1u, 0x0800u, f);
+                  }
+                  fclose(f);
+              }
+          }
+      }
+    reset: |
+      comp->pia_ora = 0xFFu;
+      comp->pia_orb = 0xFFu;
+      comp->pia_ddra = 0x00u;
+      comp->pia_ddrb = 0x00u;
+      comp->pia_cra = 0x00u;
+      comp->pia_crb = 0x00u;
+      comp->portb = (uint8_t)((comp->pia_orb & comp->pia_ddrb) | (uint8_t)(~comp->pia_ddrb));
+      comp->keyboard_code = 0xFFu;
+      comp->keyboard_atascii = 0xFFu;
+      comp->keyboard_sticky = 0u;
+      comp->nmi_enable = 0u;
+      comp->nmi_status = 0u;
+      comp->antic_dmactl = 0u;
+      comp->antic_chactl = 0u;
+      comp->antic_dlistl = 0u;
+      comp->antic_dlisth = 0u;
+      comp->antic_hscrol = 0u;
+      comp->antic_vscrol = 0u;
+      comp->antic_pmbase = 0u;
+      comp->antic_chbase = 0u;
+      comp->frame_counter = 0u;
+      comp->last_frame_cycle = 0u;
+      comp->random_lfsr = 0xACE1u;
+      comp->pokey_audf1 = 0u;
+      comp->pokey_audc1 = 0u;
+      comp->pokey_serout = 0u;
+      comp->pokey_irqen = 0u;
+      comp->pokey_irqst = 0xF7u;
+      comp->pokey_skctl = 0u;
+      comp->pokey_skstat = 0x7Fu;
+      comp->pokey_serout_busy = 0u;
+      comp->pokey_serout_done_cycle = 0u;
+      comp->pokey_serout_done_latch = 0u;
+      comp->pokey_serout_need_cycle = 0u;
+      comp->pokey_serout_need_fired = 0u;
+      comp->speaker_level = 0u;
+      if (comp->ram_under_basic != NULL) {
+          for (uint16_t i = 0u; i < 0x2000u; ++i) {
+              uint16_t a = (uint16_t)(0xA000u + i);
+              comp->ram_under_basic[i] = ((uint64_t)a < cpu->memory_size) ? cpu->memory[a] : 0u;
+          }
+      }
+      if (comp->ram_under_os_low != NULL) {
+          for (uint16_t i = 0u; i < 0x1000u; ++i) {
+              uint16_t a = (uint16_t)(0xC000u + i);
+              comp->ram_under_os_low[i] = ((uint64_t)a < cpu->memory_size) ? cpu->memory[a] : 0u;
+          }
+      }
+      if (comp->ram_under_os_high != NULL) {
+          for (uint16_t i = 0u; i < 0x2800u; ++i) {
+              uint16_t a = (uint16_t)(0xD800u + i);
+              comp->ram_under_os_high[i] = ((uint64_t)a < cpu->memory_size) ? cpu->memory[a] : 0u;
+          }
+      }
+      if (cpu->memory_size >= 0x02FDu) {
+          cpu->memory[0x02FCu] = 0xFFu; /* CH */
+      }
+      if (cpu->memory_size > 0xD301u) {
+          cpu->memory[0xD300u] = comp->pia_ora;
+          cpu->memory[0xD301u] = comp->portb;
+      }
+      if (cpu->memory_size > 0xD303u) {
+          cpu->memory[0xD302u] = comp->pia_cra;
+          cpu->memory[0xD303u] = comp->pia_crb;
+      }
+      if (cpu->memory_size > 0xD407u) {
+          cpu->memory[0xD400u] = comp->antic_dmactl;
+          cpu->memory[0xD401u] = comp->antic_chactl;
+          cpu->memory[0xD402u] = comp->antic_dlistl;
+          cpu->memory[0xD403u] = comp->antic_dlisth;
+          cpu->memory[0xD404u] = comp->antic_hscrol;
+          cpu->memory[0xD405u] = comp->antic_vscrol;
+          cpu->memory[0xD406u] = comp->antic_pmbase;
+          cpu->memory[0xD407u] = comp->antic_chbase;
+      }
+    destroy: |
+      if (comp->ram_under_basic != NULL) {
+          free(comp->ram_under_basic);
+          comp->ram_under_basic = NULL;
+      }
+      if (comp->ram_under_os_low != NULL) {
+          free(comp->ram_under_os_low);
+          comp->ram_under_os_low = NULL;
+      }
+      if (comp->ram_under_os_high != NULL) {
+          free(comp->ram_under_os_high);
+          comp->ram_under_os_high = NULL;
+      }
+      if (comp->selftest_rom != NULL) {
+          free(comp->selftest_rom);
+          comp->selftest_rom = NULL;
+      }
+    mem_read_pre: |
+      if (addr >= 0x5000u && addr < 0x5800u) {
+          if ((comp->portb & 0x80u) == 0u && comp->selftest_rom != NULL) {
+              return comp->selftest_rom[(uint16_t)(addr - 0x5000u)];
+          }
+      }
+      if (addr >= 0xA000u && addr < 0xC000u) {
+      #if CPU_CARTRIDGE_COUNT > 0
+          uint8_t cart_present = (uint8_t)((cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) ? 1u : 0u);
+          if (cart_present == 0u)
+      #endif
+          {
+          if ((comp->portb & 0x02u) != 0u && comp->ram_under_basic != NULL) {
+              return comp->ram_under_basic[(uint16_t)(addr - 0xA000u)];
+          }
+          }
+      }
+      if (addr >= 0xC000u && addr < 0xD000u) {
+          if ((comp->portb & 0x01u) == 0u && comp->ram_under_os_low != NULL) {
+              return comp->ram_under_os_low[(uint16_t)(addr - 0xC000u)];
+          }
+      }
+      if (addr >= 0xD800u) {
+          if ((comp->portb & 0x01u) == 0u && comp->ram_under_os_high != NULL) {
+              return comp->ram_under_os_high[(uint16_t)(addr - 0xD800u)];
+          }
+      }
+
+      if (addr >= 0xD000u && addr < 0xD800u) {
+          if (addr == 0xD300u) {
+              if ((comp->pia_cra & 0x04u) == 0u) {
+                  return comp->pia_ddra;
+              }
+              {
+                  uint8_t in_a = (uint8_t)cpu_component_call(cpu, "atari_io", "joystick_porta", NULL, 0);
+                  return (uint8_t)((comp->pia_ora & comp->pia_ddra) | (in_a & (uint8_t)(~comp->pia_ddra)));
+              }
+          }
+          if (addr == 0xD301u) {
+              if ((comp->pia_crb & 0x04u) == 0u) {
+                  return comp->pia_ddrb;
+              }
+              return (uint8_t)((comp->pia_orb & comp->pia_ddrb) | (uint8_t)(~comp->pia_ddrb));
+          }
+          if (addr == 0xD302u) {
+              return comp->pia_cra;
+          }
+          if (addr == 0xD303u) {
+              return comp->pia_crb;
+          }
+          if (addr == 0xD20Au) {
+              /* POKEY RANDOM */
+              uint32_t l = comp->random_lfsr;
+              uint32_t bit = ((l >> 0u) ^ (l >> 2u) ^ (l >> 3u) ^ (l >> 5u)) & 1u;
+              l = (l >> 1u) | (bit << 15u);
+              comp->random_lfsr = l;
+              return (uint8_t)(l & 0xFFu);
+          }
+          if (addr == 0xD209u) {
+              /* POKEY KBCODE (very simplified) */
+              uint8_t v = comp->keyboard_code;
+              if (comp->keyboard_sticky != 0u) {
+                  comp->keyboard_sticky = 0u;
+                  /* Keycode acknowledged: clear keyboard IRQ source (bit 6). */
+                  comp->pokey_irqst = (uint8_t)(comp->pokey_irqst | 0x40u);
+              }
+              return v;
+          }
+          if (addr == 0xD20Fu) {
+              /* POKEY SKSTAT */
+              return comp->pokey_skstat;
+          }
+          if (addr == 0xD20Du) {
+              /* POKEY SERIN (no external SIO device yet). */
+              return 0xFFu;
+          }
+          if (addr == 0xD20Eu) {
+              /* POKEY IRQST (active-low status bits) */
+              return comp->pokey_irqst;
+          }
+          if (addr == 0xD40Bu) {
+              /* ANTIC VCOUNT approximation */
+              uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 29829u;
+              if (frame_period == 0u) frame_period = 29829u;
+              uint64_t in_frame = cpu->total_cycles - comp->last_frame_cycle;
+              if (in_frame >= frame_period) in_frame = frame_period - 1u;
+              uint32_t line = (uint32_t)((in_frame * 262u) / frame_period);
+              return (uint8_t)(line & 0xFFu);
+          }
+          if (addr == 0xD400u) return comp->antic_dmactl;
+          if (addr == 0xD401u) return comp->antic_chactl;
+          if (addr == 0xD402u) return comp->antic_dlistl;
+          if (addr == 0xD403u) return comp->antic_dlisth;
+          if (addr == 0xD404u) return comp->antic_hscrol;
+          if (addr == 0xD405u) return comp->antic_vscrol;
+          if (addr == 0xD406u) return comp->antic_pmbase;
+          if (addr == 0xD407u) return comp->antic_chbase;
+          if (addr == 0xD40Fu) {
+              /* ANTIC NMIST */
+              return comp->nmi_status;
+          }
+          if (addr == 0xD01Fu) {
+              /* GTIA CONSOL (OPTION/SELECT/START), active low. */
+              uint8_t consol = (uint8_t)cpu_component_call(cpu, "atari_io", "consol_state", NULL, 0);
+              return (uint8_t)(consol & 0x07u);
+          }
+          if (addr == 0xD010u) {
+              /* GTIA TRIG0, active low (0=pressed, 1=released). */
+              uint8_t trig = (uint8_t)(cpu_component_call(cpu, "atari_io", "trigger0", NULL, 0) & 0x01u);
+              return trig;
+          }
+          if (addr == 0xD011u) {
+              /* GTIA TRIG1, active low (0=pressed, 1=released). */
+              uint8_t trig = (uint8_t)(cpu_component_call(cpu, "atari_io", "trigger1", NULL, 0) & 0x01u);
+              return trig;
+          }
+          if (addr == 0xD012u) {
+              /* GTIA TRIG2, active low (0=pressed, 1=released). */
+              uint8_t trig = (uint8_t)(cpu_component_call(cpu, "atari_io", "trigger2", NULL, 0) & 0x01u);
+              return trig;
+          }
+          if (addr == 0xD013u) {
+              /* GTIA TRIG3, active low (0=pressed, 1=released). */
+              uint8_t trig = (uint8_t)(cpu_component_call(cpu, "atari_io", "trigger3", NULL, 0) & 0x01u);
+      #if CPU_CARTRIDGE_COUNT > 0
+              /* XL/XE cartridge detect line: present cartridge pulls TRIG3 low. */
+              if (cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) {
+                  trig = 0u;
+              }
+      #endif
+              return trig;
+          }
+
+          if ((uint64_t)addr < cpu->memory_size) {
+              return cpu->memory[addr];
+          }
+      }
+    mem_write_pre: |
+      if (addr == 0x02FCu) {
+          /* OS CH shadow: keep POKEY keycode in sync until software clears it. */
+          comp->keyboard_atascii = value;
+          if (value == 0xFFu) {
+              comp->keyboard_sticky = 0u;
+          }
+      }
+      if (addr >= 0x5000u && addr < 0x5800u) {
+          if ((comp->portb & 0x80u) == 0u) {
+              return;
+          }
+      }
+      if (addr >= 0xA000u && addr < 0xC000u) {
+      #if CPU_CARTRIDGE_COUNT > 0
+          uint8_t cart_present = (uint8_t)((cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) ? 1u : 0u);
+          if (cart_present == 0u)
+      #endif
+          {
+          if (comp->ram_under_basic != NULL) {
+              comp->ram_under_basic[(uint16_t)(addr - 0xA000u)] = value;
+          }
+          return;
+          }
+      }
+      if (addr >= 0xC000u && addr < 0xD000u) {
+          if (comp->ram_under_os_low != NULL) {
+              comp->ram_under_os_low[(uint16_t)(addr - 0xC000u)] = value;
+          }
+          return;
+      }
+      if (addr >= 0xD800u) {
+          if (comp->ram_under_os_high != NULL) {
+              comp->ram_under_os_high[(uint16_t)(addr - 0xD800u)] = value;
+          }
+          return;
+      }
+
+      if (addr >= 0xD000u && addr < 0xD800u) {
+          if ((uint64_t)addr < cpu->memory_size) {
+              cpu->memory[addr] = value;
+          }
+
+          if (addr == 0xD300u) {
+              if ((comp->pia_cra & 0x04u) == 0u) {
+                  comp->pia_ddra = value;
+              } else {
+                  comp->pia_ora = value;
+              }
+              if (cpu->memory_size > 0xD300u) {
+                  cpu->memory[0xD300u] = (uint8_t)((comp->pia_ora & comp->pia_ddra) | (uint8_t)(~comp->pia_ddra));
+              }
+              return;
+          }
+          if (addr == 0xD301u) {
+              if ((comp->pia_crb & 0x04u) == 0u) {
+                  comp->pia_ddrb = value;
+              } else {
+                  comp->pia_orb = value;
+              }
+              comp->portb = (uint8_t)((comp->pia_orb & comp->pia_ddrb) | (uint8_t)(~comp->pia_ddrb));
+              if (cpu->memory_size > 0xD301u) {
+                  cpu->memory[0xD301u] = comp->portb;
+              }
+              return;
+          }
+          if (addr == 0xD302u) {
+              comp->pia_cra = value;
+              if (cpu->memory_size > 0xD302u) cpu->memory[0xD302u] = value;
+              return;
+          }
+          if (addr == 0xD303u) {
+              comp->pia_crb = value;
+              if (cpu->memory_size > 0xD303u) cpu->memory[0xD303u] = value;
+              return;
+          }
+
+          if (addr == 0xD200u) {
+              comp->pokey_audf1 = value;
+              return;
+          }
+          if (addr == 0xD201u) {
+              comp->pokey_audc1 = value;
+              /* Simplified audio proxy: use channel volume nibble as level. */
+              {
+                  uint8_t vol = (uint8_t)(value & 0x0Fu);
+                  comp->speaker_level = (uint8_t)(vol << 4);
+                  uint64_t sig_args[2] = { (uint64_t)comp->speaker_level, cpu->total_cycles };
+                  cpu_component_emit_signal(cpu, "atari_io", "audio_level", sig_args, 2);
+              }
+              return;
+          }
+          if (addr == 0xD20Du) {
+              /* POKEY SEROUT: load output register; shifting starts shortly after. */
+              comp->pokey_serout = value;
+              if (comp->pokey_serout_busy == 0u) {
+                  comp->pokey_serout_busy = 1u;
+                  comp->pokey_serout_need_fired = 0u;
+                  comp->pokey_serout_done_latch = 0u;
+                  comp->pokey_serout_need_cycle = cpu->total_cycles + 32u;
+                  comp->pokey_serout_done_cycle = cpu->total_cycles + 512u;
+                  /* Serial output active. */
+                  comp->pokey_skstat = (uint8_t)(comp->pokey_skstat | 0x80u);
+              }
+              return;
+          }
+          if (addr == 0xD20Eu) {
+              /* POKEY IRQEN */
+              comp->pokey_irqen = value;
+              /* Altirra behavior: disabled IRQ bits go inactive, except bit 3. */
+              comp->pokey_irqst = (uint8_t)(comp->pokey_irqst | (uint8_t)(~value & 0xF7u));
+              if ((((uint8_t)(~comp->pokey_irqst)) & comp->pokey_irqen) != 0u) {
+                  cpu->interrupt_vector = 0x00u;
+                  cpu->interrupt_pending = true;
+              }
+              return;
+          }
+          if (addr == 0xD20Fu) {
+              /* POKEY SKCTL */
+              if ((value & 0x03u) == 0u && (comp->pokey_skctl & 0x03u) != 0u) {
+                  /* Entering init mode resets serial state and asserts SERDONE. */
+                  comp->pokey_serout_busy = 0u;
+                  comp->pokey_serout_need_fired = 0u;
+                  comp->pokey_serout_done_latch = 1u;
+                  comp->pokey_serout_need_cycle = 0u;
+                  comp->pokey_serout_done_cycle = 0u;
+                  comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x08u);
+              }
+              comp->pokey_skctl = value;
+              return;
+          }
+          if (addr == 0xD20Au) {
+              /* SKRES: only upper SKSTAT bits are reset. */
+              comp->pokey_skstat = (uint8_t)(comp->pokey_skstat | 0xE0u);
+              return;
+          }
+          if (addr == 0xD40Eu) {
+              /* NMIEN */
+              comp->nmi_enable = value;
+              return;
+          }
+          if (addr == 0xD400u) {
+              comp->antic_dmactl = value;
+              return;
+          }
+          if (addr == 0xD401u) {
+              comp->antic_chactl = value;
+              return;
+          }
+          if (addr == 0xD402u) {
+              comp->antic_dlistl = value;
+              return;
+          }
+          if (addr == 0xD403u) {
+              comp->antic_dlisth = value;
+              return;
+          }
+          if (addr == 0xD404u) {
+              comp->antic_hscrol = value;
+              return;
+          }
+          if (addr == 0xD405u) {
+              comp->antic_vscrol = value;
+              return;
+          }
+          if (addr == 0xD406u) {
+              comp->antic_pmbase = value;
+              return;
+          }
+          if (addr == 0xD407u) {
+              comp->antic_chbase = (uint8_t)(value & 0xFEu);
+              return;
+          }
+          if (addr == 0xD40Fu) {
+              /* NMIRES */
+              comp->nmi_status = 0u;
+              return;
+          }
+      }
+    step_post: |
+      static uint32_t framebuf[320u * 192u];
+      {
+          /* POKEY serial timing/IRQ, aligned with Altirra register-level behavior. */
+          if (
+              comp->pokey_serout_busy != 0u &&
+              comp->pokey_serout_need_fired == 0u &&
+              cpu->total_cycles >= comp->pokey_serout_need_cycle
+          ) {
+              comp->pokey_serout_need_fired = 1u;
+              /* Shift register has consumed SEROUT, so SERDONE clears and SEROUTIRQ may assert. */
+              comp->pokey_irqst = (uint8_t)(comp->pokey_irqst | 0x08u);
+              if ((comp->pokey_irqen & 0x10u) != 0u) {
+                  comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x10u);
+                  cpu->interrupt_vector = 0x00u;
+                  cpu->interrupt_pending = true;
+              }
+          }
+          if (comp->pokey_serout_busy != 0u && cpu->total_cycles >= comp->pokey_serout_done_cycle) {
+              comp->pokey_serout_busy = 0u;
+              comp->pokey_serout_need_fired = 0u;
+              /* Transmission complete: clear SKSTAT bit 7 and latch serial completion. */
+              comp->pokey_skstat = (uint8_t)(comp->pokey_skstat & 0x7Fu);
+              comp->pokey_serout_done_latch = 1u;
+              /* Assert serial output complete (bit 3, active-low). */
+              comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x08u);
+              if ((comp->pokey_irqen & 0x08u) != 0u) {
+                  cpu->interrupt_vector = 0x00u;
+                  cpu->interrupt_pending = true;
+              }
+          }
+          if ((((uint8_t)(~comp->pokey_irqst)) & comp->pokey_irqen) != 0u) {
+              cpu->interrupt_vector = 0x00u;
+              cpu->interrupt_pending = true;
+          }
+      }
+      {
+          uint8_t key = (uint8_t)cpu_component_call(cpu, "atari_io", "keyboard_ascii", NULL, 0);
+          if (key != 0u) {
+              if (key == 0x1Bu) {
+                  /* Map ESC to Atari BREAK key IRQ source (POKEY IRQST bit 7, active low). */
+                  comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x80u);
+                  if ((comp->pokey_irqen & 0x80u) != 0u) {
+                      cpu->interrupt_vector = 0x00u;
+                      cpu->interrupt_pending = true;
+                  }
+              } else {
+              uint8_t atascii = key;
+              uint8_t base = 0xFFu;
+              uint8_t ctrl = 0u;
+
+              if (atascii == 0x0Du || atascii == 0x0Au) atascii = 0x9Bu;
+
+              if (atascii >= 1u && atascii <= 26u) {
+                  ctrl = 1u;
+                  atascii = (uint8_t)('A' + (atascii - 1u));
+              }
+              if (atascii >= 'a' && atascii <= 'z') atascii = (uint8_t)(atascii - ('a' - 'A'));
+
+              switch (atascii) {
+                  case 'A': base = 0x3Fu; break;
+                  case 'B': base = 0x15u; break;
+                  case 'C': base = 0x12u; break;
+                  case 'D': base = 0x3Au; break;
+                  case 'E': base = 0x2Au; break;
+                  case 'F': base = 0x38u; break;
+                  case 'G': base = 0x3Du; break;
+                  case 'H': base = 0x39u; break;
+                  case 'I': base = 0x0Du; break;
+                  case 'J': base = 0x01u; break;
+                  case 'K': base = 0x05u; break;
+                  case 'L': base = 0x00u; break;
+                  case 'M': base = 0x25u; break;
+                  case 'N': base = 0x23u; break;
+                  case 'O': base = 0x08u; break;
+                  case 'P': base = 0x0Au; break;
+                  case 'Q': base = 0x2Fu; break;
+                  case 'R': base = 0x28u; break;
+                  case 'S': base = 0x3Eu; break;
+                  case 'T': base = 0x2Du; break;
+                  case 'U': base = 0x0Bu; break;
+                  case 'V': base = 0x10u; break;
+                  case 'W': base = 0x2Eu; break;
+                  case 'X': base = 0x16u; break;
+                  case 'Y': base = 0x2Bu; break;
+                  case 'Z': base = 0x17u; break;
+                  case '1': base = 0x1Fu; break;
+                  case '2': base = 0x1Eu; break;
+                  case '3': base = 0x1Au; break;
+                  case '4': base = 0x18u; break;
+                  case '5': base = 0x1Du; break;
+                  case '6': base = 0x1Bu; break;
+                  case '7': base = 0x33u; break;
+                  case '8': base = 0x35u; break;
+                  case '9': base = 0x30u; break;
+                  case '0': base = 0x32u; break;
+                  case ' ': base = 0x21u; break;
+                  case 0x9Bu: base = 0x0Cu; break; /* RETURN */
+                  case 0x7Eu: base = 0x34u; break; /* BACKSPACE */
+                  case 0x1Bu: base = 0x1Cu; break; /* ESC */
+                  case 0x7Fu: base = 0x2Cu; break; /* TAB (DEL key fallback) */
+                  case ',': case '[': base = 0x20u; break;
+                  case '.': case ']': base = 0x22u; break;
+                  case '/': case '?': base = 0x26u; break;
+                  case ';': case ':': base = 0x02u; break;
+                  case '-': case '_': base = 0x0Eu; break;
+                  case '=': case '|': base = 0x0Fu; break;
+                  case '+': case '\\': base = 0x06u; break;
+                  case '*': case '^': base = 0x07u; break;
+                  case '<': base = 0x36u; break;
+                  case '>': base = 0x37u; break;
+                  default: break;
+              }
+
+              comp->keyboard_atascii = atascii;
+              if (base != 0xFFu) {
+                  comp->keyboard_code = (uint8_t)(base | (ctrl != 0u ? 0x80u : 0u));
+              }
+              comp->keyboard_sticky = 1u;
+              /* Raise keyboard IRQ source (active-low bit 6). */
+              comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x40u);
+              if ((comp->pokey_irqen & 0x40u) != 0u) {
+                  cpu->interrupt_vector = 0x00u;
+                  cpu->interrupt_pending = true;
+              }
+              if (cpu->memory_size > 0x02FCu) {
+                  cpu->memory[0x02FCu] = comp->keyboard_atascii; /* CH shadow for OS/BASIC polling paths */
+              }
+              }
+          }
+      }
+
+      {
+          uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 29829u;
+          if (frame_period == 0u) frame_period = 1u;
+          if ((cpu->total_cycles - comp->last_frame_cycle) < frame_period) {
+              return;
+          }
+          comp->last_frame_cycle += frame_period;
+          comp->frame_counter += 1u;
+      }
+
+      {
+          /* Trigger VBlank NMI if enabled (ANTIC NMIEN bit 6). */
+          comp->nmi_status = (uint8_t)(comp->nmi_status | 0x40u);
+          if ((comp->nmi_enable & 0x40u) != 0u) {
+              cpu->interrupt_vector = 0xFFu;
+              cpu->interrupt_pending = true;
+              {
+                  uint64_t irq_up[1] = { 1u };
+                  uint64_t irq_down[1] = { 0u };
+                  cpu_component_emit_signal(cpu, "atari_io", "irq_edge", irq_up, 1);
+                  cpu_component_emit_signal(cpu, "atari_io", "irq_edge", irq_down, 1);
+              }
+          }
+      }
+
+      {
+          /* ANTIC display-list driven rendering path (no forced display pointers). */
+          static const uint32_t atari_hues[16] = {
+              0x00C8C8C8u, 0x00D0A050u, 0x00D08040u, 0x00C86040u,
+              0x00B05070u, 0x008850A0u, 0x006060C0u, 0x004080D0u,
+              0x0030A0D0u, 0x0030B090u, 0x0040B050u, 0x0070B040u,
+              0x00A0A840u, 0x00C09040u, 0x00D07850u, 0x00D0B0A0u
+          };
+          uint8_t colpf0_raw = (cpu->memory_size > 0xD016u) ? cpu->memory[0xD016u] : 0x44u;
+          uint8_t colpf1_raw = (cpu->memory_size > 0xD017u) ? cpu->memory[0xD017u] : 0x88u;
+          uint8_t colpf2_raw = (cpu->memory_size > 0xD018u) ? cpu->memory[0xD018u] : 0xCCu;
+          uint8_t colpf3_raw = (cpu->memory_size > 0xD019u) ? cpu->memory[0xD019u] : 0xAAu;
+          uint8_t colbk_raw  = (cpu->memory_size > 0xD01Au) ? cpu->memory[0xD01Au] : 0x00u;
+          uint8_t col_raw[5] = { colpf0_raw, colpf1_raw, colpf2_raw, colpf3_raw, colbk_raw };
+          uint32_t col_argb[5];
+          for (uint32_t ci = 0u; ci < 5u; ++ci) {
+              uint8_t c = col_raw[ci];
+              uint32_t base = atari_hues[(c >> 4u) & 0x0Fu];
+              uint32_t lum = (uint32_t)(c & 0x0Fu);
+              uint32_t gain = 16u + (lum * 16u);
+              uint8_t r = (uint8_t)((((base >> 16u) & 0xFFu) * gain) >> 8u);
+              uint8_t g = (uint8_t)((((base >> 8u) & 0xFFu) * gain) >> 8u);
+              uint8_t b = (uint8_t)(((base & 0xFFu) * gain) >> 8u);
+              col_argb[ci] = 0xFF000000u | ((uint32_t)r << 16u) | ((uint32_t)g << 8u) | (uint32_t)b;
+          }
+          const uint32_t pf0 = col_argb[0];
+          const uint32_t pf1 = col_argb[1];
+          const uint32_t pf2 = col_argb[2];
+          const uint32_t pf3 = col_argb[3];
+          const uint32_t bg = col_argb[4];
+          const uint32_t fg = pf2;
+          uint16_t dl_ptr = 0u;
+          uint16_t char_base = 0xE000u;
+          uint8_t hscroll = (uint8_t)(comp->antic_hscrol & 0x0Fu);
+          uint8_t vscroll = (uint8_t)(comp->antic_vscrol & 0x0Fu);
+
+          dl_ptr = (uint16_t)((uint16_t)comp->antic_dlistl | ((uint16_t)comp->antic_dlisth << 8u));
+          if (comp->antic_chbase != 0u) {
+              char_base = (uint16_t)((uint16_t)(comp->antic_chbase & 0xFEu) << 8u);
+          }
+          if (char_base == 0xE000u && cpu->memory_size > 0x02F4u) {
+              uint8_t chbas_shadow = cpu->memory[0x02F4u];
+              if (chbas_shadow != 0u) {
+                  char_base = (uint16_t)((uint16_t)chbas_shadow << 8u);
+              }
+          }
+          if ((uint64_t)char_base + 1024u > cpu->memory_size) {
+              char_base = 0u;
+          }
+          if ((uint64_t)dl_ptr >= cpu->memory_size && cpu->memory_size > 0x0231u) {
+              uint16_t sdlst = (uint16_t)cpu->memory[0x0230u] | ((uint16_t)cpu->memory[0x0231u] << 8u);
+              if ((uint64_t)sdlst < cpu->memory_size) {
+                  dl_ptr = sdlst;
+              }
+          }
+
+          for (uint32_t i = 0u; i < 320u * 192u; ++i) {
+              framebuf[i] = bg;
+          }
+
+          if ((uint64_t)dl_ptr < cpu->memory_size) {
+              uint32_t y = 0u;
+              uint32_t safety = 0u;
+              uint16_t scan_addr = 0u;
+
+              while (y < 192u && safety < 2048u) {
+                  uint8_t ir;
+                  uint8_t mode;
+                  uint32_t bytes_per_row = 0u;
+                  uint32_t line_height = 1u;
+                  uint8_t text_mode = 0u;
+                  uint8_t text_cols = 40u;
+
+                  if ((uint64_t)dl_ptr >= cpu->memory_size) break;
+                  ir = cpu->memory[dl_ptr];
+                  dl_ptr = (uint16_t)(dl_ptr + 1u);
+                  safety += 1u;
+
+                  mode = (uint8_t)(ir & 0x0Fu);
+                  if (mode == 0x01u) {
+                      if ((uint64_t)(dl_ptr + 1u) >= cpu->memory_size) break;
+                      {
+                          uint16_t target = (uint16_t)cpu->memory[dl_ptr] | ((uint16_t)cpu->memory[(uint16_t)(dl_ptr + 1u)] << 8u);
+                          dl_ptr = (uint16_t)(dl_ptr + 2u);
+                          if ((ir & 0x40u) != 0u) {
+                              /* JVB: end of visible list for this frame. */
+                              break;
+                          }
+                          dl_ptr = target;
+                      }
+                      continue;
+                  }
+
+                  if (mode == 0x00u) {
+                      uint32_t blank_lines = (uint32_t)(((ir >> 4u) & 0x07u) + 1u);
+                      y += blank_lines;
+                      if (y > 192u) y = 192u;
+                      continue;
+                  }
+
+                  if ((ir & 0x40u) != 0u) {
+                      if ((uint64_t)(dl_ptr + 1u) >= cpu->memory_size) break;
+                      scan_addr = (uint16_t)cpu->memory[dl_ptr] | ((uint16_t)cpu->memory[(uint16_t)(dl_ptr + 1u)] << 8u);
+                      dl_ptr = (uint16_t)(dl_ptr + 2u);
+                  }
+
+                  switch (mode) {
+                      case 0x02u: bytes_per_row = 40u; line_height = 8u;  text_mode = 1u; text_cols = 40u; break;
+                      case 0x03u: bytes_per_row = 40u; line_height = 10u; text_mode = 1u; text_cols = 40u; break;
+                      case 0x04u: bytes_per_row = 40u; line_height = 8u;  text_mode = 1u; text_cols = 40u; break;
+                      case 0x05u: bytes_per_row = 40u; line_height = 16u; text_mode = 1u; text_cols = 40u; break;
+                      case 0x06u: bytes_per_row = 20u; line_height = 8u;  text_mode = 1u; text_cols = 20u; break;
+                      case 0x07u: bytes_per_row = 20u; line_height = 16u; text_mode = 1u; text_cols = 20u; break;
+                      case 0x08u: bytes_per_row = 40u; line_height = 8u; break;
+                      case 0x09u: bytes_per_row = 40u; line_height = 4u; break;
+                      case 0x0Au: bytes_per_row = 40u; line_height = 4u; break;
+                      case 0x0Bu: bytes_per_row = 20u; line_height = 2u; break;
+                      case 0x0Cu: bytes_per_row = 20u; line_height = 1u; break;
+                      case 0x0Du: bytes_per_row = 20u; line_height = 2u; break;
+                      case 0x0Eu: bytes_per_row = 20u; line_height = 1u; break;
+                      case 0x0Fu: bytes_per_row = 40u; line_height = 1u; break;
+                      default: bytes_per_row = 40u; line_height = 1u; break;
+                  }
+
+                  if (text_mode != 0u && char_base != 0u) {
+                      uint8_t chact = (uint8_t)(comp->antic_chactl & 0x07u);
+                      uint8_t reflect = (uint8_t)((chact & 0x04u) != 0u);
+                      uint8_t inverse_enable = (uint8_t)((chact & 0x02u) != 0u);
+                      uint8_t blank_enable = (uint8_t)((chact & 0x01u) != 0u);
+                      uint8_t mode_23 = (uint8_t)(mode == 0x02u || mode == 0x03u);
+                      for (uint32_t py = 0u; py < line_height && y < 192u; ++py) {
+                          uint8_t glyph_row = (uint8_t)((py < 8u) ? py : 7u);
+                          if (reflect != 0u) {
+                              glyph_row = (uint8_t)(7u - glyph_row);
+                          }
+                          for (uint32_t col = 0u; col < (uint32_t)text_cols; ++col) {
+                              uint16_t saddr = (uint16_t)(scan_addr + (uint16_t)col);
+                              uint8_t raw = ((uint64_t)saddr < cpu->memory_size) ? cpu->memory[saddr] : 0u;
+                              uint8_t code = (uint8_t)(raw & 0x7Fu);
+                              uint8_t inverse_char = (uint8_t)((raw & 0x80u) != 0u);
+                              uint8_t blank_char =
+                                  (uint8_t)(mode_23 != 0u && inverse_char != 0u && blank_enable != 0u);
+                              uint8_t inverse_draw =
+                                  (uint8_t)(mode_23 != 0u && inverse_char != 0u && inverse_enable != 0u);
+                              uint32_t cell_bg = bg;
+                              uint32_t cell_fg = fg;
+                              if (inverse_draw != 0u) {
+                                  cell_bg = fg;
+                                  cell_fg = bg;
+                              }
+                              uint32_t x0 = col * 8u * (uint32_t)(40u / text_cols);
+                              uint16_t caddr = (uint16_t)(char_base + (uint16_t)(code * 8u + glyph_row));
+                              uint8_t bits = ((uint64_t)caddr < cpu->memory_size) ? cpu->memory[caddr] : 0u;
+                              uint32_t x_scale = (uint32_t)(40u / text_cols);
+                              if (x_scale == 0u) x_scale = 1u;
+
+                              for (uint32_t gx = 0u; gx < 8u; ++gx) {
+                                  uint8_t on = (uint8_t)((bits & (uint8_t)(0x80u >> gx)) != 0u);
+                                  if (blank_char != 0u) on = 0u;
+                                  for (uint32_t xs = 0u; xs < x_scale; ++xs) {
+                                      uint32_t px = x0 + gx * x_scale + xs + hscroll;
+                                      if (px < 320u) {
+                                          uint32_t py_out = y + vscroll;
+                                          if (py_out < 192u) {
+                                              framebuf[py_out * 320u + px] = (on != 0u) ? cell_fg : cell_bg;
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                          y += 1u;
+                      }
+                  } else {
+                      uint8_t bits_per_pixel = 1u;
+                      if (mode == 0x0Au || mode == 0x0Du || mode == 0x0Eu) {
+                          bits_per_pixel = 2u;
+                      }
+
+                      uint32_t pixels_per_byte = (bits_per_pixel == 2u) ? 4u : 8u;
+                      uint32_t logical_width = bytes_per_row * pixels_per_byte;
+                      uint32_t x_scale = (logical_width > 0u) ? (320u / logical_width) : 1u;
+                      if (x_scale == 0u) x_scale = 1u;
+
+                      for (uint32_t py = 0u; py < line_height && y < 192u; ++py) {
+                          uint32_t py_out = y + vscroll;
+                          for (uint32_t bx = 0u; bx < bytes_per_row; ++bx) {
+                              uint16_t saddr = (uint16_t)(scan_addr + (uint16_t)bx);
+                              uint8_t bits = ((uint64_t)saddr < cpu->memory_size) ? cpu->memory[saddr] : 0u;
+                              if (bits_per_pixel == 1u) {
+                                  for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                                      uint8_t pix = (uint8_t)((bits >> (7u - bit)) & 0x01u);
+                                      uint32_t px0 = ((bx * 8u + bit) * x_scale) + hscroll;
+                                      uint32_t color = (pix != 0u) ? pf2 : bg;
+                                      for (uint32_t xs = 0u; xs < x_scale; ++xs) {
+                                          uint32_t px = px0 + xs;
+                                          if (px < 320u && py_out < 192u) {
+                                              framebuf[py_out * 320u + px] = color;
+                                          }
+                                      }
+                                  }
+                              } else {
+                                  for (uint32_t grp = 0u; grp < 4u; ++grp) {
+                                      uint8_t pix = (uint8_t)((bits >> ((3u - grp) * 2u)) & 0x03u);
+                                      uint32_t px0 = ((bx * 4u + grp) * x_scale) + hscroll;
+                                      uint32_t color = bg;
+                                      if (pix == 1u) color = pf0;
+                                      else if (pix == 2u) color = pf1;
+                                      else if (pix == 3u) color = pf3;
+                                      for (uint32_t xs = 0u; xs < x_scale; ++xs) {
+                                          uint32_t px = px0 + xs;
+                                          if (px < 320u && py_out < 192u) {
+                                              framebuf[py_out * 320u + px] = color;
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                          y += 1u;
+                      }
+                  }
+
+                  scan_addr = (uint16_t)(scan_addr + (uint16_t)bytes_per_row);
+              }
+          }
+
+          {
+              uint64_t frame_args[4] = {
+                  (uint64_t)comp->frame_counter,
+                  (uint64_t)(uintptr_t)framebuf,
+                  320u,
+                  192u
+              };
+              cpu_component_emit_signal(cpu, "atari_io", "frame_ready", frame_args, 4);
+          }
+      }
+
+      (void)comp->keyboard_sticky;
+  callback_handlers: {}
+  handler_bodies: {}
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

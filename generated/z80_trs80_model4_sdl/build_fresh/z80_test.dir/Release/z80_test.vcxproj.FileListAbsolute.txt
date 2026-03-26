@@ -1,0 +1,2 @@
+D:\Projects\pasm\generated\z80_trs80_model4_sdl\build_fresh\Release\SDL2.dll
+D:\Projects\pasm\generated\z80_trs80_model4_sdl\build_fresh\z80_test.dir\Release\z80_test.vcxproj.Up2Date

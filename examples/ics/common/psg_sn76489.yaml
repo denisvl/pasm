@@ -1,0 +1,490 @@
+metadata:
+  id: sms_psg0
+  type: audio_generator
+  model: sn76489_sms
+  version: "1.1"
+
+clock_hz: 3579545
+
+state:
+  - name: audio_enabled
+    type: uint8_t
+    initial: "1"
+  - name: latched_channel
+    type: uint8_t
+    initial: "0"
+  - name: latched_is_volume
+    type: uint8_t
+    initial: "0"
+
+  - name: tone0
+    type: uint16_t
+    initial: "1"
+  - name: tone1
+    type: uint16_t
+    initial: "1"
+  - name: tone2
+    type: uint16_t
+    initial: "1"
+  - name: noise_reg
+    type: uint8_t
+    initial: "0"
+
+  - name: vol0
+    type: uint8_t
+    initial: "0x0F"
+  - name: vol1
+    type: uint8_t
+    initial: "0x0F"
+  - name: vol2
+    type: uint8_t
+    initial: "0x0F"
+  - name: vol3
+    type: uint8_t
+    initial: "0x0F"
+
+  - name: ctr0
+    type: uint16_t
+    initial: "1"
+  - name: ctr1
+    type: uint16_t
+    initial: "1"
+  - name: ctr2
+    type: uint16_t
+    initial: "1"
+  - name: noise_ctr
+    type: uint16_t
+    initial: "16"
+
+  - name: out0
+    type: uint8_t
+    initial: "1"
+  - name: out1
+    type: uint8_t
+    initial: "1"
+  - name: out2
+    type: uint8_t
+    initial: "1"
+
+  - name: noise_phase
+    type: uint8_t
+    initial: "0"
+  - name: noise_out
+    type: uint8_t
+    initial: "0"
+  - name: lfsr
+    type: uint16_t
+    initial: "0x8000"
+
+  - name: psg_tick_accum
+    type: uint64_t
+    initial: "0"
+  - name: sample_accum
+    type: uint64_t
+    initial: "0"
+  - name: sample_rate
+    type: uint32_t
+    initial: "44100"
+
+  - name: last_mix
+    type: uint8_t
+    initial: "128"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals:
+    - name: audio_level
+      args: [u8, u64]
+
+maps:
+  ports:
+    write:
+      - name: psg_write_even_40_7e
+        mask: 0x00C1
+        value: 0x0040
+      - name: psg_write_odd_41_7f
+        mask: 0x00C1
+        value: 0x0041
+
+behavior:
+  snippets:
+    init: |
+      {
+          const char *audio_env = getenv("PASM_SDL_AUDIO");
+
+          comp->audio_enabled = (audio_env == NULL || audio_env[0] != '0') ? 1u : 0u;
+      }
+
+      comp->latched_channel = 0u;
+      comp->latched_is_volume = 0u;
+
+      comp->tone0 = 1u;
+      comp->tone1 = 1u;
+      comp->tone2 = 1u;
+      comp->noise_reg = 0u;
+
+      comp->vol0 = 0x0Fu;
+      comp->vol1 = 0x0Fu;
+      comp->vol2 = 0x0Fu;
+      comp->vol3 = 0x0Fu;
+
+      comp->ctr0 = 1u;
+      comp->ctr1 = 1u;
+      comp->ctr2 = 1u;
+      comp->noise_ctr = 16u;
+
+      comp->out0 = 1u;
+      comp->out1 = 1u;
+      comp->out2 = 1u;
+
+      comp->noise_phase = 0u;
+      comp->noise_out = 0u;
+      comp->lfsr = 0x8000u;
+
+      comp->psg_tick_accum = 0u;
+      comp->sample_accum = 0u;
+      comp->sample_rate = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (uint32_t)CPU_AUDIO_SAMPLE_RATE : 44100u;
+      comp->last_mix = 128u;
+
+    reset: |
+      {
+          const char *audio_env = getenv("PASM_SDL_AUDIO");
+
+          comp->audio_enabled = (audio_env == NULL || audio_env[0] != '0') ? 1u : 0u;
+      }
+
+      comp->latched_channel = 0u;
+      comp->latched_is_volume = 0u;
+
+      comp->tone0 = 1u;
+      comp->tone1 = 1u;
+      comp->tone2 = 1u;
+      comp->noise_reg = 0u;
+
+      comp->vol0 = 0x0Fu;
+      comp->vol1 = 0x0Fu;
+      comp->vol2 = 0x0Fu;
+      comp->vol3 = 0x0Fu;
+
+      comp->ctr0 = 1u;
+      comp->ctr1 = 1u;
+      comp->ctr2 = 1u;
+      comp->noise_ctr = 16u;
+
+      comp->out0 = 1u;
+      comp->out1 = 1u;
+      comp->out2 = 1u;
+
+      comp->noise_phase = 0u;
+      comp->noise_out = 0u;
+      comp->lfsr = 0x8000u;
+
+      comp->psg_tick_accum = 0u;
+      comp->sample_accum = 0u;
+      comp->sample_rate = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (uint32_t)CPU_AUDIO_SAMPLE_RATE : 44100u;
+      comp->last_mix = 128u;
+
+    port_write_pre: |
+      uint8_t p = (uint8_t) (((uint16_t) port) & 0x00C1u);
+
+      if (p != 0x40u && p != 0x41u) {
+          return;
+      }
+
+      {
+          uint8_t v = value;
+
+          if ((v & 0x80u) != 0u) {
+              uint8_t ch = (uint8_t) ((v >> 5) & 0x03u);
+              uint8_t is_vol = (uint8_t) ((v >> 4) & 0x01u);
+              uint8_t nib = (uint8_t) (v & 0x0Fu);
+
+              comp->latched_channel = ch;
+              comp->latched_is_volume = is_vol;
+
+              if (is_vol != 0u) {
+                  switch (ch) {
+                      case 0u:
+                          comp->vol0 = nib;
+                          break;
+
+                      case 1u:
+                          comp->vol1 = nib;
+                          break;
+
+                      case 2u:
+                          comp->vol2 = nib;
+                          break;
+
+                      case 3u:
+                          comp->vol3 = nib;
+                          break;
+
+                      default:
+                          break;
+                  }
+              } else if (ch < 3u) {
+                  if (ch == 0u) {
+                      comp->tone0 = (uint16_t) ((comp->tone0 & 0x03F0u) | (uint16_t) nib);
+                  } else if (ch == 1u) {
+                      comp->tone1 = (uint16_t) ((comp->tone1 & 0x03F0u) | (uint16_t) nib);
+                  } else {
+                      comp->tone2 = (uint16_t) ((comp->tone2 & 0x03F0u) | (uint16_t) nib);
+                  }
+              } else {
+                  comp->noise_reg = (uint8_t) (nib & 0x07u);
+                  comp->lfsr = 0x8000u;
+                  comp->noise_phase = 0u;
+                  comp->noise_out = 0u;
+                  comp->noise_ctr = 0u;
+              }
+          } else {
+              uint8_t ch = comp->latched_channel;
+
+              if (comp->latched_is_volume != 0u) {
+                  uint8_t nib = (uint8_t) (v & 0x0Fu);
+
+                  switch (ch) {
+                      case 0u:
+                          comp->vol0 = nib;
+                          break;
+
+                      case 1u:
+                          comp->vol1 = nib;
+                          break;
+
+                      case 2u:
+                          comp->vol2 = nib;
+                          break;
+
+                      case 3u:
+                          comp->vol3 = nib;
+                          break;
+
+                      default:
+                          break;
+                  }
+              } else if (ch < 3u) {
+                  uint16_t hi = (uint16_t) (v & 0x3Fu);
+
+                  if (ch == 0u) {
+                      comp->tone0 = (uint16_t) ((comp->tone0 & 0x000Fu) | (uint16_t) (hi << 4));
+                  } else if (ch == 1u) {
+                      comp->tone1 = (uint16_t) ((comp->tone1 & 0x000Fu) | (uint16_t) (hi << 4));
+                  } else {
+                      comp->tone2 = (uint16_t) ((comp->tone2 & 0x000Fu) | (uint16_t) (hi << 4));
+                  }
+              } else {
+                  comp->noise_reg = (uint8_t) (v & 0x07u);
+                  comp->lfsr = 0x8000u;
+                  comp->noise_phase = 0u;
+                  comp->noise_out = 0u;
+                  comp->noise_ctr = 0u;
+              }
+          }
+      }
+
+    step_post: |
+      if (comp->audio_enabled == 0u) {
+          return;
+      }
+
+      static const int16_t vol_lut[16] = {
+          32767, 26028, 20675, 16422,
+          13045, 10362,  8231,  6568,
+           5193,  4125,  3277,  2603,
+           2067,  1642,  1304,     0
+      };
+
+      comp->psg_tick_accum += (uint64_t) inst->cycles;
+
+      while (comp->psg_tick_accum >= 16u) {
+          comp->psg_tick_accum -= 16u;
+
+          {
+              uint16_t t0 = (uint16_t) (comp->tone0 & 0x03FFu);
+              uint16_t t1 = (uint16_t) (comp->tone1 & 0x03FFu);
+              uint16_t t2 = (uint16_t) (comp->tone2 & 0x03FFu);
+
+              if (t0 <= 1u) {
+                  comp->out0 = 1u;
+                  comp->ctr0 = 1u;
+              } else {
+                  if (comp->ctr0 == 0u) {
+                      comp->ctr0 = t0;
+                  }
+
+                  comp->ctr0 -= 1u;
+
+                  if (comp->ctr0 == 0u) {
+                      comp->ctr0 = t0;
+                      comp->out0 ^= 1u;
+                  }
+              }
+
+              if (t1 <= 1u) {
+                  comp->out1 = 1u;
+                  comp->ctr1 = 1u;
+              } else {
+                  if (comp->ctr1 == 0u) {
+                      comp->ctr1 = t1;
+                  }
+
+                  comp->ctr1 -= 1u;
+
+                  if (comp->ctr1 == 0u) {
+                      comp->ctr1 = t1;
+                      comp->out1 ^= 1u;
+                  }
+              }
+
+              if (t2 <= 1u) {
+                  comp->out2 = 1u;
+                  comp->ctr2 = 1u;
+              } else {
+                  if (comp->ctr2 == 0u) {
+                      comp->ctr2 = t2;
+                  }
+
+                  comp->ctr2 -= 1u;
+
+                  if (comp->ctr2 == 0u) {
+                      comp->ctr2 = t2;
+                      comp->out2 ^= 1u;
+                  }
+              }
+
+              {
+                  uint16_t noise_period = 16u;
+
+                  switch (comp->noise_reg & 0x03u) {
+                      case 0u:
+                          noise_period = 16u;
+                          break;
+
+                      case 1u:
+                          noise_period = 32u;
+                          break;
+
+                      case 2u:
+                          noise_period = 64u;
+                          break;
+
+                      case 3u:
+                          noise_period = (uint16_t) (comp->tone2 & 0x03FFu);
+                          break;
+
+                      default:
+                          noise_period = 16u;
+                          break;
+                  }
+
+                  if (noise_period <= 1u) {
+                      noise_period = 1u;
+                  }
+
+                  if (comp->noise_ctr == 0u) {
+                      comp->noise_ctr = noise_period;
+                  }
+
+                  comp->noise_ctr -= 1u;
+
+                  if (comp->noise_ctr == 0u) {
+                      comp->noise_ctr = noise_period;
+                      comp->noise_phase ^= 1u;
+
+                      if (comp->noise_phase != 0u) {
+                          uint16_t feedback;
+
+                          if ((comp->noise_reg & 0x04u) != 0u) {
+                              uint16_t tapped = (uint16_t) (comp->lfsr & 0x0009u);
+
+                              tapped ^= (uint16_t) (tapped >> 8);
+                              tapped ^= (uint16_t) (tapped >> 4);
+                              tapped ^= (uint16_t) (tapped >> 2);
+                              tapped ^= (uint16_t) (tapped >> 1);
+
+                              feedback = (uint16_t) (tapped & 0x0001u);
+                          } else {
+                              feedback = (uint16_t) (comp->lfsr & 0x0001u);
+                          }
+
+                          comp->lfsr = (uint16_t) ((comp->lfsr >> 1) | (uint16_t) (feedback << 15));
+                          comp->noise_out = (uint8_t) (comp->lfsr & 0x0001u);
+                      }
+                  }
+              }
+          }
+      }
+
+      comp->sample_accum += (uint64_t) inst->cycles * (uint64_t) comp->sample_rate;
+
+      while (comp->sample_accum >= (uint64_t) CPU_SYSTEM_CLOCK_HZ) {
+          int32_t sa;
+          int32_t sb;
+          int32_t sc;
+          int32_t sn;
+          int32_t mix;
+          int32_t centered;
+          int16_t va = vol_lut[comp->vol0 & 0x0Fu];
+          int16_t vb = vol_lut[comp->vol1 & 0x0Fu];
+          int16_t vc = vol_lut[comp->vol2 & 0x0Fu];
+          int16_t vn = vol_lut[comp->vol3 & 0x0Fu];
+
+          comp->sample_accum -= (uint64_t) CPU_SYSTEM_CLOCK_HZ;
+
+          sa = (((comp->tone0 & 0x03FFu) <= 1u) || comp->out0 != 0u) ? va : -va;
+          sb = (((comp->tone1 & 0x03FFu) <= 1u) || comp->out1 != 0u) ? vb : -vb;
+          sc = (((comp->tone2 & 0x03FFu) <= 1u) || comp->out2 != 0u) ? vc : -vc;
+
+          if ((comp->noise_reg & 0x04u) != 0u) {
+              sn = (comp->noise_out != 0u) ? vn : -vn;
+          } else {
+              sn = (comp->noise_out != 0u) ? vn : 0;
+          }
+
+          mix = sa + sb + sc + sn;
+
+          centered = 128 + (mix / 1024);
+
+          if (centered < 0) {
+              centered = 0;
+          }
+
+          if (centered > 255) {
+              centered = 255;
+          }
+
+          {
+              int32_t filtered = (int32_t) comp->last_mix + ((centered - (int32_t) comp->last_mix) / 5);
+
+              if (filtered < 0) {
+                  filtered = 0;
+              }
+
+              if (filtered > 255) {
+                  filtered = 255;
+              }
+
+              comp->last_mix = (uint8_t) filtered;
+          }
+
+          {
+              uint64_t sig_args[2] = {
+                  (uint64_t) comp->last_mix,
+                  cpu->total_cycles
+              };
+
+              cpu_component_emit_signal(cpu, "sms_psg0", "audio_level", sig_args, 2);
+          }
+      }
+
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

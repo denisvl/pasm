@@ -1,0 +1,37 @@
+metadata:
+  id: keyboard0
+  type: keyboard
+  model: zx_spectrum_48k_matrix
+  version: "1.0"
+
+state:
+  - name: last_row_mask
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: read_matrix
+      args: [u8]
+      returns: u8
+    - name: host_matrix
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_matrix: |
+      comp->last_row_mask = (uint8_t)(args[0] & 0xFFu);
+      uint64_t result = cpu_component_call(cpu, "keyboard0", "host_matrix", args, argc);
+      if (result == 0u) result = 0xFFu;
+      return result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

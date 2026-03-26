@@ -1,0 +1,1358 @@
+metadata:
+  id: cpc_io
+  type: io_controller
+  model: amstrad_cpc464_io
+  version: "1.0"
+
+clock_hz: 4000000
+
+state:
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: tstate_accum
+    type: uint64_t
+    initial: "0"
+  - name: irq_accum
+    type: uint64_t
+    initial: "0"
+  - name: ga_hsync_accum
+    type: uint64_t
+    initial: "0"
+  - name: ga_hsync_count
+    type: uint8_t
+    initial: "0"
+  - name: ga_irq_window
+    type: uint8_t
+    initial: "0"
+  - name: ga_irq_pending
+    type: uint8_t
+    initial: "0"
+  - name: ga_irq_issued
+    type: uint8_t
+    initial: "0"
+  - name: audio_emit_accum
+    type: uint64_t
+    initial: "0"
+  - name: lower_rom
+    type: uint8_t *
+    initial: "NULL"
+  - name: upper_rom
+    type: uint8_t *
+    initial: "NULL"
+  - name: lower_rom_enabled
+    type: uint8_t
+    initial: "1"
+  - name: upper_rom_enabled
+    type: uint8_t
+    initial: "1"
+  - name: ga_pen_select
+    type: uint8_t
+    initial: "0"
+  - name: ga_mode
+    type: uint8_t
+    initial: "1"
+  - name: ga_inks
+    type: uint8_t *
+    initial: "NULL"
+  - name: crtc_index
+    type: uint8_t
+    initial: "0"
+  - name: crtc_regs
+    type: uint8_t *
+    initial: "NULL"
+  - name: ppi_port_a
+    type: uint8_t
+    initial: "0xFF"
+  - name: ppi_port_b
+    type: uint8_t
+    initial: "0xFF"
+  - name: ppi_port_c
+    type: uint8_t
+    initial: "0"
+  - name: ppi_ctrl
+    type: uint8_t
+    initial: "0x82"
+  - name: tape_level
+    type: uint8_t
+    initial: "0x80"
+  - name: printer_ready
+    type: uint8_t
+    initial: "1"
+  - name: jumpers
+    type: uint8_t
+    initial: "0x7F"
+  - name: ay_regs
+    type: uint8_t *
+    initial: "NULL"
+  - name: ay_reg_index
+    type: uint8_t
+    initial: "0"
+  - name: ay_ctrl_last
+    type: uint8_t
+    initial: "0"
+  - name: ay_level
+    type: uint8_t
+    initial: "128"
+  - name: ay_last_mix
+    type: uint8_t
+    initial: "128"
+  - name: ay_phase_a
+    type: uint32_t
+    initial: "0"
+  - name: ay_phase_b
+    type: uint32_t
+    initial: "0"
+  - name: ay_phase_c
+    type: uint32_t
+    initial: "0"
+  - name: ay_phase_noise
+    type: uint32_t
+    initial: "0"
+  - name: ay_tone_a
+    type: uint8_t
+    initial: "1"
+  - name: ay_tone_b
+    type: uint8_t
+    initial: "1"
+  - name: ay_tone_c
+    type: uint8_t
+    initial: "1"
+  - name: ay_noise_bit
+    type: uint8_t
+    initial: "1"
+  - name: ay_noise_lfsr
+    type: uint32_t
+    initial: "0x1FFFF"
+  - name: ay_env_phase
+    type: uint32_t
+    initial: "0"
+  - name: ay_env_value
+    type: uint8_t
+    initial: "0"
+  - name: ay_env_dir
+    type: int8_t
+    initial: "-1"
+  - name: ay_env_hold
+    type: uint8_t
+    initial: "0"
+  - name: crtc_ma
+    type: uint16_t
+    initial: "0"
+  - name: crtc_ra
+    type: uint8_t
+    initial: "0"
+  - name: crtc_hc
+    type: uint8_t
+    initial: "0"
+  - name: crtc_vc
+    type: uint8_t
+    initial: "0"
+  - name: crtc_vadj
+    type: uint8_t
+    initial: "0"
+  - name: crtc_hsync
+    type: uint8_t
+    initial: "0"
+  - name: crtc_vsync
+    type: uint8_t
+    initial: "0"
+  - name: crtc_display
+    type: uint8_t
+    initial: "0"
+  - name: display_active
+    type: uint8_t
+    initial: "0"
+  - name: crtc_char_accum
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_read_row
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32]
+    - name: audio_level
+      args: [u8, u64]
+    - name: irq_edge
+      args: [u8]
+
+maps:
+  memory:
+    ranges:
+      - name: cpc_mem
+        start: 0x0000
+        size: 0x10000
+        access: [read, write]
+  ports:
+    read:
+      - name: ppi_port_a_read
+        mask: 0xFF00
+        value: 0xF400
+      - name: ppi_port_b_read
+        mask: 0xFF00
+        value: 0xF500
+      - name: ppi_port_c_read
+        mask: 0xFF00
+        value: 0xF600
+      - name: ppi_ctrl_read
+        mask: 0xFF00
+        value: 0xF700
+    write:
+      - name: gate_array_write
+        mask: 0xC000
+        value: 0x4000
+      - name: crtc_index_write
+        mask: 0xFF00
+        value: 0xBC00
+      - name: crtc_data_write
+        mask: 0xFF00
+        value: 0xBD00
+      - name: ppi_port_a_write
+        mask: 0xFF00
+        value: 0xF400
+      - name: ppi_port_b_write
+        mask: 0xFF00
+        value: 0xF500
+      - name: ppi_port_c_write
+        mask: 0xFF00
+        value: 0xF600
+      - name: ppi_ctrl_write
+        mask: 0xFF00
+        value: 0xF700
+
+behavior:
+  snippets:
+    init: |
+      if (comp->lower_rom == NULL) {
+          comp->lower_rom = (uint8_t *)calloc(0x4000u, sizeof(uint8_t));
+      }
+      if (comp->upper_rom == NULL) {
+          comp->upper_rom = (uint8_t *)calloc(0x4000u, sizeof(uint8_t));
+      }
+      if (comp->ga_inks == NULL) {
+          comp->ga_inks = (uint8_t *)calloc(17u, sizeof(uint8_t));
+      }
+      if (comp->crtc_regs == NULL) {
+          comp->crtc_regs = (uint8_t *)calloc(32u, sizeof(uint8_t));
+      }
+      if (comp->ay_regs == NULL) {
+          comp->ay_regs = (uint8_t *)calloc(16u, sizeof(uint8_t));
+      }
+
+      if (comp->lower_rom != NULL) {
+          FILE *f = fopen("examples/roms/OS_464.ROM", "rb");
+          if (f != NULL) {
+              (void)fread(comp->lower_rom, 1u, 0x4000u, f);
+              fclose(f);
+          }
+      }
+      if (comp->upper_rom != NULL) {
+          FILE *f = fopen("examples/roms/BASIC_1.0.ROM", "rb");
+          if (f != NULL) {
+              (void)fread(comp->upper_rom, 1u, 0x4000u, f);
+              fclose(f);
+          }
+      }
+    reset: |
+      comp->frame_counter = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->tstate_accum = 0u;
+      comp->irq_accum = 0u;
+      comp->ga_hsync_accum = 0u;
+      comp->ga_hsync_count = 0u;
+      comp->ga_irq_pending = 0u;
+      comp->ga_irq_issued = 0u;
+      comp->ga_irq_window = 0u;
+      comp->audio_emit_accum = 0u;
+      comp->lower_rom_enabled = 1u;
+      comp->upper_rom_enabled = 1u;
+      comp->ga_pen_select = 0u;
+      comp->ga_mode = 1u;
+      if (comp->ga_inks != NULL) {
+          for (uint32_t i = 0u; i < 17u; ++i) comp->ga_inks[i] = 0u;
+          comp->ga_inks[0] = 0u;
+          comp->ga_inks[1] = 24u;
+          comp->ga_inks[2] = 11u;
+          comp->ga_inks[3] = 6u;
+          comp->ga_inks[16] = 0u;
+      }
+      comp->crtc_index = 0u;
+      if (comp->crtc_regs != NULL) {
+          memset(comp->crtc_regs, 0, 32u);
+          /* CPC 6845 power-on defaults used by firmware assumptions. */
+          comp->crtc_regs[0] = 63u;
+          comp->crtc_regs[1] = 40u;
+          comp->crtc_regs[2] = 46u;
+          comp->crtc_regs[3] = 0x8Eu;
+          comp->crtc_regs[4] = 38u;
+          comp->crtc_regs[5] = 0u;
+          comp->crtc_regs[6] = 25u;
+          comp->crtc_regs[7] = 30u;
+          comp->crtc_regs[8] = 0u;
+          comp->crtc_regs[9] = 7u;
+          comp->crtc_regs[10] = 0u;
+          comp->crtc_regs[11] = 0u;
+          comp->crtc_regs[12] = 0x30u;
+          comp->crtc_regs[13] = 0x00u;
+          comp->crtc_regs[14] = 0u;
+          comp->crtc_regs[15] = 0u;
+      }
+      comp->ppi_port_a = 0xFFu;
+      comp->ppi_port_b = 0xFFu;
+      comp->ppi_port_c = 0x00u;
+      comp->ppi_ctrl = 0x82u;
+      comp->tape_level = 0x80u;
+      comp->printer_ready = 1u;
+      comp->jumpers = 0x7Fu;
+      if (comp->ay_regs != NULL) {
+          memset(comp->ay_regs, 0, 16u);
+          /* AY port A must default to input mode for CPC keyboard scanning. */
+          comp->ay_regs[7] = 0xFFu;
+          comp->ay_regs[14] = 0xFFu;
+      }
+      comp->ay_reg_index = 0u;
+      comp->ay_ctrl_last = 0u;
+      comp->ay_level = 128u;
+      comp->ay_last_mix = 128u;
+      comp->ay_phase_a = 0u;
+      comp->ay_phase_b = 0u;
+      comp->ay_phase_c = 0u;
+      comp->ay_phase_noise = 0u;
+      comp->ay_tone_a = 1u;
+      comp->ay_tone_b = 1u;
+      comp->ay_tone_c = 1u;
+      comp->ay_noise_bit = 1u;
+      comp->ay_noise_lfsr = 0x1FFFFu;
+      comp->ay_env_phase = 0u;
+      comp->ay_env_value = 0u;
+      comp->ay_env_dir = -1;
+      comp->ay_env_hold = 0u;
+      comp->crtc_ma = 0u;
+      comp->crtc_ra = 0u;
+      comp->crtc_hc = 0u;
+      comp->crtc_vc = 0u;
+      comp->crtc_vadj = 0u;
+      comp->crtc_hsync = 0u;
+      comp->crtc_vsync = 0u;
+      comp->crtc_display = 0u;
+      comp->display_active = 0u;
+      comp->crtc_char_accum = 0u;
+    destroy: |
+      if (comp->lower_rom != NULL) {
+          free(comp->lower_rom);
+          comp->lower_rom = NULL;
+      }
+      if (comp->upper_rom != NULL) {
+          free(comp->upper_rom);
+          comp->upper_rom = NULL;
+      }
+      if (comp->ga_inks != NULL) {
+          free(comp->ga_inks);
+          comp->ga_inks = NULL;
+      }
+      if (comp->crtc_regs != NULL) {
+          free(comp->crtc_regs);
+          comp->crtc_regs = NULL;
+      }
+      if (comp->ay_regs != NULL) {
+          free(comp->ay_regs);
+          comp->ay_regs = NULL;
+      }
+    mem_read_pre: |
+      if (comp->lower_rom_enabled != 0u && addr < 0x4000u && comp->lower_rom != NULL) {
+          return comp->lower_rom[addr & 0x3FFFu];
+      }
+      if (comp->upper_rom_enabled != 0u && addr >= 0xC000u && comp->upper_rom != NULL) {
+          return comp->upper_rom[(uint16_t)(addr - 0xC000u) & 0x3FFFu];
+      }
+      if (comp->display_active != 0u) {
+          uint64_t slot = cpu->total_cycles & 0x03u;
+          if (slot != 0u) {
+              uint64_t wait = 4u - slot;
+              cpu->total_cycles += wait;
+              comp->tstate_accum += wait;
+              comp->ga_hsync_accum += wait;
+              comp->audio_emit_accum += wait;
+          }
+      }
+      return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+    mem_write_pre: |
+      if (comp->display_active != 0u) {
+          uint64_t slot = cpu->total_cycles & 0x03u;
+          if (slot != 0u) {
+              uint64_t wait = 4u - slot;
+              cpu->total_cycles += wait;
+              comp->tstate_accum += wait;
+              comp->ga_hsync_accum += wait;
+              comp->audio_emit_accum += wait;
+          }
+      }
+      if ((uint64_t)addr < cpu->memory_size) {
+          cpu->memory[addr] = value;
+      }
+    port_read_post: |
+      uint16_t ph = (uint16_t)(port & 0xFF00u);
+      if (ph == 0xF400u) {
+          static int kb_trace_init = 0;
+          static int kb_trace_on = 0;
+          static uint32_t kb_trace_count = 0u;
+          static FILE *kb_trace_fp = NULL;
+          if (kb_trace_init == 0) {
+              const char *env = getenv("PASM_CPC_KB_TRACE");
+              kb_trace_on = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              kb_trace_init = 1;
+              if (kb_trace_on != 0) {
+                  kb_trace_fp = fopen("log/cpc_kb_trace.log", "w");
+                  if (kb_trace_fp == NULL) kb_trace_fp = stderr;
+                  fprintf(kb_trace_fp, "# cycle,pc,ctrl,row,reg,reg7,reg14,kb,ret\n");
+                  fflush(kb_trace_fp);
+              }
+          }
+          uint8_t pa_input = (uint8_t)((comp->ppi_ctrl & 0x10u) != 0u);
+          uint8_t ctrl = (uint8_t)((comp->ppi_port_c >> 6u) & 0x03u);
+          if (pa_input == 0u) {
+              value = comp->ppi_port_a;
+          } else if (ctrl == 0x01u) {
+              uint8_t ridx = (uint8_t)(comp->ay_reg_index & 0x0Fu);
+              if (ridx == 14u && comp->ay_regs != NULL) {
+                  uint8_t row = (uint8_t)(comp->ppi_port_c & 0x0Fu);
+                  uint64_t cb_args[1] = { (uint64_t)row };
+                  uint8_t kb = (uint8_t)cpu_component_call(cpu, "cpc_io", "keyboard_read_row", cb_args, 1);
+                  if ((comp->ay_regs[7] & 0x40u) == 0u) {
+                      value = kb;
+                  } else {
+                      value = (uint8_t)(comp->ay_regs[14] & kb);
+                  }
+                  comp->ppi_port_a = value;
+                  if (kb_trace_on != 0 && kb_trace_count < 5000u) {
+                      fprintf(
+                          kb_trace_fp,
+                          "%llu,%04X,%u,%u,%u,%02X,%02X,%02X,%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)ctrl,
+                          (unsigned)row,
+                          (unsigned)ridx,
+                          (unsigned)comp->ay_regs[7],
+                          (unsigned)comp->ay_regs[14],
+                          (unsigned)kb,
+                          (unsigned)value
+                      );
+                      kb_trace_count += 1u;
+                      if ((kb_trace_count & 63u) == 0u) fflush(kb_trace_fp);
+                  }
+              } else {
+                  value = (comp->ay_regs != NULL) ? comp->ay_regs[ridx] : 0xFFu;
+                  comp->ppi_port_a = value;
+              }
+          } else {
+              value = 0xFFu;
+          }
+      } else if (ph == 0xF500u) {
+          uint8_t pb_input = (uint8_t)((comp->ppi_ctrl & 0x02u) != 0u);
+          if (pb_input != 0u) {
+              uint8_t v = (uint8_t)(comp->tape_level & 0x80u);
+              if (comp->printer_ready == 0u) v |= 0x40u;
+              v = (uint8_t)(v | (comp->jumpers & 0x7Fu));
+              if (comp->crtc_vsync != 0u) v |= 0x01u;
+              value = v;
+          } else {
+              value = comp->ppi_port_b;
+          }
+      } else if (ph == 0xF600u) {
+          uint8_t c = comp->ppi_port_c;
+          uint8_t direction = (uint8_t)(comp->ppi_ctrl & 0x09u);
+          if (direction != 0u) {
+              if ((direction & 0x08u) != 0u) {
+                  uint8_t val = (uint8_t)(comp->ppi_port_c & 0xC0u);
+                  c = (uint8_t)(c & 0x0Fu);
+                  if (val == 0xC0u) val = 0x80u;
+                  c = (uint8_t)(c | val | 0x20u);
+                  if ((comp->tape_level & 0x10u) != 0u) {
+                      c = (uint8_t)(c | 0x10u);
+                  }
+              }
+          }
+          value = c;
+      } else if (ph == 0xF700u) {
+          value = comp->ppi_ctrl;
+      }
+    port_write_pre: |
+      uint16_t ph = (uint16_t)(port & 0xFF00u);
+      static int ay_trace_init = 0;
+      static int ay_trace_on = 0;
+      static uint32_t ay_trace_count = 0u;
+      static FILE *ay_trace_fp = NULL;
+      static int ppi_trace_init = 0;
+      static int ppi_trace_on = 0;
+      static uint32_t ppi_trace_count = 0u;
+      static FILE *ppi_trace_fp = NULL;
+      if (ay_trace_init == 0) {
+          const char *env = getenv("PASM_CPC_KB_TRACE");
+          ay_trace_on = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          ay_trace_init = 1;
+          if (ay_trace_on != 0) {
+              ay_trace_fp = fopen("log/cpc_ay_trace.log", "w");
+              if (ay_trace_fp == NULL) ay_trace_fp = stderr;
+              fprintf(ay_trace_fp, "# cycle,pc,port,op,ridx,data,reg7,reg14,pc6_7,ppiA\n");
+              fflush(ay_trace_fp);
+          }
+      }
+      if (ppi_trace_init == 0) {
+          const char *env = getenv("PASM_CPC_KB_TRACE");
+          ppi_trace_on = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          ppi_trace_init = 1;
+          if (ppi_trace_on != 0) {
+              ppi_trace_fp = fopen("log/cpc_ppi_trace.log", "w");
+              if (ppi_trace_fp == NULL) ppi_trace_fp = stderr;
+              fprintf(ppi_trace_fp, "# cycle,pc,port,value,ppi_ctrl,ppi_a,ppi_b,ppi_c\n");
+              fflush(ppi_trace_fp);
+          }
+      }
+
+      if ((port & 0xC000u) == 0x4000u) {
+          uint8_t cmd = (uint8_t)(value & 0xC0u);
+          if (cmd == 0x00u) {
+              uint8_t pen = (uint8_t)(value & 0x1Fu);
+              comp->ga_pen_select = (pen <= 16u) ? pen : 16u;
+          } else if (cmd == 0x40u) {
+              if (comp->ga_inks != NULL) {
+                  comp->ga_inks[comp->ga_pen_select] = (uint8_t)(value & 0x1Fu);
+              }
+          } else if (cmd == 0x80u) {
+              comp->ga_mode = (uint8_t)(value & 0x03u);
+              comp->lower_rom_enabled = ((value & 0x04u) == 0u) ? 1u : 0u;
+              comp->upper_rom_enabled = ((value & 0x08u) == 0u) ? 1u : 0u;
+              if ((value & 0x10u) != 0u) {
+                  comp->ga_hsync_count = 0u;
+                  comp->ga_irq_pending = 0u;
+                  comp->ga_irq_issued = 0u;
+              }
+          }
+          return;
+      }
+
+      if (ph == 0xBC00u) {
+          comp->crtc_index = (uint8_t)(value & 0x1Fu);
+          return;
+      }
+      if (ph == 0xBD00u) {
+          if (comp->crtc_regs != NULL) {
+              comp->crtc_regs[comp->crtc_index & 0x1Fu] = value;
+          }
+          return;
+      }
+
+      if (ph == 0xF400u) {
+          if ((comp->ppi_ctrl & 0x10u) == 0u) {
+              comp->ppi_port_a = value;
+          }
+          if ((comp->ppi_ctrl & 0x08u) == 0u && comp->ay_regs != NULL) {
+              uint8_t ctrl = (uint8_t)(comp->ppi_port_c & 0xC0u);
+              if ((ctrl & 0x80u) != 0u && (comp->ay_ctrl_last & 0x80u) == 0u) {
+                  uint8_t psg_data = comp->ppi_port_a;
+                  if (ctrl == 0xC0u) {
+                      comp->ay_reg_index = (uint8_t)(psg_data & 0x0Fu);
+                      if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                          fprintf(
+                              ay_trace_fp,
+                              "%llu,%04X,%04X,SEL,%u,%02X,%02X,%02X,%u,%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc,
+                              (unsigned)port,
+                              (unsigned)comp->ay_reg_index,
+                              (unsigned)psg_data,
+                              (unsigned)comp->ay_regs[7],
+                              (unsigned)comp->ay_regs[14],
+                              (unsigned)(comp->ppi_port_c & 0xC0u),
+                              (unsigned)comp->ppi_port_a
+                          );
+                          ay_trace_count += 1u;
+                          if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
+                      }
+                  } else if (ctrl == 0x80u) {
+                      uint8_t ridx = (uint8_t)(comp->ay_reg_index & 0x0Fu);
+                      comp->ay_regs[ridx] = psg_data;
+                      if (ridx == 13u) {
+                          uint8_t shape = (uint8_t)(psg_data & 0x0Fu);
+                          uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                          comp->ay_env_value = attack != 0u ? 0u : 15u;
+                          comp->ay_env_dir = attack != 0u ? 1 : -1;
+                          comp->ay_env_hold = 0u;
+                          comp->ay_env_phase = 0u;
+                      }
+                      {
+                          uint8_t v0 = (uint8_t)(comp->ay_regs[8] & 0x0Fu);
+                          uint8_t v1 = (uint8_t)(comp->ay_regs[9] & 0x0Fu);
+                          uint8_t v2 = (uint8_t)(comp->ay_regs[10] & 0x0Fu);
+                          uint8_t level = (uint8_t)(((uint32_t)(v0 + v1 + v2) * 255u) / 45u);
+                          comp->ay_level = level;
+                      }
+                      if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                          fprintf(
+                              ay_trace_fp,
+                              "%llu,%04X,%04X,WR,%u,%02X,%02X,%02X,%u,%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc,
+                              (unsigned)port,
+                              (unsigned)ridx,
+                              (unsigned)psg_data,
+                              (unsigned)comp->ay_regs[7],
+                              (unsigned)comp->ay_regs[14],
+                              (unsigned)(comp->ppi_port_c & 0xC0u),
+                              (unsigned)comp->ppi_port_a
+                          );
+                          ay_trace_count += 1u;
+                          if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
+                      }
+                  }
+              }
+              comp->ay_ctrl_last = (uint8_t)(comp->ppi_port_c & 0xC0u);
+          }
+          if (ppi_trace_on != 0 && ppi_trace_count < 5000u) {
+              fprintf(
+                  ppi_trace_fp,
+                  "%llu,%04X,%04X,%02X,%02X,%02X,%02X,%02X\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)cpu->pc,
+                  (unsigned)port,
+                  (unsigned)value,
+                  (unsigned)comp->ppi_ctrl,
+                  (unsigned)comp->ppi_port_a,
+                  (unsigned)comp->ppi_port_b,
+                  (unsigned)comp->ppi_port_c
+              );
+              ppi_trace_count += 1u;
+              if ((ppi_trace_count & 63u) == 0u) fflush(ppi_trace_fp);
+          }
+          return;
+      }
+      if (ph == 0xF500u) {
+          if ((comp->ppi_ctrl & 0x02u) == 0u) {
+              comp->ppi_port_b = value;
+          }
+          if (ppi_trace_on != 0 && ppi_trace_count < 5000u) {
+              fprintf(
+                  ppi_trace_fp,
+                  "%llu,%04X,%04X,%02X,%02X,%02X,%02X,%02X\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)cpu->pc,
+                  (unsigned)port,
+                  (unsigned)value,
+                  (unsigned)comp->ppi_ctrl,
+                  (unsigned)comp->ppi_port_a,
+                  (unsigned)comp->ppi_port_b,
+                  (unsigned)comp->ppi_port_c
+              );
+              ppi_trace_count += 1u;
+              if ((ppi_trace_count & 63u) == 0u) fflush(ppi_trace_fp);
+          }
+          return;
+      }
+      if (ph == 0xF700u) {
+          if ((value & 0x80u) != 0u) {
+              /* 8255 mode set/control word. */
+              comp->ppi_ctrl = value;
+              if ((comp->ppi_ctrl & 0x08u) == 0u) {
+                  comp->ay_ctrl_last = (uint8_t)(comp->ppi_port_c & 0xC0u);
+              }
+          } else {
+              /* 8255 bit set/reset on Port C. */
+              uint8_t bit = (uint8_t)((value >> 1u) & 0x07u);
+              if ((value & 0x01u) != 0u) {
+                  comp->ppi_port_c = (uint8_t)(comp->ppi_port_c | (uint8_t)(1u << bit));
+              } else {
+                  comp->ppi_port_c = (uint8_t)(comp->ppi_port_c & (uint8_t)~(uint8_t)(1u << bit));
+              }
+              if ((comp->ppi_ctrl & 0x08u) == 0u && comp->ay_regs != NULL) {
+                  uint8_t ctrl = (uint8_t)(comp->ppi_port_c & 0xC0u);
+                  if ((ctrl & 0x80u) != 0u && (comp->ay_ctrl_last & 0x80u) == 0u) {
+                      uint8_t psg_data = comp->ppi_port_a;
+                      if (ctrl == 0xC0u) {
+                          comp->ay_reg_index = (uint8_t)(psg_data & 0x0Fu);
+                          if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                              fprintf(
+                                  ay_trace_fp,
+                                  "%llu,%04X,%04X,SEL,%u,%02X,%02X,%02X,%u,%02X\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)cpu->pc,
+                                  (unsigned)port,
+                                  (unsigned)comp->ay_reg_index,
+                                  (unsigned)psg_data,
+                                  (unsigned)comp->ay_regs[7],
+                                  (unsigned)comp->ay_regs[14],
+                                  (unsigned)ctrl,
+                                  (unsigned)comp->ppi_port_a
+                              );
+                              ay_trace_count += 1u;
+                              if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
+                          }
+                      } else if (ctrl == 0x80u) {
+                          uint8_t ridx = (uint8_t)(comp->ay_reg_index & 0x0Fu);
+                          comp->ay_regs[ridx] = psg_data;
+                          if (ridx == 13u) {
+                              uint8_t shape = (uint8_t)(psg_data & 0x0Fu);
+                              uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                              comp->ay_env_value = attack != 0u ? 0u : 15u;
+                              comp->ay_env_dir = attack != 0u ? 1 : -1;
+                              comp->ay_env_hold = 0u;
+                              comp->ay_env_phase = 0u;
+                          }
+                          {
+                              uint8_t v0 = (uint8_t)(comp->ay_regs[8] & 0x0Fu);
+                              uint8_t v1 = (uint8_t)(comp->ay_regs[9] & 0x0Fu);
+                              uint8_t v2 = (uint8_t)(comp->ay_regs[10] & 0x0Fu);
+                              uint8_t level = (uint8_t)(((uint32_t)(v0 + v1 + v2) * 255u) / 45u);
+                              comp->ay_level = level;
+                          }
+                          if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                              fprintf(
+                                  ay_trace_fp,
+                                  "%llu,%04X,%04X,WR,%u,%02X,%02X,%02X,%u,%02X\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)cpu->pc,
+                                  (unsigned)port,
+                                  (unsigned)ridx,
+                                  (unsigned)psg_data,
+                                  (unsigned)comp->ay_regs[7],
+                                  (unsigned)comp->ay_regs[14],
+                                  (unsigned)ctrl,
+                                  (unsigned)comp->ppi_port_a
+                              );
+                              ay_trace_count += 1u;
+                              if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
+                          }
+                      }
+                  }
+                  comp->ay_ctrl_last = (uint8_t)(comp->ppi_port_c & 0xC0u);
+              }
+          }
+          if (ppi_trace_on != 0 && ppi_trace_count < 5000u) {
+              fprintf(
+                  ppi_trace_fp,
+                  "%llu,%04X,%04X,%02X,%02X,%02X,%02X,%02X\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)cpu->pc,
+                  (unsigned)port,
+                  (unsigned)value,
+                  (unsigned)comp->ppi_ctrl,
+                  (unsigned)comp->ppi_port_a,
+                  (unsigned)comp->ppi_port_b,
+                  (unsigned)comp->ppi_port_c
+              );
+              ppi_trace_count += 1u;
+              if ((ppi_trace_count & 63u) == 0u) fflush(ppi_trace_fp);
+          }
+          return;
+      }
+      if (ph == 0xF600u) {
+          if ((comp->ppi_ctrl & 0x08u) == 0u) {
+              comp->ppi_port_c = (uint8_t)((comp->ppi_port_c & 0x0Fu) | (value & 0xF0u));
+          }
+          if ((comp->ppi_ctrl & 0x01u) == 0u) {
+              comp->ppi_port_c = (uint8_t)((comp->ppi_port_c & 0xF0u) | (value & 0x0Fu));
+          }
+          if ((comp->ppi_ctrl & 0x08u) == 0u && comp->ay_regs != NULL) {
+              uint8_t ctrl = (uint8_t)(comp->ppi_port_c & 0xC0u);
+              if ((ctrl & 0x80u) != 0u && (comp->ay_ctrl_last & 0x80u) == 0u) {
+                  uint8_t psg_data = comp->ppi_port_a;
+                  if (ctrl == 0xC0u) {
+                      comp->ay_reg_index = (uint8_t)(psg_data & 0x0Fu);
+                      if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                          fprintf(
+                              ay_trace_fp,
+                              "%llu,%04X,%04X,SEL,%u,%02X,%02X,%02X,%u,%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc,
+                              (unsigned)port,
+                              (unsigned)comp->ay_reg_index,
+                              (unsigned)psg_data,
+                              (unsigned)comp->ay_regs[7],
+                              (unsigned)comp->ay_regs[14],
+                              (unsigned)(comp->ppi_port_c & 0xC0u),
+                              (unsigned)comp->ppi_port_a
+                          );
+                          ay_trace_count += 1u;
+                          if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
+                      }
+                  } else if (ctrl == 0x80u) {
+                      uint8_t ridx = (uint8_t)(comp->ay_reg_index & 0x0Fu);
+                      comp->ay_regs[ridx] = psg_data;
+                      if (ridx == 13u) {
+                          uint8_t shape = (uint8_t)(psg_data & 0x0Fu);
+                          uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                          comp->ay_env_value = attack != 0u ? 0u : 15u;
+                          comp->ay_env_dir = attack != 0u ? 1 : -1;
+                          comp->ay_env_hold = 0u;
+                          comp->ay_env_phase = 0u;
+                      }
+                      {
+                          uint8_t v0 = (uint8_t)(comp->ay_regs[8] & 0x0Fu);
+                          uint8_t v1 = (uint8_t)(comp->ay_regs[9] & 0x0Fu);
+                          uint8_t v2 = (uint8_t)(comp->ay_regs[10] & 0x0Fu);
+                          uint8_t level = (uint8_t)(((uint32_t)(v0 + v1 + v2) * 255u) / 45u);
+                          comp->ay_level = level;
+                      }
+                      if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                          fprintf(
+                              ay_trace_fp,
+                              "%llu,%04X,%04X,WR,%u,%02X,%02X,%02X,%u,%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc,
+                              (unsigned)port,
+                              (unsigned)ridx,
+                              (unsigned)psg_data,
+                              (unsigned)comp->ay_regs[7],
+                              (unsigned)comp->ay_regs[14],
+                              (unsigned)(comp->ppi_port_c & 0xC0u),
+                              (unsigned)comp->ppi_port_a
+                          );
+                          ay_trace_count += 1u;
+                          if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
+                      }
+                  }
+              }
+              comp->ay_ctrl_last = (uint8_t)(comp->ppi_port_c & 0xC0u);
+          }
+          if (ppi_trace_on != 0 && ppi_trace_count < 5000u) {
+              fprintf(
+                  ppi_trace_fp,
+                  "%llu,%04X,%04X,%02X,%02X,%02X,%02X,%02X\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)cpu->pc,
+                  (unsigned)port,
+                  (unsigned)value,
+                  (unsigned)comp->ppi_ctrl,
+                  (unsigned)comp->ppi_port_a,
+                  (unsigned)comp->ppi_port_b,
+                  (unsigned)comp->ppi_port_c
+              );
+              ppi_trace_count += 1u;
+              if ((ppi_trace_count & 63u) == 0u) fflush(ppi_trace_fp);
+          }
+          return;
+      }
+    step_post: |
+      static uint32_t framebuf[320u * 200u];
+      static const uint32_t cpc_hw_palette[32] = {
+          0xFF808080u, 0xFF808080u, 0xFF00FF80u, 0xFFFFFF80u,
+          0xFF000080u, 0xFFFF0080u, 0xFF008080u, 0xFFFF8080u,
+          0xFFFF0080u, 0xFFFFFF80u, 0xFFFFFF00u, 0xFFFFFFFFu,
+          0xFFFF0000u, 0xFFFF00FFu, 0xFFFF8000u, 0xFFFF80FFu,
+          0xFF000080u, 0xFF00FF80u, 0xFF00FF00u, 0xFF00FFFFu,
+          0xFF000000u, 0xFF0000FFu, 0xFF008000u, 0xFF0080FFu,
+          0xFF800080u, 0xFF80FF80u, 0xFF80FF00u, 0xFF80FFFFu,
+          0xFF800000u, 0xFF8000FFu, 0xFF808000u, 0xFF8080FFu
+      };
+      static const uint8_t ay_vol_table[16] = {
+          0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 9u, 11u, 14u, 17u, 21u, 26u, 31u, 38u
+      };
+      static int irq_trace_init = 0;
+      static int irq_trace_on = 0;
+      static uint32_t irq_trace_count = 0u;
+      static FILE *irq_trace_fp = NULL;
+      if (irq_trace_init == 0) {
+          const char *env = getenv("PASM_CPC_IRQ_TRACE");
+          irq_trace_on = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          irq_trace_init = 1;
+          if (irq_trace_on != 0) {
+              irq_trace_fp = fopen("log/cpc_irq_trace.log", "w");
+              if (irq_trace_fp == NULL) irq_trace_fp = stderr;
+              fprintf(irq_trace_fp, "# cycle,pc,iff1,im,hsync_count,pending,issued,window,hsync,vsync\n");
+              fflush(irq_trace_fp);
+          }
+      }
+
+      uint64_t now = cpu->total_cycles;
+      uint64_t delta = 0u;
+      if (comp->last_cycle == 0u) {
+          comp->last_cycle = now;
+      }
+      if (now >= comp->last_cycle) {
+          delta = now - comp->last_cycle;
+          comp->tstate_accum += delta;
+          comp->irq_accum += delta;
+          comp->ga_hsync_accum += delta;
+          comp->audio_emit_accum += delta;
+      }
+      comp->last_cycle = now;
+
+      {
+          uint64_t cycles = delta;
+          uint8_t htotal = 63u;
+          uint8_t hdisp = 40u;
+          uint8_t hsync_pos = 46u;
+          uint8_t hsync_w = 8u;
+          uint8_t vtotal = 38u;
+          uint8_t vadjust = 0u;
+          uint8_t vdisp = 25u;
+          uint8_t vsync_pos = 30u;
+          uint8_t vsync_w = 2u;
+          uint8_t raster_max = 7u;
+          uint8_t skew = 0u;
+          if (comp->crtc_regs != NULL) {
+              htotal = comp->crtc_regs[0];
+              hdisp = comp->crtc_regs[1];
+              hsync_pos = comp->crtc_regs[2];
+              hsync_w = (uint8_t)(comp->crtc_regs[3] & 0x0Fu);
+              vtotal = (uint8_t)(comp->crtc_regs[4] & 0x7Fu);
+              vadjust = (uint8_t)(comp->crtc_regs[5] & 0x1Fu);
+              vdisp = (uint8_t)(comp->crtc_regs[6] & 0x7Fu);
+              vsync_pos = (uint8_t)(comp->crtc_regs[7] & 0x7Fu);
+              vsync_w = (uint8_t)((comp->crtc_regs[3] >> 4u) & 0x0Fu);
+              raster_max = (uint8_t)(comp->crtc_regs[9] & 0x1Fu);
+              skew = (uint8_t)((comp->crtc_regs[8] >> 4u) & 0x03u);
+          }
+          if (hsync_w == 0u) hsync_w = 16u;
+          if (vsync_w == 0u) vsync_w = 16u;
+          if (htotal == 0u) htotal = 1u;
+          while (cycles > 0u) {
+              uint8_t step = (cycles >= 4u) ? 4u : (uint8_t)cycles;
+              comp->crtc_char_accum = (uint8_t)(comp->crtc_char_accum + step);
+              cycles -= step;
+              if (comp->crtc_char_accum < 4u) continue;
+              comp->crtc_char_accum = (uint8_t)(comp->crtc_char_accum - 4u);
+
+              /* Horizontal character tick. */
+              comp->crtc_hc = (uint8_t)(comp->crtc_hc + 1u);
+              if (comp->crtc_hc == hsync_pos) {
+                  comp->crtc_hsync = 1u;
+                  comp->ga_hsync_count = (uint8_t)(comp->ga_hsync_count + 1u);
+                  if (comp->ga_hsync_count >= 52u) {
+                      comp->ga_hsync_count = 0u;
+                      comp->ga_irq_pending = 1u;
+                      comp->ga_irq_issued = 0u;
+                      comp->ga_irq_window = 1u;
+                      if (irq_trace_on != 0 && irq_trace_count < 2000u) {
+                          fprintf(
+                              irq_trace_fp,
+                              "%llu,%04X,%u,%u,%u,%u,%u,%u,%u,%u\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc,
+                              (unsigned)cpu->interrupts_enabled,
+                              (unsigned)cpu->interrupt_mode,
+                              (unsigned)comp->ga_hsync_count,
+                              (unsigned)comp->ga_irq_pending,
+                              (unsigned)comp->ga_irq_issued,
+                              (unsigned)comp->ga_irq_window,
+                              (unsigned)comp->crtc_hsync,
+                              (unsigned)comp->crtc_vsync
+                          );
+                          irq_trace_count += 1u;
+                          if ((irq_trace_count & 63u) == 0u) fflush(irq_trace_fp);
+                      }
+                  }
+              }
+              if (comp->crtc_hsync != 0u) {
+                  if ((uint8_t)(comp->crtc_hc - hsync_pos) >= hsync_w) comp->crtc_hsync = 0u;
+              }
+
+              if (comp->crtc_hc > htotal) {
+                  comp->crtc_hc = 0u;
+                  if (hsync_pos == 0u || hsync_pos > htotal) {
+                      comp->crtc_hsync = 1u;
+                      comp->ga_hsync_count = (uint8_t)(comp->ga_hsync_count + 1u);
+                      if (comp->ga_hsync_count >= 52u) {
+                          comp->ga_hsync_count = 0u;
+                          comp->ga_irq_pending = 1u;
+                          comp->ga_irq_issued = 0u;
+                          comp->ga_irq_window = 1u;
+                          if (irq_trace_on != 0 && irq_trace_count < 2000u) {
+                              fprintf(
+                                  irq_trace_fp,
+                                  "%llu,%04X,%u,%u,%u,%u,%u,%u,%u,%u\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)cpu->pc,
+                                  (unsigned)cpu->interrupts_enabled,
+                                  (unsigned)cpu->interrupt_mode,
+                                  (unsigned)comp->ga_hsync_count,
+                                  (unsigned)comp->ga_irq_pending,
+                                  (unsigned)comp->ga_irq_issued,
+                                  (unsigned)comp->ga_irq_window,
+                                  (unsigned)comp->crtc_hsync,
+                                  (unsigned)comp->crtc_vsync
+                              );
+                              irq_trace_count += 1u;
+                              if ((irq_trace_count & 63u) == 0u) fflush(irq_trace_fp);
+                          }
+                      }
+                  }
+                  /* End of scanline. */
+                  if (comp->crtc_ra >= raster_max) {
+                      comp->crtc_ra = 0u;
+                      if (comp->crtc_vadj != 0u) {
+                          comp->crtc_vadj = (uint8_t)(comp->crtc_vadj - 1u);
+                          if (comp->crtc_vadj == 0u) {
+                              comp->crtc_vc = 0u;
+                              if (comp->crtc_regs != NULL) {
+                                  comp->crtc_ma = (uint16_t)(((uint16_t)comp->crtc_regs[12] << 8u) | comp->crtc_regs[13]);
+                              }
+                          }
+                      } else {
+                          comp->crtc_vc = (uint8_t)(comp->crtc_vc + 1u);
+                          comp->crtc_ma = (uint16_t)(comp->crtc_ma + hdisp);
+                          if (comp->crtc_vc > vtotal) {
+                              comp->crtc_vc = 0u;
+                              if (vadjust != 0u) {
+                                  comp->crtc_vadj = vadjust;
+                              } else if (comp->crtc_regs != NULL) {
+                                  comp->crtc_ma = (uint16_t)(((uint16_t)comp->crtc_regs[12] << 8u) | comp->crtc_regs[13]);
+                              }
+                          }
+                      }
+                  } else {
+                      comp->crtc_ra = (uint8_t)(comp->crtc_ra + 1u);
+                  }
+
+                  /* VSYNC update at line start. */
+                  if (comp->crtc_vc == vsync_pos && comp->crtc_ra == 0u) {
+                      comp->crtc_vsync = 1u;
+                  }
+                  if (comp->crtc_vsync != 0u) {
+                      if (comp->crtc_vc == vsync_pos && comp->crtc_ra >= vsync_w) {
+                          comp->crtc_vsync = 0u;
+                      }
+                  }
+              }
+          }
+
+          {
+              uint8_t hstart = skew;
+              uint8_t hend = (uint8_t)(hstart + hdisp);
+              uint8_t vstart = (uint8_t)(comp->crtc_regs != NULL ? (comp->crtc_regs[8] & 0x03u) : 0u);
+              uint8_t vstop = (uint8_t)(vstart + vdisp);
+              uint8_t h_ok = (comp->crtc_hc >= hstart && comp->crtc_hc < hend) ? 1u : 0u;
+              uint8_t v_ok = (comp->crtc_vc >= vstart && comp->crtc_vc < vstop) ? 1u : 0u;
+              comp->crtc_display = (uint8_t)((h_ok != 0u && v_ok != 0u) ? 1u : 0u);
+              comp->display_active = comp->crtc_display;
+          }
+
+          if (comp->ga_irq_pending != 0u && comp->ga_irq_issued == 0u) {
+              z80_interrupt(cpu, 0xFFu);
+              comp->ga_irq_issued = 1u;
+              comp->ga_irq_pending = 0u;
+              comp->ga_irq_window = 0u;
+              if (irq_trace_on != 0 && irq_trace_count < 2000u) {
+                  fprintf(
+                      irq_trace_fp,
+                      "%llu,%04X,%u,%u,%u,%u,%u,%u,%u,%u\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)cpu->pc,
+                      (unsigned)cpu->interrupts_enabled,
+                      (unsigned)cpu->interrupt_mode,
+                      (unsigned)comp->ga_hsync_count,
+                      (unsigned)comp->ga_irq_pending,
+                      (unsigned)comp->ga_irq_issued,
+                      (unsigned)comp->ga_irq_window,
+                      (unsigned)comp->crtc_hsync,
+                      (unsigned)comp->crtc_vsync
+                  );
+                  irq_trace_count += 1u;
+                  if ((irq_trace_count & 63u) == 0u) fflush(irq_trace_fp);
+              }
+              {
+                  uint64_t irq_up[1] = { 1u };
+                  uint64_t irq_down[1] = { 0u };
+                  cpu_component_emit_signal(cpu, "cpc_io", "irq_edge", irq_up, 1);
+                  cpu_component_emit_signal(cpu, "cpc_io", "irq_edge", irq_down, 1);
+              }
+          }
+      }
+
+      {
+          uint32_t sample_rate = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (uint32_t)CPU_AUDIO_SAMPLE_RATE : 44100u;
+          uint64_t emit_period = (CPU_SYSTEM_CLOCK_HZ > 0u && sample_rate > 0u)
+              ? (CPU_SYSTEM_CLOCK_HZ / (uint64_t)sample_rate)
+              : 362u;
+          if (emit_period == 0u) emit_period = 1u;
+          while (comp->audio_emit_accum >= emit_period) {
+              comp->audio_emit_accum -= emit_period;
+              {
+                  uint32_t ay_ticks = (CPU_SYSTEM_CLOCK_HZ > 0u && sample_rate > 0u)
+                      ? (uint32_t)((CPU_SYSTEM_CLOCK_HZ / 4u) / (uint64_t)sample_rate)
+                      : 90u;
+                  uint32_t pA = 1u;
+                  uint32_t pB = 1u;
+                  uint32_t pC = 1u;
+                  uint32_t pN = 1u;
+                  uint8_t mix = 0x3Fu;
+                  uint8_t ch0 = 0u;
+                  uint8_t ch1 = 0u;
+                  uint8_t ch2 = 0u;
+                  uint32_t sum = 0u;
+                  uint8_t out_level = 128u;
+
+                  if (ay_ticks == 0u) ay_ticks = 1u;
+                  if (comp->ay_regs != NULL) {
+                      pA = (uint32_t)(comp->ay_regs[0] | ((uint16_t)(comp->ay_regs[1] & 0x0Fu) << 8u));
+                      pB = (uint32_t)(comp->ay_regs[2] | ((uint16_t)(comp->ay_regs[3] & 0x0Fu) << 8u));
+                      pC = (uint32_t)(comp->ay_regs[4] | ((uint16_t)(comp->ay_regs[5] & 0x0Fu) << 8u));
+                      pN = (uint32_t)(comp->ay_regs[6] & 0x1Fu);
+                      mix = comp->ay_regs[7];
+                      if (pA == 0u) pA = 1u;
+                      if (pB == 0u) pB = 1u;
+                      if (pC == 0u) pC = 1u;
+                      if (pN == 0u) pN = 1u;
+                  }
+                  pA *= 16u;
+                  pB *= 16u;
+                  pC *= 16u;
+                  pN *= 16u;
+
+                  comp->ay_phase_a += ay_ticks;
+                  while (comp->ay_phase_a >= pA) {
+                      comp->ay_phase_a -= pA;
+                      comp->ay_tone_a ^= 1u;
+                  }
+                  comp->ay_phase_b += ay_ticks;
+                  while (comp->ay_phase_b >= pB) {
+                      comp->ay_phase_b -= pB;
+                      comp->ay_tone_b ^= 1u;
+                  }
+                  comp->ay_phase_c += ay_ticks;
+                  while (comp->ay_phase_c >= pC) {
+                      comp->ay_phase_c -= pC;
+                      comp->ay_tone_c ^= 1u;
+                  }
+                  comp->ay_phase_noise += ay_ticks;
+                  while (comp->ay_phase_noise >= pN) {
+                      uint32_t fb;
+                      comp->ay_phase_noise -= pN;
+                      if (comp->ay_noise_lfsr == 0u) comp->ay_noise_lfsr = 0x1FFFFu;
+                      fb = (comp->ay_noise_lfsr ^ (comp->ay_noise_lfsr >> 3u)) & 1u;
+                      comp->ay_noise_lfsr = (comp->ay_noise_lfsr >> 1u) | (fb << 16u);
+                      comp->ay_noise_bit = (uint8_t)(comp->ay_noise_lfsr & 1u);
+                  }
+
+                  {
+                      uint16_t env_reg = (comp->ay_regs != NULL)
+                          ? (uint16_t)(comp->ay_regs[11] | ((uint16_t)comp->ay_regs[12] << 8u))
+                          : 1u;
+                      uint32_t env_period = (env_reg == 0u) ? 1u : (uint32_t)env_reg;
+                      env_period *= 16u;
+                      comp->ay_env_phase += ay_ticks;
+                      while (comp->ay_env_phase >= env_period) {
+                          comp->ay_env_phase -= env_period;
+                          if (comp->ay_env_hold != 0u) break;
+                          if (comp->ay_env_dir > 0) {
+                              if (comp->ay_env_value < 15u) {
+                                  comp->ay_env_value += 1u;
+                              } else {
+                                  uint8_t shape = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[13] & 0x0Fu) : 0u;
+                                  uint8_t cont = (uint8_t)((shape & 0x08u) != 0u);
+                                  uint8_t alt = (uint8_t)((shape & 0x02u) != 0u);
+                                  uint8_t hold = (uint8_t)((shape & 0x01u) != 0u);
+                                  uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                                  if (cont == 0u || hold != 0u) {
+                                      comp->ay_env_hold = 1u;
+                                  } else if (alt != 0u) {
+                                      comp->ay_env_dir = -comp->ay_env_dir;
+                                  } else {
+                                      comp->ay_env_value = attack != 0u ? 0u : 15u;
+                                      comp->ay_env_dir = attack != 0u ? 1 : -1;
+                                  }
+                              }
+                          } else {
+                              if (comp->ay_env_value > 0u) {
+                                  comp->ay_env_value -= 1u;
+                              } else {
+                                  uint8_t shape = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[13] & 0x0Fu) : 0u;
+                                  uint8_t cont = (uint8_t)((shape & 0x08u) != 0u);
+                                  uint8_t alt = (uint8_t)((shape & 0x02u) != 0u);
+                                  uint8_t hold = (uint8_t)((shape & 0x01u) != 0u);
+                                  uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                                  if (cont == 0u || hold != 0u) {
+                                      comp->ay_env_hold = 1u;
+                                  } else if (alt != 0u) {
+                                      comp->ay_env_dir = -comp->ay_env_dir;
+                                  } else {
+                                      comp->ay_env_value = attack != 0u ? 0u : 15u;
+                                      comp->ay_env_dir = attack != 0u ? 1 : -1;
+                                  }
+                              }
+                          }
+                      }
+                  }
+
+                  {
+                      uint8_t v0 = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[8] & 0x1Fu) : 0u;
+                      uint8_t v1 = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[9] & 0x1Fu) : 0u;
+                      uint8_t v2 = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[10] & 0x1Fu) : 0u;
+                      uint8_t env = comp->ay_env_value & 0x0Fu;
+                      uint8_t a0 = ((v0 & 0x10u) != 0u) ? env : (v0 & 0x0Fu);
+                      uint8_t a1 = ((v1 & 0x10u) != 0u) ? env : (v1 & 0x0Fu);
+                      uint8_t a2 = ((v2 & 0x10u) != 0u) ? env : (v2 & 0x0Fu);
+                      uint8_t t0 = ((mix & 0x01u) == 0u) ? comp->ay_tone_a : 1u;
+                      uint8_t t1 = ((mix & 0x02u) == 0u) ? comp->ay_tone_b : 1u;
+                      uint8_t t2 = ((mix & 0x04u) == 0u) ? comp->ay_tone_c : 1u;
+                      uint8_t n0 = ((mix & 0x08u) == 0u) ? comp->ay_noise_bit : 1u;
+                      uint8_t n1 = ((mix & 0x10u) == 0u) ? comp->ay_noise_bit : 1u;
+                      uint8_t n2 = ((mix & 0x20u) == 0u) ? comp->ay_noise_bit : 1u;
+                      ch0 = ((t0 & n0) != 0u) ? ay_vol_table[a0] : 0u;
+                      ch1 = ((t1 & n1) != 0u) ? ay_vol_table[a1] : 0u;
+                      ch2 = ((t2 & n2) != 0u) ? ay_vol_table[a2] : 0u;
+                  }
+
+                  sum = (uint32_t)ch0 + (uint32_t)ch1 + (uint32_t)ch2;
+                  {
+                      int mixed = 128 + (int)((sum * 127u) / 114u);
+                      if (mixed < 0) mixed = 0;
+                      if (mixed > 255) mixed = 255;
+                      {
+                          int filtered = (int)comp->ay_last_mix + ((mixed - (int)comp->ay_last_mix) / 5);
+                          if (filtered < 0) filtered = 0;
+                          if (filtered > 255) filtered = 255;
+                          comp->ay_last_mix = (uint8_t)filtered;
+                          out_level = (uint8_t)filtered;
+                      }
+                  }
+                  comp->ay_level = out_level;
+                  {
+                      uint64_t sig_args[2] = { (uint64_t)out_level, cpu->total_cycles };
+                      cpu_component_emit_signal(cpu, "cpc_io", "audio_level", sig_args, 2);
+                  }
+              }
+          }
+      }
+
+      {
+          uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 50u) : 80000u;
+          if (frame_period == 0u) frame_period = 80000u;
+          while (comp->tstate_accum >= frame_period) {
+              comp->tstate_accum -= frame_period;
+              comp->frame_counter += 1u;
+
+              {
+                  uint32_t mode = (uint32_t)(comp->ga_mode & 0x03u);
+                  uint16_t ma_start = 0x3000u;
+                  if (comp->crtc_regs != NULL) {
+                      ma_start = (uint16_t)(((uint16_t)comp->crtc_regs[12] << 8u) | comp->crtc_regs[13]);
+                  }
+
+                  uint32_t pens[17];
+                  for (uint32_t i = 0u; i < 17u; ++i) {
+                      uint8_t hw = 0u;
+                      if (comp->ga_inks != NULL) hw = (uint8_t)(comp->ga_inks[i] & 0x1Fu);
+                      pens[i] = cpc_hw_palette[hw];
+                  }
+                  for (uint32_t i = 0u; i < 320u * 200u; ++i) framebuf[i] = pens[16];
+
+                  uint8_t r0 = 63u;
+                  uint8_t r1 = 40u;
+                  uint8_t r6 = 25u;
+                  uint8_t r8 = 0u;
+                  uint8_t r9 = 7u;
+                  if (comp->crtc_regs != NULL) {
+                      r0 = comp->crtc_regs[0];
+                      r1 = comp->crtc_regs[1];
+                      r6 = comp->crtc_regs[6];
+                      r8 = comp->crtc_regs[8];
+                      r9 = comp->crtc_regs[9];
+                  }
+                  uint32_t total_chars = (uint32_t)r0 + 1u;
+                  uint32_t disp_chars = (r1 == 0u) ? 40u : (uint32_t)r1;
+                  uint32_t char_rows = (r6 == 0u) ? 25u : (uint32_t)r6;
+                  uint32_t raster_h = (uint32_t)((r9 & 0x1Fu) + 1u);
+                  uint32_t hstart = (uint32_t)((r8 >> 4u) & 0x03u);
+                  uint32_t vstart = (uint32_t)(r8 & 0x03u);
+
+                  if (disp_chars > total_chars) disp_chars = total_chars;
+                  if (disp_chars > 80u) disp_chars = 80u;
+                  if (char_rows > 32u) char_rows = 32u;
+                  if (raster_h == 0u) raster_h = 8u;
+                  if (raster_h > 16u) raster_h = 16u;
+
+                  uint16_t ma = ma_start;
+                  for (uint32_t row = 0u; row < char_rows; ++row) {
+                      if (row < vstart) continue;
+                      for (uint32_t ra = 0u; ra < raster_h; ++ra) {
+                          uint32_t y = (row - vstart) * raster_h + ra;
+                          if (y >= 200u) continue;
+                          for (uint32_t cx = 0u; cx < disp_chars; ++cx) {
+                              uint32_t hc = hstart + cx;
+                              uint16_t ma_char = (uint16_t)((ma + (uint16_t)hc) & 0x73FFu);
+                              uint16_t j = (uint16_t)(ma_char << 1u);
+                              uint16_t addr = (uint16_t)(
+                                  (j & 0x07FEu)
+                                  | ((j & 0x6000u) << 1u)
+                                  | (((uint16_t)ra & 0x07u) << 11u)
+                              );
+                              uint16_t addr0 = addr;
+                              uint16_t addr1 = (uint16_t)(addr | 1u);
+                              uint8_t b0 = ((uint64_t)addr0 < cpu->memory_size) ? cpu->memory[addr0] : 0u;
+                              uint8_t b1 = ((uint64_t)addr1 < cpu->memory_size) ? cpu->memory[addr1] : 0u;
+                              uint32_t x = cx * 8u;
+
+                              if (mode == 2u) {
+                                  for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                                      uint8_t on = (uint8_t)((b0 >> (7u - bit)) & 0x01u);
+                                      if (x + bit < 320u) framebuf[y * 320u + x + bit] = pens[on != 0u ? 1u : 0u];
+                                  }
+                              } else if (mode == 0u) {
+                                  uint8_t p0 = (uint8_t)((((b0 >> 7u) & 1u) << 0u) | (((b0 >> 3u) & 1u) << 1u) | (((b0 >> 5u) & 1u) << 2u) | (((b0 >> 1u) & 1u) << 3u));
+                                  uint8_t p1 = (uint8_t)((((b0 >> 6u) & 1u) << 0u) | (((b0 >> 2u) & 1u) << 1u) | (((b0 >> 4u) & 1u) << 2u) | (((b0 >> 0u) & 1u) << 3u));
+                                  uint8_t p2 = (uint8_t)((((b1 >> 7u) & 1u) << 0u) | (((b1 >> 3u) & 1u) << 1u) | (((b1 >> 5u) & 1u) << 2u) | (((b1 >> 1u) & 1u) << 3u));
+                                  uint8_t p3 = (uint8_t)((((b1 >> 6u) & 1u) << 0u) | (((b1 >> 2u) & 1u) << 1u) | (((b1 >> 4u) & 1u) << 2u) | (((b1 >> 0u) & 1u) << 3u));
+                                  if (x + 7u < 320u) {
+                                      framebuf[y * 320u + x + 0u] = pens[p0 & 0x0Fu];
+                                      framebuf[y * 320u + x + 1u] = pens[p0 & 0x0Fu];
+                                      framebuf[y * 320u + x + 2u] = pens[p1 & 0x0Fu];
+                                      framebuf[y * 320u + x + 3u] = pens[p1 & 0x0Fu];
+                                      framebuf[y * 320u + x + 4u] = pens[p2 & 0x0Fu];
+                                      framebuf[y * 320u + x + 5u] = pens[p2 & 0x0Fu];
+                                      framebuf[y * 320u + x + 6u] = pens[p3 & 0x0Fu];
+                                      framebuf[y * 320u + x + 7u] = pens[p3 & 0x0Fu];
+                                  }
+                              } else {
+                                  uint8_t p0 = (uint8_t)(((b0 >> 7u) & 1u) | (((b0 >> 3u) & 1u) << 1u));
+                                  uint8_t p1 = (uint8_t)(((b0 >> 6u) & 1u) | (((b0 >> 2u) & 1u) << 1u));
+                                  uint8_t p2 = (uint8_t)(((b0 >> 5u) & 1u) | (((b0 >> 1u) & 1u) << 1u));
+                                  uint8_t p3 = (uint8_t)(((b0 >> 4u) & 1u) | (((b0 >> 0u) & 1u) << 1u));
+                                  uint8_t p4 = (uint8_t)(((b1 >> 7u) & 1u) | (((b1 >> 3u) & 1u) << 1u));
+                                  uint8_t p5 = (uint8_t)(((b1 >> 6u) & 1u) | (((b1 >> 2u) & 1u) << 1u));
+                                  uint8_t p6 = (uint8_t)(((b1 >> 5u) & 1u) | (((b1 >> 1u) & 1u) << 1u));
+                                  uint8_t p7 = (uint8_t)(((b1 >> 4u) & 1u) | (((b1 >> 0u) & 1u) << 1u));
+                                  if (x + 7u < 320u) {
+                                      framebuf[y * 320u + x + 0u] = pens[p0 & 0x03u];
+                                      framebuf[y * 320u + x + 1u] = pens[p1 & 0x03u];
+                                      framebuf[y * 320u + x + 2u] = pens[p2 & 0x03u];
+                                      framebuf[y * 320u + x + 3u] = pens[p3 & 0x03u];
+                                      framebuf[y * 320u + x + 4u] = pens[p4 & 0x03u];
+                                      framebuf[y * 320u + x + 5u] = pens[p5 & 0x03u];
+                                      framebuf[y * 320u + x + 6u] = pens[p6 & 0x03u];
+                                      framebuf[y * 320u + x + 7u] = pens[p7 & 0x03u];
+                                  }
+                              }
+                          }
+                      }
+                      ma = (uint16_t)(ma + disp_chars);
+                  }
+              }
+
+              {
+                  uint64_t frame_args[4] = {
+                      (uint64_t)comp->frame_counter,
+                      (uint64_t)(uintptr_t)framebuf,
+                      320u,
+                      200u
+                  };
+                  cpu_component_emit_signal(cpu, "cpc_io", "frame_ready", frame_args, 4);
+              }
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

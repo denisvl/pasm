@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "processor_name": "Z80",
+  "processor_version": "0.1",
+  "system_name": "Z80SMSBiosInteractiveSystem",
+  "cpu_name": "Z80",
+  "cpu_prefix": "z80",
+  "cmake_library_target": "z80_emu",
+  "library_basename": "z80_emu",
+  "artifacts": {
+    "static": "libz80_emu.a",
+    "shared_linux": "libz80_emu.so",
+    "shared_macos": "libz80_emu.dylib",
+    "shared_windows": "z80_emu.dll",
+    "import_windows": "z80_emu.lib"
+  },
+  "headers": {
+    "cpu": "src/Z80.h",
+    "debug_abi": "src/Z80_debug_abi.h"
+  },
+  "link": {
+    "library_paths": [],
+    "library_names": [
+      "SDL2"
+    ],
+    "library_files": []
+  },
+  "memory_default_size": 65536,
+  "cartridge": {
+    "enabled": false,
+    "id": "",
+    "default_rom_path": ""
+  }
+}

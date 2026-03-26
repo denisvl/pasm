@@ -1,0 +1,54 @@
+metadata:
+  name: C64DefaultSystem
+  version: "1.0"
+
+clock_hz: 1022727
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: RAM_LO
+      start: 0x0000
+      size: 0xA000
+      read_write: true
+    - name: ROM_BASIC
+      start: 0xA000
+      size: 0x2000
+      read_only: true
+    - name: RAM_MID
+      start: 0xC000
+      size: 0x1000
+      read_write: true
+    - name: ROM_CHAR
+      start: 0xD000
+      size: 0x1000
+      read_only: true
+    - name: ROM_KERNAL
+      start: 0xE000
+      size: 0x2000
+      read_only: true
+  rom_images:
+    - name: c64_basic_rom
+      file: ../roms/basic.901226-01.bin
+      target_region: ROM_BASIC
+      offset: 0
+    - name: c64_char_rom
+      file: ../roms/characters.901225-01.bin
+      target_region: ROM_CHAR
+      offset: 0
+    - name: c64_kernal_rom
+      file: ../roms/kernal.901227-03.bin
+      target_region: ROM_KERNAL
+      offset: 0
+
+hooks: {}
+integrations:
+  profile: c64_default
+
+components:
+  ics: []
+  devices: []
+  hosts: []
+
+connections: []

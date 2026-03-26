@@ -1,0 +1,354 @@
+metadata:
+  id: c64_io
+  type: io_controller
+  model: c64_memory_io_glue
+  version: "1.1"
+
+state:
+  - { name: io_ddr, type: uint8_t, initial: "0x2Fu" }
+  - { name: io_data, type: uint8_t, initial: "0x37u" }
+  - { name: cia1_pra, type: uint8_t, initial: "0xFFu" }
+  - { name: cia1_prb, type: uint8_t, initial: "0xFFu" }
+  - { name: cia1_ddra, type: uint8_t, initial: "0xFFu" }
+  - { name: cia1_ddrb, type: uint8_t, initial: "0x00u" }
+  - { name: cia1_icr_mask, type: uint8_t, initial: "0u" }
+  - { name: cia1_icr_status, type: uint8_t, initial: "0u" }
+  - { name: cia1_irq_asserted, type: uint8_t, initial: "0u" }
+  - { name: cia1_ta_latch, type: uint16_t, initial: "0xFFFFu" }
+  - { name: cia1_tb_latch, type: uint16_t, initial: "0xFFFFu" }
+  - { name: cia1_ta_counter, type: uint16_t, initial: "0xFFFFu" }
+  - { name: cia1_tb_counter, type: uint16_t, initial: "0xFFFFu" }
+  - { name: cia2_pra, type: uint8_t, initial: "0xFFu" }
+  - { name: cia2_icr_mask, type: uint8_t, initial: "0u" }
+  - { name: cia2_icr_status, type: uint8_t, initial: "0u" }
+  - { name: cia2_nmi_asserted, type: uint8_t, initial: "0u" }
+  - { name: cia2_ta_latch, type: uint16_t, initial: "0xFFFFu" }
+  - { name: cia2_tb_latch, type: uint16_t, initial: "0xFFFFu" }
+  - { name: cia2_ta_counter, type: uint16_t, initial: "0xFFFFu" }
+  - { name: cia2_tb_counter, type: uint16_t, initial: "0xFFFFu" }
+  - { name: frame_counter, type: uint32_t, initial: "0u" }
+  - { name: last_step_cycle, type: uint64_t, initial: "0u" }
+  - { name: vic_raster_line, type: uint16_t, initial: "0u" }
+  - { name: vic_cycle_in_line, type: uint16_t, initial: "0u" }
+  - { name: vic_irq_asserted, type: uint8_t, initial: "0u" }
+  - { name: sid_phase0, type: uint32_t, initial: "0u" }
+  - { name: sid_phase1, type: uint32_t, initial: "0u" }
+  - { name: sid_phase2, type: uint32_t, initial: "0u" }
+  - { name: sid_noise, type: uint32_t, initial: "0x007FFFFFu" }
+  - { name: sid_sample_cursor, type: uint64_t, initial: "0u" }
+  - { name: ram_a000, type: uint8_t *, initial: "NULL" }
+  - { name: ram_d000, type: uint8_t *, initial: "NULL" }
+  - { name: ram_e000, type: uint8_t *, initial: "NULL" }
+  - { name: color_ram, type: uint8_t *, initial: "NULL" }
+  - { name: vic_regs, type: uint8_t *, initial: "NULL" }
+  - { name: sid_regs, type: uint8_t *, initial: "NULL" }
+  - { name: cia1_regs, type: uint8_t *, initial: "NULL" }
+  - { name: cia2_regs, type: uint8_t *, initial: "NULL" }
+
+interfaces:
+  callbacks:
+    - name: keyboard_row
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u64, u64, u64, u32, u32, u32]
+    - name: audio_level
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges:
+      - { name: io_port_regs, start: 0x0000, size: 0x0002, access: [read, write] }
+      - { name: basic_banked_area, start: 0xA000, size: 0x2000, access: [read, write] }
+      - { name: io_page, start: 0xD000, size: 0x1000, access: [read, write] }
+      - { name: kernal_banked_area, start: 0xE000, size: 0x2000, access: [read, write] }
+
+behavior:
+  snippets:
+    init: |
+      if (comp->ram_a000 == NULL) comp->ram_a000 = (uint8_t *)calloc(0x2000u, 1u);
+      if (comp->ram_d000 == NULL) comp->ram_d000 = (uint8_t *)calloc(0x1000u, 1u);
+      if (comp->ram_e000 == NULL) comp->ram_e000 = (uint8_t *)calloc(0x2000u, 1u);
+      if (comp->color_ram == NULL) comp->color_ram = (uint8_t *)calloc(0x0400u, 1u);
+      if (comp->vic_regs == NULL) comp->vic_regs = (uint8_t *)calloc(0x40u, 1u);
+      if (comp->sid_regs == NULL) comp->sid_regs = (uint8_t *)calloc(0x20u, 1u);
+      if (comp->cia1_regs == NULL) comp->cia1_regs = (uint8_t *)calloc(0x10u, 1u);
+      if (comp->cia2_regs == NULL) comp->cia2_regs = (uint8_t *)calloc(0x10u, 1u);
+      if (comp->color_ram != NULL) memset(comp->color_ram, 0x0Eu, 0x0400u);
+      if (comp->vic_regs != NULL) {
+          memset(comp->vic_regs, 0, 0x40u);
+          comp->vic_regs[0x11u] = 0x1Bu; comp->vic_regs[0x16u] = 0x08u; comp->vic_regs[0x18u] = 0x14u;
+          comp->vic_regs[0x20u] = 0x0Eu; comp->vic_regs[0x21u] = 0x06u;
+      }
+      if (comp->sid_regs != NULL) memset(comp->sid_regs, 0, 0x20u);
+      if (comp->cia1_regs != NULL) memset(comp->cia1_regs, 0, 0x10u);
+      if (comp->cia2_regs != NULL) memset(comp->cia2_regs, 0, 0x10u);
+      cpu->registers[REG_IO_DDR] = comp->io_ddr;
+      cpu->registers[REG_IO_DATA] = comp->io_data;
+    reset: |
+      comp->io_ddr = 0x2Fu; comp->io_data = 0x37u;
+      comp->cia1_pra = 0xFFu; comp->cia1_prb = 0xFFu; comp->cia1_ddra = 0xFFu; comp->cia1_ddrb = 0x00u;
+      comp->cia1_icr_mask = 0u; comp->cia1_icr_status = 0u; comp->cia1_irq_asserted = 0u;
+      comp->cia1_ta_latch = 0xFFFFu; comp->cia1_tb_latch = 0xFFFFu; comp->cia1_ta_counter = 0xFFFFu; comp->cia1_tb_counter = 0xFFFFu;
+      comp->cia2_pra = 0xFFu; comp->cia2_icr_mask = 0u; comp->cia2_icr_status = 0u; comp->cia2_nmi_asserted = 0u;
+      comp->cia2_ta_latch = 0xFFFFu; comp->cia2_tb_latch = 0xFFFFu; comp->cia2_ta_counter = 0xFFFFu; comp->cia2_tb_counter = 0xFFFFu;
+      comp->frame_counter = 0u; comp->last_step_cycle = cpu->total_cycles; comp->vic_raster_line = 0u; comp->vic_cycle_in_line = 0u; comp->vic_irq_asserted = 0u;
+      comp->sid_phase0 = 0u; comp->sid_phase1 = 0u; comp->sid_phase2 = 0u; comp->sid_noise = 0x007FFFFFu; comp->sid_sample_cursor = 0u;
+      if (comp->ram_a000 != NULL) memset(comp->ram_a000, 0, 0x2000u);
+      if (comp->ram_d000 != NULL) memset(comp->ram_d000, 0, 0x1000u);
+      if (comp->ram_e000 != NULL) memset(comp->ram_e000, 0, 0x2000u);
+      if (comp->color_ram != NULL) memset(comp->color_ram, 0x0Eu, 0x0400u);
+      if (comp->vic_regs != NULL) {
+          memset(comp->vic_regs, 0, 0x40u);
+          comp->vic_regs[0x11u] = 0x1Bu; comp->vic_regs[0x16u] = 0x08u; comp->vic_regs[0x18u] = 0x14u;
+          comp->vic_regs[0x20u] = 0x0Eu; comp->vic_regs[0x21u] = 0x06u;
+      }
+      if (comp->sid_regs != NULL) memset(comp->sid_regs, 0, 0x20u);
+      if (comp->cia1_regs != NULL) memset(comp->cia1_regs, 0, 0x10u);
+      if (comp->cia2_regs != NULL) memset(comp->cia2_regs, 0, 0x10u);
+      cpu->registers[REG_IO_DDR] = comp->io_ddr;
+      cpu->registers[REG_IO_DATA] = comp->io_data;
+    destroy: |
+      if (comp->ram_a000 != NULL) { free(comp->ram_a000); comp->ram_a000 = NULL; }
+      if (comp->ram_d000 != NULL) { free(comp->ram_d000); comp->ram_d000 = NULL; }
+      if (comp->ram_e000 != NULL) { free(comp->ram_e000); comp->ram_e000 = NULL; }
+      if (comp->color_ram != NULL) { free(comp->color_ram); comp->color_ram = NULL; }
+      if (comp->vic_regs != NULL) { free(comp->vic_regs); comp->vic_regs = NULL; }
+      if (comp->sid_regs != NULL) { free(comp->sid_regs); comp->sid_regs = NULL; }
+      if (comp->cia1_regs != NULL) { free(comp->cia1_regs); comp->cia1_regs = NULL; }
+      if (comp->cia2_regs != NULL) { free(comp->cia2_regs); comp->cia2_regs = NULL; }
+    mem_read_pre: |
+      if (addr == 0x0000u) return comp->io_ddr;
+      if (addr == 0x0001u) return (uint8_t)((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr));
+      {
+          uint8_t effective = (uint8_t)((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr));
+          uint8_t loram = (uint8_t)(effective & 0x01u);
+          uint8_t hiram = (uint8_t)((effective >> 1u) & 0x01u);
+          uint8_t charen = (uint8_t)((effective >> 2u) & 0x01u);
+          if (addr >= 0xA000u && addr <= 0xBFFFu) {
+              if (loram != 0u && hiram != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+              return (comp->ram_a000 != NULL) ? comp->ram_a000[addr - 0xA000u] : 0xFFu;
+          }
+          if (addr >= 0xD000u && addr <= 0xDFFFu) {
+              uint16_t off = (uint16_t)(addr - 0xD000u);
+              if (charen == 0u) {
+                  if ((loram | hiram) != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+                  return (comp->ram_d000 != NULL) ? comp->ram_d000[off] : 0xFFu;
+              }
+              if (off < 0x0400u) {
+                  uint8_t r = (uint8_t)(off & 0x3Fu);
+                  if (r == 0x11u) return (uint8_t)((comp->vic_regs[0x11u] & 0x7Fu) | (uint8_t)((comp->vic_raster_line >> 1u) & 0x80u));
+                  if (r == 0x12u) return (uint8_t)(comp->vic_raster_line & 0xFFu);
+                  if (r == 0x19u) { uint8_t st=(uint8_t)(comp->vic_regs[0x19u] & 0x0Fu); uint8_t mk=(uint8_t)(comp->vic_regs[0x1Au] & 0x0Fu); if ((st & mk) != 0u) st|=0x80u; return st; }
+                  return comp->vic_regs[r];
+              }
+              if (off < 0x0800u) return comp->sid_regs[off & 0x1Fu];
+              if (off < 0x0C00u) return (uint8_t)((comp->color_ram != NULL ? comp->color_ram[off & 0x03FFu] : 0u) | 0xF0u);
+              if (off < 0x0D00u) {
+                  uint8_t r=(uint8_t)(off & 0x0Fu);
+                  if (r == 0x00u) {
+                      uint8_t sel_cols=(uint8_t)(~comp->cia1_prb); uint8_t k=0xFFu; uint8_t out=(uint8_t)((comp->cia1_pra & comp->cia1_ddra) | (uint8_t)(~comp->cia1_ddra));
+                      for (uint8_t rw=0u;rw<8u;++rw){ uint64_t a[1]={(uint64_t)rw}; uint8_t rb=(uint8_t)cpu_component_call(cpu,"c64_io","keyboard_row",a,1); if ((((uint8_t)(~rb)) & sel_cols) != 0u) k=(uint8_t)(k & (uint8_t)~(uint8_t)(1u<<rw)); }
+                      return (uint8_t)(out & k);
+                  }
+                  if (r == 0x01u) {
+                      uint8_t sel_rows=(uint8_t)(~comp->cia1_pra); uint8_t k=0xFFu; uint8_t out=(uint8_t)((comp->cia1_prb & comp->cia1_ddrb) | (uint8_t)(~comp->cia1_ddrb));
+                      for (uint8_t c=0u;c<8u;++c){ uint8_t p=0u; for (uint8_t rw=0u;rw<8u;++rw){ if ((sel_rows & (uint8_t)(1u<<rw))==0u) continue; uint64_t a[1]={(uint64_t)rw}; uint8_t rb=(uint8_t)cpu_component_call(cpu,"c64_io","keyboard_row",a,1); if ((rb & (uint8_t)(1u<<c))==0u){ p=1u; break; } } if (p!=0u) k=(uint8_t)(k & (uint8_t)~(uint8_t)(1u<<c)); }
+                      return (uint8_t)(out & k);
+                  }
+                  if (r == 0x02u) return comp->cia1_ddra;
+                  if (r == 0x03u) return comp->cia1_ddrb;
+                  if (r == 0x04u) return (uint8_t)(comp->cia1_ta_counter & 0xFFu);
+                  if (r == 0x05u) return (uint8_t)((comp->cia1_ta_counter >> 8u) & 0xFFu);
+                  if (r == 0x06u) return (uint8_t)(comp->cia1_tb_counter & 0xFFu);
+                  if (r == 0x07u) return (uint8_t)((comp->cia1_tb_counter >> 8u) & 0xFFu);
+                  if (r == 0x0Du) { uint8_t st=comp->cia1_icr_status; comp->cia1_icr_status=0u; comp->cia1_irq_asserted=0u; return st; }
+                  return comp->cia1_regs[r];
+              }
+              if (off < 0x0E00u) {
+                  uint8_t r=(uint8_t)(off & 0x0Fu);
+                  if (r == 0x00u) return comp->cia2_pra;
+                  if (r == 0x04u) return (uint8_t)(comp->cia2_ta_counter & 0xFFu);
+                  if (r == 0x05u) return (uint8_t)((comp->cia2_ta_counter >> 8u) & 0xFFu);
+                  if (r == 0x06u) return (uint8_t)(comp->cia2_tb_counter & 0xFFu);
+                  if (r == 0x07u) return (uint8_t)((comp->cia2_tb_counter >> 8u) & 0xFFu);
+                  if (r == 0x0Du) { uint8_t st=comp->cia2_icr_status; comp->cia2_icr_status=0u; comp->cia2_nmi_asserted=0u; return st; }
+                  return comp->cia2_regs[r];
+              }
+              return 0xFFu;
+          }
+          if (addr >= 0xE000u && addr <= 0xFFFFu) {
+              if (hiram != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+              return (comp->ram_e000 != NULL) ? comp->ram_e000[addr - 0xE000u] : 0xFFu;
+          }
+      }
+    mem_write_pre: |
+      if (addr == 0x0000u) { comp->io_ddr = value; cpu->registers[REG_IO_DDR] = value; return; }
+      if (addr == 0x0001u) { comp->io_data = value; cpu->registers[REG_IO_DATA] = value; return; }
+      {
+          uint8_t effective = (uint8_t)((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr));
+          uint8_t charen = (uint8_t)((effective >> 2u) & 0x01u);
+          if (addr >= 0xA000u && addr <= 0xBFFFu) { if (comp->ram_a000 != NULL) comp->ram_a000[addr - 0xA000u] = value; return; }
+          if (addr >= 0xD000u && addr <= 0xDFFFu) {
+              uint16_t off=(uint16_t)(addr - 0xD000u);
+              if (charen == 0u) { if (comp->ram_d000 != NULL) comp->ram_d000[off] = value; return; }
+              if (off < 0x0400u) {
+                  uint8_t r=(uint8_t)(off & 0x3Fu); comp->vic_regs[r] = value;
+                  if (r == 0x11u) { comp->vic_regs[0x11u] = (uint8_t)((comp->vic_regs[0x11u] & 0x7Fu) | (value & 0x7Fu)); return; }
+                  if (r == 0x19u) { comp->vic_regs[0x19u] = (uint8_t)((comp->vic_regs[0x19u] & 0x0Fu) & (uint8_t)~(value & 0x0Fu)); comp->vic_irq_asserted = 0u; return; }
+                  if (r == 0x1Au) { comp->vic_regs[0x1Au] = (uint8_t)(value & 0x0Fu); return; }
+                  return;
+              }
+              if (off < 0x0800u) { comp->sid_regs[off & 0x1Fu] = value; return; }
+              if (off < 0x0C00u) { if (comp->color_ram != NULL) comp->color_ram[off & 0x03FFu] = (uint8_t)(value & 0x0Fu); return; }
+              if (off < 0x0D00u) {
+                  uint8_t r=(uint8_t)(off & 0x0Fu); comp->cia1_regs[r] = value;
+                  if (r == 0x00u) { comp->cia1_pra = value; return; } if (r == 0x01u) { comp->cia1_prb = value; return; }
+                  if (r == 0x02u) { comp->cia1_ddra = value; return; } if (r == 0x03u) { comp->cia1_ddrb = value; return; }
+                  if (r == 0x04u) { comp->cia1_ta_latch = (uint16_t)((comp->cia1_ta_latch & 0xFF00u) | value); return; }
+                  if (r == 0x05u) { comp->cia1_ta_latch = (uint16_t)((comp->cia1_ta_latch & 0x00FFu) | ((uint16_t)value << 8u)); if ((comp->cia1_regs[0x0Eu] & 0x01u) == 0u) comp->cia1_ta_counter = comp->cia1_ta_latch; return; }
+                  if (r == 0x06u) { comp->cia1_tb_latch = (uint16_t)((comp->cia1_tb_latch & 0xFF00u) | value); return; }
+                  if (r == 0x07u) { comp->cia1_tb_latch = (uint16_t)((comp->cia1_tb_latch & 0x00FFu) | ((uint16_t)value << 8u)); if ((comp->cia1_regs[0x0Fu] & 0x01u) == 0u) comp->cia1_tb_counter = comp->cia1_tb_latch; return; }
+                  if (r == 0x0Du) { if ((value & 0x80u) != 0u) comp->cia1_icr_mask = (uint8_t)(comp->cia1_icr_mask | (value & 0x1Fu)); else comp->cia1_icr_mask = (uint8_t)(comp->cia1_icr_mask & (uint8_t)~(value & 0x1Fu)); return; }
+                  if (r == 0x0Eu) { comp->cia1_regs[0x0Eu] = (uint8_t)(value & 0xEFu); if ((value & 0x10u) != 0u) comp->cia1_ta_counter = comp->cia1_ta_latch; return; }
+                  if (r == 0x0Fu) { comp->cia1_regs[0x0Fu] = (uint8_t)(value & 0xEFu); if ((value & 0x10u) != 0u) comp->cia1_tb_counter = comp->cia1_tb_latch; return; }
+                  return;
+              }
+              if (off < 0x0E00u) {
+                  uint8_t r=(uint8_t)(off & 0x0Fu); comp->cia2_regs[r] = value;
+                  if (r == 0x00u) { comp->cia2_pra = value; return; }
+                  if (r == 0x04u) { comp->cia2_ta_latch = (uint16_t)((comp->cia2_ta_latch & 0xFF00u) | value); return; }
+                  if (r == 0x05u) { comp->cia2_ta_latch = (uint16_t)((comp->cia2_ta_latch & 0x00FFu) | ((uint16_t)value << 8u)); if ((comp->cia2_regs[0x0Eu] & 0x01u) == 0u) comp->cia2_ta_counter = comp->cia2_ta_latch; return; }
+                  if (r == 0x06u) { comp->cia2_tb_latch = (uint16_t)((comp->cia2_tb_latch & 0xFF00u) | value); return; }
+                  if (r == 0x07u) { comp->cia2_tb_latch = (uint16_t)((comp->cia2_tb_latch & 0x00FFu) | ((uint16_t)value << 8u)); if ((comp->cia2_regs[0x0Fu] & 0x01u) == 0u) comp->cia2_tb_counter = comp->cia2_tb_latch; return; }
+                  if (r == 0x0Du) { if ((value & 0x80u) != 0u) comp->cia2_icr_mask = (uint8_t)(comp->cia2_icr_mask | (value & 0x1Fu)); else comp->cia2_icr_mask = (uint8_t)(comp->cia2_icr_mask & (uint8_t)~(value & 0x1Fu)); return; }
+                  if (r == 0x0Eu) { comp->cia2_regs[0x0Eu] = (uint8_t)(value & 0xEFu); if ((value & 0x10u) != 0u) comp->cia2_ta_counter = comp->cia2_ta_latch; return; }
+                  if (r == 0x0Fu) { comp->cia2_regs[0x0Fu] = (uint8_t)(value & 0xEFu); if ((value & 0x10u) != 0u) comp->cia2_tb_counter = comp->cia2_tb_latch; return; }
+                  return;
+              }
+              return;
+          }
+          if (addr >= 0xE000u && addr <= 0xFFFFu) { if (comp->ram_e000 != NULL) comp->ram_e000[addr - 0xE000u] = value; return; }
+      }
+    step_post: |
+      uint64_t delta_cycles = cpu->total_cycles - comp->last_step_cycle;
+      comp->last_step_cycle = cpu->total_cycles;
+      if (delta_cycles == 0u || comp->vic_regs == NULL || comp->sid_regs == NULL) return;
+
+      {
+          uint16_t tgt = (uint16_t)(((uint16_t)(comp->vic_regs[0x11u] & 0x80u) << 1u) | (uint16_t)comp->vic_regs[0x12u]);
+          uint64_t total = (uint64_t)comp->vic_cycle_in_line + delta_cycles;
+          uint16_t steps = (uint16_t)(total / 63u);
+          comp->vic_cycle_in_line = (uint16_t)(total % 63u);
+          for (uint16_t i = 0u; i < steps; ++i) {
+              comp->vic_raster_line = (uint16_t)(comp->vic_raster_line + 1u);
+              if (comp->vic_raster_line >= 312u) {
+                  uint16_t bank = (uint16_t)(((uint16_t)((uint8_t)(~comp->cia2_pra) & 0x03u)) << 14u);
+                  uint16_t vm = comp->vic_regs[0x18u];
+                  uint16_t sa = (uint16_t)(bank + (((vm >> 4u) & 0x0Fu) << 10u));
+                  uint16_t ca = (uint16_t)(bank + (((vm >> 1u) & 0x07u) << 11u));
+                  uint16_t ba = (uint16_t)(bank + (((vm >> 3u) & 0x01u) << 13u));
+                  uint8_t *sp = (((uint32_t)sa + 1000u) <= cpu->memory_size) ? &cpu->memory[sa] : NULL;
+                  uint8_t *cp = (((uint32_t)ca + 2048u) <= cpu->memory_size) ? &cpu->memory[ca] : NULL;
+                  if ((ca >= 0x1000u && ca < 0x2000u) || (ca >= 0x9000u && ca < 0xA000u)) {
+                      uint32_t chr_base = 0xD000u + (uint32_t)(ca & 0x07FFu);
+                      if ((chr_base + 2048u) <= cpu->memory_size) cp = &cpu->memory[chr_base];
+                  }
+                  if (cp == NULL && (0xD000u + 2048u) <= cpu->memory_size) cp = &cpu->memory[0xD000u];
+                  uint8_t *bp = (((uint32_t)ba + 8000u) <= cpu->memory_size) ? &cpu->memory[ba] : ((cpu->memory_size >= 0x3F40u) ? &cpu->memory[0x2000u] : NULL);
+                  uint32_t mf = 0u;
+                  comp->vic_raster_line = 0u;
+                  comp->frame_counter += 1u;
+                  if ((comp->vic_regs[0x11u] & 0x20u) != 0u) mf |= 0x01u;
+                  if ((comp->vic_regs[0x16u] & 0x10u) != 0u) mf |= 0x02u;
+                  if ((comp->vic_regs[0x11u] & 0x40u) != 0u) mf |= 0x04u;
+                  if ((comp->vic_regs[0x16u] & 0x08u) != 0u) mf |= 0x08u;
+                  if ((comp->vic_regs[0x11u] & 0x10u) != 0u) mf |= 0x10u;
+                  if (sp != NULL && cp != NULL && bp != NULL && comp->color_ram != NULL) {
+                      uint64_t sig[8] = { (uint64_t)comp->frame_counter, (uint64_t)(uintptr_t)sp, (uint64_t)(uintptr_t)comp->color_ram, (uint64_t)(uintptr_t)cp, (uint64_t)(uintptr_t)bp, (uint64_t)mf, 40u, 25u };
+                      cpu_component_emit_signal(cpu, "c64_io", "frame_ready", sig, 8);
+                  }
+              }
+              if (comp->vic_raster_line == tgt) {
+                  comp->vic_regs[0x19u] = (uint8_t)(comp->vic_regs[0x19u] | 0x01u);
+                  comp->vic_irq_asserted = 0u;
+              }
+          }
+          {
+              comp->vic_regs[0x11u] = (uint8_t)((comp->vic_regs[0x11u] & 0x7Fu) | (uint8_t)((comp->vic_raster_line >> 1u) & 0x80u));
+              comp->vic_regs[0x12u] = (uint8_t)(comp->vic_raster_line & 0xFFu);
+              {
+                  uint8_t st = (uint8_t)(comp->vic_regs[0x19u] & 0x0Fu);
+                  uint8_t mk = (uint8_t)(comp->vic_regs[0x1Au] & 0x0Fu);
+                  if ((st & mk) != 0u) { comp->vic_regs[0x19u] = (uint8_t)(st | 0x80u); if (comp->vic_irq_asserted == 0u) { mos6510_interrupt(cpu, 0u); comp->vic_irq_asserted = 1u; } }
+                  else { comp->vic_regs[0x19u] = st; comp->vic_irq_asserted = 0u; }
+              }
+          }
+      }
+
+      {
+          uint64_t d = delta_cycles;
+          if ((comp->cia1_regs[0x0Eu] & 0x01u) != 0u) {
+              uint16_t rl = (comp->cia1_ta_latch != 0u) ? comp->cia1_ta_latch : 0xFFFFu;
+              while (d > 0u) { uint16_t c = (comp->cia1_ta_counter != 0u) ? comp->cia1_ta_counter : rl; if (d < (uint64_t)c) { comp->cia1_ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia1_ta_counter = rl; comp->cia1_icr_status = (uint8_t)(comp->cia1_icr_status | 0x01u); if ((comp->cia1_regs[0x0Eu] & 0x08u) != 0u) { comp->cia1_regs[0x0Eu] &= (uint8_t)~0x01u; break; } } }
+          }
+          d = delta_cycles;
+          if ((comp->cia1_regs[0x0Fu] & 0x01u) != 0u) {
+              uint16_t rl = (comp->cia1_tb_latch != 0u) ? comp->cia1_tb_latch : 0xFFFFu;
+              while (d > 0u) { uint16_t c = (comp->cia1_tb_counter != 0u) ? comp->cia1_tb_counter : rl; if (d < (uint64_t)c) { comp->cia1_tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia1_tb_counter = rl; comp->cia1_icr_status = (uint8_t)(comp->cia1_icr_status | 0x02u); if ((comp->cia1_regs[0x0Fu] & 0x08u) != 0u) { comp->cia1_regs[0x0Fu] &= (uint8_t)~0x01u; break; } } }
+          }
+          d = delta_cycles;
+          if ((comp->cia2_regs[0x0Eu] & 0x01u) != 0u) {
+              uint16_t rl = (comp->cia2_ta_latch != 0u) ? comp->cia2_ta_latch : 0xFFFFu;
+              while (d > 0u) { uint16_t c = (comp->cia2_ta_counter != 0u) ? comp->cia2_ta_counter : rl; if (d < (uint64_t)c) { comp->cia2_ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia2_ta_counter = rl; comp->cia2_icr_status = (uint8_t)(comp->cia2_icr_status | 0x01u); if ((comp->cia2_regs[0x0Eu] & 0x08u) != 0u) { comp->cia2_regs[0x0Eu] &= (uint8_t)~0x01u; break; } } }
+          }
+          d = delta_cycles;
+          if ((comp->cia2_regs[0x0Fu] & 0x01u) != 0u) {
+              uint16_t rl = (comp->cia2_tb_latch != 0u) ? comp->cia2_tb_latch : 0xFFFFu;
+              while (d > 0u) { uint16_t c = (comp->cia2_tb_counter != 0u) ? comp->cia2_tb_counter : rl; if (d < (uint64_t)c) { comp->cia2_tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia2_tb_counter = rl; comp->cia2_icr_status = (uint8_t)(comp->cia2_icr_status | 0x02u); if ((comp->cia2_regs[0x0Fu] & 0x08u) != 0u) { comp->cia2_regs[0x0Fu] &= (uint8_t)~0x01u; break; } } }
+          }
+          if ((comp->cia1_icr_status & comp->cia1_icr_mask & 0x1Fu) != 0u) { comp->cia1_icr_status = (uint8_t)((comp->cia1_icr_status & 0x1Fu) | 0x80u); if (comp->cia1_irq_asserted == 0u) { mos6510_interrupt(cpu, 0u); comp->cia1_irq_asserted = 1u; } } else { comp->cia1_icr_status = (uint8_t)(comp->cia1_icr_status & 0x1Fu); comp->cia1_irq_asserted = 0u; }
+          if ((comp->cia2_icr_status & comp->cia2_icr_mask & 0x1Fu) != 0u) { comp->cia2_icr_status = (uint8_t)((comp->cia2_icr_status & 0x1Fu) | 0x80u); if (comp->cia2_nmi_asserted == 0u) { mos6510_interrupt(cpu, 0xFFu); comp->cia2_nmi_asserted = 1u; } } else { comp->cia2_icr_status = (uint8_t)(comp->cia2_icr_status & 0x1Fu); comp->cia2_nmi_asserted = 0u; }
+      }
+
+      {
+          uint64_t sr = (CPU_AUDIO_SAMPLE_RATE > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u;
+          uint64_t hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? CPU_SYSTEM_CLOCK_HZ : 1u;
+          uint64_t tgt = (cpu->total_cycles * sr) / hz;
+          if (comp->sid_sample_cursor == 0u) comp->sid_sample_cursor = tgt;
+          if (tgt > comp->sid_sample_cursor) {
+              uint64_t n = tgt - comp->sid_sample_cursor;
+              if (n > 16u) { comp->sid_sample_cursor = tgt - 16u; n = 16u; }
+              for (uint64_t i = 0u; i < n; ++i) {
+                  int mix = 0; uint8_t vol = (uint8_t)(comp->sid_regs[0x18u] & 0x0Fu);
+                  for (uint8_t v = 0u; v < 3u; ++v) {
+                      uint8_t b = (uint8_t)(v * 7u);
+                      uint16_t f = (uint16_t)((uint16_t)comp->sid_regs[b] | ((uint16_t)comp->sid_regs[b + 1u] << 8u));
+                      uint16_t pw = (uint16_t)((uint16_t)comp->sid_regs[b + 2u] | (((uint16_t)comp->sid_regs[b + 3u] & 0x0Fu) << 8u));
+                      uint8_t ct = comp->sid_regs[b + 4u];
+                      uint32_t *ph = (v == 0u) ? &comp->sid_phase0 : ((v == 1u) ? &comp->sid_phase1 : &comp->sid_phase2);
+                      int o = 0;
+                      if ((ct & 0x01u) != 0u) {
+                          *ph += (uint32_t)f + 1u;
+                          if ((ct & 0x80u) != 0u) { uint32_t fb=((comp->sid_noise >> 22u) ^ (comp->sid_noise >> 17u)) & 1u; comp->sid_noise=((comp->sid_noise << 1u) | fb) & 0x007FFFFFu; o=((comp->sid_noise & 1u) != 0u) ? 127 : -127; }
+                          else if ((ct & 0x40u) != 0u) { uint16_t p=(uint16_t)((*ph >> 8u) & 0x0FFFu); o=(p < pw) ? 127 : -127; }
+                          else if ((ct & 0x20u) != 0u) { o=(int)((*ph >> 24u) & 0xFFu) - 128; }
+                          else if ((ct & 0x10u) != 0u) { uint8_t t=(uint8_t)((*ph >> 24u) & 0xFFu); o=(t < 128u) ? ((int)t * 2 - 128) : (127 - ((int)t - 128) * 2); }
+                      }
+                      mix += o;
+                  }
+                  { int s = 128 + ((mix * (int)vol) / 48); if (s < 0) s = 0; if (s > 255) s = 255; uint64_t idx = comp->sid_sample_cursor + i; uint64_t cyc = (idx * hz) / sr; uint64_t a[2] = { (uint64_t)(uint8_t)s, cyc }; cpu_component_emit_signal(cpu, "c64_io", "audio_level", a, 2); }
+              }
+              comp->sid_sample_cursor += n;
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

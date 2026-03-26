@@ -15,153 +15,267 @@ Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 Requires-Dist: pyyaml>=6.0
 Requires-Dist: jsonschema>=4.0
+Requires-Dist: loguru>=0.7.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: pytest-cov>=4.0; extra == "dev"
 
-## PASM – Processor Architecture Specification for Emulation
+## PASM
 
-PASM is a Python‑based code generator that reads a YAML Instruction Set Architecture (ISA) description and produces a complete, compilable C emulator for that processor.
+PASM generates C11 CPU emulators from YAML definitions.
 
-The goal is to go from a declarative ISA file (registers, flags, memory model, opcode encodings, and behavior snippets) to a working emulator with minimal boilerplate.
+Hard cutover model:
+- `processor.yaml`: CPU semantics and instruction behavior.
+- `system.yaml`: memory/clock/hooks + component wiring graph.
+- `ic.yaml`: IC component definition and behavior snippets.
+- `device.yaml`: peripheral component definition and behavior snippets.
+- `host.yaml`: host integration component definition and behavior snippets.
+- Single-file ISA input (`--isa`) is removed.
 
-### Features
-
-- **Declarative ISA definitions** in YAML, validated by a strict JSON Schema.
-- **Automatic C code generation** for:
-  - CPU state (`CPUState`) and register/flag enums.
-  - Instruction decoder and decision‑tree dispatch loop.
-  - Runtime helpers for memory, ports, and interrupts.
-  - Optional debug helpers and execution hooks.
-- **Configurable output**:
-  - `--features` toggle which components are generated.
-  - `--dispatch` reserved for future dispatch‑strategy selection.
-- **Build integration**:
-  - Auto‑generated `CMakeLists.txt` and `Makefile`.
-  - Basic test harness wiring for generated CPUs.
-
-See `docs/PLAN.md` for the high‑level architecture and roadmap.
-
-### Installation
-
-You need Python 3.10+.
-
-From the project root:
+### Install
 
 ```bash
-pip install -e .
+uv sync --extra dev
 ```
 
-This installs the `pasm` console script defined in `pyproject.toml`.
+### CLI
+
+```bash
+pasm generate --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...] --output <dir>
+pasm validate --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...]
+pasm info --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...]
+```
+
+Notes:
+- `--dispatch switch` is the portable default.
+- Generated C is C11 and compiler-gated for MSVC/Clang/GCC.
 
 ### Quickstart
 
-1. **Inspect an example ISA**
+```bash
+pasm validate \
+  --processor examples/processors/z80.yaml \
+  --system examples/systems/zx_spectrum48k/z80_spectrum48k_default.yaml \
+  --ic examples/ics/zx_spectrum48k/zx_spectrum_48k_ula.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_keyboard.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_video.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_speaker.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_mic.yaml \
+  --host examples/hosts/zx_spectrum48k/zx48_host_sdl2.yaml
+```
 
-   ```bash
-   # From the project root
-   cat examples/simple8.yaml
-   ```
+```bash
+pasm generate \
+  --processor examples/processors/z80.yaml \
+  --system examples/systems/zx_spectrum48k/z80_spectrum48k_default.yaml \
+  --ic examples/ics/zx_spectrum48k/zx_spectrum_48k_ula.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_keyboard.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_video.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_speaker.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_mic.yaml \
+  --host examples/hosts/zx_spectrum48k/zx48_host_sdl2.yaml \
+  --output generated/z80_48k
+```
 
-2. **Validate the ISA**
+### YAML Ownership
 
-   ```bash
-   pasm validate --isa examples/simple8.yaml
-   ```
+`processor.yaml` owns:
+- CPU metadata/registers/flags/instructions/ports/interrupts
+- instruction behavior snippets
+- `coding` block
 
-3. **Generate an emulator**
+`system.yaml` owns:
+- clock/memory/hooks/integrations
+- `components` (`ics[]`, `devices[]`, `hosts[]`)
+- `connections[]` routing (callback/signal graph)
+- `audio` config for PCM sample rate/format/channels
+- `memory.rom_images[]` for named ROM file placement by target region/offset
 
-   ```bash
-   pasm generate \
-     --isa examples/simple8.yaml \
-     --output generated/simple8 \
-     --features full
-   ```
+`ic.yaml`, `device.yaml`, and `host.yaml` own:
+- component metadata/state/interfaces/behavior
+- optional mapping sections (IC memory/port interception)
+- optional declarative host input mapping (`input.keyboard`)
+- `coding` block
 
-   This creates:
+### `coding` Section
 
-   - `generated/simple8/src/` with `Simple8.c`, `Simple8.h`, decoder, hooks (if enabled), and `main.c`.
-   - `generated/simple8/include/cpu_defs.h`.
-   - `generated/simple8/CMakeLists.txt` and `generated/simple8/Makefile`.
+Behavior-capable YAML files (`processor`, `ic`, `device`, `host`) require:
+- `headers[]`
+- `include_paths[]`
+- `linked_libraries[]` entries with exactly one of `name` or `path`
+- `library_paths[]`
 
-4. **Build and run (optional)**
-
-   With CMake and a C compiler installed:
-
-   ```bash
-   cd generated/simple8
-   cmake -S . -B build
-   cmake --build build
-   ctest --test-dir build  # or run the built test binary manually
-   ```
-
-### CLI Reference
-
-The main entrypoint lives in `src/main.py` and is exposed as the `pasm` command.
-
-- **Generate an emulator from an ISA file**
-
-  ```bash
-  pasm generate \
-    --isa examples/simple8.yaml \
-    --output generated/simple8 \
-    --features full \
-    [--dispatch switch] \
-    [--validate-only] \
-    [--verbose]
-  ```
-
-- **Validate an ISA file only**
-
-  ```bash
-  pasm validate --isa examples/simple8.yaml [--verbose]
-  ```
-
-- **Show a summary of an ISA**
-
-  ```bash
-  pasm info --isa examples/simple8.yaml
-  ```
-
-Flags (as specified in `docs/PLAN.md`):
-
-- `--isa PATH` (required): Input YAML ISA file.
-- `--output PATH`: Output directory (default: `./generated/[cpu_name]`).
-- `--features [minimal|standard|full]`:
-  - `minimal`: core CPU state, decoder, and runtime.
-  - `standard`: core + debug helpers.
-  - `full`: standard + hooks, build files, and test harness.
-- `--dispatch [switch|threaded|both]`:
-  - `switch`: portable switch‑case dispatch (current implementation).
-  - `threaded` / `both`: reserved for future threaded‑dispatch support.
-- `--validate-only`: Validate the ISA and exit without generating code.
-- `--verbose`: Print additional progress and error details.
-
-### ISA Format
-
-The ISA YAML format is documented in detail in:
-
-- `docs/ISA_FORMAT.md` – human‑oriented description with examples.
-- `schemas/isa_schema.json` – machine‑readable JSON Schema used at runtime.
-
-Example files:
-
-- `examples/minimal8.yaml` – very small 8‑bit ISA for smoke testing.
-- `examples/simple8.yaml` – richer 8‑bit ISA with arithmetic, control flow, and a few hooks.
+Merge rule in generation:
+- deterministic union in order: processor, then `--ic` order, then `--device` order, then `--host` order
+- exact-string de-duplication, first occurrence wins
+- relative paths resolve from each YAML file directory
 
 ### Development
 
-- **Source**: `src/`
-- **Schema**: `schemas/isa_schema.json`
-- **Docs**: `docs/PLAN.md`, `docs/ISA_FORMAT.md`
-
-Run tests (once they are in place) with:
+Run tests:
 
 ```bash
-pytest
+uv run --extra dev pytest -q
 ```
 
-### License
+Docs:
+- `docs/ISA_FORMAT.md`
+- `docs/PLAN.md`
 
-This project is licensed under the MIT License. See `pyproject.toml` for metadata.
+### Interactive ZX Spectrum Backend (SDL2)
 
+Use the interactive system + host profile:
+
+```bash
+pasm generate \
+  --processor examples/processors/z80.yaml \
+  --system examples/systems/zx_spectrum48k/z80_spectrum48k_interactive.yaml \
+  --ic examples/ics/zx_spectrum48k/zx_spectrum_48k_ula.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_keyboard.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_video.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_speaker.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_mic.yaml \
+  --host examples/hosts/zx_spectrum48k/zx48_host_sdl2_interactive.yaml \
+  --output generated/z80_48k_sdl
+```
+
+Build and run:
+
+```bash
+cmake -S generated/z80_48k_sdl -B generated/z80_48k_sdl/build
+cmake --build generated/z80_48k_sdl/build
+generated/z80_48k_sdl/build/z80_test --system-dir examples/systems
+```
+
+### MSX1 Baseline (Headless Host Stub)
+
+```bash
+pasm generate \
+  --processor examples/processors/z80.yaml \
+  --system examples/systems/msx1/z80_msx1_default.yaml \
+  --ic examples/ics/msx1/msx1_vdp_tms9918a.yaml \
+  --ic examples/ics/msx1/msx1_ppi_8255.yaml \
+  --ic examples/ics/msx1/msx1_psg_ay8910.yaml \
+  --device examples/devices/msx1/msx_keyboard.yaml \
+  --device examples/devices/msx1/msx_video.yaml \
+  --device examples/devices/msx1/msx_speaker.yaml \
+  --host examples/hosts/msx1/msx_host_stub.yaml \
+  --output generated/z80_msx1
+```
+
+### MSX1 Interactive (SDL2 Host)
+
+```bash
+pasm generate \
+  --processor examples/processors/z80.yaml \
+  --system examples/systems/msx1/z80_msx1_interactive.yaml \
+  --ic examples/ics/msx1/msx1_vdp_tms9918a.yaml \
+  --ic examples/ics/msx1/msx1_ppi_8255.yaml \
+  --ic examples/ics/msx1/msx1_psg_ay8910.yaml \
+  --device examples/devices/msx1/msx_keyboard.yaml \
+  --device examples/devices/msx1/msx_video.yaml \
+  --device examples/devices/msx1/msx_speaker.yaml \
+  --host examples/hosts/msx1/msx_host_sdl2_interactive.yaml \
+  --output generated/z80_msx1_sdl
+```
+
+Build and run:
+
+```bash
+cmake -S generated/z80_msx1_sdl -B generated/z80_msx1_sdl/build
+cmake --build generated/z80_msx1_sdl/build
+generated/z80_msx1_sdl/build/z80_test --system-dir examples/systems --run
+```
+
+Debug with Rust TUI (linked backend, starts paused):
+
+```bash
+PASM_EMU_DIR=generated/z80_msx1_sdl \
+cargo run --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
+  --backend linked --memory-size 65536 --system-dir examples/systems
+```
+
+### TRS-80 Color Computer 1 (MC6809)
+
+Generate/build/run in one shot:
+
+```bash
+scripts/run_coco_debugger.sh interactive
+```
+
+Windows:
+
+```bat
+scripts\run_coco_debugger.bat interactive
+```
+
+Defaults:
+- processor: `examples/processors/mc6809.yaml`
+- system ROM: `examples/roms/coco.rom` mapped at `0xA000-0xBFFF` and mirrored at `0xE000-0xFFFF`
+- cartridge mapper: `examples/cartridges/coco1/coco_mapper_none.yaml`
+
+### Apple II (MOS6502)
+
+Generate/build/run in one shot:
+
+```bash
+scripts/run_apple2_debugger.sh interactive
+```
+
+Windows:
+
+```bat
+scripts\run_apple2_debugger.bat interactive
+```
+
+Defaults:
+- processor: `examples/processors/mos6502.yaml`
+- system ROM: `examples/roms/apple2.rom` mapped at `0xB000-0xFFFF`
+- interactive profile: `examples/systems/apple2/apple2_interactive.yaml`
+- default profile: `examples/systems/apple2/apple2_default.yaml`
+
+### Commodore 64 (MOS6510)
+
+Generate/build/run in one shot:
+
+```bash
+scripts/run_c64_debugger.sh interactive
+```
+
+Windows:
+
+```bat
+scripts\run_c64_debugger.bat interactive
+```
+
+Defaults:
+- processor: `examples/processors/mos6510.yaml`
+- interactive profile: `examples/systems/c64/c64_interactive.yaml`
+- default profile: `examples/systems/c64/c64_default.yaml`
+- ROMs:
+  - `examples/roms/basic.901226-01.bin` at `0xA000-0xBFFF`
+  - `examples/roms/characters.901225-01.bin` at `0xD000-0xDFFF`
+  - `examples/roms/kernal.901227-03.bin` at `0xE000-0xFFFF`
+- default debugger start PC: `0xFCE2` (KERNAL reset entry for this ROM set)
+
+Interactive components:
+- IC: `examples/ics/c64/c64_io.yaml`
+- devices:
+  - `examples/devices/c64/c64_keyboard.yaml`
+  - `examples/devices/c64/c64_video.yaml`
+  - `examples/devices/c64/c64_speaker.yaml`
+- host: `examples/hosts/c64/c64_host_sdl2_interactive.yaml`
+
+Generate:
+
+```bash
+pasm generate \
+  --processor examples/processors/mos6510.yaml \
+  --system examples/systems/c64/c64_interactive.yaml \
+  --ic examples/ics/c64/c64_io.yaml \
+  --device examples/devices/c64/c64_keyboard.yaml \
+  --device examples/devices/c64/c64_video.yaml \
+  --device examples/devices/c64/c64_speaker.yaml \
+  --host examples/hosts/c64/c64_host_sdl2_interactive.yaml \
+  --output generated/c64_interactive
+```

@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\pasm\generated\z80_trs80_model4_sdl\build_fresh\CMakeFiles\e634047a72e5bd0ec68575295f396711\RUN_TESTS_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{EB751EAC-A48C-352A-A88D-01D43D789FF4}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

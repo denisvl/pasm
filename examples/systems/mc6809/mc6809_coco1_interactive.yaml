@@ -1,0 +1,152 @@
+metadata:
+  name: MC6809CoCo1InteractiveSystem
+  version: "0.1"
+
+clock_hz: 894886
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: RAM_LOWER
+      start: 0x0000
+      size: 0xA000
+      read_write: true
+    - name: ROM_COCOROM_A000
+      start: 0xA000
+      size: 0x2000
+      read_only: true
+    - name: RAM_CART_WINDOW
+      start: 0xC000
+      size: 0x2000
+      read_write: true
+    - name: ROM_COCOROM_E000
+      start: 0xE000
+      size: 0x2000
+      read_only: true
+  rom_images:
+    - name: coco_rom_primary
+      file: ../roms/coco.rom
+      target_region: ROM_COCOROM_A000
+      offset: 0
+    - name: coco_rom_mirror
+      file: ../roms/coco.rom
+      target_region: ROM_COCOROM_E000
+      offset: 0
+
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+
+components:
+  ics:
+    - coco1_io
+  devices:
+    - keyboard_coco
+    - video_coco
+    - speaker_coco
+  hosts:
+    - host_coco_sdl2
+  cartridge: coco_cart0
+
+connections:
+  - from:
+      component: coco1_io
+      kind: callback
+      name: keyboard_read_row
+    to:
+      component: keyboard_coco
+      kind: callback
+      name: read_row
+
+  - from:
+      component: keyboard_coco
+      kind: callback
+      name: host_matrix
+    to:
+      component: host_coco_sdl2
+      kind: callback
+      name: keyboard_matrix
+
+  - from:
+      component: coco1_io
+      kind: callback
+      name: joystick_read_axis
+    to:
+      component: host_coco_sdl2
+      kind: callback
+      name: joystick_axis
+
+  - from:
+      component: coco1_io
+      kind: callback
+      name: joystick_read_button
+    to:
+      component: host_coco_sdl2
+      kind: callback
+      name: joystick_button
+
+  - from:
+      component: coco1_io
+      kind: signal
+      name: frame_ready
+    to:
+      component: video_coco
+      kind: handler
+      name: on_frame_ready
+
+  - from:
+      component: video_coco
+      kind: signal
+      name: frame_present
+    to:
+      component: host_coco_sdl2
+      kind: handler
+      name: video_frame
+
+  - from:
+      component: coco1_io
+      kind: signal
+      name: irq_edge
+    to:
+      component: host_coco_sdl2
+      kind: handler
+      name: irq_edge
+
+  - from:
+      component: coco1_io
+      kind: signal
+      name: audio_level
+    to:
+      component: speaker_coco
+      kind: handler
+      name: on_audio_level
+
+  - from:
+      component: speaker_coco
+      kind: signal
+      name: pcm_sample
+    to:
+      component: host_coco_sdl2
+      kind: handler
+      name: audio_pcm
+
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+
+integrations:
+  profile: coco1_interactive

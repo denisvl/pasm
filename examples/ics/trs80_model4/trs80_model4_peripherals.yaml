@@ -1,0 +1,601 @@
+metadata:
+  id: trs80_m4io
+  type: io_controller
+  model: trs80_model4_peripherals
+  version: "1.2"
+
+state:
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: tstate_accum
+    type: uint64_t
+    initial: "0"
+  - name: audio_level
+    type: uint8_t
+    initial: "0"
+  - name: video_ctrl
+    type: uint8_t
+    initial: "0x00"
+  - name: memory_map
+    type: uint8_t
+    initial: "0"
+  - name: video_cols
+    type: uint16_t
+    initial: "64"
+  - name: rom_shadow
+    type: uint8_t *
+    initial: "NULL"
+  - name: low_ram_shadow
+    type: uint8_t *
+    initial: "NULL"
+  - name: low_shadow_valid
+    type: uint8_t
+    initial: "0"
+  - name: low_ram_active
+    type: uint8_t
+    initial: "0"
+  - name: fdc_status
+    type: uint8_t
+    initial: "0x04"
+  - name: fdc_track
+    type: uint8_t
+    initial: "0"
+  - name: fdc_sector
+    type: uint8_t
+    initial: "1"
+  - name: fdc_data
+    type: uint8_t
+    initial: "0"
+  - name: fdc_drive_select
+    type: uint8_t
+    initial: "0"
+  - name: fdc_cmd_pending
+    type: uint8_t
+    initial: "0"
+  - name: fdc_deadline
+    type: uint64_t
+    initial: "0"
+  - name: fdc_last_cmd
+    type: uint8_t
+    initial: "0"
+  - name: fdc_busy
+    type: uint8_t
+    initial: "0"
+  - name: fdc_drq
+    type: uint8_t
+    initial: "0"
+  - name: fdc_irq_pending
+    type: uint8_t
+    initial: "0"
+  - name: fdc_data_index
+    type: uint16_t
+    initial: "0"
+  - name: fdc_data_count
+    type: uint16_t
+    initial: "0"
+  - name: fdc_sector_buffer
+    type: uint8_t *
+    initial: "NULL"
+
+interfaces:
+  callbacks:
+    - name: keyboard_read_row
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32]
+    - name: irq_edge
+      args: [u8]
+    - name: audio_level
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges:
+      - name: full_mem_map
+        start: 0x0000
+        size: 0x10000
+        access: [read, write]
+  ports:
+    read:
+      - name: fdc_status
+        mask: 0x00FF
+        value: 0x00F0
+      - name: fdc_track
+        mask: 0x00FF
+        value: 0x00F1
+      - name: fdc_sector
+        mask: 0x00FF
+        value: 0x00F2
+      - name: fdc_data
+        mask: 0x00FF
+        value: 0x00F3
+    write:
+      - name: fdc_command
+        mask: 0x00FF
+        value: 0x00F0
+      - name: fdc_track
+        mask: 0x00FF
+        value: 0x00F1
+      - name: fdc_sector
+        mask: 0x00FF
+        value: 0x00F2
+      - name: fdc_data
+        mask: 0x00FF
+        value: 0x00F3
+      - name: fdc_drive_select
+        mask: 0x00FC
+        value: 0x00F4
+      - name: options_register
+        mask: 0x00FC
+        value: 0x0084
+      - name: sound_option
+        mask: 0x00FF
+        value: 0x0090
+
+behavior:
+  snippets:
+    init: |
+      if (comp->rom_shadow == NULL) {
+          comp->rom_shadow = (uint8_t *)calloc(0x3800u, sizeof(uint8_t));
+      }
+      if (comp->low_ram_shadow == NULL) {
+          comp->low_ram_shadow = (uint8_t *)calloc(0x3800u, sizeof(uint8_t));
+      }
+      if (comp->fdc_sector_buffer == NULL) {
+          comp->fdc_sector_buffer = (uint8_t *)calloc(256u, sizeof(uint8_t));
+      }
+    reset: |
+      comp->frame_counter = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->tstate_accum = 0u;
+      comp->audio_level = 0u;
+      comp->video_ctrl = 0x00u;
+      comp->memory_map = 0u;
+      comp->video_cols = 64u;
+      comp->low_shadow_valid = 0u;
+      comp->low_ram_active = 0u;
+      comp->fdc_status = 0x04u;
+      comp->fdc_track = 0u;
+      comp->fdc_sector = 1u;
+      comp->fdc_data = 0u;
+      comp->fdc_drive_select = 0u;
+      comp->fdc_cmd_pending = 0u;
+      comp->fdc_deadline = 0u;
+      comp->fdc_last_cmd = 0u;
+      comp->fdc_busy = 0u;
+      comp->fdc_drq = 0u;
+      comp->fdc_irq_pending = 0u;
+      comp->fdc_data_index = 0u;
+      comp->fdc_data_count = 0u;
+      if (comp->fdc_sector_buffer != NULL) {
+          memset(comp->fdc_sector_buffer, 0, 256u);
+      }
+    destroy: |
+      if (comp->rom_shadow != NULL) {
+          free(comp->rom_shadow);
+          comp->rom_shadow = NULL;
+      }
+      if (comp->low_ram_shadow != NULL) {
+          free(comp->low_ram_shadow);
+          comp->low_ram_shadow = NULL;
+      }
+      if (comp->fdc_sector_buffer != NULL) {
+          free(comp->fdc_sector_buffer);
+          comp->fdc_sector_buffer = NULL;
+      }
+      comp->low_shadow_valid = 0u;
+      comp->low_ram_active = 0u;
+    mem_read_pre: |
+      static const uint8_t kb_mask[8] = {
+          0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x7Fu
+      };
+      if (comp->rom_shadow == NULL || comp->low_ram_shadow == NULL) return 0xFFu;
+
+      if (comp->low_shadow_valid == 0u) {
+          if (cpu->memory_size >= 0x3800u) {
+              memcpy(comp->rom_shadow, cpu->memory, 0x3800u);
+          } else {
+              for (uint32_t i = 0u; i < 0x3800u; ++i) {
+                  comp->rom_shadow[i] = (i < cpu->memory_size) ? cpu->memory[i] : 0xFFu;
+              }
+          }
+          memset(comp->low_ram_shadow, 0, 0x3800u);
+          comp->low_shadow_valid = 1u;
+          comp->low_ram_active = 0u;
+      }
+
+      if (addr < 0x3800u) {
+          if (comp->low_ram_active != 0u) {
+              return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+          }
+          return comp->rom_shadow[addr];
+      }
+
+      {
+          uint8_t map = (uint8_t)(comp->memory_map & 0x03u);
+          uint16_t kb_base = 0u;
+          uint8_t kb_enabled = 0u;
+          if (map == 0u || map == 1u) {
+              kb_enabled = 1u;
+              kb_base = 0x3800u;
+          } else if (map == 2u || map == 3u) {
+              kb_enabled = 1u;
+              kb_base = 0xF400u;
+          }
+          if (kb_enabled != 0u && addr >= kb_base && addr < (uint16_t)(kb_base + 0x0400u)) {
+              uint8_t row_lines = (uint8_t)(addr & 0xFFu);
+              uint8_t row_values[8] = { 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu };
+              uint8_t v = 0x00u;
+              for (uint32_t row = 0u; row < 8u; ++row) {
+                  uint64_t cb_args[1] = { (uint64_t)row };
+                  uint8_t host_row = (uint8_t)cpu_component_call(cpu, "trs80_m4io", "keyboard_read_row", cb_args, 1);
+                  row_values[row] = (uint8_t)((host_row & kb_mask[row]) | ((uint8_t)(~kb_mask[row])));
+              }
+              for (uint32_t col = 0u; col < 8u; ++col) {
+                  uint8_t col_pressed = 0u;
+                  for (uint32_t row = 0u; row < 8u; ++row) {
+                      if ((row_lines & (uint8_t)(1u << row)) != 0u) {
+                          if ((row_values[row] & (uint8_t)(1u << col)) == 0u) {
+                              col_pressed = 1u;
+                              break;
+                          }
+                      }
+                  }
+                  if (col_pressed != 0u) {
+                      v |= (uint8_t)(1u << col);
+                  }
+              }
+              return v;
+          }
+      }
+
+      return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+    mem_write_pre: |
+      if (comp->rom_shadow == NULL || comp->low_ram_shadow == NULL) return;
+
+      if (comp->low_shadow_valid == 0u) {
+          if (cpu->memory_size >= 0x3800u) {
+              memcpy(comp->rom_shadow, cpu->memory, 0x3800u);
+          } else {
+              for (uint32_t i = 0u; i < 0x3800u; ++i) {
+                  comp->rom_shadow[i] = (i < cpu->memory_size) ? cpu->memory[i] : 0xFFu;
+              }
+          }
+          memset(comp->low_ram_shadow, 0, 0x3800u);
+          comp->low_shadow_valid = 1u;
+          comp->low_ram_active = 0u;
+      }
+
+      if (addr < 0x3800u) {
+          if (comp->low_ram_active != 0u) {
+              if ((uint64_t)addr < cpu->memory_size) {
+                  cpu->memory[addr] = value;
+              }
+              comp->low_ram_shadow[addr] = value;
+          }
+          return;
+      }
+
+      if ((uint64_t)addr < cpu->memory_size) {
+          cpu->memory[addr] = value;
+      }
+      return;
+    port_read_post: |
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
+      value = 0xFFu;
+      if (p == 0xF0u) {
+          uint8_t status = (uint8_t)(comp->fdc_status & 0x7Cu);
+          if (comp->fdc_busy != 0u) status |= 0x01u;
+          if (comp->fdc_drq != 0u) status |= 0x02u;
+          if (comp->fdc_irq_pending != 0u) status |= 0x80u;
+          value = status;
+          comp->fdc_irq_pending = 0u;
+      } else if (p == 0xF1u) {
+          value = comp->fdc_track;
+      } else if (p == 0xF2u) {
+          value = comp->fdc_sector;
+      } else if (p == 0xF3u) {
+          if (comp->fdc_drq != 0u && comp->fdc_sector_buffer != NULL && comp->fdc_data_count > 0u) {
+              uint16_t idx = comp->fdc_data_index;
+              value = comp->fdc_sector_buffer[(idx < 256u) ? idx : 255u];
+              comp->fdc_data = value;
+              comp->fdc_data_index = (uint16_t)(comp->fdc_data_index + 1u);
+              comp->fdc_data_count = (uint16_t)(comp->fdc_data_count - 1u);
+              if (comp->fdc_data_count == 0u) {
+                  comp->fdc_drq = 0u;
+                  comp->fdc_irq_pending = 1u;
+                  z80_interrupt(cpu, 0xFFu);
+                  {
+                      uint64_t irq_up[1] = { 1u };
+                      uint64_t irq_down[1] = { 0u };
+                      cpu_component_emit_signal(cpu, "trs80_m4io", "irq_edge", irq_up, 1);
+                      cpu_component_emit_signal(cpu, "trs80_m4io", "irq_edge", irq_down, 1);
+                  }
+              }
+          } else {
+              value = comp->fdc_data;
+          }
+      } else if ((p & 0xFCu) == 0xFCu) {
+          /* FC-FF: cassette readback path (placeholder, returns idle-high). */
+          value = 0xFFu;
+      }
+    port_write_pre: |
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
+      if (p == 0xF0u) {
+          uint8_t cmd = (uint8_t)(value & 0xF0u);
+          comp->fdc_last_cmd = value;
+          comp->fdc_irq_pending = 0u;
+          if (cmd == 0x80u) {
+              uint64_t cmd_cycles = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 150u) : 26667u;
+              if (cmd_cycles < 4000u) cmd_cycles = 4000u;
+              comp->fdc_busy = 1u;
+              comp->fdc_drq = 0u;
+              comp->fdc_data_index = 0u;
+              comp->fdc_data_count = 0u;
+              comp->fdc_cmd_pending = 1u;
+              comp->fdc_deadline = cpu->total_cycles + cmd_cycles;
+              comp->fdc_status = 0x04u;
+          } else if (cmd == 0xD0u) {
+              comp->fdc_busy = 0u;
+              comp->fdc_drq = 0u;
+              comp->fdc_cmd_pending = 0u;
+              comp->fdc_data_index = 0u;
+              comp->fdc_data_count = 0u;
+              comp->fdc_irq_pending = 1u;
+              z80_interrupt(cpu, 0xFFu);
+              {
+                  uint64_t irq_up[1] = { 1u };
+                  uint64_t irq_down[1] = { 0u };
+                  cpu_component_emit_signal(cpu, "trs80_m4io", "irq_edge", irq_up, 1);
+                  cpu_component_emit_signal(cpu, "trs80_m4io", "irq_edge", irq_down, 1);
+              }
+          } else {
+              comp->fdc_busy = 0u;
+              comp->fdc_drq = 0u;
+              comp->fdc_cmd_pending = 0u;
+              comp->fdc_data_index = 0u;
+              comp->fdc_data_count = 0u;
+              comp->fdc_status = 0x04u;
+          }
+      } else if (p == 0xF1u) {
+          comp->fdc_track = value;
+      } else if (p == 0xF2u) {
+          comp->fdc_sector = value;
+      } else if (p == 0xF3u) {
+          comp->fdc_data = value;
+      } else if ((p & 0xFCu) == 0xF4u) {
+          comp->fdc_drive_select = value;
+      } else if ((p & 0xFCu) == 0x84u) {
+          uint8_t old_map = (uint8_t)(comp->memory_map & 0x03u);
+          uint8_t new_map = (uint8_t)(value & 0x03u);
+          uint8_t old_ram = (old_map >= 2u) ? 1u : 0u;
+          uint8_t new_ram = (new_map >= 2u) ? 1u : 0u;
+
+          if (comp->rom_shadow != NULL && comp->low_ram_shadow != NULL) {
+              if (comp->low_shadow_valid == 0u) {
+                  if (cpu->memory_size >= 0x3800u) {
+                      memcpy(comp->rom_shadow, cpu->memory, 0x3800u);
+                  } else {
+                      for (uint32_t i = 0u; i < 0x3800u; ++i) {
+                          comp->rom_shadow[i] = (i < cpu->memory_size) ? cpu->memory[i] : 0xFFu;
+                      }
+                  }
+                  memset(comp->low_ram_shadow, 0, 0x3800u);
+                  comp->low_shadow_valid = 1u;
+                  comp->low_ram_active = 0u;
+              }
+
+              if (old_ram == 0u && new_ram != 0u) {
+                  if (cpu->memory_size >= 0x3800u) {
+                      memcpy(cpu->memory, comp->low_ram_shadow, 0x3800u);
+                  } else {
+                      for (uint32_t i = 0u; i < cpu->memory_size && i < 0x3800u; ++i) {
+                          cpu->memory[i] = comp->low_ram_shadow[i];
+                      }
+                  }
+                  comp->low_ram_active = 1u;
+              } else if (old_ram != 0u && new_ram == 0u) {
+                  if (cpu->memory_size >= 0x3800u) {
+                      memcpy(comp->low_ram_shadow, cpu->memory, 0x3800u);
+                      memcpy(cpu->memory, comp->rom_shadow, 0x3800u);
+                  } else {
+                      for (uint32_t i = 0u; i < 0x3800u; ++i) {
+                          if (i < cpu->memory_size) {
+                              comp->low_ram_shadow[i] = cpu->memory[i];
+                              cpu->memory[i] = comp->rom_shadow[i];
+                          }
+                      }
+                  }
+                  comp->low_ram_active = 0u;
+              } else if (new_ram == 0u) {
+                  if (cpu->memory_size >= 0x3800u) {
+                      memcpy(cpu->memory, comp->rom_shadow, 0x3800u);
+                  } else {
+                      for (uint32_t i = 0u; i < cpu->memory_size && i < 0x3800u; ++i) {
+                          cpu->memory[i] = comp->rom_shadow[i];
+                      }
+                  }
+                  comp->low_ram_active = 0u;
+              }
+          }
+
+          comp->video_ctrl = value;
+          comp->memory_map = new_map;
+          comp->video_cols = ((value & 0x04u) != 0u) ? 80u : 64u;
+      } else if ((p & 0xFCu) == 0x90u) {
+          uint8_t level = ((value & 0x01u) != 0u) ? 255u : 0u;
+          if (level != comp->audio_level) {
+              comp->audio_level = level;
+              {
+                  uint64_t sig_args[2] = { (uint64_t)level, cpu->total_cycles };
+                  cpu_component_emit_signal(cpu, "trs80_m4io", "audio_level", sig_args, 2);
+              }
+          }
+      }
+    step_post: |
+      static uint32_t framebuf[640u * 240u];
+      static uint8_t video_shadow[0x0780u];
+      static uint8_t video_shadow_init = 0u;
+
+      uint64_t now = cpu->total_cycles;
+      uint64_t frame_tstates = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 66667u;
+      if (frame_tstates == 0u) frame_tstates = 66667u;
+
+      if (comp->last_cycle == 0u) {
+          comp->last_cycle = now;
+      }
+      if (now >= comp->last_cycle) {
+          comp->tstate_accum += (now - comp->last_cycle);
+      }
+      comp->last_cycle = now;
+
+      if (comp->fdc_cmd_pending != 0u && now >= comp->fdc_deadline) {
+          comp->fdc_cmd_pending = 0u;
+          comp->fdc_busy = 0u;
+          comp->fdc_drq = 0u;
+          comp->fdc_data_index = 0u;
+          comp->fdc_data_count = 0u;
+          if ((comp->fdc_last_cmd & 0xF0u) == 0x80u && comp->fdc_sector_buffer != NULL) {
+              for (uint32_t i = 0u; i < 256u; ++i) {
+                  comp->fdc_sector_buffer[i] = (uint8_t)(
+                      (uint8_t)(comp->fdc_track + comp->fdc_sector) ^
+                      (uint8_t)i
+                  );
+              }
+              comp->fdc_drq = 1u;
+              comp->fdc_data_count = 256u;
+          }
+          comp->fdc_irq_pending = 1u;
+          z80_interrupt(cpu, 0xFFu);
+          {
+              uint64_t irq_up[1] = { 1u };
+              uint64_t irq_down[1] = { 0u };
+              cpu_component_emit_signal(cpu, "trs80_m4io", "irq_edge", irq_up, 1);
+              cpu_component_emit_signal(cpu, "trs80_m4io", "irq_edge", irq_down, 1);
+          }
+      }
+
+      if (video_shadow_init == 0u) {
+          for (uint32_t i = 0u; i < 0x0780u; ++i) {
+              video_shadow[i] = 0x20u;
+          }
+          video_shadow_init = 1u;
+      }
+
+      if (comp->tstate_accum >= frame_tstates) {
+          uint64_t frames_due = comp->tstate_accum / frame_tstates;
+          uint32_t cols = (comp->video_cols == 64u) ? 64u : 80u;
+          uint32_t rows = (cols == 80u) ? 24u : 16u;
+          uint32_t cells = cols * rows;
+          uint8_t map = (uint8_t)(comp->memory_map & 0x03u);
+          uint8_t video_enabled = 0u;
+          uint8_t map_high = 0u;
+          uint32_t video_base;
+          uint32_t video_window;
+          uint32_t page_offset = 0u;
+          uint32_t video_limit;
+          uint32_t fb_w = cols * 6u;
+          uint32_t fb_h = rows * 8u;
+          uint32_t fg = 0xFFE8E8E8u;
+          uint32_t bg = 0xFF101010u;
+
+          if (frames_due == 0u) frames_due = 1u;
+          comp->tstate_accum -= frames_due * frame_tstates;
+          if (frames_due > 0xFFFFFFFFu) {
+              comp->frame_counter = 0xFFFFFFFFu;
+          } else {
+              comp->frame_counter += (uint32_t)frames_due;
+          }
+
+          if (map == 0u || map == 1u) {
+              video_enabled = 1u;
+              map_high = 0u;
+          } else if (map == 2u || map == 3u) {
+              video_enabled = 1u;
+              map_high = 1u;
+          }
+
+          video_base = map_high ? 0xF800u : 0x3C00u;
+          video_window = map_high ? 0x0800u : 0x0400u;
+
+          if (cells > 0x0780u) cells = 0x0780u;
+          if (cols == 64u && (comp->video_ctrl & 0x80u) != 0u) {
+              page_offset = 0x0400u;
+          }
+          if (video_enabled != 0u) {
+              video_limit = (page_offset < video_window) ? (video_window - page_offset) : 0u;
+              if (video_limit > cells) video_limit = cells;
+              for (uint32_t i = 0u; i < video_limit; ++i) {
+                  uint32_t addr = video_base + page_offset + i;
+                  video_shadow[i] = (addr < cpu->memory_size) ? cpu->memory[addr] : 0x20u;
+              }
+              for (uint32_t i = video_limit; i < cells; ++i) {
+                  video_shadow[i] = 0x20u;
+              }
+          }
+
+          if (fb_w > 640u) fb_w = 640u;
+          if (fb_h > 240u) fb_h = 240u;
+
+          for (uint32_t py = 0u; py < fb_h; ++py) {
+              for (uint32_t px = 0u; px < fb_w; ++px) {
+                  framebuf[py * fb_w + px] = bg;
+              }
+          }
+
+          for (uint32_t y = 0u; y < rows; ++y) {
+              for (uint32_t x = 0u; x < cols; ++x) {
+                  uint32_t idx = y * cols + x;
+                  uint8_t raw = (idx < cells) ? video_shadow[idx] : 0x20u;
+                  uint8_t ch_raw = (uint8_t)(raw & 0x7Fu);
+                  uint8_t inv = ((raw & 0x80u) != 0u) ? 1u : 0u;
+                  char ch;
+                  uint32_t cell_x = x * 6u;
+                  uint32_t cell_y = y * 8u;
+                  if (ch_raw < 0x20u || ch_raw > 0x7Eu) {
+                      ch = ' ';
+                  } else {
+                      ch = (char)ch_raw;
+                  }
+                  uint32_t ch_fg = (inv != 0u) ? bg : fg;
+                  uint32_t ch_bg = (inv != 0u) ? fg : bg;
+                  if (inv != 0u) {
+                      sms_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, 6, 8, ch_bg);
+                  }
+                  sms_overlay_draw_char(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, ch, 1, ch_fg);
+              }
+          }
+
+          {
+              uint64_t frame_args[4] = {
+                  (uint64_t)comp->frame_counter,
+                  (uint64_t)(uintptr_t)framebuf,
+                  (uint64_t)fb_w,
+                  (uint64_t)fb_h
+              };
+              cpu_component_emit_signal(cpu, "trs80_m4io", "frame_ready", frame_args, 4);
+          }
+
+          z80_interrupt(cpu, 0xFFu);
+          {
+              uint64_t irq_up[1] = { 1u };
+              uint64_t irq_down[1] = { 0u };
+              cpu_component_emit_signal(cpu, "trs80_m4io", "irq_edge", irq_up, 1);
+              cpu_component_emit_signal(cpu, "trs80_m4io", "irq_edge", irq_down, 1);
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: ["pasm_overlay.h"]
+  include_paths: ["../hosts/include"]
+  linked_libraries: []
+  library_paths: []

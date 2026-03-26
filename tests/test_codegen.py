@@ -33,3 +33,34 @@ def test_generate_simple8_full(tmp_path):
     include_dir = outdir / "include"
     assert (include_dir / "cpu_defs.h").exists()
 
+
+def test_generate_trs80_model4_embeds_reset_delay(tmp_path):
+    processor_path, system_path = example_pair(
+        "z80", "z80_trs80_model4_interactive.yaml"
+    )
+    outdir = tmp_path / "trs80_reset_delay_test"
+    examples_dir = processor_path.parents[1]
+    ic_paths = [
+        str(examples_dir / "ics" / "trs80_model4_peripherals.yaml"),
+    ]
+    device_paths = [
+        str(examples_dir / "devices" / "trs80_keyboard.yaml"),
+        str(examples_dir / "devices" / "trs80_video.yaml"),
+        str(examples_dir / "devices" / "trs80_speaker.yaml"),
+    ]
+    host_paths = [
+        str(examples_dir / "hosts" / "trs80_host_sdl2_interactive.yaml"),
+    ]
+
+    gen_mod.generate(
+        str(processor_path),
+        str(system_path),
+        str(outdir),
+        ic_paths=ic_paths,
+        device_paths=device_paths,
+        host_paths=host_paths,
+    )
+
+    cpu_impl = (outdir / "src" / "Z80.c").read_text(encoding="utf-8")
+    assert "cpu_sleep_seconds(5u);" in cpu_impl
+

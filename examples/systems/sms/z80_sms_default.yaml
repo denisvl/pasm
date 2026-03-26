@@ -1,0 +1,132 @@
+metadata:
+  name: Z80SMSDefaultSystem
+  version: "0.1"
+
+clock_hz: 3579545
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: BIOS_CART_32K
+      start: 0x0000
+      size: 0x8000
+      read_only: true
+    - name: CART_SLOT2_16K
+      start: 0x8000
+      size: 0x4000
+      read_only: true
+    - name: RAM_MAIN_8K
+      start: 0xC000
+      size: 0x2000
+      read_write: true
+    - name: RAM_MIRROR_8K
+      start: 0xE000
+      size: 0x2000
+      read_write: true
+  rom_images:
+    - name: sms_bios_32k
+      file: ../roms/sega.rom
+      target_region: BIOS_CART_32K
+      offset: 0
+
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+
+components:
+  ics:
+    - sms_vdp0
+    - sms_joy0
+    - sms_psg0
+  devices:
+    - video_sms
+    - speaker_sms
+  hosts:
+    - host_sms
+  cartridge: sms_cart0
+
+connections:
+  - from:
+      component: sms_joy0
+      kind: callback
+      name: joy1_read
+    to:
+      component: host_sms
+      kind: callback
+      name: read_joy1
+
+  - from:
+      component: sms_joy0
+      kind: callback
+      name: joy2_read
+    to:
+      component: host_sms
+      kind: callback
+      name: read_joy2
+
+  - from:
+      component: sms_vdp0
+      kind: signal
+      name: frame_ready
+    to:
+      component: video_sms
+      kind: handler
+      name: on_frame_ready
+
+  - from:
+      component: video_sms
+      kind: signal
+      name: frame_present
+    to:
+      component: host_sms
+      kind: handler
+      name: video_frame
+
+  - from:
+      component: sms_vdp0
+      kind: signal
+      name: irq_edge
+    to:
+      component: host_sms
+      kind: handler
+      name: irq_edge
+
+  - from:
+      component: sms_psg0
+      kind: signal
+      name: audio_level
+    to:
+      component: speaker_sms
+      kind: handler
+      name: on_audio_level
+
+  - from:
+      component: speaker_sms
+      kind: signal
+      name: pcm_sample
+    to:
+      component: host_sms
+      kind: handler
+      name: audio_pcm
+
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+
+integrations:
+  profile: sms_default
+

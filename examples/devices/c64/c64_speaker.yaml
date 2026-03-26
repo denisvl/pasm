@@ -1,0 +1,37 @@
+metadata:
+  id: speaker_c64
+  type: audio_output
+  model: c64_sid_volume_bridge
+  version: "1.0"
+
+state:
+  - name: level
+    type: uint8_t
+    initial: "0u"
+  - name: last_cycle
+    type: uint64_t
+    initial: "0u"
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: on_audio_level
+      args: [u8, u64]
+  signals:
+    - name: pcm_sample
+      args: [u8, u64]
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies:
+    on_audio_level: |
+      comp->level = (uint8_t)(args[0] & 0xFFu);
+      comp->last_cycle = (argc > 1) ? (uint64_t)args[1] : cpu->total_cycles;
+      cpu_component_emit_signal(cpu, "speaker_c64", "pcm_sample", args, argc);
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

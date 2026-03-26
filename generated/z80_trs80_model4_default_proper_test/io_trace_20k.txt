@@ -1,0 +1,48 @@
+Loaded system ROMs from: examples/systems
+IO pc=340A a=00 bc=0F88 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0F88 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0E88 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0E88 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0D88 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0D88 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0C88 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0C88 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0B88 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0B88 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0A88 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0A88 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0988 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0988 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0888 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0888 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0788 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0788 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0688 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0688 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0588 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0588 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0488 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0488 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0388 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0388 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0288 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0288 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340A a=00 bc=0188 de=0000 hl=0000 : OUT (C), B OP=ED PREF=00 LEN=2 CYC=12 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=340C a=00 bc=0188 de=0000 hl=0000 : OUT (0x89), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=3410 a=00 bc=0088 de=0000 hl=0000 : OUT (0xE4), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=3414 a=20 bc=0088 de=0000 hl=0000 : OUT (0xEC), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=3418 a=81 bc=0088 de=0000 hl=0000 : OUT (0xF4), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=341C a=D0 bc=0088 de=0000 hl=0000 : OUT (0xF0), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=3423 a=04 bc=0088 de=0000 hl=0000 : OUT (0xE0), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=3427 a=0B bc=0088 de=0000 hl=0000 : OUT (0xF0), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+IO pc=0573 a=28 bc=021C de=048E hl=3C00 : OUT (0xEC), A OP=D3 PREF=00 LEN=2 CYC=11 r=0 imm=0 addr=0x0000 disp=0 cc=0
+Executed 20007 cycles
+RANGE_3C00_03FF base=3C00 len=1024 printable=0 nonzero=0 highbit=0
+RANGE_F800_07FF base=F800 len=2048 printable=0 nonzero=0 highbit=0
+RANGE_F400_00FF base=F400 len=256 printable=0 nonzero=0 highbit=0
+ASCII_3C00 @3C00: ................................................................
+ASCII_F800 @F800: ................................................................................
+PORT_WRITES_00FF: 88=01 E0=04 EC=28 F0=0B F4=81
+M4CTRL video_ctrl=86 map=1 cols=80 frame_count=0 host_frames=0
+PC: 0x05C9 SP: 0x4069 Flags: 0x31
+R0: 0xFC R1: 0x02 R2: 0x1F R3: 0x40 R4: 0x00 R5: 0x3C R6: 0xBC R7: 0x00 

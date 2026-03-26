@@ -7,7 +7,8 @@
     "metadata",
     "registers",
     "flags",
-    "instructions"
+    "instructions",
+    "coding"
   ],
   "additionalProperties": false,
   "properties": {
@@ -74,6 +75,10 @@
           "name": {
             "type": "string",
             "description": "Register name (use R0..R7 for ranges)"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Optional debugger/UI label for the register"
           },
           "type": {
             "type": "string",
@@ -170,7 +175,9 @@
           "enum": [
             "none",
             "fixed_vector",
-            "z80"
+            "z80",
+            "mos6502",
+            "mc6809"
           ],
           "description": "Interrupt dispatch model used by generated runtime"
         },
@@ -225,6 +232,47 @@
           "display": {
             "type": "string",
             "description": "Optional human-readable instruction text"
+          },
+          "display_template": {
+            "type": "string",
+            "description": "Optional operand-aware display template using {field} or {field:formatter} tokens"
+          },
+          "display_operands": {
+            "type": "object",
+            "description": "Optional operand rendering specs keyed by decoded field name",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "table",
+                    "cc_table",
+                    "hex8",
+                    "hex16",
+                    "hex32",
+                    "signed8",
+                    "signed16",
+                    "unsigned"
+                  ]
+                },
+                "table": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "mask": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
           },
           "category": {
             "type": "string",
@@ -313,6 +361,48 @@
               }
             }
           },
+          "timing_profile": {
+            "type": "object",
+            "required": [
+              "bus_events",
+              "total_tstates"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "bus_events": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "t_offset"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "mem_read_opcode",
+                        "mem_read_operand",
+                        "mem_read",
+                        "mem_write",
+                        "port_read",
+                        "port_write"
+                      ]
+                    },
+                    "t_offset": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              "total_tstates": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
           "length": {
             "type": "integer",
             "minimum": 1
@@ -324,6 +414,63 @@
           "behavior": {
             "type": "string",
             "description": "C code that implements the instruction"
+          }
+        }
+      }
+    },
+    "coding": {
+      "type": "object",
+      "required": [
+        "headers",
+        "include_paths",
+        "linked_libraries",
+        "library_paths"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "headers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "include_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "linked_libraries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "required": [
+                  "path"
+                ]
+              }
+            ]
+          }
+        },
+        "library_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
       }

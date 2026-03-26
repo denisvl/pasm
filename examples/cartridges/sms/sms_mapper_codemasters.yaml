@@ -1,0 +1,159 @@
+metadata:
+  id: sms_cart0
+  type: cartridge_mapper
+  model: sms_mapper_codemasters
+  version: "1.0"
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+  - name: bios_visible
+    type: uint8_t
+    initial: "1"
+  - name: bank0
+    type: uint8_t
+    initial: "0"
+  - name: bank1
+    type: uint8_t
+    initial: "1"
+  - name: bank2
+    type: uint8_t
+    initial: "2"
+  - name: sram_enabled
+    type: uint8_t
+    initial: "0"
+  - name: sram_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: sram_size
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cart_window
+        start: 0x0000
+        size: 0xC000
+        access: [read, write]
+  ports:
+    write:
+      - name: memory_ctrl
+        mask: 0x00FF
+        value: 0x003E
+
+behavior:
+  snippets:
+    init: |
+      if (comp->sram_data == NULL) {
+          comp->sram_data = (uint8_t *)calloc(0x2000u, sizeof(uint8_t));
+          if (comp->sram_data != NULL) {
+              comp->sram_size = 0x2000u;
+          }
+      }
+    reset: |
+      comp->bank0 = 0u;
+      comp->bank1 = 1u;
+      comp->bank2 = 2u;
+      comp->sram_enabled = 0u;
+      comp->bios_visible = (cpu->memory[0] != 0u || cpu->memory[1] != 0u) ? 1u : 0u;
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      if (comp->sram_data != NULL) {
+          free(comp->sram_data);
+          comp->sram_data = NULL;
+      }
+      comp->rom_size = 0u;
+      comp->sram_size = 0u;
+    port_write_pre: |
+      if ((((uint16_t)port) & 0x00FFu) == 0x003Eu) {
+          comp->bios_visible = ((value & 0x08u) == 0u) ? 1u : 0u;
+          return;
+      }
+    mem_read_pre: |
+      if (addr < 0xC000u) {
+          if (comp->bios_visible != 0u && addr < 0x8000u) {
+              return cpu->memory[addr];
+          }
+          if (
+              comp->sram_enabled != 0u
+              && addr >= 0xA000u
+              && addr < 0xC000u
+              && comp->sram_data != NULL
+              && comp->sram_size > 0u
+          ) {
+              uint32_t sram_off = (uint32_t)addr - 0xA000u;
+              if (sram_off < comp->sram_size) {
+                  return comp->sram_data[sram_off];
+              }
+          }
+          if (comp->rom_data == NULL || comp->rom_size == 0u) {
+              return 0xFFu;
+          }
+          {
+              uint32_t bank_size = 0x4000u;
+              uint32_t bank_count = (comp->rom_size + (bank_size - 1u)) / bank_size;
+              uint32_t bank = 0u;
+              uint32_t off;
+              if (bank_count == 0u) return 0xFFu;
+              if (addr < 0x4000u) {
+                  bank = (uint32_t)(comp->bank0 % bank_count);
+              } else if (addr < 0x8000u) {
+                  bank = (uint32_t)(comp->bank1 % bank_count);
+              } else {
+                  bank = (uint32_t)(comp->bank2 % bank_count);
+              }
+              off = bank * bank_size + ((uint32_t)addr & 0x3FFFu);
+              if (off < comp->rom_size) {
+                  return comp->rom_data[off];
+              }
+          }
+          return 0xFFu;
+      }
+    mem_write_pre: |
+      if (addr == 0x0000u) {
+          comp->bank0 = value;
+          return;
+      }
+      if (addr == 0x4000u) {
+          comp->bank1 = value;
+          return;
+      }
+      if (addr == 0x8000u) {
+          comp->bank2 = (uint8_t)(value & 0x3Fu);
+          comp->sram_enabled = (uint8_t)((value & 0x80u) != 0u);
+          return;
+      }
+      if (
+          comp->sram_enabled != 0u
+          && addr >= 0xA000u
+          && addr < 0xC000u
+          && comp->sram_data != NULL
+          && comp->sram_size > 0u
+      ) {
+          uint32_t sram_off = (uint32_t)addr - 0xA000u;
+          if (sram_off < comp->sram_size) {
+              comp->sram_data[sram_off] = value;
+          }
+          return;
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

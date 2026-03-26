@@ -1,0 +1,177 @@
+metadata:
+  name: Atari800XLCartridgeDefaultSystem
+  version: "0.1"
+
+clock_hz: 1789773
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: RAM_LOW
+      start: 0x0000
+      size: 0xA000
+      read_write: true
+    - name: CART_8K
+      start: 0xA000
+      size: 0x2000
+      read_only: true
+    - name: RAM_B000
+      start: 0xB000
+      size: 0x1000
+      read_write: true
+    - name: ROM_OS_LOW
+      start: 0xC000
+      size: 0x1000
+      read_only: true
+    - name: IO_PAGE
+      start: 0xD000
+      size: 0x0800
+      read_write: true
+    - name: ROM_OS_HIGH
+      start: 0xD800
+      size: 0x2800
+      read_only: true
+  rom_images:
+    - name: atari800xl_os_low
+      file: ../roms/ATARIXL_C000.ROM
+      target_region: ROM_OS_LOW
+      offset: 0
+    - name: atari800xl_os_high
+      file: ../roms/ATARIXL_D800.ROM
+      target_region: ROM_OS_HIGH
+      offset: 0
+
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+
+components:
+  ics:
+    - atari_io
+  devices:
+    - video_sms
+    - speaker_sms
+  hosts:
+    - host_atari800xl
+  cartridge: atari_cart0
+
+connections:
+  - from:
+      component: atari_io
+      kind: callback
+      name: keyboard_ascii
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: keyboard_ascii
+
+  - from:
+      component: atari_io
+      kind: callback
+      name: consol_state
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: consol_state
+
+  - from:
+      component: atari_io
+      kind: callback
+      name: joystick_porta
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: joystick_porta
+
+  - from:
+      component: atari_io
+      kind: callback
+      name: trigger0
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: trigger0
+
+  - from:
+      component: atari_io
+      kind: callback
+      name: trigger1
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: trigger1
+
+  - from:
+      component: atari_io
+      kind: callback
+      name: trigger2
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: trigger2
+
+  - from:
+      component: atari_io
+      kind: callback
+      name: trigger3
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: trigger3
+
+  - from:
+      component: atari_io
+      kind: signal
+      name: frame_ready
+    to:
+      component: video_sms
+      kind: handler
+      name: on_frame_ready
+
+  - from:
+      component: video_sms
+      kind: signal
+      name: frame_present
+    to:
+      component: host_atari800xl
+      kind: handler
+      name: video_frame
+
+  - from:
+      component: atari_io
+      kind: signal
+      name: audio_level
+    to:
+      component: speaker_sms
+      kind: handler
+      name: on_audio_level
+
+  - from:
+      component: speaker_sms
+      kind: signal
+      name: pcm_sample
+    to:
+      component: host_atari800xl
+      kind: handler
+      name: audio_pcm
+
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+
+integrations:
+  profile: atari800xl_cartridge_default

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "processor_name": "MOS6509",
+  "processor_version": "1.0",
+  "system_name": "MOS6509DefaultSystem",
+  "cpu_name": "MOS6509",
+  "cpu_prefix": "mos6509",
+  "cmake_library_target": "mos6509_emu",
+  "library_basename": "mos6509_emu",
+  "artifacts": {
+    "static": "libmos6509_emu.a",
+    "shared_linux": "libmos6509_emu.so",
+    "shared_macos": "libmos6509_emu.dylib",
+    "shared_windows": "mos6509_emu.dll",
+    "import_windows": "mos6509_emu.lib"
+  },
+  "headers": {
+    "cpu": "src/MOS6509.h",
+    "debug_abi": "src/MOS6509_debug_abi.h"
+  },
+  "link": {
+    "library_paths": [],
+    "library_names": [],
+    "library_files": []
+  },
+  "memory_default_size": 1048576,
+  "cartridge": {
+    "enabled": false,
+    "id": "",
+    "default_rom_path": ""
+  }
+}

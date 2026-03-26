@@ -6,7 +6,9 @@
   "required": [
     "metadata",
     "clock_hz",
-    "memory"
+    "memory",
+    "components",
+    "connections"
   ],
   "additionalProperties": false,
   "properties": {
@@ -31,6 +33,11 @@
       "type": "integer",
       "minimum": 1,
       "description": "System clock in Hertz"
+    },
+    "reset_delay_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Delay applied on each system reset before execution resumes"
     },
     "memory": {
       "type": "object",
@@ -70,6 +77,33 @@
               },
               "read_only": {
                 "type": "boolean"
+              }
+            }
+          }
+        },
+        "rom_images": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "file",
+              "target_region"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              },
+              "target_region": {
+                "type": "string"
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
               }
             }
           }
@@ -170,6 +204,125 @@
       "type": "object",
       "description": "Free-form integration metadata for future adapters",
       "additionalProperties": true
+    },
+    "components": {
+      "type": "object",
+      "required": [
+        "ics",
+        "devices",
+        "hosts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ics": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        },
+        "devices": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        },
+        "cartridge": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        }
+      }
+    },
+    "connections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "object",
+            "required": [
+              "component",
+              "kind",
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "component": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "callback",
+                  "signal"
+                ]
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "to": {
+            "type": "object",
+            "required": [
+              "component",
+              "kind",
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "component": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "callback",
+                  "handler"
+                ]
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sample_rate": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "s16le",
+            "float32"
+          ]
+        },
+        "channels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        }
+      }
     }
   }
 }

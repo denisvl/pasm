@@ -1,0 +1,55 @@
+metadata:
+  id: sg_joy0
+  type: io_controller
+  model: sg1000_pad_ports
+  version: "1.0"
+
+state:
+  - name: joy1
+    type: uint8_t
+    initial: "0xFF"
+  - name: joy2
+    type: uint8_t
+    initial: "0xFF"
+
+interfaces:
+  callbacks:
+    - name: joy1_read
+      args: []
+      returns: u8
+    - name: joy2_read
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  ports:
+    read:
+      - name: joy_port_dc_read
+        mask: 0x00FF
+        value: 0x00DC
+      - name: joy_port_dd_read
+        mask: 0x00FF
+        value: 0x00DD
+
+behavior:
+  snippets:
+    port_read_post: |
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
+      if (p == 0xDCu) {
+          value = (uint8_t)cpu_component_call(cpu, "sg_joy0", "joy1_read", NULL, 0);
+          comp->joy1 = value;
+      } else if (p == 0xDDu) {
+          value = (uint8_t)cpu_component_call(cpu, "sg_joy0", "joy2_read", NULL, 0);
+          comp->joy2 = value;
+      }
+      return value;
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

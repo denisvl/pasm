@@ -1,0 +1,134 @@
+metadata:
+  name: Z80MSX1DefaultSystem
+  version: "0.1"
+
+clock_hz: 3579545
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: BIOS_32K
+      start: 0x0000
+      size: 0x8000
+      read_only: true
+    - name: RAM_MAIN
+      start: 0x8000
+      size: 0x8000
+      read_write: true
+  rom_images:
+    - name: msx_bios_32k
+      file: ../roms/msx.rom
+      target_region: BIOS_32K
+      offset: 0
+
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+
+components:
+  ics:
+    - vdp0
+    - ppi0
+    - psg0
+  devices:
+    - keyboard_msx
+    - video_msx
+    - speaker_msx
+  hosts:
+    - host_msx
+  cartridge: msx_cart0
+
+connections:
+  - from:
+      component: ppi0
+      kind: callback
+      name: keyboard_read_row
+    to:
+      component: keyboard_msx
+      kind: callback
+      name: read_row
+
+  - from:
+      component: keyboard_msx
+      kind: callback
+      name: host_matrix
+    to:
+      component: host_msx
+      kind: callback
+      name: keyboard_matrix
+
+  - from:
+      component: psg0
+      kind: callback
+      name: joy_read
+    to:
+      component: host_msx
+      kind: callback
+      name: joystick_state
+
+  - from:
+      component: vdp0
+      kind: signal
+      name: frame_ready
+    to:
+      component: video_msx
+      kind: handler
+      name: on_frame_ready
+
+  - from:
+      component: video_msx
+      kind: signal
+      name: frame_present
+    to:
+      component: host_msx
+      kind: handler
+      name: video_frame
+
+  - from:
+      component: vdp0
+      kind: signal
+      name: irq_edge
+    to:
+      component: host_msx
+      kind: handler
+      name: irq_edge
+
+  - from:
+      component: psg0
+      kind: signal
+      name: audio_level
+    to:
+      component: speaker_msx
+      kind: handler
+      name: on_audio_level
+
+  - from:
+      component: speaker_msx
+      kind: signal
+      name: pcm_sample
+    to:
+      component: host_msx
+      kind: handler
+      name: audio_pcm
+
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+
+integrations:
+  profile: msx1_cartridge_default
+

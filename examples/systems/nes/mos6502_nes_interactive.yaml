@@ -1,0 +1,138 @@
+metadata:
+  name: MOS6502NESInteractiveSystem
+  version: "0.1"
+
+clock_hz: 1789773
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: CPU_RAM_2K
+      start: 0x0000
+      size: 0x0800
+      read_write: true
+    - name: CART_RAM_8K
+      start: 0x6000
+      size: 0x2000
+      read_write: true
+    - name: CART_ROM_32K
+      start: 0x8000
+      size: 0x8000
+      read_only: true
+
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+
+components:
+  ics:
+    - nes_io
+  devices:
+    - video_nes
+    - speaker_nes
+  hosts:
+    - host_nes_sdl2
+  cartridge: nes_cart0
+
+connections:
+  - from:
+      component: nes_io
+      kind: callback
+      name: cart_chr_read
+    to:
+      component: nes_cart0
+      kind: callback
+      name: chr_read
+
+  - from:
+      component: nes_io
+      kind: callback
+      name: cart_chr_write
+    to:
+      component: nes_cart0
+      kind: callback
+      name: chr_write
+
+  - from:
+      component: nes_io
+      kind: callback
+      name: cart_mirroring
+    to:
+      component: nes_cart0
+      kind: callback
+      name: mirroring
+
+  - from:
+      component: nes_io
+      kind: callback
+      name: joy1_read
+    to:
+      component: host_nes_sdl2
+      kind: callback
+      name: read_joy1
+
+  - from:
+      component: nes_io
+      kind: callback
+      name: joy2_read
+    to:
+      component: host_nes_sdl2
+      kind: callback
+      name: read_joy2
+
+  - from:
+      component: nes_io
+      kind: signal
+      name: frame_ready
+    to:
+      component: video_nes
+      kind: handler
+      name: on_frame_ready
+
+  - from:
+      component: video_nes
+      kind: signal
+      name: frame_present
+    to:
+      component: host_nes_sdl2
+      kind: handler
+      name: video_frame
+
+  - from:
+      component: nes_io
+      kind: signal
+      name: audio_level
+    to:
+      component: speaker_nes
+      kind: handler
+      name: on_audio_level
+
+  - from:
+      component: speaker_nes
+      kind: signal
+      name: pcm_sample
+    to:
+      component: host_nes_sdl2
+      kind: handler
+      name: audio_pcm
+
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+
+integrations:
+  profile: nes_interactive

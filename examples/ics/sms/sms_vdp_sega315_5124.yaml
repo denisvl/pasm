@@ -1,0 +1,796 @@
+metadata:
+  id: sms_vdp0
+  type: video_controller
+  model: sega315_5124_sms
+  version: "1.1"
+
+clock_hz: 3579545
+
+state:
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: tstate_accum
+    type: uint64_t
+    initial: "0"
+  - name: line_tstate_accum
+    type: uint64_t
+    initial: "0"
+  - name: scanline
+    type: uint16_t
+    initial: "0"
+  - name: vdp_addr
+    type: uint16_t
+    initial: "0"
+  - name: control_latch
+    type: uint8_t
+    initial: "0"
+  - name: control_phase
+    type: uint8_t
+    initial: "0"
+  - name: code
+    type: uint8_t
+    initial: "0"
+  - name: read_buffer
+    type: uint8_t
+    initial: "0"
+  - name: status
+    type: uint8_t
+    initial: "0"
+  - name: render_dirty
+    type: uint8_t
+    initial: "1"
+  - name: reg0
+    type: uint8_t
+    initial: "0"
+  - name: reg1
+    type: uint8_t
+    initial: "0"
+  - name: reg2
+    type: uint8_t
+    initial: "0"
+  - name: reg3
+    type: uint8_t
+    initial: "0"
+  - name: reg4
+    type: uint8_t
+    initial: "0"
+  - name: reg5
+    type: uint8_t
+    initial: "0"
+  - name: reg6
+    type: uint8_t
+    initial: "0"
+  - name: reg7
+    type: uint8_t
+    initial: "0"
+  - name: reg8
+    type: uint8_t
+    initial: "0"
+  - name: reg9
+    type: uint8_t
+    initial: "0"
+  - name: reg10
+    type: uint8_t
+    initial: "0"
+  - name: line_counter
+    type: uint8_t
+    initial: "0"
+  - name: line_irq_pending
+    type: uint8_t
+    initial: "0"
+  - name: frame_irq_pending
+    type: uint8_t
+    initial: "0"
+  - name: irq_asserted
+    type: uint8_t
+    initial: "0"
+  - name: h_counter_latch
+    type: uint8_t
+    initial: "0"
+  - name: vram
+    type: uint8_t *
+    initial: "NULL"
+  - name: cram
+    type: uint8_t *
+    initial: "NULL"
+  - name: debug_enabled
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32]
+    - name: irq_edge
+      args: [u8]
+
+maps:
+  ports:
+    read:
+      - name: v_counter_read
+        mask: 0x00C1
+        value: 0x0040
+      - name: h_counter_read
+        mask: 0x00C1
+        value: 0x0041
+      - name: vdp_data_read
+        mask: 0x00C1
+        value: 0x0080
+      - name: vdp_status_read
+        mask: 0x00C1
+        value: 0x0081
+    write:
+      - name: vdp_data_write
+        mask: 0x00C1
+        value: 0x0080
+      - name: vdp_ctrl_write
+        mask: 0x00C1
+        value: 0x0081
+
+behavior:
+  snippets:
+    init: |
+      {
+          const char *dbg_env = getenv("PASM_SMS_DEBUG");
+          comp->debug_enabled = (dbg_env != NULL && dbg_env[0] != '\0' && dbg_env[0] != '0') ? 1u : 0u;
+          if (comp->debug_enabled != 0u) {
+              fprintf(stderr, "sms_vdp: debug enabled (PASM_SMS_DEBUG=%s)\n", dbg_env);
+          }
+      }
+      do {
+          if (comp->vram == NULL) {
+              comp->vram = (uint8_t *) calloc(16384u, sizeof(uint8_t));
+
+              if (comp->vram == NULL) {
+                  break;
+              }
+          }
+
+          if (comp->cram == NULL) {
+              comp->cram = (uint8_t *) calloc(32u, sizeof(uint8_t));
+
+              if (comp->cram == NULL) {
+                  break;
+              }
+          }
+      } while (0);
+
+      comp->frame_counter = 0u;
+      comp->tstate_accum = 0u;
+      comp->line_tstate_accum = 0u;
+      comp->scanline = 0u;
+      comp->vdp_addr = 0u;
+      comp->control_latch = 0u;
+      comp->control_phase = 0u;
+      comp->code = 0u;
+      comp->read_buffer = 0u;
+      comp->status = 0u;
+      comp->render_dirty = 1u;
+      comp->reg0 = 0u;
+      comp->reg1 = 0u;
+      comp->reg2 = 0u;
+      comp->reg3 = 0u;
+      comp->reg4 = 0u;
+      comp->reg5 = 0u;
+      comp->reg6 = 0u;
+      comp->reg7 = 0u;
+      comp->reg8 = 0u;
+      comp->reg9 = 0u;
+      comp->reg10 = 0u;
+      comp->line_counter = 0u;
+      comp->line_irq_pending = 0u;
+      comp->frame_irq_pending = 0u;
+      comp->irq_asserted = 0u;
+      comp->h_counter_latch = 0u;
+
+    reset: |
+      {
+          const char *dbg_env = getenv("PASM_SMS_DEBUG");
+          comp->debug_enabled = (dbg_env != NULL && dbg_env[0] != '\0' && dbg_env[0] != '0') ? 1u : 0u;
+      }
+      if (comp->vram != NULL) {
+          memset(comp->vram, 0, 16384u);
+      }
+
+      if (comp->cram != NULL) {
+          memset(comp->cram, 0, 32u);
+      }
+
+      comp->frame_counter = 0u;
+      comp->tstate_accum = 0u;
+      comp->line_tstate_accum = 0u;
+      comp->scanline = 0u;
+      comp->vdp_addr = 0u;
+      comp->control_latch = 0u;
+      comp->control_phase = 0u;
+      comp->code = 0u;
+      comp->read_buffer = 0u;
+      comp->status = 0u;
+      comp->render_dirty = 1u;
+      comp->reg0 = 0u;
+      comp->reg1 = 0u;
+      comp->reg2 = 0u;
+      comp->reg3 = 0u;
+      comp->reg4 = 0u;
+      comp->reg5 = 0u;
+      comp->reg6 = 0u;
+      comp->reg7 = 0u;
+      comp->reg8 = 0u;
+      comp->reg9 = 0u;
+      comp->reg10 = 0u;
+      comp->line_counter = 0u;
+      comp->line_irq_pending = 0u;
+      comp->frame_irq_pending = 0u;
+      comp->irq_asserted = 0u;
+      comp->h_counter_latch = 0u;
+
+      cpu->interrupt_pending = false;
+      cpu->interrupt_vector = 0xFFu;
+
+    destroy: |
+      if (comp->vram != NULL) {
+          free(comp->vram);
+          comp->vram = NULL;
+      }
+
+      if (comp->cram != NULL) {
+          free(comp->cram);
+          comp->cram = NULL;
+      }
+
+    port_read_post: |
+      uint8_t p = (uint8_t) (((uint16_t) port) & 0x00C1u);
+
+      if (comp->vram == NULL || comp->cram == NULL) {
+          if (p == 0x40u || p == 0x41u || p == 0x80u || p == 0x81u) {
+              value = 0xFFu;
+          }
+
+          return value;
+      }
+
+      if (p == 0x40u) {
+          /*
+           * Simplified free-running V counter.
+           * Good enough for normal SMS software polling 0x7E.
+           */
+          value = (uint8_t) (comp->scanline & 0x00FFu);
+          return value;
+      }
+
+      if (p == 0x41u) {
+          /*
+           * Real SMS H counter is TH-latched.
+           * This component returns the stored latch value.
+           */
+          value = comp->h_counter_latch;
+          return value;
+      }
+
+      if (p == 0x80u) {
+          value = comp->read_buffer;
+          comp->read_buffer = comp->vram[(uint16_t) (comp->vdp_addr & 0x3FFFu)];
+          comp->vdp_addr = (uint16_t) ((comp->vdp_addr + 1u) & 0x3FFFu);
+          comp->control_phase = 0u;
+          return value;
+      }
+
+      if (p == 0x81u) {
+          uint8_t status_before = comp->status;
+          value = (uint8_t) (status_before & 0xE0u);
+          if (comp->debug_enabled != 0u && value != 0u) {
+              fprintf(
+                  stderr,
+                  "sms_vdp: status_read val=0x%02X scanline=%u frame=%u irq(F=%u L=%u A=%u)\n",
+                  (unsigned)value,
+                  (unsigned)comp->scanline,
+                  (unsigned)comp->frame_counter,
+                  (unsigned)comp->frame_irq_pending,
+                  (unsigned)comp->line_irq_pending,
+                  (unsigned)comp->irq_asserted
+              );
+          }
+
+          comp->status = 0u;
+          comp->frame_irq_pending = 0u;
+          comp->line_irq_pending = 0u;
+          comp->control_phase = 0u;
+
+          {
+              uint8_t new_irq =
+                  (uint8_t) (
+                      ((comp->frame_irq_pending != 0u) && ((comp->reg1 & 0x20u) != 0u))
+                      || ((comp->line_irq_pending != 0u) && ((comp->reg0 & 0x10u) != 0u))
+                  );
+
+              cpu->interrupt_vector = 0xFFu;
+              cpu->interrupt_pending = (new_irq != 0u);
+
+              if (new_irq != comp->irq_asserted) {
+                  uint64_t irq_args[1] = { (uint64_t) new_irq };
+
+                  cpu_component_emit_signal(cpu, "sms_vdp0", "irq_edge", irq_args, 1);
+                  if (comp->debug_enabled != 0u) {
+                      fprintf(
+                          stderr,
+                          "sms_vdp: irq_edge(read_status) %u->%u scanline=%u frame=%u\n",
+                          (unsigned)comp->irq_asserted,
+                          (unsigned)new_irq,
+                          (unsigned)comp->scanline,
+                          (unsigned)comp->frame_counter
+                      );
+                  }
+                  comp->irq_asserted = new_irq;
+              }
+          }
+
+          return value;
+      }
+
+    port_write_pre: |
+      uint8_t p = (uint8_t) (((uint16_t) port) & 0x00C1u);
+
+      if (comp->vram == NULL || comp->cram == NULL) {
+          return;
+      }
+
+      if (p == 0x80u) {
+          /*
+           * 315-5124:
+           * - data writes do NOT update read_buffer
+           * - control first/second-byte latch is cleared by data read/write
+           * - bit 1 of code selects CRAM writes on SMS1
+           */
+          if ((comp->code & 0x02u) != 0u) {
+              comp->cram[(uint8_t) (comp->vdp_addr & 0x1Fu)] = (uint8_t) (value & 0x3Fu);
+          } else {
+              comp->vram[(uint16_t) (comp->vdp_addr & 0x3FFFu)] = value;
+          }
+
+          comp->vdp_addr = (uint16_t) ((comp->vdp_addr + 1u) & 0x3FFFu);
+          comp->control_phase = 0u;
+          comp->render_dirty = 1u;
+          return;
+      }
+
+      if (p == 0x81u) {
+          if (comp->control_phase == 0u) {
+              comp->control_latch = value;
+              comp->control_phase = 1u;
+              return;
+          }
+
+          {
+              uint8_t second = value;
+              uint8_t code = (uint8_t) ((second >> 6) & 0x03u);
+              uint16_t addr = (uint16_t) ((((uint16_t) (second & 0x3Fu)) << 8) | (uint16_t) comp->control_latch);
+
+              /*
+               * 315-5124:
+               * address register is only updated after the second control byte.
+               */
+              comp->code = code;
+              comp->vdp_addr = (uint16_t) (addr & 0x3FFFu);
+
+              if (code == 0u) {
+                  comp->read_buffer = comp->vram[(uint16_t) (comp->vdp_addr & 0x3FFFu)];
+                  comp->vdp_addr = (uint16_t) ((comp->vdp_addr + 1u) & 0x3FFFu);
+              } else if (code == 2u) {
+                  uint8_t reg = (uint8_t) (second & 0x0Fu);
+                  uint8_t regv = comp->control_latch;
+
+                  switch (reg) {
+                      case 0u:
+                          comp->reg0 = regv;
+                          break;
+
+                      case 1u:
+                          comp->reg1 = regv;
+                          break;
+
+                      case 2u:
+                          comp->reg2 = regv;
+                          break;
+
+                      case 3u:
+                          comp->reg3 = regv;
+                          break;
+
+                      case 4u:
+                          comp->reg4 = regv;
+                          break;
+
+                      case 5u:
+                          comp->reg5 = regv;
+                          break;
+
+                      case 6u:
+                          comp->reg6 = regv;
+                          break;
+
+                      case 7u:
+                          comp->reg7 = regv;
+                          break;
+
+                      case 8u:
+                          comp->reg8 = regv;
+                          break;
+
+                      case 9u:
+                          comp->reg9 = regv;
+                          break;
+
+                      case 10u:
+                          comp->reg10 = regv;
+                          break;
+
+                      default:
+                          break;
+                  }
+
+                  comp->render_dirty = 1u;
+              }
+
+              comp->control_phase = 0u;
+
+              {
+                  uint8_t new_irq =
+                      (uint8_t) (
+                          ((comp->frame_irq_pending != 0u) && ((comp->reg1 & 0x20u) != 0u))
+                          || ((comp->line_irq_pending != 0u) && ((comp->reg0 & 0x10u) != 0u))
+                      );
+
+                  cpu->interrupt_vector = 0xFFu;
+                  cpu->interrupt_pending = (new_irq != 0u);
+
+                  if (new_irq != comp->irq_asserted) {
+                      uint64_t irq_args[1] = { (uint64_t) new_irq };
+
+                      cpu_component_emit_signal(cpu, "sms_vdp0", "irq_edge", irq_args, 1);
+                      comp->irq_asserted = new_irq;
+                  }
+              }
+          }
+
+          return;
+      }
+
+    step_post: |
+      static uint32_t framebuf[256u * 192u];
+      static uint8_t bg_priority[256u * 192u];
+      static uint8_t sprite_drawn[256u * 192u];
+
+      uint64_t frame_tstates = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 59659u;
+      uint64_t line_tstates = frame_tstates / 262u;
+
+      if (line_tstates == 0u) {
+          line_tstates = 228u;
+      }
+
+      if (comp->vram == NULL || comp->cram == NULL) {
+          return;
+      }
+
+      comp->tstate_accum += (uint64_t) inst->cycles;
+      comp->line_tstate_accum += (uint64_t) inst->cycles;
+
+      while (comp->line_tstate_accum >= line_tstates) {
+          comp->line_tstate_accum -= line_tstates;
+
+          if (comp->scanline >= 261u) {
+              comp->scanline = 0u;
+              comp->frame_counter += 1u;
+
+              if (comp->render_dirty != 0u) {
+                  uint8_t display_on = (uint8_t) ((comp->reg1 & 0x40u) != 0u);
+                  uint16_t name_base = (uint16_t) ((((uint16_t) (comp->reg2 & 0x0Eu)) << 10) & 0x3FFFu);
+                  uint8_t backdrop = (uint8_t) (comp->reg7 & 0x0Fu);
+                  uint8_t backdrop_cram_idx = (uint8_t) ((16u + backdrop) & 0x1Fu);
+                  uint8_t hscroll = comp->reg8;
+                  uint8_t vscroll = comp->reg9;
+                  uint8_t lock_hscroll_top2 = (uint8_t) ((comp->reg0 & 0x40u) != 0u);
+                  uint8_t lock_vscroll_right8 = (uint8_t) ((comp->reg0 & 0x80u) != 0u);
+                  uint8_t mask_left8 = (uint8_t) ((comp->reg0 & 0x20u) != 0u);
+                  uint16_t sat_base = (uint16_t) ((((uint16_t) (comp->reg5 & 0x7Eu)) << 7) & 0x3FFFu);
+                  uint8_t sprite_h = ((comp->reg1 & 0x02u) != 0u) ? 16u : 8u;
+                  uint8_t sprite_zoom = ((comp->reg1 & 0x01u) != 0u) ? 2u : 1u;
+                  uint16_t sprite_tile_high = ((comp->reg6 & 0x04u) != 0u) ? 0x0100u : 0x0000u;
+                  uint8_t sprite_shift_left8 = (uint8_t) ((comp->reg0 & 0x08u) != 0u);
+                  uint8_t sprite_line_counts[192u];
+
+                  memset(bg_priority, 0, sizeof(bg_priority));
+                  memset(sprite_drawn, 0, sizeof(sprite_drawn));
+                  memset(sprite_line_counts, 0, sizeof(sprite_line_counts));
+
+                  for (uint32_t y = 0u; y < 192u; y++) {
+                      for (uint32_t x = 0u; x < 256u; x++) {
+                          framebuf[y * 256u + x] = 0xFF000000u;
+                      }
+                  }
+
+                  for (uint32_t y = 0u; y < 192u; y++) {
+                      for (uint16_t tx = 0u; tx < 32u; tx++) {
+                          for (uint8_t px = 0u; px < 8u; px++) {
+                              uint16_t x = (uint16_t) (tx * 8u + px);
+                              uint8_t effective_hscroll = hscroll;
+                              uint8_t effective_vscroll = vscroll;
+
+                              if (lock_hscroll_top2 != 0u && y < 16u) {
+                                  effective_hscroll = 0u;
+                              }
+
+                              if (lock_vscroll_right8 != 0u && x >= 248u) {
+                                  effective_vscroll = 0u;
+                              }
+
+                              {
+                                  uint32_t sy = (y + (uint32_t) effective_vscroll) % 224u;
+                                  uint16_t tile_row = (uint16_t) (sy >> 3);
+                                  uint8_t line = (uint8_t) (sy & 0x07u);
+                                  uint16_t sx = (uint16_t) ((x - (uint16_t) effective_hscroll) & 0x00FFu);
+                                  uint8_t src_tx = (uint8_t) (sx >> 3);
+                                  uint8_t src_px = (uint8_t) (sx & 0x07u);
+                                  uint16_t nt_addr = (uint16_t) (name_base + ((tile_row * 32u + (uint16_t) src_tx) * 2u));
+                                  uint8_t lo = comp->vram[(uint16_t) (nt_addr & 0x3FFFu)];
+                                  uint8_t hi = comp->vram[(uint16_t) ((nt_addr + 1u) & 0x3FFFu)];
+                                  uint16_t tile = (uint16_t) lo | (uint16_t) ((hi & 0x01u) << 8);
+                                  uint8_t hflip = (uint8_t) ((hi & 0x02u) != 0u);
+                                  uint8_t vflip = (uint8_t) ((hi & 0x04u) != 0u);
+                                  uint8_t pal = (uint8_t) ((hi & 0x08u) != 0u);
+                                  uint8_t priority = (uint8_t) ((hi & 0x10u) != 0u);
+                                  uint8_t py = vflip ? (uint8_t) (7u - line) : line;
+                                  uint16_t patt_addr = (uint16_t) ((tile * 32u) + ((uint16_t) py * 4u));
+                                  uint8_t b0 = display_on ? comp->vram[(uint16_t) (patt_addr & 0x3FFFu)] : 0u;
+                                  uint8_t b1 = display_on ? comp->vram[(uint16_t) ((patt_addr + 1u) & 0x3FFFu)] : 0u;
+                                  uint8_t b2 = display_on ? comp->vram[(uint16_t) ((patt_addr + 2u) & 0x3FFFu)] : 0u;
+                                  uint8_t b3 = display_on ? comp->vram[(uint16_t) ((patt_addr + 3u) & 0x3FFFu)] : 0u;
+                                  uint8_t bit = hflip ? src_px : (uint8_t) (7u - src_px);
+                                  uint8_t color_idx = (uint8_t) (
+                                      (((b0 >> bit) & 1u) << 0) |
+                                      (((b1 >> bit) & 1u) << 1) |
+                                      (((b2 >> bit) & 1u) << 2) |
+                                      (((b3 >> bit) & 1u) << 3)
+                                  );
+                                  uint8_t cram_idx = 0u;
+                                  uint8_t bg_opaque_priority = 0u;
+
+                                  if (color_idx == 0u) {
+                                      cram_idx = backdrop_cram_idx;
+                                  } else {
+                                      cram_idx = (uint8_t) ((color_idx + (pal ? 16u : 0u)) & 0x1Fu);
+                                      bg_opaque_priority = (priority != 0u) ? 1u : 0u;
+                                  }
+
+                                  if (mask_left8 != 0u && x < 8u) {
+                                      cram_idx = backdrop_cram_idx;
+                                      color_idx = 0u;
+                                      bg_opaque_priority = 0u;
+                                  }
+
+                                  {
+                                      uint8_t cram_val = comp->cram[(uint8_t) (cram_idx & 0x1Fu)];
+                                      uint8_t r = (uint8_t) ((cram_val & 0x03u) * 85u);
+                                      uint8_t g = (uint8_t) (((cram_val >> 2) & 0x03u) * 85u);
+                                      uint8_t b = (uint8_t) (((cram_val >> 4) & 0x03u) * 85u);
+
+                                      bg_priority[y * 256u + x] = bg_opaque_priority;
+                                      framebuf[y * 256u + x] =
+                                          0xFF000000u |
+                                          ((uint32_t) r << 16) |
+                                          ((uint32_t) g << 8) |
+                                          (uint32_t) b;
+                                  }
+                              }
+                          }
+                      }
+                  }
+
+                  for (uint16_t i = 0u; i < 64u; i++) {
+                      uint8_t yraw = comp->vram[(uint16_t) ((sat_base + i) & 0x3FFFu)];
+
+                      if (yraw == 0xD0u) {
+                          break;
+                      }
+
+                      {
+                          int16_t sy = (int16_t) yraw + 1;
+                          uint16_t sat_x = (uint16_t) ((sat_base + 0x80u + i * 2u) & 0x3FFFu);
+                          int16_t sx = (int16_t) comp->vram[sat_x];
+                          uint8_t tile = comp->vram[(uint16_t) ((sat_x + 1u) & 0x3FFFu)];
+                          uint16_t tile_u16 = (uint16_t) (sprite_tile_high | (uint16_t) tile);
+                          uint8_t sprite_allow_line[192u];
+
+                          memset(sprite_allow_line, 0, sizeof(sprite_allow_line));
+
+                          if (sy >= 240) {
+                              sy -= 256;
+                          }
+
+                          if (sprite_shift_left8 != 0u) {
+                              sx -= 8;
+                          }
+
+                          {
+                              int16_t y_start = sy;
+                              int16_t y_end = (int16_t) (sy + (int16_t) sprite_h * (int16_t) sprite_zoom);
+
+                              for (int16_t yy = y_start; yy < y_end; yy++) {
+                                  if (yy < 0 || yy >= 192) {
+                                      continue;
+                                  }
+
+                                  if (sprite_line_counts[(uint16_t) yy] < 8u) {
+                                      sprite_line_counts[(uint16_t) yy] += 1u;
+                                      sprite_allow_line[(uint16_t) yy] = 1u;
+                                  } else {
+                                      comp->status = (uint8_t) (comp->status | 0x40u);
+                                  }
+                              }
+                          }
+
+                          if (sprite_h == 16u) {
+                              tile_u16 = (uint16_t) (tile_u16 & 0x01FEu);
+                          }
+
+                          for (uint8_t row = 0u; row < sprite_h; row++) {
+                              uint8_t tile_row = (uint8_t) (row & 0x07u);
+                              uint16_t tile_idx = (uint16_t) ((tile_u16 + (uint16_t) (row >> 3)) & 0x01FFu);
+                              uint16_t patt_addr = (uint16_t) ((tile_idx * 32u) + ((uint16_t) tile_row * 4u));
+                              uint8_t b0 = display_on ? comp->vram[(uint16_t) (patt_addr & 0x3FFFu)] : 0u;
+                              uint8_t b1 = display_on ? comp->vram[(uint16_t) ((patt_addr + 1u) & 0x3FFFu)] : 0u;
+                              uint8_t b2 = display_on ? comp->vram[(uint16_t) ((patt_addr + 2u) & 0x3FFFu)] : 0u;
+                              uint8_t b3 = display_on ? comp->vram[(uint16_t) ((patt_addr + 3u) & 0x3FFFu)] : 0u;
+
+                              for (uint8_t zy = 0u; zy < sprite_zoom; zy++) {
+                                  int16_t y = sy + (int16_t) row * (int16_t) sprite_zoom + (int16_t) zy;
+
+                                  if (y < 0 || y >= 192) {
+                                      continue;
+                                  }
+
+                                  if (sprite_allow_line[(uint16_t) y] == 0u) {
+                                      continue;
+                                  }
+
+                                  for (uint8_t col = 0u; col < 8u; col++) {
+                                      uint8_t bit = (uint8_t) (7u - col);
+                                      uint8_t color = (uint8_t) (
+                                          (((b0 >> bit) & 1u) << 0) |
+                                          (((b1 >> bit) & 1u) << 1) |
+                                          (((b2 >> bit) & 1u) << 2) |
+                                          (((b3 >> bit) & 1u) << 3)
+                                      );
+
+                                      if (color == 0u) {
+                                          continue;
+                                      }
+
+                                      for (uint8_t zx = 0u; zx < sprite_zoom; zx++) {
+                                          int16_t x = sx + (int16_t) col * (int16_t) sprite_zoom + (int16_t) zx;
+
+                                          if (x < 0 || x >= 256) {
+                                              continue;
+                                          }
+
+                                          if (mask_left8 != 0u && x < 8) {
+                                              continue;
+                                          }
+
+                                          {
+                                              uint32_t idx = (uint32_t) y * 256u + (uint32_t) x;
+
+                                              /*
+                                               * True sprite collision: opaque sprite pixel overlaps
+                                               * opaque sprite pixel from an earlier sprite entry.
+                                               */
+                                              if (sprite_drawn[idx] != 0u) {
+                                                  comp->status = (uint8_t) (comp->status | 0x20u);
+                                                  continue;
+                                              }
+
+                                              sprite_drawn[idx] = 1u;
+
+                                              /*
+                                               * Earlier sprite entries win. Only draw over BG if the
+                                               * background is not high-priority at this pixel.
+                                               */
+                                              if (bg_priority[idx] == 0u) {
+                                                  uint8_t cram_val = comp->cram[(uint8_t) ((16u + color) & 0x1Fu)];
+                                                  uint8_t r = (uint8_t) ((cram_val & 0x03u) * 85u);
+                                                  uint8_t g = (uint8_t) (((cram_val >> 2) & 0x03u) * 85u);
+                                                  uint8_t b = (uint8_t) (((cram_val >> 4) & 0x03u) * 85u);
+
+                                                  framebuf[idx] =
+                                                      0xFF000000u |
+                                                      ((uint32_t) r << 16) |
+                                                      ((uint32_t) g << 8) |
+                                                      (uint32_t) b;
+                                              }
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+
+                  comp->render_dirty = 0u;
+              }
+
+              {
+                  uint64_t frame_args[4] = {
+                      (uint64_t) comp->frame_counter,
+                      (uint64_t) (uintptr_t) framebuf,
+                      256u,
+                      192u
+                  };
+
+                  cpu_component_emit_signal(cpu, "sms_vdp0", "frame_ready", frame_args, 4);
+              }
+          } else {
+              comp->scanline = (uint16_t) (comp->scanline + 1u);
+          }
+
+          /*
+           * 192-line NTSC timing:
+           * - frame IRQ becomes pending on line 193 (0xC1)
+           * - line counter decrements on lines 0..192 inclusive
+           * - line counter reloads on lines 193..261
+           */
+          if (comp->scanline == 193u) {
+              comp->frame_irq_pending = 1u;
+              comp->status = (uint8_t) (comp->status | 0x80u);
+          }
+
+          if (comp->scanline <= 192u) {
+              if (comp->line_counter == 0u) {
+                  comp->line_counter = comp->reg10;
+                  comp->line_irq_pending = 1u;
+              } else {
+                  comp->line_counter = (uint8_t) (comp->line_counter - 1u);
+              }
+          } else {
+              comp->line_counter = comp->reg10;
+          }
+
+          {
+              uint8_t new_irq =
+                  (uint8_t) (
+                      ((comp->frame_irq_pending != 0u) && ((comp->reg1 & 0x20u) != 0u))
+                      || ((comp->line_irq_pending != 0u) && ((comp->reg0 & 0x10u) != 0u))
+                  );
+
+              cpu->interrupt_vector = 0xFFu;
+              cpu->interrupt_pending = (new_irq != 0u);
+
+              if (new_irq != comp->irq_asserted) {
+                  uint64_t irq_args[1] = { (uint64_t) new_irq };
+
+                  cpu_component_emit_signal(cpu, "sms_vdp0", "irq_edge", irq_args, 1);
+                  if (comp->debug_enabled != 0u) {
+                      fprintf(
+                          stderr,
+                          "sms_vdp: irq_edge(scanline) %u->%u scanline=%u frame=%u status=0x%02X\n",
+                          (unsigned)comp->irq_asserted,
+                          (unsigned)new_irq,
+                          (unsigned)comp->scanline,
+                          (unsigned)comp->frame_counter,
+                          (unsigned)comp->status
+                      );
+                  }
+                  comp->irq_asserted = new_irq;
+              }
+          }
+      }
+
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: ["stdio.h", "stdlib.h"]
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

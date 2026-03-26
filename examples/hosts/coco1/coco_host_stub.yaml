@@ -1,0 +1,99 @@
+metadata:
+  id: host_coco
+  type: host_adapter
+  model: coco1_headless_stub
+  version: "1.0"
+
+state:
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: irq_edges
+    type: uint32_t
+    initial: "0"
+  - name: audio_samples
+    type: uint32_t
+    initial: "0"
+  - name: keyboard_default
+    type: uint8_t
+    initial: "0xFF"
+  - name: joy1_connected
+    type: uint8_t
+    initial: "1"
+  - name: joy2_connected
+    type: uint8_t
+    initial: "0"
+  - name: joy1_axis_x
+    type: uint8_t
+    initial: "0x20"
+  - name: joy1_axis_y
+    type: uint8_t
+    initial: "0x20"
+  - name: joy2_axis_x
+    type: uint8_t
+    initial: "0xFF"
+  - name: joy2_axis_y
+    type: uint8_t
+    initial: "0xFF"
+  - name: joy1_button
+    type: uint8_t
+    initial: "0"
+  - name: joy2_button
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_matrix
+      args: [u8]
+      returns: u8
+    - name: joystick_axis
+      args: [u8]
+      returns: u8
+    - name: joystick_button
+      args: [u8]
+      returns: u8
+  handlers:
+    - name: video_frame
+      args: [u32, u64, u32, u32]
+    - name: irq_edge
+      args: [u8]
+    - name: audio_pcm
+      args: [u8, u64]
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    keyboard_matrix: |
+      (void)args;
+      (void)argc;
+      return (uint64_t)comp->keyboard_default;
+    joystick_axis: |
+      uint8_t index = (argc > 0) ? (uint8_t)(args[0] & 0x03u) : 0u;
+      switch (index) {
+          case 0u: return (uint64_t)((comp->joy1_connected != 0u) ? comp->joy1_axis_x : 0xFFu);
+          case 1u: return (uint64_t)((comp->joy1_connected != 0u) ? comp->joy1_axis_y : 0xFFu);
+          case 2u: return (uint64_t)((comp->joy2_connected != 0u) ? comp->joy2_axis_x : 0xFFu);
+          case 3u: return (uint64_t)((comp->joy2_connected != 0u) ? comp->joy2_axis_y : 0xFFu);
+          default: return 0xFFu;
+      }
+    joystick_button: |
+      uint8_t index = (argc > 0) ? (uint8_t)(args[0] & 0x01u) : 0u;
+      if (index == 0u) return (uint64_t)(comp->joy1_button & 0x01u);
+      return (uint64_t)(comp->joy2_button & 0x01u);
+  handler_bodies:
+    video_frame: |
+      comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+    irq_edge: |
+      if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {
+          comp->irq_edges += 1u;
+      }
+    audio_pcm: |
+      comp->audio_samples += 1u;
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

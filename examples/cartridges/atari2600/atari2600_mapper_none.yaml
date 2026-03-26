@@ -1,0 +1,86 @@
+metadata:
+  id: atari2600_cart0
+  type: cartridge_mapper
+  model: atari2600_mapper_none
+  version: "1.0"
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+  - name: bank_select
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cart_rom
+        start: 0x1000
+        size: 0x1000
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      comp->rom_size = 0u;
+      comp->bank_select = 0u;
+    reset: |
+      comp->rom_size = comp->rom_size;
+      if (comp->rom_size == 8192u) {
+          comp->bank_select = 1u; /* F8 default to upper bank */
+      } else {
+          comp->bank_select = 0u;
+      }
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      comp->rom_size = 0u;
+    mem_read_pre: |
+      if (comp->rom_data == NULL || comp->rom_size == 0u) return 0u;
+      addr = (uint16_t)(addr & 0x1FFFu); /* 6507 has 13-bit address bus */
+      if (addr < 0x1000u || addr > 0x1FFFu) return 0u;
+      {
+          uint32_t off = (uint32_t)(addr - 0x1000u);
+          uint32_t size = comp->rom_size;
+          if (size == 2048u) {
+              off &= 0x07FFu;
+          } else if (size == 4096u) {
+              off &= 0x0FFFu;
+          } else if (size == 8192u) {
+              if (addr == 0x1FF8u) comp->bank_select = 0u;
+              if (addr == 0x1FF9u) comp->bank_select = 1u;
+              off = (uint32_t)(comp->bank_select ? 0x1000u : 0x0000u) + (off & 0x0FFFu);
+          } else if (size != 0u) {
+              off %= size;
+          }
+          return comp->rom_data[off];
+      }
+    mem_write_pre: |
+      (void)value;
+      /* ROM is read-only. */
+      addr = (uint16_t)(addr & 0x1FFFu);
+      if (addr < 0x1000u || addr > 0x1FFFu) return;
+      if (comp->rom_size == 8192u) {
+          if (addr == 0x1FF8u) comp->bank_select = 0u;
+          if (addr == 0x1FF9u) comp->bank_select = 1u;
+      }
+      return;
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

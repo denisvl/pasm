@@ -1,0 +1,118 @@
+metadata:
+  name: Z80SG1000DefaultSystem
+  version: "0.1"
+
+clock_hz: 3579545
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: CART_ROM_48K
+      start: 0x0000
+      size: 0xC000
+      read_only: true
+    - name: RAM_MAIN_16K
+      start: 0xC000
+      size: 0x4000
+      read_write: true
+
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+
+components:
+  ics:
+    - sg_vdp0
+    - sg_joy0
+    - sms_psg0
+  devices:
+    - video_sms
+    - speaker_sms
+  hosts:
+    - host_sg1000
+  cartridge: sg_cart0
+
+connections:
+  - from:
+      component: sg_joy0
+      kind: callback
+      name: joy1_read
+    to:
+      component: host_sg1000
+      kind: callback
+      name: read_joy1
+
+  - from:
+      component: sg_joy0
+      kind: callback
+      name: joy2_read
+    to:
+      component: host_sg1000
+      kind: callback
+      name: read_joy2
+
+  - from:
+      component: sg_vdp0
+      kind: signal
+      name: frame_ready
+    to:
+      component: video_sms
+      kind: handler
+      name: on_frame_ready
+
+  - from:
+      component: video_sms
+      kind: signal
+      name: frame_present
+    to:
+      component: host_sg1000
+      kind: handler
+      name: video_frame
+
+  - from:
+      component: sg_vdp0
+      kind: signal
+      name: irq_edge
+    to:
+      component: host_sg1000
+      kind: handler
+      name: irq_edge
+
+  - from:
+      component: sms_psg0
+      kind: signal
+      name: audio_level
+    to:
+      component: speaker_sms
+      kind: handler
+      name: on_audio_level
+
+  - from:
+      component: speaker_sms
+      kind: signal
+      name: pcm_sample
+    to:
+      component: host_sg1000
+      kind: handler
+      name: audio_pcm
+
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+
+integrations:
+  profile: sg1000_default

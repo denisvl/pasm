@@ -27,6 +27,9 @@ def generate_cpu_header(isa_data: Dict[str, Any], cpu_name: str) -> str:
     # Generate flag bits
     flag_bits = _generate_flag_bits(isa_data, cpu_prefix)
     system_constants = _generate_system_constants(isa_data)
+    ic_types = _generate_ic_types(isa_data)
+    ic_state_fields = _generate_ic_state_fields(isa_data)
+    ic_api = _generate_ic_api(isa_data, cpu_prefix)
 
     # Format the template
     from .templates import CPU_HEADER_TEMPLATE
@@ -42,6 +45,9 @@ def generate_cpu_header(isa_data: Dict[str, Any], cpu_name: str) -> str:
         flag_bits=flag_bits,
         system_constants=system_constants,
         interrupt_api=interrupt_api,
+        ic_types=ic_types,
+        ic_state_fields=ic_state_fields,
+        ic_api=ic_api,
         isa_name=isa_data.get("metadata", {}).get("name", "Unknown"),
     )
 
@@ -197,6 +203,10 @@ def _generate_system_constants(isa_data: Dict[str, Any]) -> str:
     system_name = _escape_c_string(str(system_meta.get("name", "UnknownSystem")))
     system_version = _escape_c_string(str(system_meta.get("version", "")))
     clock_hz = int(system.get("clock_hz", 0))
+    audio = isa_data.get("audio", {})
+    audio_rate = int(audio.get("sample_rate", 0))
+    audio_channels = int(audio.get("channels", 0))
+    audio_format = _escape_c_string(str(audio.get("format", "")))
     integrations_json = _escape_c_string(
         json.dumps(system.get("integrations", {}), sort_keys=True)
     )
@@ -204,9 +214,81 @@ def _generate_system_constants(isa_data: Dict[str, Any]) -> str:
         f'#define CPU_SYSTEM_NAME "{system_name}"',
         f'#define CPU_SYSTEM_VERSION "{system_version}"',
         f"#define CPU_SYSTEM_CLOCK_HZ {clock_hz}ULL",
+        f"#define CPU_AUDIO_SAMPLE_RATE {audio_rate}ULL",
+        f"#define CPU_AUDIO_CHANNELS {audio_channels}",
+        f'#define CPU_AUDIO_FORMAT "{audio_format}"',
         f"/* CPU_SYSTEM_INTEGRATIONS_JSON: {integrations_json} */",
+        f"#define CPU_IC_COUNT {len(isa_data.get('ics', []))}",
+        f"#define CPU_DEVICE_COUNT {len(isa_data.get('devices', []))}",
+        f"#define CPU_HOST_COUNT {len(isa_data.get('hosts', []))}",
+        f"#define CPU_CARTRIDGE_COUNT {1 if isa_data.get('cartridge') else 0}",
     ]
     return "\n".join(lines)
+
+
+def _generate_ic_types(isa_data: Dict[str, Any]) -> str:
+    """Generate generic component event/callback type declarations."""
+    components = (
+        list(isa_data.get("ics", []))
+        + list(isa_data.get("devices", []))
+        + list(isa_data.get("hosts", []))
+    )
+    if isa_data.get("cartridge"):
+        components.append(isa_data.get("cartridge"))
+    if not components:
+        return "/* No IC types configured */"
+
+    lines: list[str] = []
+
+    for component in components:
+        comp_id = _to_c_ident(component.get("metadata", {}).get("id", "component"))
+        lines.append(f"typedef struct ComponentState_{comp_id} {{")
+        for field in component.get("state", []):
+            field_type = str(field.get("type", "uint64_t")).strip()
+            field_name = _to_c_ident(str(field.get("name", "field")))
+            lines.append(f"    {field_type} {field_name};")
+        lines.append(f"}} ComponentState_{comp_id};")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _generate_ic_state_fields(isa_data: Dict[str, Any]) -> str:
+    """Generate generic component runtime state fields."""
+    components = (
+        list(isa_data.get("ics", []))
+        + list(isa_data.get("devices", []))
+        + list(isa_data.get("hosts", []))
+    )
+    if isa_data.get("cartridge"):
+        components.append(isa_data.get("cartridge"))
+    if not components:
+        return "    /* No IC runtime state */"
+
+    lines = [
+        "",
+        "    /* Component runtime */",
+        "    const char *active_component_id;",
+        "    uint64_t component_last_return;",
+    ]
+    for component in components:
+        comp_id = _to_c_ident(component.get("metadata", {}).get("id", "component"))
+        lines.append(f"    ComponentState_{comp_id} comp_{comp_id};")
+    return "\n".join(lines)
+
+
+def _generate_ic_api(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
+    """Generate component API declarations."""
+    components = (
+        list(isa_data.get("ics", []))
+        + list(isa_data.get("devices", []))
+        + list(isa_data.get("hosts", []))
+    )
+    if isa_data.get("cartridge"):
+        components.append(isa_data.get("cartridge"))
+    if not components:
+        return "/* No IC API */"
+    return "/* No public component API */"
 
 
 def _to_c_ident(name: str) -> str:

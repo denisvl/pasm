@@ -1,0 +1,45 @@
+metadata:
+  id: speaker0
+  type: audio_output
+  model: zx48_beeper_pcm
+  version: "1.0"
+
+state:
+  - name: current_level
+    type: uint8_t
+    initial: "0"
+  - name: next_sample_cycle
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: on_beeper_level
+      args: [u8]
+  signals:
+    - name: pcm_sample
+      args: [u8, u64]
+
+behavior:
+  snippets:
+    step_post: |
+      if (CPU_AUDIO_SAMPLE_RATE > 0u && CPU_SYSTEM_CLOCK_HZ > 0u) {
+          uint64_t period = CPU_SYSTEM_CLOCK_HZ / CPU_AUDIO_SAMPLE_RATE;
+          if (period == 0u) period = 1u;
+          while (cpu->total_cycles >= comp->next_sample_cycle) {
+              uint64_t sig_args[2] = { (uint64_t)comp->current_level, comp->next_sample_cycle };
+              cpu_component_emit_signal(cpu, "speaker0", "pcm_sample", sig_args, 2);
+              comp->next_sample_cycle += period;
+          }
+      }
+  callback_handlers: {}
+  handler_bodies:
+    on_beeper_level: |
+      comp->current_level = (uint8_t)(args[0] & 0xFFu);
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []
