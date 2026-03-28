@@ -4,6 +4,9 @@ metadata:
   model: coco_sdl2_interactive
   version: "1.0"
 
+backend:
+  target: sdl2
+
 state:
   - name: sdl_inited
     type: uint8_t
@@ -169,149 +172,148 @@ interfaces:
 
 input:
   keyboard:
-    source: sdl_scancode
     focus_required: true
     bindings:
       # Row 0: @ A B C D E F G
-      - host_key: SDL_SCANCODE_GRAVE
+      - host_key: GRAVE
         presses: [{ row: 0, bit: 0 }]
-      - host_key: SDL_SCANCODE_A
+      - host_key: A
         presses: [{ row: 0, bit: 1 }]
-      - host_key: SDL_SCANCODE_B
+      - host_key: B
         presses: [{ row: 0, bit: 2 }]
-      - host_key: SDL_SCANCODE_C
+      - host_key: C
         presses: [{ row: 0, bit: 3 }]
-      - host_key: SDL_SCANCODE_D
+      - host_key: D
         presses: [{ row: 0, bit: 4 }]
-      - host_key: SDL_SCANCODE_E
+      - host_key: E
         presses: [{ row: 0, bit: 5 }]
-      - host_key: SDL_SCANCODE_F
+      - host_key: F
         presses: [{ row: 0, bit: 6 }]
-      - host_key: SDL_SCANCODE_G
+      - host_key: G
         presses: [{ row: 0, bit: 7 }]
 
       # Row 1: H I J K L M N O
-      - host_key: SDL_SCANCODE_H
+      - host_key: H
         presses: [{ row: 1, bit: 0 }]
-      - host_key: SDL_SCANCODE_I
+      - host_key: I
         presses: [{ row: 1, bit: 1 }]
-      - host_key: SDL_SCANCODE_J
+      - host_key: J
         presses: [{ row: 1, bit: 2 }]
-      - host_key: SDL_SCANCODE_K
+      - host_key: K
         presses: [{ row: 1, bit: 3 }]
-      - host_key: SDL_SCANCODE_L
+      - host_key: L
         presses: [{ row: 1, bit: 4 }]
-      - host_key: SDL_SCANCODE_M
+      - host_key: M
         presses: [{ row: 1, bit: 5 }]
-      - host_key: SDL_SCANCODE_N
+      - host_key: N
         presses: [{ row: 1, bit: 6 }]
-      - host_key: SDL_SCANCODE_O
+      - host_key: O
         presses: [{ row: 1, bit: 7 }]
 
       # Row 2: P Q R S T U V W
-      - host_key: SDL_SCANCODE_P
+      - host_key: P
         presses: [{ row: 2, bit: 0 }]
-      - host_key: SDL_SCANCODE_Q
+      - host_key: Q
         presses: [{ row: 2, bit: 1 }]
-      - host_key: SDL_SCANCODE_R
+      - host_key: R
         presses: [{ row: 2, bit: 2 }]
-      - host_key: SDL_SCANCODE_S
+      - host_key: S
         presses: [{ row: 2, bit: 3 }]
-      - host_key: SDL_SCANCODE_T
+      - host_key: T
         presses: [{ row: 2, bit: 4 }]
-      - host_key: SDL_SCANCODE_U
+      - host_key: U
         presses: [{ row: 2, bit: 5 }]
-      - host_key: SDL_SCANCODE_V
+      - host_key: V
         presses: [{ row: 2, bit: 6 }]
-      - host_key: SDL_SCANCODE_W
+      - host_key: W
         presses: [{ row: 2, bit: 7 }]
 
       # Row 3: X Y Z
-      - host_key: SDL_SCANCODE_X
+      - host_key: X
         presses: [{ row: 3, bit: 0 }]
-      - host_key: SDL_SCANCODE_Y
+      - host_key: Y
         presses: [{ row: 3, bit: 1 }]
-      - host_key: SDL_SCANCODE_Z
+      - host_key: Z
         presses: [{ row: 3, bit: 2 }]
 
       # Row 4: 0 1 2 3 4 5 6 7
-      - host_key: SDL_SCANCODE_0
+      - host_key: "0"
         presses: [{ row: 4, bit: 0 }]
-      - host_key: SDL_SCANCODE_1
+      - host_key: "1"
         presses: [{ row: 4, bit: 1 }]
-      - host_key: SDL_SCANCODE_2
+      - host_key: "2"
         presses: [{ row: 4, bit: 2 }]
-      - host_key: SDL_SCANCODE_3
+      - host_key: "3"
         presses: [{ row: 4, bit: 3 }]
-      - host_key: SDL_SCANCODE_4
+      - host_key: "4"
         presses: [{ row: 4, bit: 4 }]
-      - host_key: SDL_SCANCODE_5
+      - host_key: "5"
         presses: [{ row: 4, bit: 5 }]
-      - host_key: SDL_SCANCODE_6
+      - host_key: "6"
         presses: [{ row: 4, bit: 6 }]
-      - host_key: SDL_SCANCODE_7
+      - host_key: "7"
         presses: [{ row: 4, bit: 7 }]
 
       # Row 5: 8 9 :* ;+ ,< -= .> /?
-      - host_key: SDL_SCANCODE_8
+      - host_key: "8"
         presses: [{ row: 5, bit: 0 }]
-      - host_key: SDL_SCANCODE_9
+      - host_key: "9"
         presses: [{ row: 5, bit: 1 }]
-      - host_key: SDL_SCANCODE_MINUS
+      - host_key: MINUS
         presses: [{ row: 5, bit: 5 }]
-      - host_key: SDL_SCANCODE_EQUALS
+      - host_key: EQUALS
         presses: [{ row: 5, bit: 5 }, { row: 6, bit: 7 }]
-      - host_key: SDL_SCANCODE_SEMICOLON
+      - host_key: SEMICOLON
         presses: [{ row: 5, bit: 3 }]
-      - host_key: SDL_SCANCODE_APOSTROPHE
+      - host_key: APOSTROPHE
         presses: [{ row: 4, bit: 7 }]
-      - host_key: SDL_SCANCODE_SLASH
+      - host_key: SLASH
         presses: [{ row: 5, bit: 7 }]
-      - host_key: SDL_SCANCODE_COMMA
+      - host_key: COMMA
         presses: [{ row: 5, bit: 4 }]
-      - host_key: SDL_SCANCODE_PERIOD
+      - host_key: PERIOD
         presses: [{ row: 5, bit: 6 }]
-      - host_key: SDL_SCANCODE_LEFTBRACKET
+      - host_key: LEFTBRACKET
         presses: [{ row: 3, bit: 4 }, { row: 6, bit: 7 }]
-      - host_key: SDL_SCANCODE_RIGHTBRACKET
+      - host_key: RIGHTBRACKET
         presses: [{ row: 3, bit: 6 }, { row: 6, bit: 7 }]
-      - host_key: SDL_SCANCODE_NONUSBACKSLASH
+      - host_key: NONUSBACKSLASH
         presses: [{ row: 5, bit: 7 }]
-      - host_key: SDL_SCANCODE_BACKSLASH
+      - host_key: BACKSLASH
         presses: [{ row: 6, bit: 1 }, { row: 6, bit: 7 }]
 
       # Row 6: Enter Clear Break (CoCo 1 SHIFT is row 6, bit 7)
-      - host_key: SDL_SCANCODE_RETURN
+      - host_key: RETURN
         presses: [{ row: 6, bit: 0 }]
-      - host_key: SDL_SCANCODE_KP_ENTER
+      - host_key: KP_ENTER
         presses: [{ row: 6, bit: 0 }]
-      - host_key: SDL_SCANCODE_RETURN2
+      - host_key: RETURN2
         presses: [{ row: 6, bit: 0 }]
-      - host_key: SDL_SCANCODE_HOME
+      - host_key: HOME
         presses: [{ row: 6, bit: 1 }]
-      - host_key: SDL_SCANCODE_ESCAPE
+      - host_key: ESCAPE
         presses: [{ row: 6, bit: 2 }]
-      - host_key: SDL_SCANCODE_UP
+      - host_key: UP
         presses: [{ row: 3, bit: 3 }]
-      - host_key: SDL_SCANCODE_DOWN
+      - host_key: DOWN
         presses: [{ row: 3, bit: 4 }]
-      - host_key: SDL_SCANCODE_LEFT
+      - host_key: LEFT
         presses: [{ row: 3, bit: 5 }]
-      - host_key: SDL_SCANCODE_BACKSPACE
+      - host_key: BACKSPACE
         presses: [{ row: 3, bit: 5 }]
-      - host_key: SDL_SCANCODE_DELETE
+      - host_key: DELETE
         presses: [{ row: 3, bit: 5 }]
-      - host_key: SDL_SCANCODE_RIGHT
+      - host_key: RIGHT
         presses: [{ row: 3, bit: 6 }]
-      - host_key: SDL_SCANCODE_SPACE
+      - host_key: SPACE
         presses: [{ row: 3, bit: 7 }]
-      - host_key: SDL_SCANCODE_NONUSHASH
+      - host_key: NONUSHASH
         presses: [{ row: 0, bit: 0 }, { row: 6, bit: 7 }]
 
       # CoCo 1 modifiers
-      - host_key: SDL_SCANCODE_LSHIFT
+      - host_key: LSHIFT
         presses: [{ row: 6, bit: 7 }, { row: 7, bit: 0 }]
-      - host_key: SDL_SCANCODE_RSHIFT
+      - host_key: RSHIFT
         presses: [{ row: 6, bit: 7 }, { row: 7, bit: 0 }]
 
 behavior:
@@ -319,50 +321,50 @@ behavior:
     init: |
       do {
           if (comp->sdl_inited != 0u) break;
-          if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) != 0) {
+          if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) {
               break;
           }
-          comp->window = SDL_CreateWindow(
+          comp->window = cpu_host_hal_create_window(
               "PASM TRS-80 Color Computer 1",
-              SDL_WINDOWPOS_CENTERED,
-              SDL_WINDOWPOS_CENTERED,
+              CPU_HOST_WINDOWPOS_CENTERED,
+              CPU_HOST_WINDOWPOS_CENTERED,
               768,
               576,
-              SDL_WINDOW_RESIZABLE
+              CPU_HOST_WINDOW_RESIZABLE
           );
           if (comp->window == NULL) break;
-          comp->renderer = SDL_CreateRenderer((SDL_Window *)comp->window, -1, SDL_RENDERER_ACCELERATED);
+          comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, CPU_HOST_RENDERER_ACCELERATED);
           if (comp->renderer == NULL) {
-              comp->renderer = SDL_CreateRenderer((SDL_Window *)comp->window, -1, 0);
+              comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);
           }
           if (comp->renderer == NULL) break;
-          SDL_StartTextInput();
-          comp->texture = SDL_CreateTexture(
-              (SDL_Renderer *)comp->renderer,
-              SDL_PIXELFORMAT_ARGB8888,
-              SDL_TEXTUREACCESS_STREAMING,
+          cpu_host_hal_start_text_input();
+          comp->texture = cpu_host_hal_create_texture(
+              comp->renderer,
+              CPU_HOST_PIXELFORMAT_ARGB8888,
+              CPU_HOST_TEXTUREACCESS_STREAMING,
               256,
               192
           );
           if (comp->texture == NULL) break;
           {
-              const char *audio_env = getenv("PASM_SDL_AUDIO");
+              const char *audio_env = cpu_host_hal_getenv("PASM_SDL_AUDIO");
               if (audio_env == NULL || audio_env[0] != '0') {
-                  SDL_AudioSpec want;
-                  SDL_AudioSpec have;
-                  SDL_zero(want);
-                  SDL_zero(have);
+                  CPUHostAudioSpec want;
+                  CPUHostAudioSpec have;
+                  cpu_host_audio_spec_zero(&want);
+                  cpu_host_audio_spec_zero(&have);
                   want.freq = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (int)CPU_AUDIO_SAMPLE_RATE : 44100;
-                  want.format = AUDIO_S16SYS;
+                  want.format = CPU_HOST_AUDIO_FORMAT_S16;
                   want.channels = 1;
                   want.samples = 512;
                   want.callback = NULL;
                   comp->audio_device_samples = 0u;
-                  comp->audio_out_dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-                  if (comp->audio_out_dev != 0u && have.format == AUDIO_S16SYS && have.channels == 1) {
+                  comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have, CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE);
+                  if (comp->audio_out_dev != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels == 1) {
                       uint32_t ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq * 2u) : 88200u;
                       if (ring_capacity < 8192u) ring_capacity = 8192u;
-                      comp->audio_ring = (int16_t *)SDL_malloc((size_t)ring_capacity * sizeof(int16_t));
+                      comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));
                       if (comp->audio_ring != NULL) {
                           comp->audio_rate = (have.freq > 0) ? (uint32_t)have.freq : 44100u;
                           comp->audio_device_samples = (uint32_t)have.samples;
@@ -371,25 +373,25 @@ behavior:
                           comp->audio_ring_write_idx = 0u;
                           comp->audio_ring_fill = 0u;
                           comp->audio_out_ready = 1u;
-                          SDL_PauseAudioDevice(comp->audio_out_dev, 0);
+                          cpu_host_hal_audio_pause(comp->audio_out_dev, 0);
                       } else {
-                          SDL_CloseAudioDevice(comp->audio_out_dev);
+                          cpu_host_hal_audio_close(comp->audio_out_dev);
                           comp->audio_out_dev = 0u;
                           comp->audio_device_samples = 0u;
                       }
                   } else if (comp->audio_out_dev != 0u) {
-                      SDL_CloseAudioDevice(comp->audio_out_dev);
+                      cpu_host_hal_audio_close(comp->audio_out_dev);
                       comp->audio_out_dev = 0u;
                       comp->audio_device_samples = 0u;
                   }
               }
           }
-          comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == (SDL_Window *)comp->window) ? 1u : 0u;
+          comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
           comp->last_focus_state = comp->has_keyboard_focus;
           {
-              const char *joy1_env = getenv("PASM_COCO_JOY1_CONNECTED");
-              const char *joy2_env = getenv("PASM_COCO_JOY2_CONNECTED");
-              const char *active_joy_env = getenv("PASM_COCO_ACTIVE_JOY");
+              const char *joy1_env = cpu_host_hal_getenv("PASM_COCO_JOY1_CONNECTED");
+              const char *joy2_env = cpu_host_hal_getenv("PASM_COCO_JOY2_CONNECTED");
+              const char *active_joy_env = cpu_host_hal_getenv("PASM_COCO_ACTIVE_JOY");
               uint8_t joy1_explicit = (uint8_t)((joy1_env != NULL && joy1_env[0] != '\0') ? 1u : 0u);
               uint8_t joy2_explicit = (uint8_t)((joy2_env != NULL && joy2_env[0] != '\0') ? 1u : 0u);
               comp->active_joy_port = (uint8_t)((active_joy_env != NULL && active_joy_env[0] == '2') ? 2u : 1u);
@@ -399,7 +401,7 @@ behavior:
               if (comp->active_joy_port == 2u && joy2_explicit == 0u) comp->joy2_connected = 1u;
           }
           if (comp->window != NULL && comp->has_keyboard_focus == 0u) {
-              SDL_RaiseWindow((SDL_Window *)comp->window);
+              cpu_host_hal_raise_window(comp->window);
           }
           comp->sdl_inited = 1u;
       } while (0);
@@ -435,7 +437,7 @@ behavior:
       comp->overlay_cpu_hz = 0u;
       comp->overlay_cpu_pct_x10 = 0u;
       if (comp->audio_out_dev != 0u) {
-          SDL_ClearQueuedAudio(comp->audio_out_dev);
+          cpu_host_hal_audio_clear(comp->audio_out_dev);
       }
     step_post: |
       if (comp->sdl_inited == 0u) return;
@@ -454,19 +456,19 @@ behavior:
       static uint8_t joy_prev_c2 = 0u;
       static uint8_t joy_prev_active = 0u;
       if (kb_trace < 0) {
-          const char *trace_env = getenv("PASM_COCO_KB_TRACE");
+          const char *trace_env = cpu_host_hal_getenv("PASM_COCO_KB_TRACE");
           kb_trace = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
           if (kb_trace != 0) {
-              const char *trace_file = getenv("PASM_COCO_KB_TRACE_FILE");
+              const char *trace_file = cpu_host_hal_getenv("PASM_COCO_KB_TRACE_FILE");
               if (trace_file == NULL || trace_file[0] == '\0') trace_file = "coco_kb_trace.log";
               kb_trace_fp = fopen(trace_file, "a");
           }
       }
       if (joy_trace < 0) {
-          const char *trace_env = getenv("PASM_COCO_JOY_TRACE");
+          const char *trace_env = cpu_host_hal_getenv("PASM_COCO_JOY_TRACE");
           joy_trace = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
           if (joy_trace != 0) {
-              const char *trace_file = getenv("PASM_COCO_JOY_TRACE_FILE");
+              const char *trace_file = cpu_host_hal_getenv("PASM_COCO_JOY_TRACE_FILE");
               if (trace_file == NULL || trace_file[0] == '\0') trace_file = "coco_joy_trace.log";
               joy_trace_fp = fopen(trace_file, "a");
           }
@@ -474,41 +476,41 @@ behavior:
       uint64_t now = cpu->total_cycles;
       if ((now - comp->last_event_poll_cycle) < 2048u) return;
       comp->last_event_poll_cycle = now;
-      SDL_Event ev;
-      while (SDL_PollEvent(&ev)) {
-          if (ev.type == SDL_QUIT) {
+      CPUHostEvent ev;
+      while (cpu_host_hal_poll_event(&ev)) {
+          if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {
               cpu->running = false;
               cpu->halted = true;
-          } else if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
+          } else if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN || cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYUP) {
               if (kb_trace != 0 && kb_trace_fp != NULL) {
-                  SDL_Scancode sc = ev.key.keysym.scancode;
+                  int32_t sc = cpu_host_hal_event_scancode(&ev);
                   fprintf(
                       kb_trace_fp,
                       "coco-kb event=%s sc=%d name=%s repeat=%u focus=%u\n",
-                      (ev.type == SDL_KEYDOWN) ? "down" : "up",
+                      (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN) ? "down" : "up",
                       (int)sc,
-                      SDL_GetScancodeName(sc),
-                      (unsigned)ev.key.repeat,
+                      cpu_host_hal_scancode_name(sc),
+                      (unsigned)cpu_host_hal_event_key_repeat(&ev),
                       (unsigned)comp->has_keyboard_focus
                   );
                   fflush(kb_trace_fp);
               }
           }
       }
-      SDL_PumpEvents();
-      comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == (SDL_Window *)comp->window) ? 1u : 0u;
+      cpu_host_hal_pump_events();
+      comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
       if (comp->has_keyboard_focus != comp->last_focus_state) {
           comp->last_focus_state = comp->has_keyboard_focus;
           if (comp->window != NULL) {
-              SDL_SetWindowTitle(
-                  (SDL_Window *)comp->window,
+              cpu_host_hal_set_window_title(
+                  comp->window,
                   (comp->has_keyboard_focus != 0u) ? "PASM TRS-80 Color Computer 1 [FOCUS]" : "PASM TRS-80 Color Computer 1 [NO-FOCUS]"
               );
           }
       }
       {
           sms_overlay_update_perf(
-              SDL_GetTicks(),
+              cpu_host_hal_ticks_ms(),
               (uint64_t)comp->frame_count,
               cpu->total_cycles,
               (uint64_t)CPU_SYSTEM_CLOCK_HZ,
@@ -521,7 +523,7 @@ behavior:
           );
       }
       int key_count = 0;
-      const uint8_t *ks = SDL_GetKeyboardState(&key_count);
+      const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
       if (ks == NULL || key_count <= 0) return;
       uint8_t rows[8] = {
           0xFFu, 0xFFu, 0xFFu, 0xFFu,
@@ -573,20 +575,20 @@ behavior:
           uint8_t joy1_btn = 0u;
           uint8_t joy2_btn = 0u;
           {
-              uint8_t kp1 = ((size_t)SDL_SCANCODE_KP_1 < (size_t)key_count && ks[SDL_SCANCODE_KP_1] != 0u) ? 1u : 0u;
-              uint8_t kp2 = ((size_t)SDL_SCANCODE_KP_2 < (size_t)key_count && ks[SDL_SCANCODE_KP_2] != 0u) ? 1u : 0u;
-              uint8_t kp3 = ((size_t)SDL_SCANCODE_KP_3 < (size_t)key_count && ks[SDL_SCANCODE_KP_3] != 0u) ? 1u : 0u;
-              uint8_t kp4 = ((size_t)SDL_SCANCODE_KP_4 < (size_t)key_count && ks[SDL_SCANCODE_KP_4] != 0u) ? 1u : 0u;
-              uint8_t kp5 = ((size_t)SDL_SCANCODE_KP_5 < (size_t)key_count && ks[SDL_SCANCODE_KP_5] != 0u) ? 1u : 0u;
-              uint8_t kp6 = ((size_t)SDL_SCANCODE_KP_6 < (size_t)key_count && ks[SDL_SCANCODE_KP_6] != 0u) ? 1u : 0u;
-              uint8_t kp7 = ((size_t)SDL_SCANCODE_KP_7 < (size_t)key_count && ks[SDL_SCANCODE_KP_7] != 0u) ? 1u : 0u;
-              uint8_t kp8 = ((size_t)SDL_SCANCODE_KP_8 < (size_t)key_count && ks[SDL_SCANCODE_KP_8] != 0u) ? 1u : 0u;
-              uint8_t kp9 = ((size_t)SDL_SCANCODE_KP_9 < (size_t)key_count && ks[SDL_SCANCODE_KP_9] != 0u) ? 1u : 0u;
-              uint8_t kp_dot = ((size_t)SDL_SCANCODE_KP_PERIOD < (size_t)key_count && ks[SDL_SCANCODE_KP_PERIOD] != 0u) ? 1u : 0u;
-              uint8_t lctrl = ((size_t)SDL_SCANCODE_LCTRL < (size_t)key_count && ks[SDL_SCANCODE_LCTRL] != 0u) ? 1u : 0u;
-              uint8_t rctrl = ((size_t)SDL_SCANCODE_RCTRL < (size_t)key_count && ks[SDL_SCANCODE_RCTRL] != 0u) ? 1u : 0u;
-              SDL_Keymod mods = SDL_GetModState();
-              if ((mods & KMOD_LCTRL) != 0) lctrl = 1u;
+              uint8_t kp1 = ((size_t)CPU_HOST_SCANCODE(KP_1) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_1)] != 0u) ? 1u : 0u;
+              uint8_t kp2 = ((size_t)CPU_HOST_SCANCODE(KP_2) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_2)] != 0u) ? 1u : 0u;
+              uint8_t kp3 = ((size_t)CPU_HOST_SCANCODE(KP_3) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_3)] != 0u) ? 1u : 0u;
+              uint8_t kp4 = ((size_t)CPU_HOST_SCANCODE(KP_4) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_4)] != 0u) ? 1u : 0u;
+              uint8_t kp5 = ((size_t)CPU_HOST_SCANCODE(KP_5) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_5)] != 0u) ? 1u : 0u;
+              uint8_t kp6 = ((size_t)CPU_HOST_SCANCODE(KP_6) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_6)] != 0u) ? 1u : 0u;
+              uint8_t kp7 = ((size_t)CPU_HOST_SCANCODE(KP_7) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_7)] != 0u) ? 1u : 0u;
+              uint8_t kp8 = ((size_t)CPU_HOST_SCANCODE(KP_8) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_8)] != 0u) ? 1u : 0u;
+              uint8_t kp9 = ((size_t)CPU_HOST_SCANCODE(KP_9) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_9)] != 0u) ? 1u : 0u;
+              uint8_t kp_dot = ((size_t)CPU_HOST_SCANCODE(KP_PERIOD) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_PERIOD)] != 0u) ? 1u : 0u;
+              uint8_t lctrl = ((size_t)CPU_HOST_SCANCODE(LCTRL) < (size_t)key_count && ks[CPU_HOST_SCANCODE(LCTRL)] != 0u) ? 1u : 0u;
+              uint8_t rctrl = ((size_t)CPU_HOST_SCANCODE(RCTRL) < (size_t)key_count && ks[CPU_HOST_SCANCODE(RCTRL)] != 0u) ? 1u : 0u;
+              uint32_t mods = cpu_host_hal_get_mod_state();
+              if ((mods & CPU_HOST_MOD_LCTRL) != 0) lctrl = 1u;
               uint8_t left = (uint8_t)((kp4 | kp7 | kp1) != 0u);
               uint8_t right = (uint8_t)((kp6 | kp9 | kp3) != 0u);
               uint8_t up = (uint8_t)((kp8 | kp7 | kp9) != 0u);
@@ -664,7 +666,7 @@ behavior:
           }
       }
       if (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u && comp->audio_ring != NULL && comp->audio_ring_fill > 0u) {
-          uint32_t queued_samples = SDL_GetQueuedAudioSize(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
+          uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
           uint32_t device_samples = (comp->audio_device_samples > 0u) ? comp->audio_device_samples : 512u;
           uint32_t low_watermark = device_samples * 2u;
           uint32_t target_total = device_samples * 4u;
@@ -692,7 +694,7 @@ behavior:
                       if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
                   }
                   comp->audio_ring_fill -= n;
-                  if (SDL_QueueAudio(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t)) != 0) {
+                  if (cpu_host_hal_audio_queue(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t)) != 0) {
                       break;
                   }
                   to_send -= n;
@@ -701,11 +703,11 @@ behavior:
       }
     destroy: |
       if (comp->audio_out_dev != 0u) {
-          SDL_CloseAudioDevice(comp->audio_out_dev);
+          cpu_host_hal_audio_close(comp->audio_out_dev);
           comp->audio_out_dev = 0u;
       }
       if (comp->audio_ring != NULL) {
-          SDL_free(comp->audio_ring);
+          cpu_host_hal_free(comp->audio_ring);
           comp->audio_ring = NULL;
       }
       comp->audio_ring_capacity = 0u;
@@ -714,21 +716,21 @@ behavior:
       comp->audio_ring_fill = 0u;
       comp->audio_device_samples = 0u;
       if (comp->texture != NULL) {
-          SDL_DestroyTexture((SDL_Texture *)comp->texture);
+          cpu_host_hal_destroy_texture(comp->texture);
           comp->texture = NULL;
       }
       if (comp->renderer != NULL) {
-          SDL_DestroyRenderer((SDL_Renderer *)comp->renderer);
+          cpu_host_hal_destroy_renderer(comp->renderer);
           comp->renderer = NULL;
       }
       if (comp->window != NULL) {
-          SDL_DestroyWindow((SDL_Window *)comp->window);
+          cpu_host_hal_destroy_window(comp->window);
           comp->window = NULL;
       }
       if (comp->sdl_inited != 0u) {
-          SDL_StopTextInput();
-          SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS);
-          SDL_Quit();
+          cpu_host_hal_stop_text_input();
+          cpu_host_hal_quit_subsystems();
+          cpu_host_hal_quit();
           comp->sdl_inited = 0u;
       }
   callback_handlers:
@@ -763,8 +765,8 @@ behavior:
   handler_bodies:
     video_frame: |
       if (comp->sdl_inited == 0u || argc < 4) return;
-      SDL_Renderer *renderer = (SDL_Renderer *)comp->renderer;
-      SDL_Texture *texture = (SDL_Texture *)comp->texture;
+      void *renderer = comp->renderer;
+      void *texture = comp->texture;
       uint32_t frame = (uint32_t)(args[0] & 0xFFFFFFFFu);
       uint32_t *pixels = (uint32_t *)(uintptr_t)args[1];
       uint32_t w = (uint32_t)(args[2] & 0xFFFFFFFFu);
@@ -782,20 +784,20 @@ behavior:
           );
       }
       if (comp->texture_w != w || comp->texture_h != h) {
-          SDL_DestroyTexture(texture);
-          texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, (int)w, (int)h);
+          cpu_host_hal_destroy_texture(texture);
+          texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888, CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);
           if (texture == NULL) return;
           comp->texture = (void *)texture;
           comp->texture_w = w;
           comp->texture_h = h;
       }
-      if (SDL_UpdateTexture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
-      SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-      SDL_RenderClear(renderer);
+      if (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
+      cpu_host_hal_render_set_draw_color(renderer, 0, 0, 0, 255);
+      cpu_host_hal_render_clear(renderer);
       int ww = 0;
       int wh = 0;
-      if (SDL_GetRendererOutputSize(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
-      SDL_Rect dst;
+      if (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
+      CPUHostRect dst;
       int scaled_w = ww;
       int scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);
       if (scaled_h > wh) {
@@ -806,8 +808,8 @@ behavior:
       dst.h = (scaled_h > 0) ? scaled_h : wh;
       dst.x = (ww - dst.w) / 2;
       dst.y = (wh - dst.h) / 2;
-      if (SDL_RenderCopy(renderer, texture, NULL, &dst) != 0) return;
-      SDL_RenderPresent(renderer);
+      if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;
+      cpu_host_hal_render_present(renderer);
     irq_edge: |
       if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {
           comp->irq_edges += 1u;
@@ -857,8 +859,7 @@ behavior:
       comp->audio_level = next_level;
 
 coding:
-  headers: ["SDL2/SDL.h", "pasm_overlay.h"]
+  headers: ["pasm_overlay.h"]
   include_paths: ["include"]
-  linked_libraries:
-    - name: "SDL2"
+  linked_libraries: []
   library_paths: []

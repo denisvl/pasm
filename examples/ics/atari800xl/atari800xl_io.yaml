@@ -186,15 +186,8 @@ behavior:
       }
       if (comp->selftest_rom == NULL) {
           comp->selftest_rom = (uint8_t *)calloc(0x0800u, sizeof(uint8_t));
-          if (comp->selftest_rom != NULL) {
-              FILE *f = fopen("examples/roms/ATARIXL.ROM", "rb");
-              if (f != NULL) {
-                  if (fseek(f, 0x1000L, SEEK_SET) == 0) {
-                      (void)fread(comp->selftest_rom, 1u, 0x0800u, f);
-                  }
-                  fclose(f);
-              }
-          }
+          /* Self-test bytes are expected to be provided by system ROM loading
+             (CLI/runtime), not by direct file I/O from this component. */
       }
     reset: |
       comp->pia_ora = 0xFFu;

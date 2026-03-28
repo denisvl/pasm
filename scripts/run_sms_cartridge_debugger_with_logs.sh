@@ -17,7 +17,7 @@ set -euo pipefail
 #   RUN_SPEED=realtime|max
 #   CMAKE_BUILD_TYPE=Release|Debug
 #   CARTRIDGE_MAP=examples/cartridges/sms/sms_mapper_sega.yaml
-#   CARTRIDGE_ROM_GEN=../roms/Sonic The Hedgehog (USA, Europe).sms
+#   CARTRIDGE_ROM_GEN=../../roms/sms/Sonic The Hedgehog (USA, Europe).sms
 #   CARTRIDGE_ROM_RUN=/abs/path/to/your/cart.sms
 #   LOG_DIR=log
 
@@ -33,7 +33,7 @@ CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 RUNTIME_LOG_TO_CONSOLE="${RUNTIME_LOG_TO_CONSOLE:-0}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/sms/sms_mapper_sega.yaml}"
-CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../roms/Sonic the Hedgehog 2 (UE) [!].sms}"
+CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/sms/Sonic the Hedgehog 2 (UE) [!].sms}"
 LOG_DIR="${LOG_DIR:-log}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

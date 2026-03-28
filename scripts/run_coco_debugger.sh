@@ -15,7 +15,7 @@ set -euo pipefail
 #   RUN_SPEED=realtime|max
 #   PASM_SDL_AUDIO=1
 #   CARTRIDGE_MAP=examples/cartridges/coco1/coco_mapper_none.yaml
-#   CARTRIDGE_ROM_GEN=../roms/Dungeons of Daggorath (1982) (26-3093) (DynaMicro) [!].ccc
+#   CARTRIDGE_ROM_GEN=../../roms/coco1/Dungeons of Daggorath (1982) (26-3093) (DynaMicro) [!].ccc
 #   CARTRIDGE_ROM_RUN=/abs/path/to/cart.rom  (optional override)
 
 PROFILE="${1:-interactive}"

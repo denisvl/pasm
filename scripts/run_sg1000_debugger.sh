@@ -15,7 +15,7 @@ set -euo pipefail
 #   PASM_SG1000_JOY2_CONNECTED=0|1   (host player 2 connection flag)
 #   RUN_SPEED=realtime|max
 #   CARTRIDGE_MAP=examples/cartridges/sg1000/sg1000_mapper_none.yaml
-#   CARTRIDGE_ROM_GEN="../roms/Hang-On II (Japan).sg"
+#   CARTRIDGE_ROM_GEN="../../roms/sg1000/Hang-On II (Japan).sg"
 #   CARTRIDGE_ROM_RUN=/abs/path/to/cart.sg
 
 PROFILE="${1:-interactive}"
@@ -27,7 +27,7 @@ PASM_SG1000_JOY2_CONNECTED="${PASM_SG1000_JOY2_CONNECTED:-0}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/sg1000/sg1000_mapper_none.yaml}"
-CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../roms/Hang-On II (Japan).sg}"
+CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/sg1000/Hang-On II (Japan).sg}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

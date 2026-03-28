@@ -26,7 +26,7 @@ memory:
       read_write: true
   rom_images:
     - name: sms_bios_32k
-      file: ../roms/sega.rom
+      file: ../../roms/sms/sega.rom
       target_region: BIOS_CART_32K
       offset: 0
 

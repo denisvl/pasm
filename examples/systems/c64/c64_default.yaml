@@ -30,15 +30,15 @@ memory:
       read_only: true
   rom_images:
     - name: c64_basic_rom
-      file: ../roms/basic.901226-01.bin
+      file: ../../roms/c64/basic.901226-01.bin
       target_region: ROM_BASIC
       offset: 0
     - name: c64_char_rom
-      file: ../roms/characters.901225-01.bin
+      file: ../../roms/c64/characters.901225-01.bin
       target_region: ROM_CHAR
       offset: 0
     - name: c64_kernal_rom
-      file: ../roms/kernal.901227-03.bin
+      file: ../../roms/c64/kernal.901227-03.bin
       target_region: ROM_KERNAL
       offset: 0
 

@@ -16,7 +16,7 @@ set -euo pipefail
 #   PASM_SDL_AUDIO=1
 #   USE_CARTRIDGE=1|0
 #   CARTRIDGE_MAP=examples/cartridges/nes/nes_mapper_gxrom.yaml
-#   CARTRIDGE_ROM_GEN="../roms/Super Mario Bros. + Duck Hunt (USA).nes"
+#   CARTRIDGE_ROM_GEN="../../roms/nes/Super Mario Bros. + Duck Hunt (USA).nes"
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/cart.nes
 #   PASM_NES_JOY2_CONNECTED=0|1
 
@@ -30,7 +30,7 @@ PASM_SDL_AUDIO="${PASM_SDL_AUDIO:-1}"
 PASM_NES_JOY2_CONNECTED="${PASM_NES_JOY2_CONNECTED:-0}"
 USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/nes/nes_mapper_gxrom.yaml}"
-CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../roms/Super Mario Bros. + Duck Hunt (USA).nes}"
+CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/nes/Super Mario Bros. + Duck Hunt (USA).nes}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

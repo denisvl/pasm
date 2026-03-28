@@ -4,6 +4,9 @@ metadata:
   model: coco1_headless_stub
   version: "1.0"
 
+backend:
+  target: stub
+
 state:
   - name: frame_count
     type: uint32_t

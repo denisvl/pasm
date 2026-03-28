@@ -81,7 +81,7 @@ memory:
       read_only: true
   rom_images:
     - name: system_rom
-      file: ../roms/system.rom
+      file: ../../roms/example_system/system.rom
       target_region: ROM
       offset: 0
 ```
@@ -99,6 +99,7 @@ ROM rules:
 - `offset` is optional (default `0`) and must be non-negative.
 - placement must fit target region and not overlap other ROM images.
 - `file` resolves relative to `system.yaml` directory (or absolute path).
+- ROMs must be provided through system/cartridge runtime loading (for example `--system-dir` and `--cart-rom`), not hardcoded `fopen(...)` paths inside YAML behavior snippets.
 
 `system.yaml` is the single source of component connectivity.
 
@@ -165,27 +166,47 @@ Required top-level keys:
 Optional:
 - `clock_hz`
 - `input.keyboard` declarative key mapping
+- `backend.target` compile-time backend selection hint
+
+Host backend target (recommended in v1, required in examples):
+
+```yaml
+backend:
+  target: sdl2
+```
+
+Rules:
+- `backend.target` must match `^[a-z][a-z0-9_]*$`.
+- `sdl2` is the default backend implementation target.
+- `stub` is used for headless/no-UI host adapters.
+- Backend selection remains compile-time in current rollout.
+- A composed system build must not mix multiple backend targets across hosts (single backend target per build).
 
 Keyboard input mapping (optional, v1):
 
 ```yaml
 input:
   keyboard:
-    source: sdl_scancode
     focus_required: true
     bindings:
-      - host_key: SDL_SCANCODE_BACKSPACE
+      - host_key: BACKSPACE
         presses:
           - { row: 0, bit: 0 }
           - { row: 4, bit: 0 }
 ```
 
 Rules:
-- `source` must be `sdl_scancode`.
-- `bindings[].host_key` must be in validated SDL scancode allowlist.
+- Host keyboard mappings are backend-agnostic at the YAML contract level.
+- `bindings[].host_key` must use canonical host key names (for example `BACKSPACE`, `ENTER`, `UP`, `A`).
 - `bindings[].presses` must be non-empty.
 - `presses[].row` range `0..31`, `presses[].bit` range `0..7`.
 - duplicate `host_key` entries are rejected.
+
+Compatibility:
+- SDL remains the default host backend implementation target, but it is not part of the YAML input contract.
+- Backend selection is compile-time (not runtime plugin loading) in the current rollout.
+
+See `docs/HOST_HAL_PLAN.md` for phased migration status and exit criteria.
 
 ## 6) `cartridge.yaml`
 
@@ -277,6 +298,13 @@ Generation merge semantics:
 - deterministic union with exact-value de-dup
 - first occurrence preserved
 - relative paths resolved from each YAML file directory
+
+Host backend behavior (current rollout):
+- For host adapters, `backend.target` drives default platform setup.
+- `backend.target: sdl2` auto-wires SDL build linkage and CPU-side SDL header inclusion.
+- `backend.target: glfw` auto-wires GLFW build linkage.
+- In-repo host YAML examples therefore keep `coding.linked_libraries: []` for backend libs and avoid explicit `SDL2/SDL.h` in `coding.headers`.
+- Explicit `coding.headers` / `coding.linked_libraries` are still supported for non-backend-specific dependencies.
 
 ## 9) CLI
 

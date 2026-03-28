@@ -16,7 +16,7 @@ set -euo pipefail
 #   PASM_SDL_AUDIO=1
 #   USE_CARTRIDGE=1|0
 #   CARTRIDGE_MAP=examples/cartridges/atari2600/atari2600_mapper_none.yaml
-#   CARTRIDGE_ROM_GEN=../roms/Pac-Man\ \(USA\).a26
+#   CARTRIDGE_ROM_GEN=../../roms/atari2600/Pac-Man\ \(USA\).a26
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/cart.a26
 
 PROFILE="${1:-interactive}"
@@ -28,7 +28,7 @@ RUN_SPEED="${RUN_SPEED:-realtime}"
 PASM_SDL_AUDIO="${PASM_SDL_AUDIO:-1}"
 USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/atari2600/atari2600_mapper_none.yaml}"
-CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../roms/Pitfall! (1982) (Activision) [!].a26}"
+CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/atari2600/Pitfall! (1982) (Activision) [!].a26}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

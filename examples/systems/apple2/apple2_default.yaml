@@ -18,7 +18,7 @@ memory:
       read_only: true
   rom_images:
     - name: apple2plus_rom
-      file: ../roms/apple2.rom
+      file: ../../roms/apple2/apple2.rom
       target_region: ROM_SYSTEM
       offset: 0
 

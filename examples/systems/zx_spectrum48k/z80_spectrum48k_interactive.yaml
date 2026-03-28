@@ -34,7 +34,7 @@ memory:
       read_write: true
   rom_images:
     - name: spectrum48_rom
-      file: ../roms/48k.rom
+      file: ../../roms/zx_spectrum48k/48k.rom
       target_region: ROM
       offset: 0
 

@@ -13,7 +13,7 @@ set -euo pipefail
 #   EXTRA_CARGO_ARGS="--release"
 #   USE_CARTRIDGE=1|0
 #   CARTRIDGE_MAP=examples/cartridges/msx1/msx_mapper_konami.yaml
-#   CARTRIDGE_ROM_GEN="../roms/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
+#   CARTRIDGE_ROM_GEN="../../roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/rom.rom
 #   PASM_SDL_DEBUG=1
 #   PASM_SDL_LOGFILE=/tmp/msx_sdl.log
@@ -79,10 +79,10 @@ BUILD_DIR="${OUTPUT_DIR}/build"
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
 if [[ -z "${CARTRIDGE_ROM_RUNTIME}" ]]; then
-  CARTRIDGE_ROM_RUNTIME="${REPO_ROOT}/examples/roms/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
+  CARTRIDGE_ROM_RUNTIME="${REPO_ROOT}/examples/roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
 fi
 if [[ -z "${CARTRIDGE_ROM_GEN}" ]]; then
-  CARTRIDGE_ROM_GEN="../roms/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
+  CARTRIDGE_ROM_GEN="../../roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
 fi
 
 echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"

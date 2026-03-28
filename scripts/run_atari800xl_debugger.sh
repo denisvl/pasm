@@ -16,10 +16,10 @@ set -euo pipefail
 #   PASM_SDL_AUDIO=1
 #   USE_CARTRIDGE=1|0
 #   CARTRIDGE_MAP=examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml
-#   CARTRIDGE_ROM_GEN=../roms/Star_Raiders_1979_Atari_US.rom
+#   CARTRIDGE_ROM_GEN=../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/cart.rom
-#   OS_ROM=../roms/ATARIXL.ROM
-#   BASIC_ROM=../roms/BASIC_C.ROM
+#   OS_ROM=../../roms/atari800xl/ATARIXL.ROM
+#   BASIC_ROM=../../roms/atari800xl/BASIC_C.ROM
 
 PROFILE="${1:-interactive}"
 START_PC="${START_PC:-}"
@@ -30,10 +30,10 @@ RUN_SPEED="${RUN_SPEED:-realtime}"
 PASM_SDL_AUDIO="${PASM_SDL_AUDIO:-1}"
 USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml}"
-CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../roms/Star_Raiders_1979_Atari_US.rom}"
+CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
-OS_ROM="${OS_ROM:-../roms/ATARIXL.ROM}"
-BASIC_ROM="${BASIC_ROM:-../roms/BASIC_C.ROM}"
+OS_ROM="${OS_ROM:-../../roms/atari800xl/ATARIXL.ROM}"
+BASIC_ROM="${BASIC_ROM:-../../roms/atari800xl/BASIC_C.ROM}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -96,10 +96,10 @@ if [[ "${USE_CARTRIDGE}" != "0" ]]; then
   RUN_CARTRIDGE_ARGS+=(--cart-rom "${ROM_RUNTIME}")
 fi
 
-if [[ ! -f "examples/roms/${OS_ROM#../roms/}" && ! -f "${OS_ROM}" ]]; then
+if [[ ! -f "${SYSTEM_DIR_ABS}/${OS_ROM}" && ! -f "${OS_ROM}" ]]; then
   echo "Warning: OS ROM not found (${OS_ROM})." >&2
 fi
-if [[ ! -f "examples/roms/${BASIC_ROM#../roms/}" && ! -f "${BASIC_ROM}" ]]; then
+if [[ ! -f "${SYSTEM_DIR_ABS}/${BASIC_ROM}" && ! -f "${BASIC_ROM}" ]]; then
   echo "Warning: BASIC ROM not found (${BASIC_ROM})." >&2
 fi
 if [[ "${USE_CARTRIDGE}" != "0" && ! -f "${ROM_RUNTIME}" ]]; then

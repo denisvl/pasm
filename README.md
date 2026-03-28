@@ -189,7 +189,7 @@ scripts\run_coco_debugger.bat interactive
 
 Defaults:
 - processor: `examples/processors/mc6809.yaml`
-- system ROM: `examples/roms/coco.rom` mapped at `0xA000-0xBFFF` and mirrored at `0xE000-0xFFFF`
+- system ROM: `examples/roms/coco1/coco.rom` mapped at `0xA000-0xBFFF` and mirrored at `0xE000-0xFFFF`
 - cartridge mapper: `examples/cartridges/coco1/coco_mapper_none.yaml`
 
 ### Apple II (MOS6502)
@@ -208,7 +208,7 @@ scripts\run_apple2_debugger.bat interactive
 
 Defaults:
 - processor: `examples/processors/mos6502.yaml`
-- system ROM: `examples/roms/apple2.rom` mapped at `0xB000-0xFFFF`
+- system ROM: `examples/roms/apple2/apple2.rom` mapped at `0xB000-0xFFFF`
 - interactive profile: `examples/systems/apple2/apple2_interactive.yaml`
 - default profile: `examples/systems/apple2/apple2_default.yaml`
 
@@ -231,9 +231,9 @@ Defaults:
 - interactive profile: `examples/systems/c64/c64_interactive.yaml`
 - default profile: `examples/systems/c64/c64_default.yaml`
 - ROMs:
-  - `examples/roms/basic.901226-01.bin` at `0xA000-0xBFFF`
-  - `examples/roms/characters.901225-01.bin` at `0xD000-0xDFFF`
-  - `examples/roms/kernal.901227-03.bin` at `0xE000-0xFFFF`
+  - `examples/roms/c64/basic.901226-01.bin` at `0xA000-0xBFFF`
+  - `examples/roms/c64/characters.901225-01.bin` at `0xD000-0xDFFF`
+  - `examples/roms/c64/kernal.901227-03.bin` at `0xE000-0xFFFF`
 - default debugger start PC: `0xFCE2` (KERNAL reset entry for this ROM set)
 
 Interactive components:

@@ -26,6 +26,10 @@ Last verified on: March 19, 2026
   - no hardware-model-specific branches in generator/runtime
   - behavior comes from YAML snippets (`ic`/`device`/`host`/`cartridge`)
   - generic endpoint routing (`callback` / `signal` / `handler`)
+- Host backend model is being standardized:
+  - host YAML/input contract is backend-agnostic
+  - SDL is the default backend implementation target during migration
+  - migration tracker: `docs/HOST_HAL_PLAN.md`
 - `coding` merge support is implemented for behavior-capable YAMLs:
   - deterministic merged includes/link config in generated CMake/Makefile
   - merge order: processor -> ICs -> devices -> hosts -> cartridge

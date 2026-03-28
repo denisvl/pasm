@@ -26,11 +26,11 @@ memory:
       read_only: true
   rom_images:
     - name: coco_rom_primary
-      file: ../roms/coco.rom
+      file: ../../roms/coco1/coco.rom
       target_region: ROM_COCOROM_A000
       offset: 0
     - name: coco_rom_mirror
-      file: ../roms/coco.rom
+      file: ../../roms/coco1/coco.rom
       target_region: ROM_COCOROM_E000
       offset: 0
 

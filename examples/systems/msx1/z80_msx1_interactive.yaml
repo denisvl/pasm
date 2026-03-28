@@ -18,7 +18,7 @@ memory:
       read_write: true
   rom_images:
     - name: msx_bios_32k
-      file: ../roms/msx.rom
+      file: ../../roms/msx1/msx.rom
       target_region: BIOS_32K
       offset: 0
 

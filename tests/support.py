@@ -12,13 +12,29 @@ import yaml
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 
+def _resolve_example_system(filename: str) -> Path:
+    """Resolve a system YAML filename in examples/systems (root or subfolder)."""
+    direct = BASE_DIR / "examples" / "systems" / filename
+    if direct.exists():
+        return direct
+    matches = sorted((BASE_DIR / "examples" / "systems").rglob(filename))
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        return direct
+    raise FileNotFoundError(
+        f"Ambiguous system filename '{filename}' in examples/systems: "
+        + ", ".join(str(p) for p in matches)
+    )
+
+
 def example_pair(name: str, system: str = "default") -> tuple[Path, Path]:
     """Return canonical example processor/system file paths."""
     processor = BASE_DIR / "examples" / "processors" / f"{name}.yaml"
     if system == "default":
-        system_path = BASE_DIR / "examples" / "systems" / f"{name}_default.yaml"
+        system_path = _resolve_example_system(f"{name}_default.yaml")
     else:
-        system_path = BASE_DIR / "examples" / "systems" / system
+        system_path = _resolve_example_system(system)
     return processor, system_path
 
 

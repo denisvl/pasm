@@ -22,7 +22,7 @@ memory:
       read_write: true
   rom_images:
     - name: trs80_model4_rom
-      file: ../roms/model4.rom
+      file: ../../roms/trs80_model4/model4.rom
       target_region: ROM_BOOT
       offset: 0
 

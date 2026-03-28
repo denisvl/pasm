@@ -74,7 +74,7 @@ cmake --build "${BUILD_DIR}"
 
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
-echo "    expected_roms: examples/roms/OS_464.ROM and examples/roms/BASIC_664.ROM"
+echo "    expected_roms: examples/roms/cpc464/OS_464.ROM and examples/roms/cpc464/BASIC_664.ROM"
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_SDL_AUDIO="${PASM_SDL_AUDIO}" \

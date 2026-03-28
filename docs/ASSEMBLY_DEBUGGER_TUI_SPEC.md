@@ -38,7 +38,7 @@ Linked backend with cartridge override:
 PASM_EMU_DIR=generated/<target> \
 cargo run --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked --memory-size 65536 --system-dir examples/systems \
-  --cart-rom "examples/roms/My Cart.sms"
+  --cart-rom "examples/roms/sms/My Cart.sms"
 ```
 
 ## UI Model

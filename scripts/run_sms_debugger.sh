@@ -15,7 +15,7 @@ set -euo pipefail
 #   PASM_SMS_JOY2_CONNECTED=0|1  (default 0 for disconnected controller 2)
 #   RUN_SPEED=realtime|max
 #   CARTRIDGE_MAP=examples/cartridges/sms/sms_mapper_sega.yaml
-#   CARTRIDGE_ROM_GEN=../roms/sega.rom
+#   CARTRIDGE_ROM_GEN=../../roms/sms/sega.rom
 #   CARTRIDGE_ROM_RUN=/abs/path/to/cart.sms  (optional override)
 
 PROFILE="${1:-interactive}"
@@ -28,7 +28,7 @@ PASM_SMS_CROP_LEFT8="${PASM_SMS_CROP_LEFT8:-1}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/sms/sms_mapper_sega.yaml}"
-CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../roms/sega.rom}"
+CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/sms/sega.rom}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

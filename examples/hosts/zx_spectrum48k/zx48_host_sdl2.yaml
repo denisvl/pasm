@@ -4,6 +4,9 @@ metadata:
   model: zx48_sdl2_bridge
   version: "1.0"
 
+backend:
+  target: sdl2
+
 state:
   - name: keyboard_value
     type: uint8_t

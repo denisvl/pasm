@@ -34,15 +34,15 @@ memory:
       read_only: true
   rom_images:
     - name: atari800xl_os_low
-      file: ../roms/ATARIXL_C000.ROM
+      file: ../../roms/atari800xl/ATARIXL_C000.ROM
       target_region: ROM_OS_LOW
       offset: 0
     - name: atari800xl_os_high
-      file: ../roms/ATARIXL_D800.ROM
+      file: ../../roms/atari800xl/ATARIXL_D800.ROM
       target_region: ROM_OS_HIGH
       offset: 0
     - name: atari800xl_basic
-      file: ../roms/BASIC_C.ROM
+      file: ../../roms/atari800xl/BASIC_C.ROM
       target_region: ROM_BASIC
       offset: 0
 

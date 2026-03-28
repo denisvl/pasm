@@ -247,20 +247,8 @@ behavior:
           comp->ay_regs = (uint8_t *)calloc(16u, sizeof(uint8_t));
       }
 
-      if (comp->lower_rom != NULL) {
-          FILE *f = fopen("examples/roms/OS_464.ROM", "rb");
-          if (f != NULL) {
-              (void)fread(comp->lower_rom, 1u, 0x4000u, f);
-              fclose(f);
-          }
-      }
-      if (comp->upper_rom != NULL) {
-          FILE *f = fopen("examples/roms/BASIC_1.0.ROM", "rb");
-          if (f != NULL) {
-              (void)fread(comp->upper_rom, 1u, 0x4000u, f);
-              fclose(f);
-          }
-      }
+      /* ROM contents are expected to be provided by system ROM loading
+         (CLI/runtime), not by direct file I/O from this component. */
     reset: |
       comp->frame_counter = 0u;
       comp->last_cycle = cpu->total_cycles;
