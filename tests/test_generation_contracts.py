@@ -187,6 +187,350 @@ def test_build_system_normalizes_windows_paths_for_cross_platform_outputs():
     assert '"D:/Development/vcpkg/installed/x64-windows/lib/SDL2.lib"' in makefile
 
 
+def test_build_system_uses_backend_target_for_sdl2_linkage():
+    isa = _base_isa("BackendTarget8")
+    isa["hosts"] = [
+        {
+            "metadata": {"id": "host0", "type": "host_adapter", "model": "test_host_sdl2"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {
+                "headers": [],
+                "include_paths": [],
+                "linked_libraries": [],
+                "library_paths": [],
+            },
+        }
+    ]
+    isa["coding"] = {
+        "headers": [],
+        "include_paths": [],
+        "linked_libraries": [],
+        "library_paths": [],
+    }
+
+    cmake = generate_cmake(isa, "BackendTarget8")
+    makefile = generate_makefile(isa, "BackendTarget8")
+
+    assert "find_package(SDL2 CONFIG QUIET)" in cmake
+    assert "${PASM_SDL2_LINK_TARGET}" in cmake
+    assert "-lSDL2" in makefile
+
+
+def test_build_system_does_not_auto_link_sdl2_for_stub_backend():
+    isa = _base_isa("BackendStub8")
+    isa["hosts"] = [
+        {
+            "metadata": {"id": "host0", "type": "host_adapter", "model": "test_host_stub"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {
+                "headers": [],
+                "include_paths": [],
+                "linked_libraries": [],
+                "library_paths": [],
+            },
+        }
+    ]
+    isa["coding"] = {
+        "headers": [],
+        "include_paths": [],
+        "linked_libraries": [],
+        "library_paths": [],
+    }
+
+    cmake = generate_cmake(isa, "BackendStub8")
+    makefile = generate_makefile(isa, "BackendStub8")
+
+    assert "find_package(SDL2 CONFIG QUIET)" not in cmake
+    assert "${PASM_SDL2_LINK_TARGET}" not in cmake
+    assert "-lSDL2" not in makefile
+
+
+def test_build_system_accepts_glfw_backend_without_auto_sdl2_linkage():
+    isa = _base_isa("BackendGlfw8")
+    isa["hosts"] = [
+        {
+            "metadata": {"id": "host0", "type": "host_adapter", "model": "test_host_glfw"},
+            "backend": {"target": "glfw"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {
+                "headers": [],
+                "include_paths": [],
+                "linked_libraries": [],
+                "library_paths": [],
+            },
+        }
+    ]
+    isa["coding"] = {
+        "headers": [],
+        "include_paths": [],
+        "linked_libraries": [],
+        "library_paths": [],
+    }
+
+    cmake = generate_cmake(isa, "BackendGlfw8")
+    makefile = generate_makefile(isa, "BackendGlfw8")
+
+    assert "find_package(glfw3 CONFIG QUIET)" in cmake
+    assert "${PASM_GLFW_LINK_TARGET}" in cmake
+    assert "-lglfw" in makefile
+    assert "find_package(SDL2 CONFIG QUIET)" not in cmake
+    assert "${PASM_SDL2_LINK_TARGET}" not in cmake
+    assert "-lSDL2" not in makefile
+
+
+def test_build_system_does_not_infer_sdl2_backend_from_linked_library_name():
+    isa = _base_isa("BackendNoInfer8")
+    isa["hosts"] = [
+        {
+            "metadata": {"id": "host0", "type": "host_adapter", "model": "test_host_stub"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {
+                "headers": [],
+                "include_paths": [],
+                "linked_libraries": [],
+                "library_paths": [],
+            },
+        }
+    ]
+    isa["coding"] = {
+        "headers": [],
+        "include_paths": [],
+        "linked_libraries": [{"name": "SDL2"}],
+        "library_paths": [],
+    }
+
+    cmake = generate_cmake(isa, "BackendNoInfer8")
+    makefile = generate_makefile(isa, "BackendNoInfer8")
+
+    # Backend target controls auto dependency setup; explicit link entries stay explicit.
+    assert "find_package(SDL2 CONFIG QUIET)" not in cmake
+    assert "${PASM_SDL2_LINK_TARGET}" not in cmake
+    assert "target_link_libraries(backendnoinfer8_test PRIVATE\n    SDL2\n)" in cmake
+    assert "target_link_libraries(backendnoinfer8_emu PRIVATE\n    SDL2\n)" in cmake
+    assert "-lSDL2" in makefile
+
+
+def test_build_system_rejects_mixed_backend_targets():
+    isa = _base_isa("BackendMixed8")
+    isa["hosts"] = [
+        {
+            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test_host_sdl2"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        },
+        {
+            "metadata": {"id": "host_stub", "type": "host_adapter", "model": "test_host_stub"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        },
+    ]
+
+    with pytest.raises(ValueError, match="multiple host backend targets"):
+        generate_cmake(isa, "BackendMixed8")
+    with pytest.raises(ValueError, match="multiple host backend targets"):
+        generate_makefile(isa, "BackendMixed8")
+
+
+def test_build_system_rejects_unsupported_backend_target():
+    isa = _base_isa("BackendUnsupported8")
+    isa["hosts"] = [
+        {
+            "metadata": {"id": "host_unknown", "type": "host_adapter", "model": "test_host_unknown"},
+            "backend": {"target": "wayland"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+
+    with pytest.raises(ValueError, match="unsupported host backend target"):
+        generate_cmake(isa, "BackendUnsupported8")
+    with pytest.raises(ValueError, match="unsupported host backend target"):
+        generate_makefile(isa, "BackendUnsupported8")
+
+
+def test_cpu_codegen_rejects_mixed_backend_targets():
+    data = _base_isa("CpuBackendMixed8")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test_host_sdl2"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        },
+        {
+            "metadata": {"id": "host_stub", "type": "host_adapter", "model": "test_host_stub"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        },
+    ]
+
+    with pytest.raises(ValueError, match="multiple host backend targets"):
+        generate_cpu_impl(data, "Z80")
+
+
+def test_cpu_codegen_rejects_unsupported_backend_target():
+    data = _base_isa("CpuBackendUnsupported8")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_unknown", "type": "host_adapter", "model": "test_host_unknown"},
+            "backend": {"target": "wayland"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+
+    with pytest.raises(ValueError, match="unsupported host backend target"):
+        generate_cpu_impl(data, "Z80")
+
+
+def test_cpu_codegen_accepts_glfw_backend_as_non_sdl_runtime_path():
+    data = _base_isa("CpuBackendGlfw8")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_glfw", "type": "host_adapter", "model": "test_host_glfw"},
+            "backend": {"target": "glfw"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+
+    code = generate_cpu_impl(data, "Z80")
+    assert "#define CPU_HOST_HAS_SCANCODE_MAP 1" in code
+    assert "#define CPU_HOST_SCANCODE(name) CPU_GLFW_SC_##name" in code
+    assert "#define CPU_HOST_MOD_CTRL 0x0001u" in code
+    assert "#define CPU_HOST_MOD_SHIFT 0x0002u" in code
+    assert "#define CPU_HOST_MOD_LCTRL 0x0004u" in code
+    assert "return SDL_PollEvent((SDL_Event *)event);" not in code
+
+
+def test_cpu_codegen_auto_includes_sdl_header_for_sdl2_backend():
+    data = _base_isa("CpuBackendSdl2Includes8")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test_host_sdl2"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    data["coding"] = {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []}
+
+    code = generate_cpu_impl(data, "Z80")
+    assert "#include <SDL2/SDL.h>" in code
+
+
+def test_cpu_codegen_does_not_auto_include_sdl_header_for_stub_backend():
+    data = _base_isa("CpuBackendStubIncludes8")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_stub", "type": "host_adapter", "model": "test_host_stub"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    data["coding"] = {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []}
+
+    code = generate_cpu_impl(data, "Z80")
+    assert "#include <SDL2/SDL.h>" not in code
+
+
+def test_cpu_codegen_does_not_infer_backend_from_host_model_name():
+    data = _base_isa("CpuBackendNoModelInference8")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_model_sdl2", "type": "host_adapter", "model": "test_host_sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+
+    code = generate_cpu_impl(data, "Z80")
+    assert "#define CPU_HOST_HAS_SCANCODE_MAP 0" in code
+    assert "return SDL_PollEvent((SDL_Event *)event);" not in code
+
+
+def test_cpu_codegen_rejects_non_host_key_source_when_parser_is_bypassed():
+    data = _base_isa("CpuHostSourceStrict8")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_bad_source", "type": "host_adapter", "model": "test_host_stub"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "input": {
+                "keyboard": {
+                    "source": "sdl_scancode",
+                    "focus_required": True,
+                    "bindings": [{"host_key": "A", "presses": [{"row": 0, "bit": 0}]}],
+                }
+            },
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+
+    with pytest.raises(ValueError, match="input.keyboard.source must be 'host_key'"):
+        generate_cpu_impl(data, "Z80")
+
+
+def test_cpu_codegen_rejects_invalid_host_key_binding_when_parser_is_bypassed():
+    data = _base_isa("CpuHostBindingStrict8")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_bad_binding", "type": "host_adapter", "model": "test_host_stub"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "input": {
+                "keyboard": {
+                    "focus_required": True,
+                    "bindings": [{"host_key": "bad-key", "presses": [{"row": 0, "bit": 0}]}],
+                }
+            },
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+
+    with pytest.raises(ValueError, match="must be canonical"):
+        generate_cpu_impl(data, "Z80")
+
+
 def test_memory_read_only_regions_emit_write_guards():
     isa = _base_isa("MemGuard8")
     isa["memory"]["regions"] = [
@@ -195,9 +539,8 @@ def test_memory_read_only_regions_emit_write_guards():
     ]
 
     code = generate_cpu_impl(isa, "MemGuard8")
-    assert "Block writes to read-only region: ROM" in code
+    assert "Ignore writes to read-only region: ROM" in code
     assert "if (addr >= 0x8000u) {" in code
-    assert "cpu->error_code = CPU_ERROR_INVALID_MEMORY;" in code
 
 
 @pytest.mark.skipif(
@@ -254,10 +597,12 @@ int main(void) {
             compiler,
             "-std=c11",
             "-O2",
+            "-D_POSIX_C_SOURCE=199309L",
             "-I",
             str(outdir / "src"),
             str(outdir / "src" / "MemRuntime8.c"),
             str(outdir / "src" / "MemRuntime8_decoder.c"),
+            str(outdir / "src" / "MemRuntime8_debug_abi.c"),
             str(harness_c),
             "-o",
             str(binary),
@@ -270,7 +615,7 @@ int main(void) {
     assert "RAM=A5" in proc.stdout
     assert "ROM=00" in proc.stdout
     assert "ERR_RAM=0" in proc.stdout
-    assert "ERR_ROM=2" in proc.stdout
+    assert "ERR_ROM=0" in proc.stdout
 
 
 def test_system_rom_loader_api_is_emitted(tmp_path):
@@ -513,10 +858,12 @@ int main(void) {
             compiler,
             "-std=c11",
             "-O2",
+            "-D_POSIX_C_SOURCE=199309L",
             "-I",
             str(outdir / "src"),
             str(outdir / "src" / "RomLoad8.c"),
             str(outdir / "src" / "RomLoad8_decoder.c"),
+            str(outdir / "src" / "RomLoad8_debug_abi.c"),
             str(harness_c),
             "-o",
             str(binary),
@@ -1340,25 +1687,873 @@ def test_both_dispatch_mode_generates_toggle_macro_path(tmp_path):
 
 
 def test_interactive_host_uses_declarative_keyboard_map_generation():
-    data = yaml_loader.load_processor_system(
-        str(BASE_DIR / "examples" / "processors" / "z80.yaml"),
-        str(BASE_DIR / "examples" / "systems" / "z80_spectrum48k_interactive.yaml"),
-        ic_paths=[str(BASE_DIR / "examples" / "ics" / "zx_spectrum_48k_ula.yaml")],
-        device_paths=[
-            str(BASE_DIR / "examples" / "devices" / "zx48_keyboard.yaml"),
-            str(BASE_DIR / "examples" / "devices" / "zx48_video.yaml"),
-            str(BASE_DIR / "examples" / "devices" / "zx48_speaker.yaml"),
-            str(BASE_DIR / "examples" / "devices" / "zx48_mic.yaml"),
-        ],
-        host_paths=[str(BASE_DIR / "examples" / "hosts" / "zx48_host_sdl2_interactive.yaml")],
-    )
+    data = _base_isa("HostKeyMap8")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {
+                "headers": [],
+                "include_paths": [],
+                "linked_libraries": [],
+                "library_paths": [],
+            },
+            "input": {
+                "keyboard": {
+                    "source": "host_key",
+                    "focus_required": True,
+                    "bindings": [
+                        {"host_key": "BACKSPACE", "presses": [{"row": 0, "bit": 0}]},
+                        {"host_key": "LEFT", "presses": [{"row": 1, "bit": 0}]},
+                    ],
+                }
+            },
+        }
+    ]
     code = generate_cpu_impl(data, "Z80")
     assert "cpu_component_apply_declared_keymap(" in code
     assert "if (map->focus_required && has_focus == 0u) return;" in code
-    assert "SDL_SCANCODE_BACKSPACE" in code
-    assert "SDL_SCANCODE_LEFT" in code
-    assert "{ SDL_SCANCODE_BACKSPACE, component_host_sdl2_keyboard_presses_" in code
+    assert "cpu_component_host_key_is_pressed(" in code
+    assert "#if CPU_HOST_HAS_SCANCODE_MAP" in code
+    assert "{ \"BACKSPACE\", component_host_sdl2_keyboard_presses_" in code
+    assert "{ \"LEFT\", component_host_sdl2_keyboard_presses_" in code
+    assert "CPU_HOST_SCANCODE(BACKSPACE)" in code
+    assert "CPU_HOST_SCANCODE(LEFT)" in code
     assert "ks[SDL_SCANCODE_A]" not in code
+
+
+def test_interactive_host_canonical_keys_map_to_sdl_scancodes_in_codegen():
+    data = _base_isa("CanonicalHostKey8")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {
+                "headers": [],
+                "include_paths": [],
+                "linked_libraries": [],
+                "library_paths": [],
+            },
+            "input": {
+                "keyboard": {
+                    "focus_required": True,
+                    "bindings": [{"host_key": "BACKSPACE", "presses": [{"row": 0, "bit": 0}]}],
+                }
+            },
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "{ \"BACKSPACE\", component_host_sdl2_keyboard_presses_" in code
+    assert "#if CPU_HOST_HAS_SCANCODE_MAP" in code
+    assert "CPU_HOST_SCANCODE(BACKSPACE)" in code
+
+
+def test_interactive_host_stub_backend_does_not_emit_sdl_scancodes():
+    data = _base_isa("StubHostKey8")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_stub", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {
+                "headers": [],
+                "include_paths": [],
+                "linked_libraries": [],
+                "library_paths": [],
+            },
+            "input": {
+                "keyboard": {
+                    "focus_required": True,
+                    "bindings": [{"host_key": "BACKSPACE", "presses": [{"row": 0, "bit": 0}]}],
+                }
+            },
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "cpu_component_host_key_is_pressed(" in code
+    assert "#if CPU_HOST_HAS_SCANCODE_MAP" in code
+    assert "{ \"BACKSPACE\", component_host_stub_keyboard_presses_" in code
+    assert "SDL_SCANCODE_BACKSPACE" not in code
+
+
+def test_runtime_hal_helpers_emit_sdl2_impl_for_sdl2_backend():
+    data = _base_isa("HostHalSdl2")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static uint8_t cpu_host_hal_sdl_inited = 0u;" in code
+    assert "static uint32_t cpu_host_hal_sdl_subsystems = 0u;" in code
+    assert "static SDL_Window *cpu_host_hal_sdl_primary_window = NULL;" in code
+    assert "static void cpu_host_hal_pump_events(void)" in code
+    assert "if (cpu_host_hal_sdl_inited == 0u) return;" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;" in code
+    assert "SDL_PumpEvents();" in code
+    assert "static uint32_t cpu_host_hal_ticks_ms(void)" in code
+    assert "if (cpu_host_hal_sdl_inited == 0u) return 0u;" in code
+    assert "return SDL_GetTicks();" in code
+    assert "static uint8_t cpu_host_hal_window_has_focus(void *window)" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return 0u;" in code
+    assert "if (!window) window = (void *)cpu_host_hal_sdl_primary_window;" in code
+    assert "SDL_GetKeyboardFocus()" in code
+
+
+def test_runtime_hal_helpers_emit_noop_impl_for_stub_backend():
+    data = _base_isa("HostHalStub")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_stub", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static void cpu_host_hal_pump_events(void)" in code
+    assert "static uint32_t cpu_host_hal_ticks_ms(void)" in code
+    assert "static uint8_t cpu_host_hal_window_has_focus(void *window)" in code
+    assert "return 0u;" in code
+    assert "SDL_PumpEvents();" not in code
+    assert "SDL_GetTicks();" not in code
+    assert "SDL_GetKeyboardFocus()" not in code
+
+
+def test_runtime_hal_helpers_emit_glfw_impl_for_glfw_backend():
+    data = _base_isa("HostHalGlfw")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_glfw", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "glfw"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static void cpu_host_hal_pump_events(void)" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return;" in code
+    assert "glfwPollEvents();" in code
+    assert "static uint32_t cpu_host_hal_ticks_ms(void)" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return 0u;" in code
+    assert "double t = glfwGetTime();" in code
+    assert "if (!(t > 0.0)) return 0u;" in code
+    assert "static uint8_t cpu_host_hal_window_has_focus(void *window)" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return 0u;" in code
+    assert "if (!window) window = (void *)cpu_host_hal_glfw_primary_window;" in code
+    assert "glfwGetWindowAttrib((GLFWwindow *)window, GLFW_FOCUSED)" in code
+    assert "if (!glfwInit()) return -1;" in code
+    assert "cpu_host_hal_glfw_inited = 1u;" in code
+    assert "static GLFWwindow *cpu_host_hal_glfw_primary_window = NULL;" in code
+    assert "static uint8_t cpu_host_hal_glfw_inited = 0u;" in code
+    assert "static uint32_t cpu_host_hal_glfw_subsystems = 0u;" in code
+    assert "cpu_host_hal_glfw_subsystems |= flags;" in code
+    assert "cpu_host_hal_glfw_primary_window = NULL;" in code
+    assert "cpu_host_hal_glfw_poll_cursor = 0;" in code
+    assert "cpu_host_hal_glfw_quit_emitted = 0u;" in code
+    assert "glfwWindowShouldClose(cpu_host_hal_glfw_primary_window) != 0" in code
+    assert "event->type = CPU_HOST_EVENT_QUIT;" in code
+    assert "cpu_host_hal_glfw_quit_emitted = 1u;" in code
+    assert "glfwGetWindowSize((GLFWwindow *)window, out_w, out_h);" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return;" in code
+    assert "if (window != NULL) glfwSwapBuffers(window);" in code
+    assert "if (!window) window = (void *)cpu_host_hal_glfw_primary_window;" in code
+    assert "cpu_host_hal_glfw_key_for_scancode(sc)" in code
+    assert "static const char *cpu_host_hal_glfw_scancode_name(int scancode)" in code
+    assert "case CPU_GLFW_SC_APPLICATION: return \"APPLICATION\";" in code
+    assert "default: return \"UNKNOWN\";" in code
+    assert "event->type = (down != 0u) ? CPU_HOST_EVENT_KEYDOWN : CPU_HOST_EVENT_KEYUP;" in code
+    assert "down = (uint8_t)((key == GLFW_PRESS || key == GLFW_REPEAT) ? 1u : 0u);" in code
+    assert "cpu_host_hal_glfw_hold_ticks[sc] = (uint16_t)(down != 0u ? 1u : 0u);" in code
+    assert "if (held > 18u && (((uint16_t)(held - 18u) % 3u) == 0u)) {" in code
+    assert "event->key.repeat = 1u;" in code
+    assert "cpu_host_hal_glfw_event_mod_state = cpu_host_hal_glfw_mod_state();" in code
+    assert "event->key.mod_state = cpu_host_hal_glfw_event_mod_state;" in code
+    assert "static uint32_t cpu_host_hal_glfw_mod_state(void)" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return 0u;" in code
+    assert "if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;" in code
+    assert "return event->type;" in code
+    assert "if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0;" in code
+    assert "return (int32_t)event->key.keysym.scancode;" in code
+    assert "if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;" in code
+    assert "return event->key.repeat;" in code
+    assert "if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return cpu_host_hal_glfw_event_mod_state;" in code
+    assert "return event->key.mod_state;" in code
+    assert "return cpu_host_hal_glfw_mod_state();" in code
+    assert "CPU_GLFW_SC_APPLICATION" in code
+    assert "CPU_GLFW_SC_NONUSBACKSLASH" in code
+    assert "CPU_GLFW_SC_F8" in code
+    assert "#define GLFW_KEY_F6 295" in code
+    assert "#define GLFW_KEY_F7 296" in code
+    assert "#define GLFW_KEY_F8 297" in code
+    assert "#define CPU_HOST_KEYCODE_QUOTE ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(APOSTROPHE)))" in code
+    assert "#define CPU_HOST_KEYCODE_SEMICOLON ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(SEMICOLON)))" in code
+    assert "case CPU_GLFW_SC_APPLICATION: return GLFW_KEY_MENU;" in code
+    assert "case CPU_GLFW_SC_NONUSBACKSLASH: return GLFW_KEY_WORLD_1;" in code
+    assert "return cpu_host_hal_glfw_scancode_name((int)scancode);" in code
+    assert "static const char *cpu_host_hal_glfw_key_name(int keycode)" in code
+    assert "case GLFW_KEY_0: return \"0\";" in code
+    assert "case GLFW_KEY_APOSTROPHE: return \"APOSTROPHE\";" in code
+    assert "case GLFW_KEY_F1: return \"F1\";" in code
+    assert "case GLFW_KEY_F8: return \"F8\";" in code
+    assert "case GLFW_KEY_KP_ENTER: return \"KP_ENTER\";" in code
+    assert "return cpu_host_hal_glfw_key_name((int)keycode);" in code
+    assert "static const uint8_t *cpu_host_hal_keyboard_state(int *key_count)" in code
+    assert "if (key_count) *key_count = CPU_GLFW_SC_COUNT;" in code
+    assert "static uint16_t cpu_host_hal_glfw_hold_ticks[CPU_GLFW_SC_COUNT];" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return 0;" in code
+    assert "if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;" in code
+    assert "return (int32_t)cpu_host_hal_glfw_key_for_scancode(scancode);" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return \"UNKNOWN\";" in code
+    assert "if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return \"UNKNOWN\";" in code
+    assert "static int cpu_host_hal_set_texture_blend_none(void *texture)" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return -1;" in code
+    assert "if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;" in code
+    assert "if (!texture) return -1;" in code
+    assert "if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return -1;" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return NULL;" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return 0u;" in code
+    assert "cpu_host_hal_glfw_keys[sc] = (uint8_t)((key == GLFW_PRESS || key == GLFW_REPEAT) ? 1u : 0u);" in code
+    assert "if ((flags & ~CPU_HOST_RENDERER_ACCELERATED) != 0u) return NULL;" in code
+    assert "if (!window) window = (void *)cpu_host_hal_glfw_primary_window;" in code
+    assert "if (format != CPU_HOST_PIXELFORMAT_ARGB8888) return NULL;" in code
+    assert "if (access != CPU_HOST_TEXTUREACCESS_STREAMING) return NULL;" in code
+    assert "uint64_t need64;" in code
+    assert "w64 = (uint64_t)(uint32_t)w;" in code
+    assert "h64 = (uint64_t)(uint32_t)h;" in code
+    assert "if (w64 != 0u && h64 > (0xFFFFFFFFFFFFFFFFu / w64)) {" in code
+    assert "if (need64 > (0xFFFFFFFFFFFFFFFFu / 4u)) {" in code
+    assert "need64 *= 4u;" in code
+    assert "if (need64 == 0u || need64 > (uint64_t)SIZE_MAX) {" in code
+    assert code.count("if (cpu_host_hal_glfw_inited == 0u) return NULL;") >= 3
+    assert "if (cpu_host_hal_glfw_inited == 0u) return 0;" in code
+    assert code.count("if (cpu_host_hal_glfw_inited == 0u) return -1;") >= 4
+    assert "const char *win_title = (title && title[0] != '\\0') ? title : \"PASM\";" in code
+    assert "if (w <= 0) w = 640;" in code
+    assert "if (h <= 0) h = 480;" in code
+    assert "if ((flags & ~CPU_HOST_WINDOW_RESIZABLE) != 0u) return NULL;" in code
+    assert "glfwWindowHint(GLFW_RESIZABLE, (flags & CPU_HOST_WINDOW_RESIZABLE) != 0u ? GLFW_TRUE : GLFW_FALSE);" in code
+    assert "if (cpu_host_hal_glfw_inited != 0u && cpu_host_hal_glfw_primary_window != NULL) {" in code
+    assert "glfwDestroyWindow(cpu_host_hal_glfw_primary_window);" in code
+    assert "cpu_host_hal_glfw_subsystems = 0u;" in code
+    assert "if (!out_w || !out_h) return -1;" in code
+    assert "typedef struct {" in code
+    assert "} CPUHostGlfwRenderer;" in code
+    assert "} CPUHostGlfwTexture;" in code
+    assert "rr = (CPUHostGlfwRenderer *)calloc(1u, sizeof(*rr));" in code
+    assert "if (cpu_host_hal_glfw_renderer_sync_size(rr) != 0) {" in code
+    assert "free(rr);" in code
+    assert "return NULL;" in code
+    assert "return rr;" in code
+    assert "tex = (CPUHostGlfwTexture *)calloc(1u, sizeof(*tex));" in code
+    assert "tex->pixels_len = need;" in code
+    assert "return tex;" in code
+    assert "SDL_PumpEvents();" not in code
+
+
+def test_cpu_host_keycode_aliases_are_backend_neutral_across_targets():
+    def _gen_for_target(target: str) -> str:
+        data = _base_isa(f"HostKeyAlias_{target}")
+        data["hosts"] = [
+            {
+                "metadata": {"id": f"host_{target}", "type": "host_adapter", "model": "test"},
+                "backend": {"target": target},
+                "state": [],
+                "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+                "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+                "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+            }
+        ]
+        return generate_cpu_impl(data, "Z80")
+
+    expected_quote = "#define CPU_HOST_KEYCODE_QUOTE ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(APOSTROPHE)))"
+    expected_semicolon = "#define CPU_HOST_KEYCODE_SEMICOLON ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(SEMICOLON)))"
+
+    for target in ("sdl2", "glfw", "stub"):
+        code = _gen_for_target(target)
+        assert expected_quote in code
+        assert expected_semicolon in code
+
+
+def test_runtime_hal_frame_audio_helpers_emit_sdl2_impl():
+    data = _base_isa("HostHalFrameAudioSdl2")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static void cpu_host_hal_render_present(void *renderer)" in code
+    assert "SDL_RenderPresent((SDL_Renderer *)renderer);" in code
+    assert "static int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes)" in code
+    assert "return SDL_QueueAudio(dev, data, len_bytes);" in code
+    assert "static uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev)" in code
+    assert "return SDL_GetQueuedAudioSize(dev);" in code
+    assert "static void cpu_host_hal_audio_clear(uint32_t dev)" in code
+    assert "SDL_ClearQueuedAudio(dev);" in code
+
+
+def test_runtime_hal_frame_audio_helpers_emit_noop_impl_for_stub():
+    data = _base_isa("HostHalFrameAudioStub")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_stub", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static void cpu_host_hal_render_present(void *renderer)" in code
+    assert "static int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes)" in code
+    assert "static uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev)" in code
+    assert "static void cpu_host_hal_audio_clear(uint32_t dev)" in code
+    assert "static uint8_t *cpu_host_hal_stub_audio_buf = NULL;" in code
+    assert "static uint32_t cpu_host_hal_stub_audio_len = 0u;" in code
+    assert "static uint32_t cpu_host_hal_stub_audio_cap = 0u;" in code
+    assert "static uint8_t cpu_host_hal_stub_audio_opened = 0u;" in code
+    assert "static void cpu_host_hal_stub_reset_audio_state(void)" in code
+    assert "if (cpu_host_hal_stub_inited == 0u) return -1;" in code
+    assert "if (dev != 1u || !data || len_bytes == 0u || cpu_host_hal_stub_audio_opened == 0u) return -1;" in code
+    assert "if (cpu_host_hal_stub_audio_len > cpu_host_hal_stub_audio_cap) return -1;" in code
+    assert "if (cpu_host_hal_stub_audio_cap != 0u && cpu_host_hal_stub_audio_buf == NULL) return -1;" in code
+    assert "if (cpu_host_hal_stub_audio_len != 0u && cpu_host_hal_stub_audio_buf == NULL) return -1;" in code
+    assert "if (cpu_host_hal_stub_inited == 0u) return 0u;" in code
+    assert "if (dev != 1u || cpu_host_hal_stub_audio_opened == 0u) return 0u;" in code
+    assert "if (cpu_host_hal_stub_audio_len > cpu_host_hal_stub_audio_cap) return 0u;" in code
+    assert "if (cpu_host_hal_stub_audio_cap != 0u && cpu_host_hal_stub_audio_buf == NULL) return 0u;" in code
+    assert "if (cpu_host_hal_stub_audio_len != 0u && cpu_host_hal_stub_audio_buf == NULL) return 0u;" in code
+    assert "if (iscapture != 0) return 0u;" in code
+    assert "cpu_host_hal_stub_audio_opened = 1u;" in code
+    assert "static uint32_t cpu_host_hal_audio_dequeue(uint32_t dev, void *data, uint32_t len_bytes)" in code
+    assert "n = (cpu_host_hal_stub_audio_len < len_bytes) ? cpu_host_hal_stub_audio_len : len_bytes;" in code
+    assert "memmove(" in code
+    assert "static int cpu_host_hal_get_window_size(void *window, int *out_w, int *out_h)" in code
+    assert "if (out_w) *out_w = 0;" in code
+    assert "if (out_h) *out_h = 0;" in code
+    assert "if (cpu_host_hal_stub_inited == 0u) return 0;" in code
+    assert "if ((cpu_host_hal_stub_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;" in code
+    assert "CPUHostStubWindow *ww = (window != NULL) ? (CPUHostStubWindow *)window : cpu_host_hal_stub_primary_window;" in code
+    assert "SDL_RenderPresent(" not in code
+    assert "SDL_QueueAudio(" not in code
+    assert "SDL_GetQueuedAudioSize(" not in code
+    assert "SDL_ClearQueuedAudio(" not in code
+
+
+def test_runtime_hal_frame_audio_helpers_emit_glfw_buffer_impl():
+    data = _base_isa("HostHalFrameAudioGlfw")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_glfw", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "glfw"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static void cpu_host_hal_glfw_reset_audio_state(void)" in code
+    assert "cpu_host_hal_glfw_reset_audio_state();" in code
+    assert "static uint8_t *cpu_host_hal_glfw_audio_buf = NULL;" in code
+    assert "static uint32_t cpu_host_hal_glfw_audio_len = 0u;" in code
+    assert "static uint32_t cpu_host_hal_glfw_audio_cap = 0u;" in code
+    assert "static uint8_t cpu_host_hal_glfw_audio_opened = 0u;" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return -1;" in code
+    assert "if (dev != 1u || !data || len_bytes == 0u || cpu_host_hal_glfw_audio_opened == 0u) return -1;" in code
+    assert "if (!want) return 0u;" in code
+    assert "if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;" in code
+    assert "cpu_host_hal_glfw_reset_audio_state();" in code
+    assert "uint64_t bytes64;" in code
+    assert "if (have) {" in code
+    assert "*have = *want;" in code
+    assert "uint64_t need64;" in code
+    assert "need64 = (uint64_t)cpu_host_hal_glfw_audio_len + (uint64_t)len_bytes;" in code
+    assert "if (need64 == 0u || need64 > 0xFFFFFFFFu || need64 > (uint64_t)SIZE_MAX) return -1;" in code
+    assert "need = (uint32_t)need64;" in code
+    assert "if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) return -1;" in code
+    assert "if (cpu_host_hal_glfw_audio_cap != 0u && cpu_host_hal_glfw_audio_buf == NULL) return -1;" in code
+    assert "if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) return -1;" in code
+    assert "if (new_cap < need || (uint64_t)new_cap > (uint64_t)SIZE_MAX) return -1;" in code
+    assert "new_buf = (uint8_t *)realloc(cpu_host_hal_glfw_audio_buf, (size_t)new_cap);" in code
+    assert "cpu_host_hal_glfw_audio_len = need;" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return 0u;" in code
+    assert "if (dev != 1u || cpu_host_hal_glfw_audio_opened == 0u) return 0u;" in code
+    assert "if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) return 0u;" in code
+    assert "if (cpu_host_hal_glfw_audio_cap != 0u && cpu_host_hal_glfw_audio_buf == NULL) return 0u;" in code
+    assert "if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) return 0u;" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return;" in code
+    assert "if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) return;" in code
+    assert "if (cpu_host_hal_glfw_audio_cap != 0u && cpu_host_hal_glfw_audio_buf == NULL) return;" in code
+    assert "if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) return;" in code
+    assert "cpu_host_hal_glfw_audio_len = 0u;" in code
+    assert "if (out_w) *out_w = 0;" in code
+    assert "if (out_h) *out_h = 0;" in code
+    assert "if (*out_w <= 0 || *out_h <= 0) return -1;" in code
+    assert "if (want) *have = *want;" not in code
+    assert "if (iscapture != 0) return 0u;" in code
+    assert "bytes64 = (uint64_t)have->samples * (uint64_t)have->channels * 2u;" in code
+    assert "if (bytes64 > 0xFFFFFFFFu) return 0u;" in code
+    assert "have->size = (uint32_t)bytes64;" in code
+    assert "cpu_host_hal_glfw_audio_opened = 1u;" in code
+    assert "return 1u;" in code
+    assert "cpu_host_hal_glfw_reset_audio_state();" in code
+    assert code.count("cpu_host_hal_glfw_reset_audio_state();") >= 3
+    assert "n = (cpu_host_hal_glfw_audio_len < len_bytes) ? cpu_host_hal_glfw_audio_len : len_bytes;" in code
+    assert "if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) return 0u;" in code
+    assert "if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) return 0u;" in code
+    assert "memmove(" in code
+
+
+def test_runtime_hal_lifecycle_helpers_emit_sdl2_impl():
+    data = _base_isa("HostHalLifecycleSdl2")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static int cpu_host_hal_poll_event(CPUHostEvent *event)" in code
+    assert "return SDL_PollEvent((SDL_Event *)event);" in code
+    assert "static uint32_t cpu_host_hal_event_type(const CPUHostEvent *event)" in code
+    assert "static int32_t cpu_host_hal_event_scancode(const CPUHostEvent *event)" in code
+    assert "if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0;" in code
+    assert "static uint8_t cpu_host_hal_event_key_repeat(const CPUHostEvent *event)" in code
+    assert "if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;" in code
+    assert "static uint32_t cpu_host_hal_event_mod_state(const CPUHostEvent *event)" in code
+    assert "if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;" in code
+    assert "static void cpu_host_hal_set_window_title(void *window, const char *title)" in code
+    assert "SDL_SetWindowTitle((SDL_Window *)window, title);" in code
+    assert "static void cpu_host_hal_destroy_texture(void *texture)" in code
+    assert "if (cpu_host_hal_sdl_inited == 0u) return;" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;" in code
+    assert "SDL_DestroyTexture((SDL_Texture *)texture);" in code
+    assert "static void cpu_host_hal_destroy_renderer(void *renderer)" in code
+    assert "SDL_DestroyRenderer((SDL_Renderer *)renderer);" in code
+    assert "static void cpu_host_hal_destroy_window(void *window)" in code
+    assert "if (cpu_host_hal_sdl_inited == 0u) return;" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;" in code
+    assert "SDL_DestroyWindow((SDL_Window *)window);" in code
+    assert "static void cpu_host_hal_audio_close(uint32_t dev)" in code
+    assert "SDL_CloseAudioDevice(dev);" in code
+    assert "static void cpu_host_hal_quit_subsystems(void)" in code
+    assert "uint32_t to_quit = cpu_host_hal_sdl_subsystems & (CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS);" in code
+    assert "if (to_quit != 0u) SDL_QuitSubSystem(to_quit);" in code
+    assert "cpu_host_hal_sdl_subsystems &= ~to_quit;" in code
+    assert "cpu_host_hal_sdl_primary_window = NULL;" in code
+    assert "static void cpu_host_hal_quit(void)" in code
+    assert "SDL_Quit();" in code
+    assert "cpu_host_hal_sdl_subsystems = 0u;" in code
+    assert "cpu_host_hal_sdl_inited = 0u;" in code
+    assert "cpu_host_hal_sdl_primary_window = NULL;" in code
+
+
+def test_runtime_hal_lifecycle_helpers_emit_noop_impl_for_stub():
+    data = _base_isa("HostHalLifecycleStub")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_stub", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static int cpu_host_hal_poll_event(CPUHostEvent *event)" in code
+    assert "static uint32_t cpu_host_hal_event_type(const CPUHostEvent *event)" in code
+    assert "static int32_t cpu_host_hal_event_scancode(const CPUHostEvent *event)" in code
+    assert "static uint8_t cpu_host_hal_event_key_repeat(const CPUHostEvent *event)" in code
+    assert "static void cpu_host_hal_set_window_title(void *window, const char *title)" in code
+    assert "static void cpu_host_hal_destroy_texture(void *texture)" in code
+    assert "static void cpu_host_hal_destroy_renderer(void *renderer)" in code
+    assert "static void cpu_host_hal_destroy_window(void *window)" in code
+    assert "static void cpu_host_hal_audio_close(uint32_t dev)" in code
+    assert "static void cpu_host_hal_quit_subsystems(void)" in code
+    assert "static void cpu_host_hal_quit(void)" in code
+    assert "static uint8_t cpu_host_hal_stub_inited = 0u;" in code
+    assert "static uint32_t cpu_host_hal_stub_subsystems = 0u;" in code
+    assert "static CPUHostStubWindow *cpu_host_hal_stub_primary_window = NULL;" in code
+    assert "if (cpu_host_hal_stub_inited == 0u) return;" in code
+    assert "if ((cpu_host_hal_stub_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;" in code
+    assert "if (cpu_host_hal_stub_primary_window == (CPUHostStubWindow *)window) {" in code
+    assert "cpu_host_hal_stub_primary_window = NULL;" in code
+    assert "if (cpu_host_hal_stub_primary_window != NULL) {" in code
+    assert "free(cpu_host_hal_stub_primary_window);" in code
+    assert "if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;" in code
+    assert "cpu_host_hal_stub_inited = 1u;" in code
+    assert "cpu_host_hal_stub_subsystems |= flags;" in code
+    assert "cpu_host_hal_stub_inited = 0u;" in code
+    assert "cpu_host_hal_stub_subsystems = 0u;" in code
+    assert "cpu_host_hal_stub_reset_audio_state();" in code
+    assert "SDL_PollEvent(" not in code
+    assert "SDL_SetWindowTitle(" not in code
+    assert "SDL_DestroyTexture(" not in code
+    assert "SDL_DestroyRenderer(" not in code
+    assert "SDL_DestroyWindow(" not in code
+    assert "SDL_CloseAudioDevice(" not in code
+    assert "SDL_QuitSubSystem(" not in code
+    assert "SDL_Quit();" not in code
+
+
+def test_runtime_hal_init_create_helpers_emit_sdl2_impl():
+    data = _base_isa("HostHalInitSdl2")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static int cpu_host_hal_init(uint32_t flags)" in code
+    assert "if (cpu_host_hal_sdl_inited == 0u) {" in code
+    assert "if (SDL_Init(flags) != 0) return -1;" in code
+    assert "cpu_host_hal_sdl_inited = 1u;" in code
+    assert "cpu_host_hal_sdl_subsystems |= flags;" in code
+    assert "if (flags != 0u) {" in code
+    assert "if (SDL_InitSubSystem(flags) != 0) return -1;" in code
+    assert "return 0;" in code
+    assert "static void *cpu_host_hal_create_window(" in code
+    assert "SDL_Window *window;" in code
+    assert "const char *win_title = (title && title[0] != '\\0') ? title : \"PASM\";" in code
+    assert "if ((flags & ~CPU_HOST_WINDOW_RESIZABLE) != 0u) return NULL;" in code
+    assert "if (w <= 0) w = 640;" in code
+    assert "if (h <= 0) h = 480;" in code
+    assert "window = SDL_CreateWindow(win_title, x, y, w, h, flags);" in code
+    assert "if (window != NULL && cpu_host_hal_sdl_primary_window == NULL) {" in code
+    assert "cpu_host_hal_sdl_primary_window = window;" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;" in code
+    assert "SDL_CreateWindow(" in code
+    assert "static void *cpu_host_hal_create_renderer(" in code
+    assert "if (!window) window = (void *)cpu_host_hal_sdl_primary_window;" in code
+    assert "if ((flags & ~CPU_HOST_RENDERER_ACCELERATED) != 0u) return NULL;" in code
+    assert "SDL_CreateRenderer(" in code
+    assert "static void *cpu_host_hal_create_texture(" in code
+    assert "SDL_CreateTexture(" in code
+    assert "static uint32_t cpu_host_hal_audio_open(" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;" in code
+    assert "if (iscapture != 0) return 0u;" in code
+    assert "if (!want) return 0u;" in code
+    assert "if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;" in code
+    assert "SDL_OpenAudioDevice(" in code
+    assert "static void cpu_host_hal_audio_pause(uint32_t dev, int pause_on)" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;" in code
+    assert "SDL_PauseAudioDevice(dev, pause_on);" in code
+    assert "static void *cpu_host_hal_alloc(size_t size_bytes)" in code
+    assert "return SDL_malloc(size_bytes);" in code
+    assert "static void cpu_host_hal_free(void *ptr)" in code
+    assert "SDL_free(ptr);" in code
+    assert "static void cpu_host_hal_memset(void *dst, int value, size_t size_bytes)" in code
+    assert "SDL_memset(dst, value, size_bytes);" in code
+
+
+def test_runtime_hal_init_create_helpers_emit_noop_impl_for_stub():
+    data = _base_isa("HostHalInitStub")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_stub", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static int cpu_host_hal_init(uint32_t flags)" in code
+    assert "static void *cpu_host_hal_create_window(" in code
+    assert "static void *cpu_host_hal_create_renderer(" in code
+    assert "static void *cpu_host_hal_create_texture(" in code
+    assert "static uint32_t cpu_host_hal_audio_open(" in code
+    assert "static void cpu_host_hal_audio_pause(uint32_t dev, int pause_on)" in code
+    assert "static void *cpu_host_hal_alloc(size_t size_bytes)" in code
+    assert "static void cpu_host_hal_free(void *ptr)" in code
+    assert "static void cpu_host_hal_memset(void *dst, int value, size_t size_bytes)" in code
+    assert "if (cpu_host_hal_stub_inited == 0u) return NULL;" in code
+    assert "if ((flags & ~CPU_HOST_WINDOW_RESIZABLE) != 0u) return NULL;" in code
+    assert "if (w <= 0) w = 640;" in code
+    assert "if (h <= 0) h = 480;" in code
+    assert "window = (CPUHostStubWindow *)calloc(1u, sizeof(*window));" in code
+    assert "if (cpu_host_hal_stub_primary_window == NULL) {" in code
+    assert "cpu_host_hal_stub_primary_window = window;" in code
+    assert "renderer = (CPUHostStubRenderer *)calloc(1u, sizeof(*renderer));" in code
+    assert "if (window == NULL) window = (void *)cpu_host_hal_stub_primary_window;" in code
+    assert "texture = (CPUHostStubTexture *)calloc(1u, sizeof(*texture));" in code
+    assert "if (format != CPU_HOST_PIXELFORMAT_ARGB8888) return NULL;" in code
+    assert "if (access != CPU_HOST_TEXTUREACCESS_STREAMING) return NULL;" in code
+    assert "return malloc(size_bytes);" in code
+    assert "free(ptr);" in code
+    assert "if (!dst || size_bytes == 0u) return;" in code
+    assert "memset(dst, value, size_bytes);" in code
+    assert "SDL_Init(" not in code
+    assert "SDL_CreateWindow(" not in code
+    assert "SDL_CreateRenderer(" not in code
+    assert "SDL_CreateTexture(" not in code
+    assert "SDL_OpenAudioDevice(" not in code
+    assert "SDL_PauseAudioDevice(" not in code
+    assert "SDL_malloc(" not in code
+    assert "SDL_free(" not in code
+    assert "SDL_memset(" not in code
+
+
+def test_runtime_hal_render_helpers_emit_sdl2_impl():
+    data = _base_isa("HostHalRenderSdl2")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static int cpu_host_hal_renderer_output_size(void *renderer, int *out_w, int *out_h)" in code
+    assert "if (out_w) *out_w = 0;" in code
+    assert "if (out_h) *out_h = 0;" in code
+    assert "if (SDL_GetRendererOutputSize((SDL_Renderer *)renderer, out_w, out_h) != 0) return -1;" in code
+    assert "if (*out_w <= 0 || *out_h <= 0) return -1;" in code
+    assert "static int cpu_host_hal_update_texture(void *texture, const CPUHostRect *rect, const void *pixels, int pitch)" in code
+    assert "SDL_UpdateTexture((SDL_Texture *)texture, (const SDL_Rect *)rect, pixels, pitch);" in code
+    assert "static void cpu_host_hal_render_set_draw_color(void *renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a)" in code
+    assert "SDL_SetRenderDrawColor((SDL_Renderer *)renderer, r, g, b, a);" in code
+    assert "static int cpu_host_hal_render_clear(void *renderer)" in code
+    assert "SDL_RenderClear((SDL_Renderer *)renderer);" in code
+    assert "static int cpu_host_hal_render_copy(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect)" in code
+    assert "SDL_RenderCopy(" in code
+
+
+def test_runtime_hal_render_helpers_emit_noop_impl_for_stub():
+    data = _base_isa("HostHalRenderStub")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_stub", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static int cpu_host_hal_renderer_output_size(void *renderer, int *out_w, int *out_h)" in code
+    assert "if (out_w) *out_w = 0;" in code
+    assert "if (out_h) *out_h = 0;" in code
+    assert "if (cpu_host_hal_stub_inited == 0u || rr == NULL || rr->window == NULL || !out_w || !out_h) return -1;" in code
+    assert "static int cpu_host_hal_update_texture(void *texture, const CPUHostRect *rect, const void *pixels, int pitch)" in code
+    assert "if (cpu_host_hal_stub_inited == 0u) return -1;" in code
+    assert "if (tt == NULL || pixels == NULL || pitch <= 0) return -1;" in code
+    assert "static void cpu_host_hal_render_set_draw_color(void *renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a)" in code
+    assert "rr->clear_color = ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;" in code
+    assert "static int cpu_host_hal_render_clear(void *renderer)" in code
+    assert "if (cpu_host_hal_stub_inited == 0u || rr == NULL) return -1;" in code
+    assert "static int cpu_host_hal_render_copy(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect)" in code
+    assert "if (cpu_host_hal_stub_inited == 0u || rr == NULL || tt == NULL) return -1;" in code
+    assert "SDL_GetRendererOutputSize(" not in code
+    assert "SDL_UpdateTexture(" not in code
+    assert "SDL_SetRenderDrawColor(" not in code
+    assert "SDL_RenderClear(" not in code
+    assert "SDL_RenderCopy(" not in code
+
+
+def test_runtime_hal_render_helpers_emit_glfw_buffer_impl():
+    data = _base_isa("HostHalRenderGlfw")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_glfw", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "glfw"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static int cpu_host_hal_glfw_renderer_sync_size(CPUHostGlfwRenderer *renderer)" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return -1;" in code
+    assert "uint64_t need64;" in code
+    assert "w64 = (uint64_t)(uint32_t)w;" in code
+    assert "h64 = (uint64_t)(uint32_t)h;" in code
+    assert "if (w64 != 0u && h64 > (0xFFFFFFFFFFFFFFFFu / w64)) return -1;" in code
+    assert "if (need64 > (0xFFFFFFFFFFFFFFFFu / 4u)) return -1;" in code
+    assert "need64 *= 4u;" in code
+    assert "if (need64 == 0u || need64 > (uint64_t)SIZE_MAX) return -1;" in code
+    assert "uint64_t expect64;" in code
+    assert "uint64_t tex_bytes64;" in code
+    assert "uint64_t row_bytes64;" in code
+    assert "uint64_t src_start64;" in code
+    assert "uint64_t dst_start64;" in code
+    assert "expect64 = (uint64_t)(uint32_t)rr->w * (uint64_t)(uint32_t)rr->h * 4u;" in code
+    assert "if (expect64 == 0u || expect64 > (uint64_t)SIZE_MAX) return -1;" in code
+    assert "if (rr->frame_len < (size_t)expect64) return -1;" in code
+    assert "size_t pixels_len;" in code
+    assert "count = (size_t)expect64 / 4u;" in code
+    assert "memset(renderer->frame_rgba, 0, renderer->frame_len);" in code
+    assert "CPUHostGlfwRenderer *rr = (CPUHostGlfwRenderer *)renderer;" in code
+    assert "CPUHostGlfwTexture *tex = (CPUHostGlfwTexture *)texture;" in code
+    assert "if (cpu_host_hal_glfw_inited == 0u) return;" in code
+    assert "rr->clear_color = ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;" in code
+    assert "pix = (uint32_t *)rr->frame_rgba;" in code
+    assert "for (size_t i = 0u; i < count; ++i) pix[i] = rr->clear_color;" in code
+    assert "uint64_t row_bytes64;" in code
+    assert "uint64_t tex_bytes64;" in code
+    assert "uint64_t dst_start64;" in code
+    assert "uint64_t dst_stride64;" in code
+    assert "uint64_t dst_span64;" in code
+    assert "uint64_t src_span64;" in code
+    assert "int64_t sum64;" in code
+    assert "row_bytes64 = (uint64_t)(uint32_t)w * 4u;" in code
+    assert "if (row_bytes64 > (uint64_t)INT_MAX) return -1;" in code
+    assert "if ((uint64_t)(uint32_t)pitch < row_bytes64) return -1;" in code
+    assert "tex_bytes64 = (uint64_t)(uint32_t)tex->w * (uint64_t)(uint32_t)tex->h * 4u;" in code
+    assert "if ((uint64_t)tex->pixels_len < tex_bytes64) return -1;" in code
+    assert "if (dst_span64 > (tex_bytes64 - dst_start64)) return -1;" in code
+    assert "src_span64 = ((uint64_t)(uint32_t)(h - 1) * (uint64_t)(uint32_t)pitch) + row_bytes64;" in code
+    assert "if (src_span64 == 0u || src_span64 > (uint64_t)SIZE_MAX) return -1;" in code
+    assert "if (tex->w <= 0 || tex->h <= 0) return -1;" in code
+    assert "sum64 = (int64_t)x + (int64_t)w;" in code
+    assert "if (sum64 > (int64_t)tex->w) w = tex->w - x;" in code
+    assert "if (!rr->frame_rgba) return -1;" in code
+    assert "if (rr->w <= 0 || rr->h <= 0) return -1;" in code
+    assert "if (sx >= tex->w || sy >= tex->h) return 0;" in code
+    assert "sum64 = (int64_t)sx + (int64_t)sw;" in code
+    assert "if (sum64 > (int64_t)tex->w) sw = tex->w - sx;" in code
+    assert "if (dw <= 0 || dh <= 0) return -1;" in code
+    assert "sum64 = (int64_t)dy + (int64_t)ch;" in code
+    assert "if (sum64 > (int64_t)rr->h) ch = rr->h - dy;" in code
+    assert "src_span64 = ((uint64_t)(uint32_t)(ch - 1) * src_stride64) + row_bytes64;" in code
+    assert "if (src_span64 > (tex_bytes64 - src_start64)) return -1;" in code
+    assert "dst_span64 = ((uint64_t)(uint32_t)(ch - 1) * dst_stride64) + row_bytes64;" in code
+    assert "if (dst_span64 > (expect64 - dst_start64)) return -1;" in code
+    assert "if (sw <= 0 || sh <= 0) return 0;" in code
+    assert "memcpy(" in code
+    assert "free(tex->pixels);" in code
+    assert "tex->pixels_len = 0u;" in code
+    assert "free(rr->frame_rgba);" in code
+
+
+def test_runtime_hal_input_misc_helpers_emit_sdl2_impl():
+    data = _base_isa("HostHalInputMiscSdl2")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static const char *cpu_host_hal_getenv(const char *name)" in code
+    assert "return SDL_getenv(name);" in code
+    assert "static const uint8_t *cpu_host_hal_keyboard_state(int *key_count)" in code
+    assert "static const uint8_t empty_state[1] = {0u};" in code
+    assert "if (cpu_host_hal_sdl_inited == 0u) {" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) {" in code
+    assert "if (key_count) *key_count = 0;" in code
+    assert "return empty_state;" in code
+    assert "const uint8_t *state;" in code
+    assert "state = SDL_GetKeyboardState(key_count);" in code
+    assert "if (!state) {" in code
+    assert "return state;" in code
+    assert "static int32_t cpu_host_hal_key_from_scancode(int scancode)" in code
+    assert "if (cpu_host_hal_sdl_inited == 0u) return 0;" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;" in code
+    assert "return (int32_t)SDL_GetKeyFromScancode((SDL_Scancode)scancode);" in code
+    assert "static void cpu_host_hal_start_text_input(void)" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;" in code
+    assert "SDL_StartTextInput();" in code
+    assert "static void cpu_host_hal_stop_text_input(void)" in code
+    assert "SDL_StopTextInput();" in code
+    assert "static void cpu_host_hal_raise_window(void *window)" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;" in code
+    assert "if (!window) window = (void *)cpu_host_hal_sdl_primary_window;" in code
+    assert "SDL_RaiseWindow((SDL_Window *)window);" in code
+    assert "static int cpu_host_hal_set_texture_blend_none(void *texture)" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;" in code
+    assert "return SDL_SetTextureBlendMode((SDL_Texture *)texture, SDL_BLENDMODE_NONE);" in code
+    assert "static int cpu_host_hal_get_window_size(void *window, int *out_w, int *out_h)" in code
+    assert "if (out_w) *out_w = 0;" in code
+    assert "if (out_h) *out_h = 0;" in code
+    assert "if (!window) window = (void *)cpu_host_hal_sdl_primary_window;" in code
+    assert "if (*out_w <= 0 || *out_h <= 0) return -1;" in code
+    assert "static const char *cpu_host_hal_scancode_name(int32_t scancode)" in code
+    assert "if (cpu_host_hal_sdl_inited == 0u) return \"UNKNOWN\";" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return \"UNKNOWN\";" in code
+    assert "const char *name = SDL_GetScancodeName((SDL_Scancode)scancode);" in code
+    assert "if (!name || name[0] == '\\0') return \"UNKNOWN\";" in code
+    assert "static const char *cpu_host_hal_key_name(int32_t keycode)" in code
+    assert "if (cpu_host_hal_sdl_inited == 0u) return \"UNKNOWN\";" in code
+    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return \"UNKNOWN\";" in code
+    assert "const char *name = SDL_GetKeyName((SDL_Keycode)keycode);" in code
+    assert "if (!name || name[0] == '\\0') return \"UNKNOWN\";" in code
+
+
+def test_runtime_hal_input_misc_helpers_emit_noop_impl_for_stub():
+    data = _base_isa("HostHalInputMiscStub")
+    data["hosts"] = [
+        {
+            "metadata": {"id": "host_stub", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "stub"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "static const char *cpu_host_hal_getenv(const char *name)" in code
+    assert "static const uint8_t *cpu_host_hal_keyboard_state(int *key_count)" in code
+    assert "static int32_t cpu_host_hal_key_from_scancode(int scancode)" in code
+    assert "static void cpu_host_hal_start_text_input(void)" in code
+    assert "static void cpu_host_hal_stop_text_input(void)" in code
+    assert "static void cpu_host_hal_raise_window(void *window)" in code
+    assert "static int cpu_host_hal_set_texture_blend_none(void *texture)" in code
+    assert "static const uint8_t empty_state[1] = {0u};" in code
+    assert "return empty_state;" in code
+    assert "return \"UNKNOWN\";" in code
+    assert "SDL_getenv(" not in code
+    assert "SDL_GetKeyboardState(" not in code
+    assert "SDL_StartTextInput(" not in code
+    assert "SDL_StopTextInput(" not in code
+    assert "SDL_RaiseWindow(" not in code
 
 
 @pytest.mark.skipif(

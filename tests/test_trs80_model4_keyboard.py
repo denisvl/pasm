@@ -15,17 +15,19 @@ BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
 
 def _trs80_interactive_paths():
     processor_path, _ = example_pair("z80", system="z80_trs80_model4_default.yaml")
-    system_path = BASE_DIR / "examples" / "systems" / "z80_trs80_model4_interactive.yaml"
+    system_path = (
+        BASE_DIR / "examples" / "systems" / "trs80_model4" / "z80_trs80_model4_interactive.yaml"
+    )
     ic_paths = [
-        BASE_DIR / "examples" / "ics" / "trs80_model4_peripherals.yaml",
+        BASE_DIR / "examples" / "ics" / "trs80_model4" / "trs80_model4_peripherals.yaml",
     ]
     device_paths = [
-        BASE_DIR / "examples" / "devices" / "trs80_keyboard.yaml",
-        BASE_DIR / "examples" / "devices" / "trs80_video.yaml",
-        BASE_DIR / "examples" / "devices" / "trs80_speaker.yaml",
+        BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_keyboard.yaml",
+        BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_video.yaml",
+        BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_speaker.yaml",
     ]
     host_paths = [
-        BASE_DIR / "examples" / "hosts" / "trs80_host_sdl2_interactive.yaml",
+        BASE_DIR / "examples" / "hosts" / "trs80_model4" / "trs80_host_sdl2_interactive.yaml",
     ]
     return processor_path, system_path, ic_paths, device_paths, host_paths
 
@@ -71,20 +73,20 @@ def test_trs80_interactive_host_bindings_cover_caps_and_punctuation():
     bindings = host["input"]["keyboard"]["bindings"]
     binding_map = {b["host_key"]: {(p["row"], p["bit"]) for p in b["presses"]} for b in bindings}
 
-    assert (0, 0) in binding_map["SDL_SCANCODE_F5"]
-    assert (0, 0) in binding_map["SDL_SCANCODE_LEFTBRACKET"]
+    assert (0, 0) in binding_map["F5"]
+    assert (0, 0) in binding_map["LEFTBRACKET"]
 
-    assert (5, 2) in binding_map["SDL_SCANCODE_MINUS"]
-    assert (5, 3) in binding_map["SDL_SCANCODE_SEMICOLON"]
-    assert (5, 5) in binding_map["SDL_SCANCODE_EQUALS"]
+    assert (5, 2) in binding_map["MINUS"]
+    assert (5, 3) in binding_map["SEMICOLON"]
+    assert (5, 5) in binding_map["EQUALS"]
 
-    assert (7, 2) in binding_map["SDL_SCANCODE_RCTRL"]
-    assert (7, 3) in binding_map["SDL_SCANCODE_F4"]
-    assert (7, 3) in binding_map["SDL_SCANCODE_CAPSLOCK"]
-    assert (6, 0) in binding_map["SDL_SCANCODE_KP_ENTER"]
-    assert (6, 5) in binding_map["SDL_SCANCODE_BACKSPACE"]
-    assert (6, 5) in binding_map["SDL_SCANCODE_DELETE"]
-    assert (5, 1) in binding_map["SDL_SCANCODE_KP_9"]
+    assert (7, 2) in binding_map["RCTRL"]
+    assert (7, 3) in binding_map["F4"]
+    assert (7, 3) in binding_map["CAPSLOCK"]
+    assert (6, 0) in binding_map["KP_ENTER"]
+    assert (6, 5) in binding_map["BACKSPACE"]
+    assert (6, 5) in binding_map["DELETE"]
+    assert (5, 1) in binding_map["KP_9"]
 
 
 @pytest.mark.skipif(
@@ -93,14 +95,16 @@ def test_trs80_interactive_host_bindings_cover_caps_and_punctuation():
 )
 def test_trs80_keyboard_matrix_runtime_row_column_behavior(tmp_path):
     processor_path, _ = example_pair("z80", system="z80_trs80_model4_default.yaml")
-    system_path = BASE_DIR / "examples" / "systems" / "z80_trs80_model4_default.yaml"
+    system_path = (
+        BASE_DIR / "examples" / "systems" / "trs80_model4" / "z80_trs80_model4_default.yaml"
+    )
     ic_paths = [
-        BASE_DIR / "examples" / "ics" / "trs80_model4_peripherals.yaml",
+        BASE_DIR / "examples" / "ics" / "trs80_model4" / "trs80_model4_peripherals.yaml",
     ]
     device_paths = [
-        BASE_DIR / "examples" / "devices" / "trs80_keyboard.yaml",
-        BASE_DIR / "examples" / "devices" / "trs80_video.yaml",
-        BASE_DIR / "examples" / "devices" / "trs80_speaker.yaml",
+        BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_keyboard.yaml",
+        BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_video.yaml",
+        BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_speaker.yaml",
     ]
 
     host_yaml = tmp_path / "trs80_host_matrix_test.yaml"
@@ -111,6 +115,7 @@ def test_trs80_keyboard_matrix_runtime_row_column_behavior(tmp_path):
             "model": "trs80_headless_matrix_test",
             "version": "1.0",
         },
+        "backend": {"target": "stub"},
         "state": [
             {"name": "row0", "type": "uint8_t", "initial": "0xFF"},
             {"name": "row1", "type": "uint8_t", "initial": "0xFF"},

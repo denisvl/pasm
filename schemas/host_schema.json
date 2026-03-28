@@ -238,7 +238,6 @@
         "keyboard": {
           "type": "object",
           "required": [
-            "source",
             "bindings"
           ],
           "additionalProperties": false,
@@ -246,7 +245,7 @@
             "source": {
               "type": "string",
               "enum": [
-                "sdl_scancode"
+                "host_key"
               ]
             },
             "focus_required": {
@@ -264,7 +263,7 @@
                 "properties": {
                   "host_key": {
                     "type": "string",
-                    "pattern": "^SDL_SCANCODE_[A-Z0-9_]+$"
+                    "pattern": "^[A-Z0-9_]+$"
                   },
                   "presses": {
                     "type": "array",
@@ -294,6 +293,19 @@
               }
             }
           }
+        }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "required": [
+        "target"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
         }
       }
     }

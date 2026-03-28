@@ -19,17 +19,17 @@ def _make_workdir(prefix: str) -> pathlib.Path:
 
 def _apple2_interactive_paths():
     processor_path, _ = example_pair("mos6502")
-    system_path = BASE_DIR / "examples" / "systems" / "apple2_interactive.yaml"
+    system_path = BASE_DIR / "examples" / "systems" / "apple2" / "apple2_interactive.yaml"
     ic_paths = [
-        BASE_DIR / "examples" / "ics" / "apple2_io.yaml",
+        BASE_DIR / "examples" / "ics" / "apple2" / "apple2_io.yaml",
     ]
     device_paths = [
-        BASE_DIR / "examples" / "devices" / "apple2_keyboard.yaml",
-        BASE_DIR / "examples" / "devices" / "apple2_video.yaml",
-        BASE_DIR / "examples" / "devices" / "apple2_speaker.yaml",
+        BASE_DIR / "examples" / "devices" / "apple2" / "apple2_keyboard.yaml",
+        BASE_DIR / "examples" / "devices" / "apple2" / "apple2_video.yaml",
+        BASE_DIR / "examples" / "devices" / "apple2" / "apple2_speaker.yaml",
     ]
     host_paths = [
-        BASE_DIR / "examples" / "hosts" / "apple2_host_sdl2_interactive.yaml",
+        BASE_DIR / "examples" / "hosts" / "apple2" / "apple2_host_sdl2_interactive.yaml",
     ]
     return processor_path, system_path, ic_paths, device_paths, host_paths
 
@@ -76,10 +76,10 @@ def test_generate_apple2_interactive_with_components():
     assert "0xC050u" in impl and "0xC057u" in impl
     assert "apple2_glyph" in impl
     assert "A2_HIRES_ADDR" in impl
-    assert "ev.key.repeat == 0" in impl
+    assert "cpu_host_hal_event_key_repeat(&ev) == 0" in impl
     assert "KMOD_SHIFT" in impl
     assert "KMOD_CTRL" in impl
-    assert "sc >= SDL_SCANCODE_A && sc <= SDL_SCANCODE_Z" in impl
+    assert "sc >= CPU_HOST_SCANCODE(A) && sc <= CPU_HOST_SCANCODE(Z)" in impl
     assert "ascii = shifted ? '!'" in impl
     assert 'snprintf(rendered, sizeof(rendered), "LDA #%s"' in impl
     assert "ch + (uint8_t)(x + y + comp->frame_count)" not in impl

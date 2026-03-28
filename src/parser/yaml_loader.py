@@ -322,6 +322,12 @@ ALLOWED_SDL_SCANCODES = {
     "SDL_SCANCODE_Z",
 }
 
+ALLOWED_HOST_KEYS = frozenset(
+    key[len("SDL_SCANCODE_") :] for key in ALLOWED_SDL_SCANCODES
+)
+CANONICAL_HOST_KEY_RE = re.compile(r"^[A-Z0-9_]+$")
+CANONICAL_BACKEND_TARGET_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
 
 def get_schema_path(kind: str) -> Path:
     """Get path to a schema file."""
@@ -473,10 +479,13 @@ def _validate_host_keyboard_input(host_data: Dict[str, Any]) -> None:
     if not isinstance(keyboard_cfg, dict):
         raise ValidationError("Host validation failed:\ninput.keyboard must be an object")
 
-    source = str(keyboard_cfg.get("source", "")).strip()
-    if source != "sdl_scancode":
+    source_raw = keyboard_cfg.get("source")
+    source = str(source_raw).strip() if source_raw is not None else ""
+    if source == "":
+        source = "host_key"
+    if source != "host_key":
         raise ValidationError(
-            "Host validation failed:\ninput.keyboard.source must be 'sdl_scancode'"
+            "Host validation failed:\ninput.keyboard.source must be 'host_key'"
         )
 
     focus_required = keyboard_cfg.get("focus_required", True)
@@ -505,15 +514,28 @@ def _validate_host_keyboard_input(host_data: Dict[str, Any]) -> None:
                 "Host validation failed:\n"
                 f"input.keyboard.bindings[{binding_idx}].host_key must be non-empty"
             )
+        if host_key.startswith("SDL_SCANCODE_"):
+            raise ValidationError(
+                "Host validation failed:\n"
+                f"input.keyboard.bindings[{binding_idx}] host_key '{host_key}' must be canonical "
+                "(A-Z, 0-9, underscore)"
+            )
+        if CANONICAL_HOST_KEY_RE.fullmatch(host_key) is None:
+            raise ValidationError(
+                "Host validation failed:\n"
+                f"input.keyboard.bindings[{binding_idx}] host_key '{host_key}' must be canonical "
+                "(A-Z, 0-9, underscore)"
+            )
+        if host_key not in ALLOWED_HOST_KEYS:
+            raise ValidationError(
+                "Host validation failed:\n"
+                f"input.keyboard.bindings[{binding_idx}] host_key '{host_key}' is not supported"
+            )
+
         if host_key in seen_host_keys:
             raise ValidationError(
                 "Host validation failed:\n"
                 f"input.keyboard.bindings[{binding_idx}] duplicate host_key '{host_key}'"
-            )
-        if host_key not in ALLOWED_SDL_SCANCODES:
-            raise ValidationError(
-                "Host validation failed:\n"
-                f"input.keyboard.bindings[{binding_idx}] host_key '{host_key}' is not in the v1 SDL scancode allowlist"
             )
         seen_host_keys.add(host_key)
 
@@ -546,6 +568,29 @@ def _validate_host_keyboard_input(host_data: Dict[str, Any]) -> None:
                     "Host validation failed:\n"
                     f"input.keyboard.bindings[{binding_idx}].presses[{press_idx}].bit out of range (0..7)"
                 )
+
+
+def _normalize_and_validate_host_backend(host_data: Dict[str, Any]) -> None:
+    backend = host_data.get("backend")
+    if backend is None:
+        raise ValidationError(
+            "Host validation failed:\nbackend.target is required and must be explicit"
+        )
+
+    if not isinstance(backend, dict):
+        raise ValidationError(
+            "Host validation failed:\nbackend must be an object when provided"
+        )
+    target = str(backend.get("target", "")).strip()
+    if not target:
+        raise ValidationError(
+            "Host validation failed:\nbackend.target must be a non-empty string"
+        )
+    if CANONICAL_BACKEND_TARGET_RE.fullmatch(target) is None:
+        raise ValidationError(
+            "Host validation failed:\nbackend.target must match ^[a-z][a-z0-9_]*$"
+        )
+    host_data["backend"] = {"target": target}
 
 
 def _instruction_field_widths(inst: Dict[str, Any]) -> Dict[str, int]:
@@ -853,6 +898,7 @@ class ProcessorSystemLoader:
         self._validate_component_behavior("Host", host_data)
         _validate_endpoint_names("Host", host_data)
         _validate_host_keyboard_input(host_data)
+        _normalize_and_validate_host_backend(host_data)
 
         return host_data
 
@@ -1258,6 +1304,21 @@ class ProcessorSystemLoader:
         loaded_device_ids = [str(dev.get("metadata", {}).get("id", "")) for dev in device_data_list]
         loaded_host_ids = [str(host.get("metadata", {}).get("id", "")) for host in host_data_list]
         loaded_cartridge_id = str(cartridge_data.get("metadata", {}).get("id", "")).strip()
+
+        host_backend_targets: set[str] = set()
+        for host in host_data_list:
+            backend = host.get("backend", {})
+            target = ""
+            if isinstance(backend, dict):
+                target = str(backend.get("target", "")).strip().lower()
+            if target:
+                host_backend_targets.add(target)
+        if len(host_backend_targets) > 1:
+            targets = ", ".join(sorted(host_backend_targets))
+            raise ValidationError(
+                "Composition validation failed:\n"
+                f"multiple host backend targets are not supported in one build ({targets})"
+            )
 
         if set(configured_ic_ids) != set(loaded_ic_ids):
             raise ValidationError(

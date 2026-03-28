@@ -29,7 +29,33 @@ def test_simple8_loads_and_validates():
 
 def test_system_reset_delay_seconds_is_loaded():
     processor_path, system_path = example_pair("z80", "z80_trs80_model4_interactive.yaml")
-    data = yaml_loader.load_processor_system(str(processor_path), str(system_path))
+    data = yaml_loader.load_processor_system(
+        str(processor_path),
+        str(system_path),
+        ic_paths=[
+            str(
+                BASE_DIR
+                / "examples"
+                / "ics"
+                / "trs80_model4"
+                / "trs80_model4_peripherals.yaml"
+            )
+        ],
+        device_paths=[
+            str(BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_keyboard.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_video.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_speaker.yaml"),
+        ],
+        host_paths=[
+            str(
+                BASE_DIR
+                / "examples"
+                / "hosts"
+                / "trs80_model4"
+                / "trs80_host_sdl2_interactive.yaml"
+            )
+        ],
+    )
     assert data["system"]["reset_delay_seconds"] == 5
 
 
@@ -133,15 +159,17 @@ def test_system_rejects_legacy_literal_host_component(tmp_path):
     )
     host = tmp_path / "host.yaml"
     host.write_text(
-        (
-            "metadata:\n"
-            "  id: host0\n"
-            "  type: host\n"
-            "  model: test\n"
-            "state: []\n"
-            "interfaces:\n"
-            "  callbacks:\n"
-            "    - name: ok\n"
+            (
+                "metadata:\n"
+                "  id: host0\n"
+                "  type: host\n"
+                "  model: test\n"
+                "backend:\n"
+                "  target: sdl2\n"
+                "state: []\n"
+                "interfaces:\n"
+                "  callbacks:\n"
+                "    - name: ok\n"
             "      args: []\n"
             "      returns: u8\n"
             "  handlers: []\n"
@@ -554,6 +582,7 @@ def test_processor_display_operands_table_requires_non_empty_table(tmp_path):
 def _base_host_with_keyboard_input():
     return {
         "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+        "backend": {"target": "sdl2"},
         "state": [],
         "interfaces": {"callbacks": [], "handlers": [], "signals": []},
         "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
@@ -565,11 +594,10 @@ def _base_host_with_keyboard_input():
         },
         "input": {
             "keyboard": {
-                "source": "sdl_scancode",
                 "focus_required": True,
                 "bindings": [
                     {
-                        "host_key": "SDL_SCANCODE_A",
+                        "host_key": "A",
                         "presses": [{"row": 1, "bit": 0}],
                     }
                 ],
@@ -578,28 +606,117 @@ def _base_host_with_keyboard_input():
     }
 
 
+def _write_host_yaml(path: pathlib.Path, host_id: str, backend_target: str) -> pathlib.Path:
+    host_path = path / f"{host_id}.yaml"
+    host_data = {
+        "metadata": {"id": host_id, "type": "host_adapter", "model": f"{host_id}_model"},
+        "backend": {"target": backend_target},
+        "state": [],
+        "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+        "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+        "coding": {
+            "headers": [],
+            "include_paths": [],
+            "linked_libraries": [],
+            "library_paths": [],
+        },
+    }
+    host_path.write_text(yaml.safe_dump(host_data, sort_keys=False), encoding="utf-8")
+    return host_path
+
+
+def _write_host_yaml_without_backend(path: pathlib.Path, host_id: str, model: str) -> pathlib.Path:
+    host_path = path / f"{host_id}.yaml"
+    host_data = {
+        "metadata": {"id": host_id, "type": "host_adapter", "model": model},
+        "state": [],
+        "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+        "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+        "coding": {
+            "headers": [],
+            "include_paths": [],
+            "linked_libraries": [],
+            "library_paths": [],
+        },
+    }
+    host_path.write_text(yaml.safe_dump(host_data, sort_keys=False), encoding="utf-8")
+    return host_path
+
+
+def _write_host_system_yaml(path: pathlib.Path, host_ids: list[str]) -> pathlib.Path:
+    system_path = path / "host_system.yaml"
+    lines = [
+        "metadata:",
+        "  name: HostSystem",
+        "clock_hz: 1000000",
+        "memory:",
+        "  default_size: 65536",
+        "components:",
+        "  ics: []",
+        "  devices: []",
+        "  hosts:",
+    ]
+    for host_id in host_ids:
+        lines.append(f"    - {host_id}")
+    lines.append("connections: []")
+    system_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return system_path
+
+
 def test_host_keyboard_input_validation_accepts_valid_mapping():
     loader = yaml_loader.ProcessorSystemLoader()
     host_data = _base_host_with_keyboard_input()
     validated = loader.validate_host(host_data)
-    assert validated["input"]["keyboard"]["bindings"][0]["host_key"] == "SDL_SCANCODE_A"
+    assert validated["input"]["keyboard"]["bindings"][0]["host_key"] == "A"
+
+
+def test_host_keyboard_input_validation_accepts_explicit_host_key_source():
+    loader = yaml_loader.ProcessorSystemLoader()
+    host_data = _base_host_with_keyboard_input()
+    host_data["input"]["keyboard"]["source"] = "host_key"
+    validated = loader.validate_host(host_data)
+    assert validated["input"]["keyboard"]["source"] == "host_key"
+
+
+def test_host_keyboard_input_validation_rejects_legacy_sdl_source():
+    loader = yaml_loader.ProcessorSystemLoader()
+    host_data = _base_host_with_keyboard_input()
+    host_data["input"]["keyboard"]["source"] = "sdl_scancode"
+    with pytest.raises(Exception, match="source.*not one of \\['host_key'\\]"):
+        loader.validate_host(host_data)
+
+
+def test_host_keyboard_input_validation_rejects_legacy_sdl_host_key_token():
+    loader = yaml_loader.ProcessorSystemLoader()
+    host_data = _base_host_with_keyboard_input()
+    host_data["input"]["keyboard"]["bindings"][0]["host_key"] = "SDL_SCANCODE_A"
+    with pytest.raises(Exception, match="must be canonical"):
+        loader.validate_host(host_data)
 
 
 def test_host_keyboard_input_validation_rejects_duplicate_host_key():
     loader = yaml_loader.ProcessorSystemLoader()
     host_data = _base_host_with_keyboard_input()
     host_data["input"]["keyboard"]["bindings"].append(
-        {"host_key": "SDL_SCANCODE_A", "presses": [{"row": 0, "bit": 0}]}
+        {"host_key": "A", "presses": [{"row": 0, "bit": 0}]}
     )
     with pytest.raises(Exception, match="duplicate host_key"):
+        loader.validate_host(host_data)
+
+
+def test_host_keyboard_input_validation_rejects_invalid_canonical_host_key():
+    loader = yaml_loader.ProcessorSystemLoader()
+    host_data = _base_host_with_keyboard_input()
+    host_data["input"]["keyboard"]["bindings"][0]["host_key"] = "A-key"
+    with pytest.raises(Exception, match="host_key.*does not match '\\^\\[A-Z0-9_\\]\\+\\$'|must be canonical"):
         loader.validate_host(host_data)
 
 
 def test_host_keyboard_input_validation_rejects_unknown_scancode():
     loader = yaml_loader.ProcessorSystemLoader()
     host_data = _base_host_with_keyboard_input()
-    host_data["input"]["keyboard"]["bindings"][0]["host_key"] = "SDL_SCANCODE_UNKNOWN_X"
-    with pytest.raises(Exception, match="allowlist"):
+    host_data["input"]["keyboard"]["bindings"][0]["host_key"] = "UNKNOWN_X"
+    with pytest.raises(Exception, match="not supported"):
         loader.validate_host(host_data)
 
 
@@ -609,4 +726,69 @@ def test_host_keyboard_input_validation_rejects_out_of_range_press():
     host_data["input"]["keyboard"]["bindings"][0]["presses"] = [{"row": 32, "bit": 0}]
     with pytest.raises(Exception, match="maximum of 31|row out of range"):
         loader.validate_host(host_data)
+
+
+def test_host_backend_requires_explicit_target():
+    loader = yaml_loader.ProcessorSystemLoader()
+    host_data = _base_host_with_keyboard_input()
+    host_data.pop("backend", None)
+    with pytest.raises(Exception, match="backend.target is required"):
+        loader.validate_host(host_data)
+
+
+def test_host_backend_accepts_explicit_target():
+    loader = yaml_loader.ProcessorSystemLoader()
+    host_data = _base_host_with_keyboard_input()
+    host_data["backend"] = {"target": "sdl2"}
+    validated = loader.validate_host(host_data)
+    assert validated["backend"]["target"] == "sdl2"
+
+
+def test_host_backend_rejects_invalid_target_format():
+    loader = yaml_loader.ProcessorSystemLoader()
+    host_data = _base_host_with_keyboard_input()
+    host_data["backend"] = {"target": "SDL-2"}
+    with pytest.raises(Exception, match="backend -> target|\\^\\[a-z\\]\\[a-z0-9_\\]\\*\\$"):
+        loader.validate_host(host_data)
+
+
+def test_compose_rejects_mixed_host_backend_targets(tmp_path):
+    processor_path, _ = example_pair("z80")
+    system_path = _write_host_system_yaml(tmp_path, ["host_sdl", "host_stub"])
+    host_sdl = _write_host_yaml(tmp_path, "host_sdl", "sdl2")
+    host_stub = _write_host_yaml(tmp_path, "host_stub", "stub")
+
+    with pytest.raises(Exception, match="multiple host backend targets"):
+        yaml_loader.load_processor_system(
+            str(processor_path),
+            str(system_path),
+            host_paths=[str(host_sdl), str(host_stub)],
+        )
+
+
+def test_compose_accepts_single_host_backend_target(tmp_path):
+    processor_path, _ = example_pair("z80")
+    system_path = _write_host_system_yaml(tmp_path, ["host_a", "host_b"])
+    host_a = _write_host_yaml(tmp_path, "host_a", "sdl2")
+    host_b = _write_host_yaml(tmp_path, "host_b", "sdl2")
+
+    loaded = yaml_loader.load_processor_system(
+        str(processor_path),
+        str(system_path),
+        host_paths=[str(host_a), str(host_b)],
+    )
+    assert len(loaded["hosts"]) == 2
+
+
+def test_compose_does_not_infer_backend_target_from_host_model_name(tmp_path):
+    processor_path, _ = example_pair("z80")
+    system_path = _write_host_system_yaml(tmp_path, ["host_model_sdl2"])
+    host_model_sdl2 = _write_host_yaml_without_backend(tmp_path, "host_model_sdl2", "test_host_sdl2")
+
+    with pytest.raises(Exception, match="backend.target is required"):
+        yaml_loader.load_processor_system(
+            str(processor_path),
+            str(system_path),
+            host_paths=[str(host_model_sdl2)],
+        )
 

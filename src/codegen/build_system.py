@@ -20,6 +20,34 @@ def _make_path(path: str) -> str:
     return path.replace("\\", "/")
 
 
+def _host_backend_targets(isa_data: Dict[str, Any]) -> set[str]:
+    targets: set[str] = set()
+    for host in isa_data.get("hosts", []):
+        if not isinstance(host, dict):
+            continue
+        backend = host.get("backend", {})
+        if not isinstance(backend, dict):
+            continue
+        target = str(backend.get("target", "")).strip().lower()
+        if target:
+            targets.add(target)
+    return targets
+
+
+def _single_host_backend_target(isa_data: Dict[str, Any]) -> Optional[str]:
+    targets = _host_backend_targets(isa_data)
+    if not targets:
+        return None
+    if len(targets) > 1:
+        raise ValueError(
+            f"multiple host backend targets are not supported in one build: {sorted(targets)}"
+        )
+    target = next(iter(targets))
+    if target not in {"sdl2", "stub", "glfw"}:
+        raise ValueError(f"unsupported host backend target for build generation: {target}")
+    return target
+
+
 def generate_cmake(
     isa_data: Dict[str, Any],
     cpu_name: str,
@@ -58,10 +86,12 @@ def generate_cmake(
     include_paths = coding.get("include_paths", [])
     library_paths = coding.get("library_paths", [])
     linked_libraries = coding.get("linked_libraries", [])
-    linked_library_names = {str(lib.get("name", "")) for lib in linked_libraries if "name" in lib}
+    backend_target = _single_host_backend_target(isa_data)
+    uses_sdl2_backend = backend_target == "sdl2"
+    uses_glfw_backend = backend_target == "glfw"
 
     auto_dependency_setup = ""
-    if "SDL2" in linked_library_names:
+    if uses_sdl2_backend:
         auto_dependency_setup = f"""
 if(NOT DEFINED PASM_VCPKG_TRIPLET OR PASM_VCPKG_TRIPLET STREQUAL "")
     if(DEFINED ENV{{VCPKG_TARGET_TRIPLET}} AND NOT "$ENV{{VCPKG_TARGET_TRIPLET}}" STREQUAL "")
@@ -111,6 +141,22 @@ else()
     endif()
 endif()
 """
+    elif uses_glfw_backend:
+        auto_dependency_setup = """
+if(NOT TARGET glfw AND NOT TARGET glfw::glfw)
+    find_package(glfw3 CONFIG QUIET)
+endif()
+if(NOT TARGET glfw AND NOT TARGET glfw::glfw)
+    find_package(glfw3 QUIET)
+endif()
+
+set(PASM_GLFW_LINK_TARGET glfw)
+if(TARGET glfw::glfw)
+    set(PASM_GLFW_LINK_TARGET glfw::glfw)
+elseif(TARGET glfw)
+    set(PASM_GLFW_LINK_TARGET glfw)
+endif()
+"""
 
     extra_include_dirs = ""
     if include_paths:
@@ -135,15 +181,36 @@ endif()
         )
 
     cmake_lib_entries: list[str] = []
+    has_explicit_sdl2_link = False
+    has_explicit_glfw_link = False
     for lib in linked_libraries:
         if "name" in lib:
             name = str(lib["name"])
             if name == "SDL2":
-                cmake_lib_entries.append("${PASM_SDL2_LINK_TARGET}")
+                if uses_sdl2_backend:
+                    has_explicit_sdl2_link = True
+                    cmake_lib_entries.append("${PASM_SDL2_LINK_TARGET}")
+                else:
+                    cmake_lib_entries.append("SDL2")
+            elif name.lower() == "glfw":
+                if uses_glfw_backend:
+                    has_explicit_glfw_link = True
+                    cmake_lib_entries.append("${PASM_GLFW_LINK_TARGET}")
+                else:
+                    cmake_lib_entries.append(name)
             else:
                 cmake_lib_entries.append(name)
         elif "path" in lib:
-            cmake_lib_entries.append(f'"{_cmake_path(str(lib["path"]))}"')
+            path_str = str(lib["path"])
+            if "sdl2" in path_str.lower():
+                has_explicit_sdl2_link = True
+            if "glfw" in path_str.lower():
+                has_explicit_glfw_link = True
+            cmake_lib_entries.append(f'"{_cmake_path(path_str)}"')
+    if uses_sdl2_backend and not has_explicit_sdl2_link:
+        cmake_lib_entries.append("${PASM_SDL2_LINK_TARGET}")
+    if uses_glfw_backend and not has_explicit_glfw_link:
+        cmake_lib_entries.append("${PASM_GLFW_LINK_TARGET}")
     extra_link_libs = ""
     if cmake_lib_entries:
         extra_link_libs = (
@@ -195,6 +262,9 @@ def generate_makefile(
         raise ValueError(f"Unsupported dispatch mode: {dispatch_mode}")
 
     coding = isa_data.get("coding", {})
+    backend_target = _single_host_backend_target(isa_data)
+    uses_sdl2_backend = backend_target == "sdl2"
+    uses_glfw_backend = backend_target == "glfw"
     include_flags = " ".join(
         f'-I\"{_make_path(path)}\"' for path in coding.get("include_paths", [])
     )
@@ -202,11 +272,27 @@ def generate_makefile(
         f'-L\"{_make_path(path)}\"' for path in coding.get("library_paths", [])
     )
     link_lib_flags_parts: list[str] = []
+    has_explicit_sdl2_link = False
+    has_explicit_glfw_link = False
     for lib in coding.get("linked_libraries", []):
         if "name" in lib:
-            link_lib_flags_parts.append(f"-l{lib['name']}")
+            lib_name = str(lib["name"])
+            if lib_name == "SDL2":
+                has_explicit_sdl2_link = True
+            if lib_name.lower() == "glfw":
+                has_explicit_glfw_link = True
+            link_lib_flags_parts.append(f"-l{lib_name}")
         elif "path" in lib:
-            link_lib_flags_parts.append(f'"{_make_path(str(lib["path"]))}"')
+            path_str = str(lib["path"])
+            if "sdl2" in path_str.lower():
+                has_explicit_sdl2_link = True
+            if "glfw" in path_str.lower():
+                has_explicit_glfw_link = True
+            link_lib_flags_parts.append(f'"{_make_path(path_str)}"')
+    if uses_sdl2_backend and not has_explicit_sdl2_link:
+        link_lib_flags_parts.append("-lSDL2")
+    if uses_glfw_backend and not has_explicit_glfw_link:
+        link_lib_flags_parts.append("-lglfw")
     link_lib_flags = " ".join(link_lib_flags_parts)
 
     return f"""# Auto-generated Makefile
