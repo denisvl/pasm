@@ -27,22 +27,32 @@ maps:
   ports:
     read:
       - name: joy_port_dc_read
-        mask: 0x00FF
-        value: 0x00DC
+        mask: 0x00C1
+        value: 0x00C0
       - name: joy_port_dd_read
-        mask: 0x00FF
-        value: 0x00DD
+        mask: 0x00C1
+        value: 0x00C1
 
 behavior:
   snippets:
     port_read_post: |
-      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
-      if (p == 0xDCu) {
-          value = (uint8_t)cpu_component_call(cpu, "sg_joy0", "joy1_read", NULL, 0);
-          comp->joy1 = value;
-      } else if (p == 0xDDu) {
-          value = (uint8_t)cpu_component_call(cpu, "sg_joy0", "joy2_read", NULL, 0);
-          comp->joy2 = value;
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xC1u);
+      uint8_t joy1 = (uint8_t)cpu_component_call(cpu, "sg_joy0", "joy1_read", NULL, 0);
+      uint8_t joy2 = (uint8_t)cpu_component_call(cpu, "sg_joy0", "joy2_read", NULL, 0);
+      comp->joy1 = joy1;
+      comp->joy2 = joy2;
+      if (p == 0xC0u) {
+          /* SG-1000/SMS-compatible port A read:
+             bits 0..5 = joy1 U/D/L/R/B1/B2, bits 6..7 = joy2 U/D. */
+          value = (uint8_t)((joy1 & 0x3Fu) | (uint8_t)((joy2 << 6) & 0xC0u));
+      } else if (p == 0xC1u) {
+          /* SG-1000/SMS-compatible port B/misc read:
+             bits 0..3 = joy2 L/R/B1/B2 (from joy2 bits 2..5),
+             bit 4 = reset line (active low), bits 5..7 = high. */
+          value = (uint8_t)(((joy2 >> 2) & 0x0Fu) | 0xF0u);
+          if ((joy2 & 0x10u) == 0u) {
+              value = (uint8_t)(value & (uint8_t)~0x10u);
+          }
       }
       return value;
   callback_handlers: {}

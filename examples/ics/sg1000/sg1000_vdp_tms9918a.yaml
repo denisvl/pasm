@@ -269,6 +269,57 @@ behavior:
                       }
                   }
               }
+              /* Sprite pass (TMS9918A): draw over background. */
+              if (display_on != 0u) {
+                  uint16_t spr_attr_base = (uint16_t)((((uint16_t)(comp->reg5 & 0x7Fu)) << 7) & 0x3FFFu);
+                  uint16_t spr_patt_base = (uint16_t)((((uint16_t)(comp->reg6 & 0x07u)) << 11) & 0x3FFFu);
+                  uint8_t spr_size16 = (uint8_t)((comp->reg1 & 0x02u) != 0u);
+                  uint8_t spr_mag = (uint8_t)((comp->reg1 & 0x01u) != 0u);
+                  uint8_t base_size = (uint8_t)(spr_size16 != 0u ? 16u : 8u);
+                  uint8_t draw_size = (uint8_t)(spr_mag != 0u ? (uint8_t)(base_size * 2u) : base_size);
+                  /* Draw high index first so low index sprites stay on top. */
+                  for (int si_i = 31; si_i >= 0; si_i--) {
+                      uint8_t si = (uint8_t)si_i;
+                      uint16_t sa = (uint16_t)(spr_attr_base + (uint16_t)(si * 4u));
+                      uint8_t y_raw = vram[(uint16_t)(sa & 0x3FFFu)];
+                      if (y_raw == 0xD0u) break; /* end marker */
+                      int32_t sy0 = (int32_t)y_raw + 1;
+                      if (sy0 >= 256) sy0 -= 256;
+                      int32_t sx0 = (int32_t)vram[(uint16_t)((sa + 1u) & 0x3FFFu)];
+                      uint8_t patt_idx = vram[(uint16_t)((sa + 2u) & 0x3FFFu)];
+                      uint8_t scol = vram[(uint16_t)((sa + 3u) & 0x3FFFu)];
+                      if ((scol & 0x80u) != 0u) sx0 -= 32; /* early clock */
+                      uint8_t color_idx = (uint8_t)(scol & 0x0Fu);
+                      if (color_idx == 0u) continue; /* transparent sprite color */
+                      for (uint8_t oy = 0u; oy < draw_size; oy++) {
+                          int32_t sy = sy0 + (int32_t)oy;
+                          if (sy < 0 || sy >= 192) continue;
+                          uint8_t py = (uint8_t)(spr_mag != 0u ? (oy >> 1) : oy);
+                          uint8_t tile_y = (uint8_t)(spr_size16 != 0u && py >= 8u ? 1u : 0u);
+                          uint8_t line = (uint8_t)(py & 0x07u);
+                          for (uint8_t ox = 0u; ox < draw_size; ox++) {
+                              int32_t sx = sx0 + (int32_t)ox;
+                              if (sx < 0 || sx >= 256) continue;
+                              uint8_t px = (uint8_t)(spr_mag != 0u ? (ox >> 1) : ox);
+                              uint8_t tile_x = (uint8_t)(spr_size16 != 0u && px >= 8u ? 1u : 0u);
+                              uint8_t bit = (uint8_t)(px & 0x07u);
+                              uint8_t pnum;
+                              if (spr_size16 != 0u) {
+                                  uint8_t base = (uint8_t)(patt_idx & 0xFCu);
+                                  /* 16x16 chunk order: TL, BL, TR, BR */
+                                  pnum = (uint8_t)(base + (uint8_t)(tile_x * 2u) + tile_y);
+                              } else {
+                                  pnum = patt_idx;
+                              }
+                              uint16_t pa = (uint16_t)(spr_patt_base + ((uint16_t)pnum << 3) + (uint16_t)line);
+                              uint8_t patb = vram[(uint16_t)(pa & 0x3FFFu)];
+                              if ((patb & (uint8_t)(0x80u >> bit)) != 0u) {
+                                  framebuf[(uint32_t)sy * 256u + (uint32_t)sx] = msx_palette[(uint8_t)(color_idx & 0x0Fu)];
+                              }
+                          }
+                      }
+                  }
+              }
               comp->render_dirty = 0u;
           }
           {

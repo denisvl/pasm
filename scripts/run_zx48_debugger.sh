@@ -30,17 +30,16 @@ DEVICE_KB="examples/devices/zx_spectrum48k/zx48_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/zx_spectrum48k/zx48_video.yaml"
 DEVICE_SPK="examples/devices/zx_spectrum48k/zx48_speaker.yaml"
 DEVICE_MIC="examples/devices/zx_spectrum48k/zx48_mic.yaml"
-SYSTEM_DIR="examples/systems"
 
 case "${PROFILE}" in
   default)
-    SYSTEM="examples/systems/zx_spectrum48k/z80_spectrum48k_default.yaml"
-    HOST="examples/hosts/zx_spectrum48k/zx48_host_sdl2.yaml"
+    SYSTEM="examples/systems/zx_spectrum48k/spectrum48k_default.yaml"
+    HOST="examples/hosts/zx_spectrum48k/zx48_host_hal.yaml"
     DEFAULT_OUTPUT="generated/z80_48k_sdl"
     ;;
   interactive)
-    SYSTEM="examples/systems/zx_spectrum48k/z80_spectrum48k_interactive.yaml"
-    HOST="examples/hosts/zx_spectrum48k/zx48_host_sdl2_interactive.yaml"
+    SYSTEM="examples/systems/zx_spectrum48k/spectrum48k_interactive.yaml"
+    HOST="examples/hosts/zx_spectrum48k/zx48_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/z80_48k_sdl_interactive"
     ;;
   *)
@@ -54,6 +53,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
+SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
 
 echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 uv run python -m src.main generate \
@@ -65,6 +65,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_SPK}" \
   --device "${DEVICE_MIC}" \
   --host "${HOST}" \
+  --host-backend "${HOST_BACKEND:-sdl2}" \
   --output "${OUTPUT_DIR}"
 
 echo "[2/3] Building emulator with CMake -> ${BUILD_DIR}"
@@ -76,6 +77,6 @@ PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \
-  --system-dir "${SYSTEM_DIR}" \
+  --system-dir "${SYSTEM_DIR_ABS}" \
   --start-pc "${START_PC}" \
   --run-speed "${RUN_SPEED}"
