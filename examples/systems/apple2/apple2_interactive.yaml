@@ -47,7 +47,7 @@ components:
     - video_apple2
     - speaker_apple2
   hosts:
-    - host_apple2_sdl2
+    - host_apple2
 
 connections:
   - from:
@@ -64,7 +64,7 @@ connections:
       kind: callback
       name: host_key
     to:
-      component: host_apple2_sdl2
+      component: host_apple2
       kind: callback
       name: keyboard_ascii
 
@@ -82,7 +82,7 @@ connections:
       kind: signal
       name: frame_present
     to:
-      component: host_apple2_sdl2
+      component: host_apple2
       kind: handler
       name: video_frame
 
@@ -100,7 +100,7 @@ connections:
       kind: signal
       name: pcm_sample
     to:
-      component: host_apple2_sdl2
+      component: host_apple2
       kind: handler
       name: audio_pcm
 

@@ -835,7 +835,7 @@ int mos6502_dbg_focus_host_window(CPUState *cpu) {
 #if defined(SDL_MAJOR_VERSION)
     int focused = 0;
     {
-        ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
+        ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
         if (comp->window != NULL) {
             SDL_Window *wnd = (SDL_Window *)comp->window;
             SDL_ShowWindow(wnd);

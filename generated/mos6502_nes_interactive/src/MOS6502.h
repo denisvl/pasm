@@ -186,8 +186,8 @@ typedef struct ComponentState_speaker_nes {
     uint64_t last_cycle;
 } ComponentState_speaker_nes;
 
-typedef struct ComponentState_host_nes_sdl2 {
-    uint8_t sdl_inited;
+typedef struct ComponentState_host_nes {
+    uint8_t host_inited;
     void * window;
     void * renderer;
     void * texture;
@@ -218,7 +218,7 @@ typedef struct ComponentState_host_nes_sdl2 {
     uint32_t overlay_fps_x100;
     uint64_t overlay_cpu_hz;
     uint32_t overlay_cpu_pct_x10;
-} ComponentState_host_nes_sdl2;
+} ComponentState_host_nes;
 
 typedef struct ComponentState_nes_cart0 {
     uint8_t * rom_data;
@@ -300,7 +300,7 @@ struct CPUState {
     ComponentState_nes_io comp_nes_io;
     ComponentState_video_nes comp_video_nes;
     ComponentState_speaker_nes comp_speaker_nes;
-    ComponentState_host_nes_sdl2 comp_host_nes_sdl2;
+    ComponentState_host_nes comp_host_nes;
     ComponentState_nes_cart0 comp_nes_cart0;
 };
 

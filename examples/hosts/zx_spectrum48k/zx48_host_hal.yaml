@@ -1,0 +1,80 @@
+metadata:
+  id: host0
+  type: host_adapter
+  model: zx48_hal_bridge
+  version: "1.0"
+
+
+state:
+  - name: keyboard_value
+    type: uint8_t
+    initial: "0x5A"
+  - name: mic_value
+    type: uint8_t
+    initial: "1"
+  - name: irq_edges
+    type: uint32_t
+    initial: "0"
+  - name: video_frames
+    type: uint32_t
+    initial: "0"
+  - name: border_events
+    type: uint32_t
+    initial: "0"
+  - name: audio_samples
+    type: uint32_t
+    initial: "0"
+  - name: last_border
+    type: uint8_t
+    initial: "0"
+  - name: last_audio
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_matrix
+      args: [u8]
+      returns: u8
+    - name: mic_sample
+      args: []
+      returns: u8
+  handlers:
+    - name: irq_edge
+      args: [u8]
+    - name: video_frame
+      args: [u32, u64, u32, u32, u8]
+    - name: video_border
+      args: [u8]
+    - name: audio_pcm
+      args: [u8, u64]
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    keyboard_matrix: |
+      (void)args;
+      (void)argc;
+      return (uint64_t)comp->keyboard_value;
+    mic_sample: |
+      return (uint64_t)comp->mic_value;
+  handler_bodies:
+    irq_edge: |
+      comp->irq_edges++;
+    video_frame: |
+      (void)args;
+      (void)argc;
+      comp->video_frames++;
+    video_border: |
+      comp->border_events++;
+      if (argc > 0) comp->last_border = (uint8_t)(args[0] & 0xFFu);
+    audio_pcm: |
+      comp->audio_samples++;
+      if (argc > 0) comp->last_audio = (uint8_t)(args[0] & 0xFFu);
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

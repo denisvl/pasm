@@ -29,6 +29,6 @@
   "cartridge": {
     "enabled": true,
     "id": "nes_cart0",
-    "default_rom_path": "/home/dvlop/projects/pasm/examples/roms/Super Mario Bros. + Duck Hunt (USA).nes"
+    "default_rom_path": "/home/dvlop/projects/pasm/examples/roms/nes/Super Mario Bros. + Duck Hunt (USA).nes"
   }
 }

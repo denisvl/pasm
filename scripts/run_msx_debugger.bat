@@ -59,17 +59,17 @@ set "SYSTEM_DIR=examples/systems"
 
 if /I "%PROFILE%"=="default" (
   if "%USE_CARTRIDGE%"=="0" (
-    set "SYSTEM=examples/systems/msx1/z80_msx1_default.yaml"
+    set "SYSTEM=examples/systems/msx1/msx1_default.yaml"
   ) else (
-    set "SYSTEM=examples/systems/msx1/z80_msx1_cartridge_default.yaml"
+    set "SYSTEM=examples/systems/msx1/msx1_cartridge_default.yaml"
   )
   set "HOST=examples/hosts/msx1/msx_host_stub.yaml"
   set "DEFAULT_OUTPUT=generated/z80_msx1"
 ) else if /I "%PROFILE%"=="interactive" (
   if "%USE_CARTRIDGE%"=="0" (
-    set "SYSTEM=examples/systems/msx1/z80_msx1_interactive.yaml"
+    set "SYSTEM=examples/systems/msx1/msx1_interactive.yaml"
   ) else (
-    set "SYSTEM=examples/systems/msx1/z80_msx1_cartridge_interactive.yaml"
+    set "SYSTEM=examples/systems/msx1/msx1_cartridge_interactive.yaml"
   )
   set "HOST=examples/hosts/msx1/msx_host_sdl2_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/z80_msx1_sdl"

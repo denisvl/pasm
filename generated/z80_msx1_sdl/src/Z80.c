@@ -16,8 +16,7 @@
 #if defined(_WIN32)
 #include <windows.h>
 #else
-#include <errno.h>
-#include <time.h>
+#include <unistd.h>
 #endif
 
 /* ===== Private Helper Functions ===== */
@@ -41,10 +40,8 @@ static void cpu_sleep_seconds(uint32_t seconds) {
 #if defined(_WIN32)
     Sleep((DWORD)(seconds * 1000u));
 #else
-    struct timespec req;
-    req.tv_sec = (time_t)seconds;
-    req.tv_nsec = 0;
-    while (nanosleep(&req, &req) == -1 && errno == EINTR) {}
+    unsigned int remaining = (unsigned int)seconds;
+    while (remaining != 0u) remaining = sleep(remaining);
 #endif
 }
 
@@ -100,6 +97,7 @@ static bool cpu_check_breakpoints(CPUState *cpu) {
     }
     return false;
 }
+
 typedef struct {
     const char *from_component;
     const char *from_kind;
@@ -131,7 +129,7 @@ typedef struct {
 } ComponentKeyboardPress;
 
 typedef struct {
-    int host_key;
+    const char *host_key;
     const ComponentKeyboardPress *presses;
     uint8_t press_count;
 } ComponentKeyboardBinding;
@@ -143,304 +141,803 @@ typedef struct {
     size_t binding_count;
 } ComponentKeyboardMap;
 
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_0[] = {
+static int32_t cpu_host_hal_key_from_scancode(int scancode);
+
+typedef SDL_Event CPUHostEvent;
+typedef SDL_Rect CPUHostRect;
+typedef SDL_AudioSpec CPUHostAudioSpec;
+#define CPU_HOST_EVENT_QUIT SDL_QUIT
+#define CPU_HOST_EVENT_KEYDOWN SDL_KEYDOWN
+#define CPU_HOST_EVENT_KEYUP SDL_KEYUP
+#define CPU_HOST_INIT_VIDEO SDL_INIT_VIDEO
+#define CPU_HOST_INIT_AUDIO SDL_INIT_AUDIO
+#define CPU_HOST_INIT_EVENTS SDL_INIT_EVENTS
+#define CPU_HOST_WINDOWPOS_CENTERED SDL_WINDOWPOS_CENTERED
+#define CPU_HOST_WINDOW_RESIZABLE SDL_WINDOW_RESIZABLE
+#define CPU_HOST_RENDERER_ACCELERATED SDL_RENDERER_ACCELERATED
+#define CPU_HOST_PIXELFORMAT_ARGB8888 SDL_PIXELFORMAT_ARGB8888
+#define CPU_HOST_TEXTUREACCESS_STREAMING SDL_TEXTUREACCESS_STREAMING
+#define CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE SDL_AUDIO_ALLOW_FREQUENCY_CHANGE
+#define CPU_HOST_AUDIO_FORMAT_S16 AUDIO_S16SYS
+#define CPU_HOST_SCANCODE(name) SDL_SCANCODE_##name
+#define CPU_HOST_HAS_SCANCODE_MAP 1
+#define CPU_HOST_KEYCODE_QUOTE ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(APOSTROPHE)))
+#define CPU_HOST_KEYCODE_SEMICOLON ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(SEMICOLON)))
+#define CPU_HOST_MOD_CTRL KMOD_CTRL
+#define CPU_HOST_MOD_SHIFT KMOD_SHIFT
+#define CPU_HOST_MOD_LCTRL KMOD_LCTRL
+#define cpu_host_hal_log(...) SDL_Log(__VA_ARGS__)
+#define cpu_host_hal_last_error() SDL_GetError()
+static void cpu_host_audio_spec_zero(CPUHostAudioSpec *spec) {
+    if (!spec) return;
+    SDL_zero(*spec);
+}
+
+static uint8_t cpu_host_hal_sdl_inited = 0u;
+static uint32_t cpu_host_hal_sdl_subsystems = 0u;
+static SDL_Window *cpu_host_hal_sdl_primary_window = NULL;
+
+static void cpu_host_hal_pump_events(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_PumpEvents();
+}
+
+static uint32_t cpu_host_hal_ticks_ms(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    return SDL_GetTicks();
+}
+
+static uint8_t cpu_host_hal_window_has_focus(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return 0u;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return 0u;
+    return (SDL_GetKeyboardFocus() == (SDL_Window *)window) ? 1u : 0u;
+}
+
+static void cpu_host_hal_render_present(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_RenderPresent((SDL_Renderer *)renderer);
+}
+
+static int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return -1;
+    if (dev == 0u || !data || len_bytes == 0u) return -1;
+    return SDL_QueueAudio(dev, data, len_bytes);
+}
+
+static uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u) return 0u;
+    return SDL_GetQueuedAudioSize(dev);
+}
+
+static void cpu_host_hal_audio_clear(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_ClearQueuedAudio(dev);
+}
+
+static int cpu_host_hal_renderer_output_size(void *renderer, int *out_w, int *out_h) {
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer || !out_w || !out_h) return -1;
+    if (SDL_GetRendererOutputSize((SDL_Renderer *)renderer, out_w, out_h) != 0) return -1;
+    if (*out_w <= 0 || *out_h <= 0) return -1;
+    return 0;
+}
+
+static int cpu_host_hal_update_texture(void *texture, const CPUHostRect *rect, const void *pixels, int pitch) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!texture || !pixels) return -1;
+    return SDL_UpdateTexture((SDL_Texture *)texture, (const SDL_Rect *)rect, pixels, pitch);
+}
+
+static void cpu_host_hal_render_set_draw_color(void *renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_SetRenderDrawColor((SDL_Renderer *)renderer, r, g, b, a);
+}
+
+static int cpu_host_hal_render_clear(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer) return -1;
+    return SDL_RenderClear((SDL_Renderer *)renderer);
+}
+
+static int cpu_host_hal_render_copy(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer || !texture) return -1;
+    return SDL_RenderCopy(
+        (SDL_Renderer *)renderer,
+        (SDL_Texture *)texture,
+        (const SDL_Rect *)src_rect,
+        (const SDL_Rect *)dst_rect
+    );
+}
+
+static int cpu_host_hal_poll_event(CPUHostEvent *event) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;
+    if (!event) return 0;
+    return SDL_PollEvent((SDL_Event *)event);
+}
+
+static uint32_t cpu_host_hal_event_type(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    return event->type;
+}
+
+static int32_t cpu_host_hal_event_scancode(const CPUHostEvent *event) {
+    if (!event) return 0;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0;
+    return (int32_t)event->key.keysym.scancode;
+}
+
+static uint8_t cpu_host_hal_event_key_repeat(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;
+    return (uint8_t)event->key.repeat;
+}
+
+static uint32_t cpu_host_hal_event_mod_state(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;
+    return (uint32_t)event->key.keysym.mod;
+}
+
+static void cpu_host_hal_set_window_title(void *window, const char *title) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window || !title) return;
+    SDL_SetWindowTitle((SDL_Window *)window, title);
+}
+
+static void cpu_host_hal_destroy_texture(void *texture) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!texture) return;
+    SDL_DestroyTexture((SDL_Texture *)texture);
+}
+
+static void cpu_host_hal_destroy_renderer(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_DestroyRenderer((SDL_Renderer *)renderer);
+}
+
+static void cpu_host_hal_destroy_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) return;
+    if (cpu_host_hal_sdl_primary_window == (SDL_Window *)window) {
+        cpu_host_hal_sdl_primary_window = NULL;
+    }
+    SDL_DestroyWindow((SDL_Window *)window);
+}
+
+static void cpu_host_hal_audio_close(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_CloseAudioDevice(dev);
+}
+
+static void cpu_host_hal_quit_subsystems(void) {
+    uint32_t to_quit = cpu_host_hal_sdl_subsystems & (CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS);
+    if (to_quit != 0u) SDL_QuitSubSystem(to_quit);
+    cpu_host_hal_sdl_subsystems &= ~to_quit;
+    cpu_host_hal_sdl_primary_window = NULL;
+}
+
+static void cpu_host_hal_quit(void) {
+    SDL_Quit();
+    cpu_host_hal_sdl_subsystems = 0u;
+    cpu_host_hal_sdl_inited = 0u;
+    cpu_host_hal_sdl_primary_window = NULL;
+}
+
+static int cpu_host_hal_init(uint32_t flags) {
+    if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;
+    if (cpu_host_hal_sdl_inited == 0u) {
+        if (SDL_Init(flags) != 0) return -1;
+        cpu_host_hal_sdl_inited = 1u;
+        cpu_host_hal_sdl_subsystems |= flags;
+        return 0;
+    }
+    if (flags != 0u) {
+        if (SDL_InitSubSystem(flags) != 0) return -1;
+        cpu_host_hal_sdl_subsystems |= flags;
+    }
+    return 0;
+}
+
+static void *cpu_host_hal_create_window(const char *title, int x, int y, int w, int h, uint32_t flags) {
+    SDL_Window *window;
+    const char *win_title = (title && title[0] != '\0') ? title : "PASM";
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if ((flags & ~CPU_HOST_WINDOW_RESIZABLE) != 0u) return NULL;
+    if (w <= 0) w = 640;
+    if (h <= 0) h = 480;
+    window = SDL_CreateWindow(win_title, x, y, w, h, flags);
+    if (window != NULL && cpu_host_hal_sdl_primary_window == NULL) {
+        cpu_host_hal_sdl_primary_window = window;
+    }
+    return (void *)window;
+}
+
+static void *cpu_host_hal_create_renderer(void *window, int index, uint32_t flags) {
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return NULL;
+    if ((flags & ~CPU_HOST_RENDERER_ACCELERATED) != 0u) return NULL;
+    return (void *)SDL_CreateRenderer((SDL_Window *)window, index, flags);
+}
+
+static void *cpu_host_hal_create_texture(void *renderer, uint32_t format, int access, int w, int h) {
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if (!renderer) return NULL;
+    return (void *)SDL_CreateTexture((SDL_Renderer *)renderer, format, access, w, h);
+}
+
+static uint32_t cpu_host_hal_audio_open(const char *device, int iscapture, const CPUHostAudioSpec *want, CPUHostAudioSpec *have, int allowed_changes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (iscapture != 0) return 0u;
+    if (!want) return 0u;
+    if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;
+    return SDL_OpenAudioDevice(
+        device,
+        iscapture,
+        (const SDL_AudioSpec *)want,
+        (SDL_AudioSpec *)have,
+        allowed_changes
+    );
+}
+
+static void cpu_host_hal_audio_pause(uint32_t dev, int pause_on) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_PauseAudioDevice(dev, pause_on);
+}
+
+static void *cpu_host_hal_alloc(size_t size_bytes) {
+    return SDL_malloc(size_bytes);
+}
+
+static void cpu_host_hal_free(void *ptr) {
+    if (!ptr) return;
+    SDL_free(ptr);
+}
+
+static void cpu_host_hal_memset(void *dst, int value, size_t size_bytes) {
+    if (!dst || size_bytes == 0u) return;
+    SDL_memset(dst, value, size_bytes);
+}
+
+static const char *cpu_host_hal_getenv(const char *name) {
+    if (!name) return NULL;
+    return SDL_getenv(name);
+}
+
+static const uint8_t *cpu_host_hal_keyboard_state(int *key_count) {
+    static const uint8_t empty_state[1] = {0u};
+    const uint8_t *state;
+    if (cpu_host_hal_sdl_inited == 0u) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    state = SDL_GetKeyboardState(key_count);
+    if (!state) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    return state;
+}
+
+static int32_t cpu_host_hal_key_from_scancode(int scancode) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;
+    return (int32_t)SDL_GetKeyFromScancode((SDL_Scancode)scancode);
+}
+
+static void cpu_host_hal_start_text_input(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_StartTextInput();
+}
+
+static void cpu_host_hal_stop_text_input(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_StopTextInput();
+}
+
+static void cpu_host_hal_raise_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return;
+    SDL_RaiseWindow((SDL_Window *)window);
+}
+
+static void cpu_host_hal_show_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return;
+    SDL_ShowWindow((SDL_Window *)window);
+}
+
+static int cpu_host_hal_set_window_input_focus(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return -1;
+    return SDL_SetWindowInputFocus((SDL_Window *)window);
+}
+
+static int cpu_host_hal_set_texture_blend_none(void *texture) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!texture) return -1;
+    return SDL_SetTextureBlendMode((SDL_Texture *)texture, SDL_BLENDMODE_NONE);
+}
+
+static int cpu_host_hal_init_subsystem(uint32_t flags) {
+    if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if (flags != 0u && SDL_InitSubSystem(flags) != 0) return -1;
+    cpu_host_hal_sdl_subsystems |= flags;
+    return 0;
+}
+
+static uint32_t cpu_host_hal_audio_dequeue(uint32_t dev, void *data, uint32_t len_bytes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u || !data || len_bytes == 0u) return 0u;
+    return SDL_DequeueAudio(dev, data, len_bytes);
+}
+
+static int cpu_host_hal_get_window_size(void *window, int *out_w, int *out_h) {
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window || !out_w || !out_h) return -1;
+    SDL_GetWindowSize((SDL_Window *)window, out_w, out_h);
+    if (*out_w <= 0 || *out_h <= 0) return -1;
+    return 0;
+}
+
+static const char *cpu_host_hal_scancode_name(int32_t scancode) {
+    if (cpu_host_hal_sdl_inited == 0u) return "UNKNOWN";
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return "UNKNOWN";
+    const char *name = SDL_GetScancodeName((SDL_Scancode)scancode);
+    if (!name || name[0] == '\0') return "UNKNOWN";
+    return name;
+}
+
+static uint32_t cpu_host_hal_get_mod_state(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0u;
+    return (uint32_t)SDL_GetModState();
+}
+
+static const char *cpu_host_hal_key_name(int32_t keycode) {
+    if (cpu_host_hal_sdl_inited == 0u) return "UNKNOWN";
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return "UNKNOWN";
+    const char *name = SDL_GetKeyName((SDL_Keycode)keycode);
+    if (!name || name[0] == '\0') return "UNKNOWN";
+    return name;
+}
+
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_0[] = {
     { 0u, 0u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_1[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_1[] = {
     { 0u, 1u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_2[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_2[] = {
     { 0u, 2u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_3[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_3[] = {
     { 0u, 3u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_4[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_4[] = {
     { 0u, 4u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_5[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_5[] = {
     { 0u, 5u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_6[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_6[] = {
     { 0u, 6u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_7[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_7[] = {
     { 0u, 7u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_8[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_8[] = {
     { 1u, 0u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_9[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_9[] = {
     { 1u, 1u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_10[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_10[] = {
     { 1u, 2u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_11[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_11[] = {
     { 1u, 3u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_12[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_12[] = {
     { 1u, 4u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_13[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_13[] = {
     { 1u, 5u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_14[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_14[] = {
     { 1u, 6u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_15[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_15[] = {
     { 1u, 7u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_16[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_16[] = {
     { 2u, 0u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_17[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_17[] = {
     { 2u, 1u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_18[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_18[] = {
     { 2u, 2u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_19[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_19[] = {
     { 2u, 3u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_20[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_20[] = {
     { 2u, 4u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_21[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_21[] = {
     { 2u, 6u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_22[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_22[] = {
     { 2u, 7u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_23[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_23[] = {
     { 3u, 0u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_24[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_24[] = {
     { 3u, 1u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_25[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_25[] = {
     { 3u, 2u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_26[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_26[] = {
     { 3u, 3u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_27[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_27[] = {
     { 3u, 4u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_28[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_28[] = {
     { 3u, 5u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_29[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_29[] = {
     { 3u, 6u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_30[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_30[] = {
     { 3u, 7u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_31[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_31[] = {
     { 4u, 0u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_32[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_32[] = {
     { 4u, 1u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_33[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_33[] = {
     { 4u, 2u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_34[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_34[] = {
     { 4u, 3u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_35[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_35[] = {
     { 4u, 4u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_36[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_36[] = {
     { 4u, 5u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_37[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_37[] = {
     { 4u, 6u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_38[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_38[] = {
     { 4u, 7u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_39[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_39[] = {
     { 5u, 0u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_40[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_40[] = {
     { 5u, 1u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_41[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_41[] = {
     { 5u, 2u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_42[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_42[] = {
     { 5u, 3u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_43[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_43[] = {
     { 5u, 4u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_44[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_44[] = {
     { 5u, 5u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_45[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_45[] = {
     { 5u, 6u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_46[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_46[] = {
     { 5u, 7u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_47[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_47[] = {
     { 6u, 0u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_48[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_48[] = {
     { 6u, 0u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_49[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_49[] = {
     { 6u, 1u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_50[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_50[] = {
     { 6u, 1u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_51[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_51[] = {
     { 6u, 2u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_52[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_52[] = {
     { 6u, 3u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_53[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_53[] = {
     { 6u, 4u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_54[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_54[] = {
     { 6u, 5u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_55[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_55[] = {
     { 6u, 6u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_56[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_56[] = {
     { 6u, 7u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_57[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_57[] = {
     { 7u, 0u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_58[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_58[] = {
     { 7u, 1u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_59[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_59[] = {
     { 7u, 2u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_60[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_60[] = {
     { 7u, 3u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_61[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_61[] = {
     { 7u, 4u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_62[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_62[] = {
     { 7u, 5u },
     { 8u, 3u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_63[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_63[] = {
     { 7u, 6u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_64[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_64[] = {
     { 7u, 7u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_65[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_65[] = {
     { 8u, 0u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_66[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_66[] = {
     { 8u, 1u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_67[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_67[] = {
     { 8u, 2u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_68[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_68[] = {
     { 8u, 3u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_69[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_69[] = {
     { 8u, 4u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_70[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_70[] = {
     { 8u, 5u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_71[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_71[] = {
     { 8u, 6u },
 };
-static const ComponentKeyboardPress component_host_msx_sdl2_keyboard_presses_72[] = {
+static const ComponentKeyboardPress component_host_msx_keyboard_presses_72[] = {
     { 8u, 7u },
 };
-static const ComponentKeyboardBinding component_host_msx_sdl2_keyboard_bindings[] = {
-    { SDL_SCANCODE_0, component_host_msx_sdl2_keyboard_presses_0, 1u },
-    { SDL_SCANCODE_1, component_host_msx_sdl2_keyboard_presses_1, 1u },
-    { SDL_SCANCODE_2, component_host_msx_sdl2_keyboard_presses_2, 1u },
-    { SDL_SCANCODE_3, component_host_msx_sdl2_keyboard_presses_3, 1u },
-    { SDL_SCANCODE_4, component_host_msx_sdl2_keyboard_presses_4, 1u },
-    { SDL_SCANCODE_5, component_host_msx_sdl2_keyboard_presses_5, 1u },
-    { SDL_SCANCODE_6, component_host_msx_sdl2_keyboard_presses_6, 1u },
-    { SDL_SCANCODE_7, component_host_msx_sdl2_keyboard_presses_7, 1u },
-    { SDL_SCANCODE_8, component_host_msx_sdl2_keyboard_presses_8, 1u },
-    { SDL_SCANCODE_9, component_host_msx_sdl2_keyboard_presses_9, 1u },
-    { SDL_SCANCODE_MINUS, component_host_msx_sdl2_keyboard_presses_10, 1u },
-    { SDL_SCANCODE_EQUALS, component_host_msx_sdl2_keyboard_presses_11, 1u },
-    { SDL_SCANCODE_BACKSLASH, component_host_msx_sdl2_keyboard_presses_12, 1u },
-    { SDL_SCANCODE_LEFTBRACKET, component_host_msx_sdl2_keyboard_presses_13, 1u },
-    { SDL_SCANCODE_RIGHTBRACKET, component_host_msx_sdl2_keyboard_presses_14, 1u },
-    { SDL_SCANCODE_SEMICOLON, component_host_msx_sdl2_keyboard_presses_15, 1u },
-    { SDL_SCANCODE_APOSTROPHE, component_host_msx_sdl2_keyboard_presses_16, 1u },
-    { SDL_SCANCODE_GRAVE, component_host_msx_sdl2_keyboard_presses_17, 1u },
-    { SDL_SCANCODE_COMMA, component_host_msx_sdl2_keyboard_presses_18, 1u },
-    { SDL_SCANCODE_PERIOD, component_host_msx_sdl2_keyboard_presses_19, 1u },
-    { SDL_SCANCODE_SLASH, component_host_msx_sdl2_keyboard_presses_20, 1u },
-    { SDL_SCANCODE_A, component_host_msx_sdl2_keyboard_presses_21, 1u },
-    { SDL_SCANCODE_B, component_host_msx_sdl2_keyboard_presses_22, 1u },
-    { SDL_SCANCODE_C, component_host_msx_sdl2_keyboard_presses_23, 1u },
-    { SDL_SCANCODE_D, component_host_msx_sdl2_keyboard_presses_24, 1u },
-    { SDL_SCANCODE_E, component_host_msx_sdl2_keyboard_presses_25, 1u },
-    { SDL_SCANCODE_F, component_host_msx_sdl2_keyboard_presses_26, 1u },
-    { SDL_SCANCODE_G, component_host_msx_sdl2_keyboard_presses_27, 1u },
-    { SDL_SCANCODE_H, component_host_msx_sdl2_keyboard_presses_28, 1u },
-    { SDL_SCANCODE_I, component_host_msx_sdl2_keyboard_presses_29, 1u },
-    { SDL_SCANCODE_J, component_host_msx_sdl2_keyboard_presses_30, 1u },
-    { SDL_SCANCODE_K, component_host_msx_sdl2_keyboard_presses_31, 1u },
-    { SDL_SCANCODE_L, component_host_msx_sdl2_keyboard_presses_32, 1u },
-    { SDL_SCANCODE_M, component_host_msx_sdl2_keyboard_presses_33, 1u },
-    { SDL_SCANCODE_N, component_host_msx_sdl2_keyboard_presses_34, 1u },
-    { SDL_SCANCODE_O, component_host_msx_sdl2_keyboard_presses_35, 1u },
-    { SDL_SCANCODE_P, component_host_msx_sdl2_keyboard_presses_36, 1u },
-    { SDL_SCANCODE_Q, component_host_msx_sdl2_keyboard_presses_37, 1u },
-    { SDL_SCANCODE_R, component_host_msx_sdl2_keyboard_presses_38, 1u },
-    { SDL_SCANCODE_S, component_host_msx_sdl2_keyboard_presses_39, 1u },
-    { SDL_SCANCODE_T, component_host_msx_sdl2_keyboard_presses_40, 1u },
-    { SDL_SCANCODE_U, component_host_msx_sdl2_keyboard_presses_41, 1u },
-    { SDL_SCANCODE_V, component_host_msx_sdl2_keyboard_presses_42, 1u },
-    { SDL_SCANCODE_W, component_host_msx_sdl2_keyboard_presses_43, 1u },
-    { SDL_SCANCODE_X, component_host_msx_sdl2_keyboard_presses_44, 1u },
-    { SDL_SCANCODE_Y, component_host_msx_sdl2_keyboard_presses_45, 1u },
-    { SDL_SCANCODE_Z, component_host_msx_sdl2_keyboard_presses_46, 1u },
-    { SDL_SCANCODE_LSHIFT, component_host_msx_sdl2_keyboard_presses_47, 1u },
-    { SDL_SCANCODE_RSHIFT, component_host_msx_sdl2_keyboard_presses_48, 1u },
-    { SDL_SCANCODE_LCTRL, component_host_msx_sdl2_keyboard_presses_49, 1u },
-    { SDL_SCANCODE_RCTRL, component_host_msx_sdl2_keyboard_presses_50, 1u },
-    { SDL_SCANCODE_RALT, component_host_msx_sdl2_keyboard_presses_51, 1u },
-    { SDL_SCANCODE_CAPSLOCK, component_host_msx_sdl2_keyboard_presses_52, 1u },
-    { SDL_SCANCODE_APPLICATION, component_host_msx_sdl2_keyboard_presses_53, 1u },
-    { SDL_SCANCODE_F1, component_host_msx_sdl2_keyboard_presses_54, 1u },
-    { SDL_SCANCODE_F2, component_host_msx_sdl2_keyboard_presses_55, 1u },
-    { SDL_SCANCODE_F3, component_host_msx_sdl2_keyboard_presses_56, 1u },
-    { SDL_SCANCODE_F4, component_host_msx_sdl2_keyboard_presses_57, 1u },
-    { SDL_SCANCODE_F5, component_host_msx_sdl2_keyboard_presses_58, 1u },
-    { SDL_SCANCODE_ESCAPE, component_host_msx_sdl2_keyboard_presses_59, 1u },
-    { SDL_SCANCODE_TAB, component_host_msx_sdl2_keyboard_presses_60, 1u },
-    { SDL_SCANCODE_LALT, component_host_msx_sdl2_keyboard_presses_61, 1u },
-    { SDL_SCANCODE_BACKSPACE, component_host_msx_sdl2_keyboard_presses_62, 2u },
-    { SDL_SCANCODE_INSERT, component_host_msx_sdl2_keyboard_presses_63, 1u },
-    { SDL_SCANCODE_RETURN, component_host_msx_sdl2_keyboard_presses_64, 1u },
-    { SDL_SCANCODE_SPACE, component_host_msx_sdl2_keyboard_presses_65, 1u },
-    { SDL_SCANCODE_HOME, component_host_msx_sdl2_keyboard_presses_66, 1u },
-    { SDL_SCANCODE_PAGEUP, component_host_msx_sdl2_keyboard_presses_67, 1u },
-    { SDL_SCANCODE_DELETE, component_host_msx_sdl2_keyboard_presses_68, 1u },
-    { SDL_SCANCODE_LEFT, component_host_msx_sdl2_keyboard_presses_69, 1u },
-    { SDL_SCANCODE_UP, component_host_msx_sdl2_keyboard_presses_70, 1u },
-    { SDL_SCANCODE_DOWN, component_host_msx_sdl2_keyboard_presses_71, 1u },
-    { SDL_SCANCODE_RIGHT, component_host_msx_sdl2_keyboard_presses_72, 1u },
+static const ComponentKeyboardBinding component_host_msx_keyboard_bindings[] = {
+    { "0", component_host_msx_keyboard_presses_0, 1u },
+    { "1", component_host_msx_keyboard_presses_1, 1u },
+    { "2", component_host_msx_keyboard_presses_2, 1u },
+    { "3", component_host_msx_keyboard_presses_3, 1u },
+    { "4", component_host_msx_keyboard_presses_4, 1u },
+    { "5", component_host_msx_keyboard_presses_5, 1u },
+    { "6", component_host_msx_keyboard_presses_6, 1u },
+    { "7", component_host_msx_keyboard_presses_7, 1u },
+    { "8", component_host_msx_keyboard_presses_8, 1u },
+    { "9", component_host_msx_keyboard_presses_9, 1u },
+    { "MINUS", component_host_msx_keyboard_presses_10, 1u },
+    { "EQUALS", component_host_msx_keyboard_presses_11, 1u },
+    { "BACKSLASH", component_host_msx_keyboard_presses_12, 1u },
+    { "LEFTBRACKET", component_host_msx_keyboard_presses_13, 1u },
+    { "RIGHTBRACKET", component_host_msx_keyboard_presses_14, 1u },
+    { "SEMICOLON", component_host_msx_keyboard_presses_15, 1u },
+    { "APOSTROPHE", component_host_msx_keyboard_presses_16, 1u },
+    { "GRAVE", component_host_msx_keyboard_presses_17, 1u },
+    { "COMMA", component_host_msx_keyboard_presses_18, 1u },
+    { "PERIOD", component_host_msx_keyboard_presses_19, 1u },
+    { "SLASH", component_host_msx_keyboard_presses_20, 1u },
+    { "A", component_host_msx_keyboard_presses_21, 1u },
+    { "B", component_host_msx_keyboard_presses_22, 1u },
+    { "C", component_host_msx_keyboard_presses_23, 1u },
+    { "D", component_host_msx_keyboard_presses_24, 1u },
+    { "E", component_host_msx_keyboard_presses_25, 1u },
+    { "F", component_host_msx_keyboard_presses_26, 1u },
+    { "G", component_host_msx_keyboard_presses_27, 1u },
+    { "H", component_host_msx_keyboard_presses_28, 1u },
+    { "I", component_host_msx_keyboard_presses_29, 1u },
+    { "J", component_host_msx_keyboard_presses_30, 1u },
+    { "K", component_host_msx_keyboard_presses_31, 1u },
+    { "L", component_host_msx_keyboard_presses_32, 1u },
+    { "M", component_host_msx_keyboard_presses_33, 1u },
+    { "N", component_host_msx_keyboard_presses_34, 1u },
+    { "O", component_host_msx_keyboard_presses_35, 1u },
+    { "P", component_host_msx_keyboard_presses_36, 1u },
+    { "Q", component_host_msx_keyboard_presses_37, 1u },
+    { "R", component_host_msx_keyboard_presses_38, 1u },
+    { "S", component_host_msx_keyboard_presses_39, 1u },
+    { "T", component_host_msx_keyboard_presses_40, 1u },
+    { "U", component_host_msx_keyboard_presses_41, 1u },
+    { "V", component_host_msx_keyboard_presses_42, 1u },
+    { "W", component_host_msx_keyboard_presses_43, 1u },
+    { "X", component_host_msx_keyboard_presses_44, 1u },
+    { "Y", component_host_msx_keyboard_presses_45, 1u },
+    { "Z", component_host_msx_keyboard_presses_46, 1u },
+    { "LSHIFT", component_host_msx_keyboard_presses_47, 1u },
+    { "RSHIFT", component_host_msx_keyboard_presses_48, 1u },
+    { "LCTRL", component_host_msx_keyboard_presses_49, 1u },
+    { "RCTRL", component_host_msx_keyboard_presses_50, 1u },
+    { "RALT", component_host_msx_keyboard_presses_51, 1u },
+    { "CAPSLOCK", component_host_msx_keyboard_presses_52, 1u },
+    { "APPLICATION", component_host_msx_keyboard_presses_53, 1u },
+    { "F1", component_host_msx_keyboard_presses_54, 1u },
+    { "F2", component_host_msx_keyboard_presses_55, 1u },
+    { "F3", component_host_msx_keyboard_presses_56, 1u },
+    { "F4", component_host_msx_keyboard_presses_57, 1u },
+    { "F5", component_host_msx_keyboard_presses_58, 1u },
+    { "ESCAPE", component_host_msx_keyboard_presses_59, 1u },
+    { "TAB", component_host_msx_keyboard_presses_60, 1u },
+    { "LALT", component_host_msx_keyboard_presses_61, 1u },
+    { "BACKSPACE", component_host_msx_keyboard_presses_62, 2u },
+    { "INSERT", component_host_msx_keyboard_presses_63, 1u },
+    { "RETURN", component_host_msx_keyboard_presses_64, 1u },
+    { "SPACE", component_host_msx_keyboard_presses_65, 1u },
+    { "HOME", component_host_msx_keyboard_presses_66, 1u },
+    { "PAGEUP", component_host_msx_keyboard_presses_67, 1u },
+    { "DELETE", component_host_msx_keyboard_presses_68, 1u },
+    { "LEFT", component_host_msx_keyboard_presses_69, 1u },
+    { "UP", component_host_msx_keyboard_presses_70, 1u },
+    { "DOWN", component_host_msx_keyboard_presses_71, 1u },
+    { "RIGHT", component_host_msx_keyboard_presses_72, 1u },
 };
 static const ComponentKeyboardMap g_component_keyboard_maps[] = {
-    { "host_msx_sdl2", 0u, component_host_msx_sdl2_keyboard_bindings, (sizeof(component_host_msx_sdl2_keyboard_bindings) / sizeof(component_host_msx_sdl2_keyboard_bindings[0])) },
+    { "host_msx", 0u, component_host_msx_keyboard_bindings, (sizeof(component_host_msx_keyboard_bindings) / sizeof(component_host_msx_keyboard_bindings[0])) },
 };
+static uint8_t cpu_component_host_key_is_pressed(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {
+#if CPU_HOST_HAS_SCANCODE_MAP
+    if (!host_key || !host_keys || host_key_count == 0u) return 0u;
+    if (0) return 0u;
+    else if (strcmp(host_key, "0") == 0) return ((size_t)CPU_HOST_SCANCODE(0) < host_key_count && host_keys[CPU_HOST_SCANCODE(0)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "1") == 0) return ((size_t)CPU_HOST_SCANCODE(1) < host_key_count && host_keys[CPU_HOST_SCANCODE(1)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "2") == 0) return ((size_t)CPU_HOST_SCANCODE(2) < host_key_count && host_keys[CPU_HOST_SCANCODE(2)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "3") == 0) return ((size_t)CPU_HOST_SCANCODE(3) < host_key_count && host_keys[CPU_HOST_SCANCODE(3)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "4") == 0) return ((size_t)CPU_HOST_SCANCODE(4) < host_key_count && host_keys[CPU_HOST_SCANCODE(4)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "5") == 0) return ((size_t)CPU_HOST_SCANCODE(5) < host_key_count && host_keys[CPU_HOST_SCANCODE(5)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "6") == 0) return ((size_t)CPU_HOST_SCANCODE(6) < host_key_count && host_keys[CPU_HOST_SCANCODE(6)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "7") == 0) return ((size_t)CPU_HOST_SCANCODE(7) < host_key_count && host_keys[CPU_HOST_SCANCODE(7)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "8") == 0) return ((size_t)CPU_HOST_SCANCODE(8) < host_key_count && host_keys[CPU_HOST_SCANCODE(8)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "9") == 0) return ((size_t)CPU_HOST_SCANCODE(9) < host_key_count && host_keys[CPU_HOST_SCANCODE(9)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "A") == 0) return ((size_t)CPU_HOST_SCANCODE(A) < host_key_count && host_keys[CPU_HOST_SCANCODE(A)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "APOSTROPHE") == 0) return ((size_t)CPU_HOST_SCANCODE(APOSTROPHE) < host_key_count && host_keys[CPU_HOST_SCANCODE(APOSTROPHE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "APPLICATION") == 0) return ((size_t)CPU_HOST_SCANCODE(APPLICATION) < host_key_count && host_keys[CPU_HOST_SCANCODE(APPLICATION)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "B") == 0) return ((size_t)CPU_HOST_SCANCODE(B) < host_key_count && host_keys[CPU_HOST_SCANCODE(B)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "BACKSLASH") == 0) return ((size_t)CPU_HOST_SCANCODE(BACKSLASH) < host_key_count && host_keys[CPU_HOST_SCANCODE(BACKSLASH)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "BACKSPACE") == 0) return ((size_t)CPU_HOST_SCANCODE(BACKSPACE) < host_key_count && host_keys[CPU_HOST_SCANCODE(BACKSPACE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "C") == 0) return ((size_t)CPU_HOST_SCANCODE(C) < host_key_count && host_keys[CPU_HOST_SCANCODE(C)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "CAPSLOCK") == 0) return ((size_t)CPU_HOST_SCANCODE(CAPSLOCK) < host_key_count && host_keys[CPU_HOST_SCANCODE(CAPSLOCK)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "COMMA") == 0) return ((size_t)CPU_HOST_SCANCODE(COMMA) < host_key_count && host_keys[CPU_HOST_SCANCODE(COMMA)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "D") == 0) return ((size_t)CPU_HOST_SCANCODE(D) < host_key_count && host_keys[CPU_HOST_SCANCODE(D)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "DELETE") == 0) return ((size_t)CPU_HOST_SCANCODE(DELETE) < host_key_count && host_keys[CPU_HOST_SCANCODE(DELETE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "DOWN") == 0) return ((size_t)CPU_HOST_SCANCODE(DOWN) < host_key_count && host_keys[CPU_HOST_SCANCODE(DOWN)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "E") == 0) return ((size_t)CPU_HOST_SCANCODE(E) < host_key_count && host_keys[CPU_HOST_SCANCODE(E)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "EQUALS") == 0) return ((size_t)CPU_HOST_SCANCODE(EQUALS) < host_key_count && host_keys[CPU_HOST_SCANCODE(EQUALS)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "ESCAPE") == 0) return ((size_t)CPU_HOST_SCANCODE(ESCAPE) < host_key_count && host_keys[CPU_HOST_SCANCODE(ESCAPE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "F") == 0) return ((size_t)CPU_HOST_SCANCODE(F) < host_key_count && host_keys[CPU_HOST_SCANCODE(F)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "F1") == 0) return ((size_t)CPU_HOST_SCANCODE(F1) < host_key_count && host_keys[CPU_HOST_SCANCODE(F1)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "F2") == 0) return ((size_t)CPU_HOST_SCANCODE(F2) < host_key_count && host_keys[CPU_HOST_SCANCODE(F2)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "F3") == 0) return ((size_t)CPU_HOST_SCANCODE(F3) < host_key_count && host_keys[CPU_HOST_SCANCODE(F3)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "F4") == 0) return ((size_t)CPU_HOST_SCANCODE(F4) < host_key_count && host_keys[CPU_HOST_SCANCODE(F4)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "F5") == 0) return ((size_t)CPU_HOST_SCANCODE(F5) < host_key_count && host_keys[CPU_HOST_SCANCODE(F5)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "G") == 0) return ((size_t)CPU_HOST_SCANCODE(G) < host_key_count && host_keys[CPU_HOST_SCANCODE(G)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "GRAVE") == 0) return ((size_t)CPU_HOST_SCANCODE(GRAVE) < host_key_count && host_keys[CPU_HOST_SCANCODE(GRAVE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "H") == 0) return ((size_t)CPU_HOST_SCANCODE(H) < host_key_count && host_keys[CPU_HOST_SCANCODE(H)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "HOME") == 0) return ((size_t)CPU_HOST_SCANCODE(HOME) < host_key_count && host_keys[CPU_HOST_SCANCODE(HOME)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "I") == 0) return ((size_t)CPU_HOST_SCANCODE(I) < host_key_count && host_keys[CPU_HOST_SCANCODE(I)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "INSERT") == 0) return ((size_t)CPU_HOST_SCANCODE(INSERT) < host_key_count && host_keys[CPU_HOST_SCANCODE(INSERT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "J") == 0) return ((size_t)CPU_HOST_SCANCODE(J) < host_key_count && host_keys[CPU_HOST_SCANCODE(J)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "K") == 0) return ((size_t)CPU_HOST_SCANCODE(K) < host_key_count && host_keys[CPU_HOST_SCANCODE(K)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "L") == 0) return ((size_t)CPU_HOST_SCANCODE(L) < host_key_count && host_keys[CPU_HOST_SCANCODE(L)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "LALT") == 0) return ((size_t)CPU_HOST_SCANCODE(LALT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LALT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "LCTRL") == 0) return ((size_t)CPU_HOST_SCANCODE(LCTRL) < host_key_count && host_keys[CPU_HOST_SCANCODE(LCTRL)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "LEFT") == 0) return ((size_t)CPU_HOST_SCANCODE(LEFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LEFT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "LEFTBRACKET") == 0) return ((size_t)CPU_HOST_SCANCODE(LEFTBRACKET) < host_key_count && host_keys[CPU_HOST_SCANCODE(LEFTBRACKET)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "LSHIFT") == 0) return ((size_t)CPU_HOST_SCANCODE(LSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LSHIFT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "M") == 0) return ((size_t)CPU_HOST_SCANCODE(M) < host_key_count && host_keys[CPU_HOST_SCANCODE(M)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "MINUS") == 0) return ((size_t)CPU_HOST_SCANCODE(MINUS) < host_key_count && host_keys[CPU_HOST_SCANCODE(MINUS)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "N") == 0) return ((size_t)CPU_HOST_SCANCODE(N) < host_key_count && host_keys[CPU_HOST_SCANCODE(N)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "O") == 0) return ((size_t)CPU_HOST_SCANCODE(O) < host_key_count && host_keys[CPU_HOST_SCANCODE(O)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "P") == 0) return ((size_t)CPU_HOST_SCANCODE(P) < host_key_count && host_keys[CPU_HOST_SCANCODE(P)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "PAGEUP") == 0) return ((size_t)CPU_HOST_SCANCODE(PAGEUP) < host_key_count && host_keys[CPU_HOST_SCANCODE(PAGEUP)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "PERIOD") == 0) return ((size_t)CPU_HOST_SCANCODE(PERIOD) < host_key_count && host_keys[CPU_HOST_SCANCODE(PERIOD)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "Q") == 0) return ((size_t)CPU_HOST_SCANCODE(Q) < host_key_count && host_keys[CPU_HOST_SCANCODE(Q)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "R") == 0) return ((size_t)CPU_HOST_SCANCODE(R) < host_key_count && host_keys[CPU_HOST_SCANCODE(R)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "RALT") == 0) return ((size_t)CPU_HOST_SCANCODE(RALT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RALT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "RCTRL") == 0) return ((size_t)CPU_HOST_SCANCODE(RCTRL) < host_key_count && host_keys[CPU_HOST_SCANCODE(RCTRL)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "RETURN") == 0) return ((size_t)CPU_HOST_SCANCODE(RETURN) < host_key_count && host_keys[CPU_HOST_SCANCODE(RETURN)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "RIGHT") == 0) return ((size_t)CPU_HOST_SCANCODE(RIGHT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RIGHT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "RIGHTBRACKET") == 0) return ((size_t)CPU_HOST_SCANCODE(RIGHTBRACKET) < host_key_count && host_keys[CPU_HOST_SCANCODE(RIGHTBRACKET)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "RSHIFT") == 0) return ((size_t)CPU_HOST_SCANCODE(RSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RSHIFT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "S") == 0) return ((size_t)CPU_HOST_SCANCODE(S) < host_key_count && host_keys[CPU_HOST_SCANCODE(S)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "SEMICOLON") == 0) return ((size_t)CPU_HOST_SCANCODE(SEMICOLON) < host_key_count && host_keys[CPU_HOST_SCANCODE(SEMICOLON)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "SLASH") == 0) return ((size_t)CPU_HOST_SCANCODE(SLASH) < host_key_count && host_keys[CPU_HOST_SCANCODE(SLASH)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "SPACE") == 0) return ((size_t)CPU_HOST_SCANCODE(SPACE) < host_key_count && host_keys[CPU_HOST_SCANCODE(SPACE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "T") == 0) return ((size_t)CPU_HOST_SCANCODE(T) < host_key_count && host_keys[CPU_HOST_SCANCODE(T)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "TAB") == 0) return ((size_t)CPU_HOST_SCANCODE(TAB) < host_key_count && host_keys[CPU_HOST_SCANCODE(TAB)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "U") == 0) return ((size_t)CPU_HOST_SCANCODE(U) < host_key_count && host_keys[CPU_HOST_SCANCODE(U)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "UP") == 0) return ((size_t)CPU_HOST_SCANCODE(UP) < host_key_count && host_keys[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "V") == 0) return ((size_t)CPU_HOST_SCANCODE(V) < host_key_count && host_keys[CPU_HOST_SCANCODE(V)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "W") == 0) return ((size_t)CPU_HOST_SCANCODE(W) < host_key_count && host_keys[CPU_HOST_SCANCODE(W)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "X") == 0) return ((size_t)CPU_HOST_SCANCODE(X) < host_key_count && host_keys[CPU_HOST_SCANCODE(X)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "Y") == 0) return ((size_t)CPU_HOST_SCANCODE(Y) < host_key_count && host_keys[CPU_HOST_SCANCODE(Y)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "Z") == 0) return ((size_t)CPU_HOST_SCANCODE(Z) < host_key_count && host_keys[CPU_HOST_SCANCODE(Z)] != 0u) ? 1u : 0u;
+    return 0u;
+#else
+    (void)host_key;
+    (void)host_keys;
+    (void)host_key_count;
+    return 0u;
+#endif
+}
 static const ComponentKeyboardMap *cpu_component_find_keyboard_map(const char *component_id) {
     size_t map_count = sizeof(g_component_keyboard_maps) / sizeof(g_component_keyboard_maps[0]);
     for (size_t i = 0; i < map_count; i++) {
@@ -466,8 +963,7 @@ static void cpu_component_apply_declared_keymap(
     if (map->focus_required && has_focus == 0u) return;
     for (size_t bind_idx = 0; bind_idx < map->binding_count; bind_idx++) {
         const ComponentKeyboardBinding *binding = &map->bindings[bind_idx];
-        if (binding->host_key < 0 || (size_t)binding->host_key >= host_key_count) continue;
-        if (host_keys[binding->host_key] == 0u) continue;
+        if (!cpu_component_host_key_is_pressed(binding->host_key, host_keys, host_key_count)) continue;
         for (size_t press_idx = 0; press_idx < binding->press_count; press_idx++) {
             const ComponentKeyboardPress *press = &binding->presses[press_idx];
             if ((size_t)press->row >= row_count || press->bit >= 8u) continue;
@@ -478,13 +974,13 @@ static void cpu_component_apply_declared_keymap(
 
 static const ComponentConnection g_component_connections[] = {
     { "ppi0", "callback", "keyboard_read_row", "keyboard_msx", "callback", "read_row" },
-    { "keyboard_msx", "callback", "host_matrix", "host_msx_sdl2", "callback", "keyboard_matrix" },
-    { "psg0", "callback", "joy_read", "host_msx_sdl2", "callback", "joystick_state" },
+    { "keyboard_msx", "callback", "host_matrix", "host_msx", "callback", "keyboard_matrix" },
+    { "psg0", "callback", "joy_read", "host_msx", "callback", "joystick_state" },
     { "vdp0", "signal", "frame_ready", "video_msx", "handler", "on_frame_ready" },
-    { "video_msx", "signal", "frame_present", "host_msx_sdl2", "handler", "video_frame" },
-    { "vdp0", "signal", "irq_edge", "host_msx_sdl2", "handler", "irq_edge" },
+    { "video_msx", "signal", "frame_present", "host_msx", "handler", "video_frame" },
+    { "vdp0", "signal", "irq_edge", "host_msx", "handler", "irq_edge" },
     { "psg0", "signal", "audio_level", "speaker_msx", "handler", "on_audio_level" },
-    { "speaker_msx", "signal", "pcm_sample", "host_msx_sdl2", "handler", "audio_pcm" },
+    { "speaker_msx", "signal", "pcm_sample", "host_msx", "handler", "audio_pcm" },
 };
 static uint64_t component_ppi0_callback_keyboard_read_row(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
@@ -522,16 +1018,16 @@ static uint64_t component_keyboard_msx_callback_host_matrix(CPUState *cpu, const
     return __result;
 }
 
-static uint64_t component_host_msx_sdl2_callback_keyboard_matrix(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static uint64_t component_host_msx_callback_keyboard_matrix(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_msx_sdl2 *comp = &cpu->comp_host_msx_sdl2;
-    cpu->active_component_id = "host_msx_sdl2";
+    ComponentState_host_msx *comp = &cpu->comp_host_msx;
+    cpu->active_component_id = "host_msx";
     uint64_t __result = 0;
-    if (comp->sdl_inited != 0u) {
-        SDL_PumpEvents();
-        comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == (SDL_Window *)comp->window) ? 1u : 0u;
+    if (comp->host_inited != 0u) {
+        cpu_host_hal_pump_events();
+        comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
         int key_count = 0;
-        const uint8_t *ks = SDL_GetKeyboardState(&key_count);
+        const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
         if (ks != NULL && key_count > 0) {
             uint8_t rows[11] = {
                 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,
@@ -539,7 +1035,7 @@ static uint64_t component_host_msx_sdl2_callback_keyboard_matrix(CPUState *cpu, 
             };
             cpu_component_apply_declared_keymap(
                 cpu,
-                "host_msx_sdl2",
+                "host_msx",
                 ks,
                 (size_t)key_count,
                 rows,
@@ -549,14 +1045,14 @@ static uint64_t component_host_msx_sdl2_callback_keyboard_matrix(CPUState *cpu, 
             /* Locale bridge: if host reports semantic quote while Shift is down,
              * force HotBit matrix key "6" (Shift+6 => double quote). */
             {
-                uint8_t shift_down = ((ks[SDL_SCANCODE_LSHIFT] != 0u) || (ks[SDL_SCANCODE_RSHIFT] != 0u)) ? 1u : 0u;
+                uint8_t shift_down = ((ks[CPU_HOST_SCANCODE(LSHIFT)] != 0u) || (ks[CPU_HOST_SCANCODE(RSHIFT)] != 0u)) ? 1u : 0u;
                 if (shift_down != 0u) {
                     for (int sc = 0; sc < key_count; ++sc) {
                         if (ks[sc] == 0u) {
                             continue;
                         }
-                        SDL_Keycode kc = SDL_GetKeyFromScancode((SDL_Scancode)sc);
-                        if (kc == SDLK_QUOTE) {
+                        int32_t kc = cpu_host_hal_key_from_scancode(sc);
+                        if (kc == CPU_HOST_KEYCODE_QUOTE) {
                             rows[0] &= (uint8_t)~(1u << 6); /* key "6" */
                             rows[2] |= (uint8_t)(1u << 0);  /* release quote key */
                             rows[2] |= (uint8_t)(1u << 1);  /* release backquote key */
@@ -598,33 +1094,33 @@ static uint64_t component_host_msx_sdl2_callback_keyboard_matrix(CPUState *cpu, 
     return __result;
 }
 
-static uint64_t component_host_msx_sdl2_callback_joystick_state(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static uint64_t component_host_msx_callback_joystick_state(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_msx_sdl2 *comp = &cpu->comp_host_msx_sdl2;
-    cpu->active_component_id = "host_msx_sdl2";
+    ComponentState_host_msx *comp = &cpu->comp_host_msx;
+    cpu->active_component_id = "host_msx";
     uint64_t __result = 0;
-    if (comp->sdl_inited == 0u) return 0xFFu;
-    SDL_PumpEvents();
-    comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == (SDL_Window *)comp->window) ? 1u : 0u;
+    if (comp->host_inited == 0u) return 0xFFu;
+    cpu_host_hal_pump_events();
+    comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
     if (comp->has_keyboard_focus == 0u) return 0xFFu;
 
     int key_count = 0;
-    const uint8_t *ks = SDL_GetKeyboardState(&key_count);
+    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
     if (ks == NULL || key_count <= 0) return 0xFFu;
 
-    uint8_t up = ((int)SDL_SCANCODE_UP < key_count && ks[SDL_SCANCODE_UP] != 0u) ? 1u : 0u;
-    uint8_t down = ((int)SDL_SCANCODE_DOWN < key_count && ks[SDL_SCANCODE_DOWN] != 0u) ? 1u : 0u;
-    uint8_t left = ((int)SDL_SCANCODE_LEFT < key_count && ks[SDL_SCANCODE_LEFT] != 0u) ? 1u : 0u;
-    uint8_t right = ((int)SDL_SCANCODE_RIGHT < key_count && ks[SDL_SCANCODE_RIGHT] != 0u) ? 1u : 0u;
+    uint8_t up = ((int)CPU_HOST_SCANCODE(UP) < key_count && ks[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;
+    uint8_t down = ((int)CPU_HOST_SCANCODE(DOWN) < key_count && ks[CPU_HOST_SCANCODE(DOWN)] != 0u) ? 1u : 0u;
+    uint8_t left = ((int)CPU_HOST_SCANCODE(LEFT) < key_count && ks[CPU_HOST_SCANCODE(LEFT)] != 0u) ? 1u : 0u;
+    uint8_t right = ((int)CPU_HOST_SCANCODE(RIGHT) < key_count && ks[CPU_HOST_SCANCODE(RIGHT)] != 0u) ? 1u : 0u;
 
     uint8_t btn1 = 0u;
     uint8_t btn2 = 0u;
     if (comp->joy_buttons_profile == 0u) {
-        btn1 = ((int)SDL_SCANCODE_KP_0 < key_count && ks[SDL_SCANCODE_KP_0] != 0u) ? 1u : 0u;
-        btn2 = ((int)SDL_SCANCODE_KP_ENTER < key_count && ks[SDL_SCANCODE_KP_ENTER] != 0u) ? 1u : 0u;
+        btn1 = ((int)CPU_HOST_SCANCODE(KP_0) < key_count && ks[CPU_HOST_SCANCODE(KP_0)] != 0u) ? 1u : 0u;
+        btn2 = ((int)CPU_HOST_SCANCODE(KP_ENTER) < key_count && ks[CPU_HOST_SCANCODE(KP_ENTER)] != 0u) ? 1u : 0u;
     } else {
-        btn1 = ((int)SDL_SCANCODE_KP_1 < key_count && ks[SDL_SCANCODE_KP_1] != 0u) ? 1u : 0u;
-        btn2 = ((int)SDL_SCANCODE_KP_2 < key_count && ks[SDL_SCANCODE_KP_2] != 0u) ? 1u : 0u;
+        btn1 = ((int)CPU_HOST_SCANCODE(KP_1) < key_count && ks[CPU_HOST_SCANCODE(KP_1)] != 0u) ? 1u : 0u;
+        btn2 = ((int)CPU_HOST_SCANCODE(KP_2) < key_count && ks[CPU_HOST_SCANCODE(KP_2)] != 0u) ? 1u : 0u;
     }
 
     uint8_t joy = 0xFFu;
@@ -649,8 +1145,8 @@ static uint64_t cpu_component_dispatch_callback(
     if (strcmp(component_id, "psg0") == 0 && strcmp(callback_name, "joy_read") == 0) return component_psg0_callback_joy_read(cpu, args, argc);
     if (strcmp(component_id, "keyboard_msx") == 0 && strcmp(callback_name, "read_row") == 0) return component_keyboard_msx_callback_read_row(cpu, args, argc);
     if (strcmp(component_id, "keyboard_msx") == 0 && strcmp(callback_name, "host_matrix") == 0) return component_keyboard_msx_callback_host_matrix(cpu, args, argc);
-    if (strcmp(component_id, "host_msx_sdl2") == 0 && strcmp(callback_name, "keyboard_matrix") == 0) return component_host_msx_sdl2_callback_keyboard_matrix(cpu, args, argc);
-    if (strcmp(component_id, "host_msx_sdl2") == 0 && strcmp(callback_name, "joystick_state") == 0) return component_host_msx_sdl2_callback_joystick_state(cpu, args, argc);
+    if (strcmp(component_id, "host_msx") == 0 && strcmp(callback_name, "keyboard_matrix") == 0) return component_host_msx_callback_keyboard_matrix(cpu, args, argc);
+    if (strcmp(component_id, "host_msx") == 0 && strcmp(callback_name, "joystick_state") == 0) return component_host_msx_callback_joystick_state(cpu, args, argc);
     return 0;
 }
 
@@ -673,13 +1169,13 @@ static void component_speaker_msx_handler_on_audio_level(CPUState *cpu, const ui
     cpu_component_emit_signal(cpu, "speaker_msx", "pcm_sample", args, argc);
 }
 
-static void component_host_msx_sdl2_handler_video_frame(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static void component_host_msx_handler_video_frame(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_msx_sdl2 *comp = &cpu->comp_host_msx_sdl2;
-    cpu->active_component_id = "host_msx_sdl2";
-    if (comp->sdl_inited == 0u || argc < 4) return;
-    SDL_Renderer *renderer = (SDL_Renderer *)comp->renderer;
-    SDL_Texture *texture = (SDL_Texture *)comp->texture;
+    ComponentState_host_msx *comp = &cpu->comp_host_msx;
+    cpu->active_component_id = "host_msx";
+    if (comp->host_inited == 0u || argc < 4) return;
+    void *renderer = comp->renderer;
+    void *texture = comp->texture;
     uint32_t frame = (uint32_t)(args[0] & 0xFFFFFFFFu);
     uint32_t *pixels = (uint32_t *)(uintptr_t)args[1];
     uint32_t w = (uint32_t)(args[2] & 0xFFFFFFFFu);
@@ -697,20 +1193,20 @@ static void component_host_msx_sdl2_handler_video_frame(CPUState *cpu, const uin
         );
     }
     if (comp->texture_w != w || comp->texture_h != h) {
-        SDL_DestroyTexture(texture);
-        texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, (int)w, (int)h);
+        cpu_host_hal_destroy_texture(texture);
+        texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888, CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);
         if (texture == NULL) return;
         comp->texture = (void *)texture;
         comp->texture_w = w;
         comp->texture_h = h;
     }
-    if (SDL_UpdateTexture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    SDL_RenderClear(renderer);
+    if (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
+    cpu_host_hal_render_set_draw_color(renderer, 0, 0, 0, 255);
+    cpu_host_hal_render_clear(renderer);
     int ww = 0;
     int wh = 0;
-    if (SDL_GetRendererOutputSize(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
-    SDL_Rect dst;
+    if (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
+    CPUHostRect dst;
     int scaled_w = ww;
     int scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);
     if (scaled_h > wh) {
@@ -721,23 +1217,23 @@ static void component_host_msx_sdl2_handler_video_frame(CPUState *cpu, const uin
     dst.h = (scaled_h > 0) ? scaled_h : wh;
     dst.x = (ww - dst.w) / 2;
     dst.y = (wh - dst.h) / 2;
-    if (SDL_RenderCopy(renderer, texture, NULL, &dst) != 0) return;
-    SDL_RenderPresent(renderer);
+    if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;
+    cpu_host_hal_render_present(renderer);
 }
 
-static void component_host_msx_sdl2_handler_irq_edge(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static void component_host_msx_handler_irq_edge(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_msx_sdl2 *comp = &cpu->comp_host_msx_sdl2;
-    cpu->active_component_id = "host_msx_sdl2";
+    ComponentState_host_msx *comp = &cpu->comp_host_msx;
+    cpu->active_component_id = "host_msx";
     if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {
         comp->irq_edges += 1u;
     }
 }
 
-static void component_host_msx_sdl2_handler_audio_pcm(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static void component_host_msx_handler_audio_pcm(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_msx_sdl2 *comp = &cpu->comp_host_msx_sdl2;
-    cpu->active_component_id = "host_msx_sdl2";
+    ComponentState_host_msx *comp = &cpu->comp_host_msx;
+    cpu->active_component_id = "host_msx";
     if (comp->audio_out_dev == 0u || comp->audio_out_ready == 0u || comp->audio_ring == NULL || comp->audio_ring_capacity == 0u || argc < 1) return;
     uint8_t mix_u = (uint8_t)(args[0] & 0xFFu); /* PSG mix encoded as 0..30, silence at 15 */
     uint64_t cycle = (argc > 1) ? (uint64_t)args[1] : cpu->total_cycles;
@@ -792,9 +1288,9 @@ static void cpu_component_dispatch_handler(
 ) {
     if (strcmp(component_id, "video_msx") == 0 && strcmp(handler_name, "on_frame_ready") == 0) { component_video_msx_handler_on_frame_ready(cpu, args, argc); return; }
     if (strcmp(component_id, "speaker_msx") == 0 && strcmp(handler_name, "on_audio_level") == 0) { component_speaker_msx_handler_on_audio_level(cpu, args, argc); return; }
-    if (strcmp(component_id, "host_msx_sdl2") == 0 && strcmp(handler_name, "video_frame") == 0) { component_host_msx_sdl2_handler_video_frame(cpu, args, argc); return; }
-    if (strcmp(component_id, "host_msx_sdl2") == 0 && strcmp(handler_name, "irq_edge") == 0) { component_host_msx_sdl2_handler_irq_edge(cpu, args, argc); return; }
-    if (strcmp(component_id, "host_msx_sdl2") == 0 && strcmp(handler_name, "audio_pcm") == 0) { component_host_msx_sdl2_handler_audio_pcm(cpu, args, argc); return; }
+    if (strcmp(component_id, "host_msx") == 0 && strcmp(handler_name, "video_frame") == 0) { component_host_msx_handler_video_frame(cpu, args, argc); return; }
+    if (strcmp(component_id, "host_msx") == 0 && strcmp(handler_name, "irq_edge") == 0) { component_host_msx_handler_irq_edge(cpu, args, argc); return; }
+    if (strcmp(component_id, "host_msx") == 0 && strcmp(handler_name, "audio_pcm") == 0) { component_host_msx_handler_audio_pcm(cpu, args, argc); return; }
     (void)cpu;
     (void)component_id;
     (void)handler_name;
@@ -1048,33 +1544,33 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         }
     }
     {
-        ComponentState_host_msx_sdl2 *comp = &cpu->comp_host_msx_sdl2;
-        cpu->active_component_id = "host_msx_sdl2";
-        if (comp->sdl_inited == 0u) return;
+        ComponentState_host_msx *comp = &cpu->comp_host_msx;
+        cpu->active_component_id = "host_msx";
+        if (comp->host_inited == 0u) return;
         uint64_t now = cpu->total_cycles;
         if ((now - comp->last_event_poll_cycle) < 2048u) return;
         comp->last_event_poll_cycle = now;
-        SDL_Event ev;
-        while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_QUIT) {
+        CPUHostEvent ev;
+        while (cpu_host_hal_poll_event(&ev)) {
+            if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {
                 cpu->running = false;
                 cpu->halted = true;
             }
         }
-        SDL_PumpEvents();
-        comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == (SDL_Window *)comp->window) ? 1u : 0u;
+        cpu_host_hal_pump_events();
+        comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
         if (comp->has_keyboard_focus != comp->last_focus_state) {
             comp->last_focus_state = comp->has_keyboard_focus;
             if (comp->window != NULL) {
-                SDL_SetWindowTitle(
-                    (SDL_Window *)comp->window,
+                cpu_host_hal_set_window_title(
+                    comp->window,
                     (comp->has_keyboard_focus != 0u) ? "PASM MSX1 [FOCUS]" : "PASM MSX1 [NO-FOCUS]"
                 );
             }
         }
         {
             sms_overlay_update_perf(
-                SDL_GetTicks(),
+                cpu_host_hal_ticks_ms(),
                 (uint64_t)comp->frame_count,
                 cpu->total_cycles,
                 (uint64_t)CPU_SYSTEM_CLOCK_HZ,
@@ -1087,7 +1583,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             );
         }
         int key_count = 0;
-        const uint8_t *ks = SDL_GetKeyboardState(&key_count);
+        const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
         if (ks == NULL || key_count <= 0) return;
         uint8_t rows[11] = {
             0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,
@@ -1095,7 +1591,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         };
         cpu_component_apply_declared_keymap(
             cpu,
-            "host_msx_sdl2",
+            "host_msx",
             ks,
             (size_t)key_count,
             rows,
@@ -1105,14 +1601,14 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         /* Locale bridge: if host reports semantic quote while Shift is down,
          * force HotBit matrix key "6" (Shift+6 => double quote). */
         {
-            uint8_t shift_down = ((ks[SDL_SCANCODE_LSHIFT] != 0u) || (ks[SDL_SCANCODE_RSHIFT] != 0u)) ? 1u : 0u;
+            uint8_t shift_down = ((ks[CPU_HOST_SCANCODE(LSHIFT)] != 0u) || (ks[CPU_HOST_SCANCODE(RSHIFT)] != 0u)) ? 1u : 0u;
             if (shift_down != 0u) {
                 for (int sc = 0; sc < key_count; ++sc) {
                     if (ks[sc] == 0u) {
                         continue;
                     }
-                    SDL_Keycode kc = SDL_GetKeyFromScancode((SDL_Scancode)sc);
-                    if (kc == SDLK_QUOTE) {
+                    int32_t kc = cpu_host_hal_key_from_scancode(sc);
+                    if (kc == CPU_HOST_KEYCODE_QUOTE) {
                         rows[0] &= (uint8_t)~(1u << 6); /* key "6" */
                         rows[2] |= (uint8_t)(1u << 0);  /* release quote key */
                         rows[2] |= (uint8_t)(1u << 1);  /* release backquote key */
@@ -1133,7 +1629,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         comp->row9 = rows[9];
         comp->row10 = rows[10];
         if (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u && comp->audio_ring != NULL && comp->audio_ring_fill > 0u) {
-            uint32_t queued_samples = SDL_GetQueuedAudioSize(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
+            uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
             uint32_t device_samples = (comp->audio_device_samples > 0u) ? comp->audio_device_samples : 512u;
             uint32_t low_watermark = device_samples * 2u;
             uint32_t target_total = device_samples * 4u;
@@ -1161,7 +1657,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                         if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
                     }
                     comp->audio_ring_fill -= n;
-                    if (SDL_QueueAudio(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t)) != 0) {
+                    if (cpu_host_hal_audio_queue(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t)) != 0) {
                         break;
                     }
                     to_send -= n;
@@ -3516,17 +4012,19 @@ static void inst_BIT_7_HLI(CPUState *cpu, DecodedInstruction *inst) {
 
 /* IN_A_N - data_transfer */
 static void inst_IN_A_N(CPUState *cpu, DecodedInstruction *inst) {
-    cpu->registers[REG_A] = z80_read_port(cpu, inst->n);
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_A] << 8u) | (uint16_t)inst->n);
+    cpu->registers[REG_A] = z80_read_port(cpu, port);
 }
 
 /* OUT_N_A - data_transfer */
 static void inst_OUT_N_A(CPUState *cpu, DecodedInstruction *inst) {
-    z80_write_port(cpu, inst->n, cpu->registers[REG_A]);
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_A] << 8u) | (uint16_t)inst->n);
+    z80_write_port(cpu, port, cpu->registers[REG_A]);
 }
 
 /* IN_R_C - data_transfer */
 static void inst_IN_R_C(CPUState *cpu, DecodedInstruction *inst) {
-    uint16_t port = (uint16_t)cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_port(cpu, port);
     uint8_t r = inst->r & 0x07;
     if (r == 0) cpu->registers[REG_B] = value;
@@ -3547,6 +4045,7 @@ static void inst_IN_R_C(CPUState *cpu, DecodedInstruction *inst) {
 /* OUT_C_R - data_transfer */
 static void inst_OUT_C_R(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t r = inst->r & 0x07;
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = 0;
     if (r == 0) value = cpu->registers[REG_B];
     else if (r == 1) value = cpu->registers[REG_C];
@@ -3555,7 +4054,7 @@ static void inst_OUT_C_R(CPUState *cpu, DecodedInstruction *inst) {
     else if (r == 4) value = cpu->registers[REG_H];
     else if (r == 5) value = cpu->registers[REG_L];
     else if (r == 7) value = cpu->registers[REG_A];
-    z80_write_port(cpu, (uint16_t)cpu->registers[REG_C], value);
+    z80_write_port(cpu, port, value);
 }
 
 /* LD_I_A - data_transfer */
@@ -6168,14 +6667,15 @@ static void inst_DJNZ_D(CPUState *cpu, DecodedInstruction *inst) {
 /* INI - data_transfer */
 static void inst_INI(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl++;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port + 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l + 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -6188,14 +6688,15 @@ static void inst_INI(CPUState *cpu, DecodedInstruction *inst) {
 /* IND - data_transfer */
 static void inst_IND(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl--;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port - 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l - 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -6208,14 +6709,15 @@ static void inst_IND(CPUState *cpu, DecodedInstruction *inst) {
 /* INIR - data_transfer */
 static void inst_INIR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl++;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port + 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l + 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -6233,14 +6735,15 @@ static void inst_INIR(CPUState *cpu, DecodedInstruction *inst) {
 /* INDR - data_transfer */
 static void inst_INDR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl--;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port - 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l - 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -6258,7 +6761,7 @@ static void inst_INDR(CPUState *cpu, DecodedInstruction *inst) {
 /* OUTI - data_transfer */
 static void inst_OUTI(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl++;
@@ -6278,7 +6781,7 @@ static void inst_OUTI(CPUState *cpu, DecodedInstruction *inst) {
 /* OUTD - data_transfer */
 static void inst_OUTD(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl--;
@@ -6298,7 +6801,7 @@ static void inst_OUTD(CPUState *cpu, DecodedInstruction *inst) {
 /* OTIR - data_transfer */
 static void inst_OTIR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl++;
@@ -6323,7 +6826,7 @@ static void inst_OTIR(CPUState *cpu, DecodedInstruction *inst) {
 /* OTDR - data_transfer */
 static void inst_OTDR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl--;
@@ -6404,6 +6907,11 @@ int z80_step(CPUState *cpu) {
     }
 
     if (cpu->halted) {
+        if (cpu->interrupt_pending && !cpu->interrupts_enabled) {
+            cpu->interrupt_pending = false;
+            cpu->halted = false;
+            return 0;
+        }
         uint16_t halted_pc = cpu->pc;
         DecodedInstruction halted_inst = {0};
         halted_inst.pc = halted_pc;
@@ -8433,6 +8941,7 @@ void z80_run(CPUState *cpu) {
 void z80_run_until(CPUState *cpu, uint64_t cycles) {
     while (cpu->running) {
         if (cycles > 0 && cpu->total_cycles >= cycles) break;
+        if (cpu->halted && !cpu->interrupt_pending) break;
         if (z80_step(cpu) != 0) break;
     }
 }
@@ -8538,97 +9047,97 @@ CPUState *z80_create(size_t memory_size) {
     cpu->comp_video_msx.height = 192;
     cpu->comp_speaker_msx.level = 0;
     cpu->comp_speaker_msx.last_cycle = 0;
-    cpu->comp_host_msx_sdl2.sdl_inited = 0;
-    cpu->comp_host_msx_sdl2.window = NULL;
-    cpu->comp_host_msx_sdl2.renderer = NULL;
-    cpu->comp_host_msx_sdl2.texture = NULL;
-    cpu->comp_host_msx_sdl2.texture_w = 256;
-    cpu->comp_host_msx_sdl2.texture_h = 192;
-    cpu->comp_host_msx_sdl2.audio_out_dev = 0;
-    cpu->comp_host_msx_sdl2.audio_device_samples = 0;
-    cpu->comp_host_msx_sdl2.audio_out_ready = 0;
-    cpu->comp_host_msx_sdl2.frame_count = 0;
-    cpu->comp_host_msx_sdl2.irq_edges = 0;
-    cpu->comp_host_msx_sdl2.audio_samples = 0;
-    cpu->comp_host_msx_sdl2.audio_level = 0;
-    cpu->comp_host_msx_sdl2.audio_last_cycle = 0;
-    cpu->comp_host_msx_sdl2.audio_sample_cursor = 0;
-    cpu->comp_host_msx_sdl2.audio_rate = 0;
-    cpu->comp_host_msx_sdl2.audio_ring = NULL;
-    cpu->comp_host_msx_sdl2.audio_ring_capacity = 0;
-    cpu->comp_host_msx_sdl2.audio_ring_read_idx = 0;
-    cpu->comp_host_msx_sdl2.audio_ring_write_idx = 0;
-    cpu->comp_host_msx_sdl2.audio_ring_fill = 0;
-    cpu->comp_host_msx_sdl2.has_keyboard_focus = 0;
-    cpu->comp_host_msx_sdl2.last_focus_state = 0;
-    cpu->comp_host_msx_sdl2.last_event_poll_cycle = 0;
-    cpu->comp_host_msx_sdl2.overlay_last_ms = 0;
-    cpu->comp_host_msx_sdl2.overlay_last_frame_count = 0;
-    cpu->comp_host_msx_sdl2.overlay_last_cycle_count = 0;
-    cpu->comp_host_msx_sdl2.overlay_fps_x100 = 0;
-    cpu->comp_host_msx_sdl2.overlay_cpu_hz = 0;
-    cpu->comp_host_msx_sdl2.overlay_cpu_pct_x10 = 0;
-    cpu->comp_host_msx_sdl2.row0 = 0xFF;
-    cpu->comp_host_msx_sdl2.row1 = 0xFF;
-    cpu->comp_host_msx_sdl2.row2 = 0xFF;
-    cpu->comp_host_msx_sdl2.row3 = 0xFF;
-    cpu->comp_host_msx_sdl2.row4 = 0xFF;
-    cpu->comp_host_msx_sdl2.row5 = 0xFF;
-    cpu->comp_host_msx_sdl2.row6 = 0xFF;
-    cpu->comp_host_msx_sdl2.row7 = 0xFF;
-    cpu->comp_host_msx_sdl2.row8 = 0xFF;
-    cpu->comp_host_msx_sdl2.row9 = 0xFF;
-    cpu->comp_host_msx_sdl2.row10 = 0xFF;
-    cpu->comp_host_msx_sdl2.joy_buttons_profile = 0;
+    cpu->comp_host_msx.host_inited = 0;
+    cpu->comp_host_msx.window = NULL;
+    cpu->comp_host_msx.renderer = NULL;
+    cpu->comp_host_msx.texture = NULL;
+    cpu->comp_host_msx.texture_w = 256;
+    cpu->comp_host_msx.texture_h = 192;
+    cpu->comp_host_msx.audio_out_dev = 0;
+    cpu->comp_host_msx.audio_device_samples = 0;
+    cpu->comp_host_msx.audio_out_ready = 0;
+    cpu->comp_host_msx.frame_count = 0;
+    cpu->comp_host_msx.irq_edges = 0;
+    cpu->comp_host_msx.audio_samples = 0;
+    cpu->comp_host_msx.audio_level = 0;
+    cpu->comp_host_msx.audio_last_cycle = 0;
+    cpu->comp_host_msx.audio_sample_cursor = 0;
+    cpu->comp_host_msx.audio_rate = 0;
+    cpu->comp_host_msx.audio_ring = NULL;
+    cpu->comp_host_msx.audio_ring_capacity = 0;
+    cpu->comp_host_msx.audio_ring_read_idx = 0;
+    cpu->comp_host_msx.audio_ring_write_idx = 0;
+    cpu->comp_host_msx.audio_ring_fill = 0;
+    cpu->comp_host_msx.has_keyboard_focus = 0;
+    cpu->comp_host_msx.last_focus_state = 0;
+    cpu->comp_host_msx.last_event_poll_cycle = 0;
+    cpu->comp_host_msx.overlay_last_ms = 0;
+    cpu->comp_host_msx.overlay_last_frame_count = 0;
+    cpu->comp_host_msx.overlay_last_cycle_count = 0;
+    cpu->comp_host_msx.overlay_fps_x100 = 0;
+    cpu->comp_host_msx.overlay_cpu_hz = 0;
+    cpu->comp_host_msx.overlay_cpu_pct_x10 = 0;
+    cpu->comp_host_msx.row0 = 0xFF;
+    cpu->comp_host_msx.row1 = 0xFF;
+    cpu->comp_host_msx.row2 = 0xFF;
+    cpu->comp_host_msx.row3 = 0xFF;
+    cpu->comp_host_msx.row4 = 0xFF;
+    cpu->comp_host_msx.row5 = 0xFF;
+    cpu->comp_host_msx.row6 = 0xFF;
+    cpu->comp_host_msx.row7 = 0xFF;
+    cpu->comp_host_msx.row8 = 0xFF;
+    cpu->comp_host_msx.row9 = 0xFF;
+    cpu->comp_host_msx.row10 = 0xFF;
+    cpu->comp_host_msx.joy_buttons_profile = 0;
     {
-        ComponentState_host_msx_sdl2 *comp = &cpu->comp_host_msx_sdl2;
-        cpu->active_component_id = "host_msx_sdl2";
+        ComponentState_host_msx *comp = &cpu->comp_host_msx;
+        cpu->active_component_id = "host_msx";
         do {
-            if (comp->sdl_inited != 0u) break;
-            if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) != 0) {
+            if (comp->host_inited != 0u) break;
+            if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) {
                 break;
             }
-            comp->window = SDL_CreateWindow(
+            comp->window = cpu_host_hal_create_window(
                 "PASM MSX1",
-                SDL_WINDOWPOS_CENTERED,
-                SDL_WINDOWPOS_CENTERED,
+                CPU_HOST_WINDOWPOS_CENTERED,
+                CPU_HOST_WINDOWPOS_CENTERED,
                 768,
                 576,
-                SDL_WINDOW_RESIZABLE
+                CPU_HOST_WINDOW_RESIZABLE
             );
             if (comp->window == NULL) break;
-            comp->renderer = SDL_CreateRenderer((SDL_Window *)comp->window, -1, SDL_RENDERER_ACCELERATED);
+            comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, CPU_HOST_RENDERER_ACCELERATED);
             if (comp->renderer == NULL) {
-                comp->renderer = SDL_CreateRenderer((SDL_Window *)comp->window, -1, 0);
+                comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);
             }
             if (comp->renderer == NULL) break;
-            SDL_StartTextInput();
-            comp->texture = SDL_CreateTexture(
-                (SDL_Renderer *)comp->renderer,
-                SDL_PIXELFORMAT_ARGB8888,
-                SDL_TEXTUREACCESS_STREAMING,
+            cpu_host_hal_start_text_input();
+            comp->texture = cpu_host_hal_create_texture(
+                comp->renderer,
+                CPU_HOST_PIXELFORMAT_ARGB8888,
+                CPU_HOST_TEXTUREACCESS_STREAMING,
                 256,
                 192
             );
             if (comp->texture == NULL) break;
             {
-                const char *audio_env = getenv("PASM_SDL_AUDIO");
+                const char *audio_env = cpu_host_hal_getenv("PASM_HOST_AUDIO");
                 if (audio_env == NULL || audio_env[0] != '0') {
-                    SDL_AudioSpec want;
-                    SDL_AudioSpec have;
-                    SDL_zero(want);
-                    SDL_zero(have);
+                    CPUHostAudioSpec want;
+                    CPUHostAudioSpec have;
+                    cpu_host_audio_spec_zero(&want);
+                    cpu_host_audio_spec_zero(&have);
                     want.freq = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (int)CPU_AUDIO_SAMPLE_RATE : 44100;
-                    want.format = AUDIO_S16SYS;
+                    want.format = CPU_HOST_AUDIO_FORMAT_S16;
                     want.channels = 1;
                     want.samples = 512;
                     want.callback = NULL;
                     comp->audio_device_samples = 0u;
-                    comp->audio_out_dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-                    if (comp->audio_out_dev != 0u && have.format == AUDIO_S16SYS && have.channels == 1) {
+                    comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have, CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE);
+                    if (comp->audio_out_dev != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels == 1) {
                         uint32_t ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq * 2u) : 88200u;
                         if (ring_capacity < 8192u) ring_capacity = 8192u;
-                        comp->audio_ring = (int16_t *)SDL_malloc((size_t)ring_capacity * sizeof(int16_t));
+                        comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));
                         if (comp->audio_ring != NULL) {
                             comp->audio_rate = (have.freq > 0) ? (uint32_t)have.freq : 44100u;
                             comp->audio_device_samples = (uint32_t)have.samples;
@@ -8637,53 +9146,27 @@ CPUState *z80_create(size_t memory_size) {
                             comp->audio_ring_write_idx = 0u;
                             comp->audio_ring_fill = 0u;
                             comp->audio_out_ready = 1u;
-                            SDL_PauseAudioDevice(comp->audio_out_dev, 0);
+                            cpu_host_hal_audio_pause(comp->audio_out_dev, 0);
                         } else {
-                            SDL_CloseAudioDevice(comp->audio_out_dev);
+                            cpu_host_hal_audio_close(comp->audio_out_dev);
                             comp->audio_out_dev = 0u;
                             comp->audio_device_samples = 0u;
                         }
                     } else if (comp->audio_out_dev != 0u) {
-                        SDL_CloseAudioDevice(comp->audio_out_dev);
+                        cpu_host_hal_audio_close(comp->audio_out_dev);
                         comp->audio_out_dev = 0u;
                         comp->audio_device_samples = 0u;
                     }
                 }
             }
-            comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == (SDL_Window *)comp->window) ? 1u : 0u;
+            comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
             comp->last_focus_state = comp->has_keyboard_focus;
             {
-                const char *joy_btn_env = getenv("PASM_MSX_JOY_BUTTONS");
+                const char *joy_btn_env = cpu_host_hal_getenv("PASM_MSX_JOY_BUTTONS");
                 comp->joy_buttons_profile = (joy_btn_env != NULL && joy_btn_env[0] == '2') ? 1u : 0u;
             }
-            comp->sdl_inited = 1u;
+            comp->host_inited = 1u;
         } while (0);
-    }
-    cpu->comp_msx_cart0.rom_data = NULL;
-    cpu->comp_msx_cart0.rom_size = 0;
-    cpu->comp_msx_cart0.slot_id = 1;
-    cpu->comp_msx_cart0.bank_6000 = 1;
-    cpu->comp_msx_cart0.bank_8000 = 2;
-    cpu->comp_msx_cart0.bank_a000 = 3;
-    {
-        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
-        cpu->active_component_id = "msx_cart0";
-        {
-            const char *slot_env = getenv("PASM_MSX_CART_SLOT");
-            if (slot_env != NULL && slot_env[0] != '\0') {
-                int v = atoi(slot_env);
-                if (v >= 0 && v <= 3) {
-                    comp->slot_id = (uint8_t)v;
-                } else {
-                    comp->slot_id = 1u;
-                }
-            } else {
-                comp->slot_id = 1u;
-            }
-        }
-        comp->bank_6000 = 1u;
-        comp->bank_8000 = 2u;
-        comp->bank_a000 = 3u;
     }
     
     z80_reset(cpu);
@@ -8701,14 +9184,14 @@ void z80_destroy(CPUState *cpu) {
             }
         }
         {
-            ComponentState_host_msx_sdl2 *comp = &cpu->comp_host_msx_sdl2;
-            cpu->active_component_id = "host_msx_sdl2";
+            ComponentState_host_msx *comp = &cpu->comp_host_msx;
+            cpu->active_component_id = "host_msx";
             if (comp->audio_out_dev != 0u) {
-                SDL_CloseAudioDevice(comp->audio_out_dev);
+                cpu_host_hal_audio_close(comp->audio_out_dev);
                 comp->audio_out_dev = 0u;
             }
             if (comp->audio_ring != NULL) {
-                SDL_free(comp->audio_ring);
+                cpu_host_hal_free(comp->audio_ring);
                 comp->audio_ring = NULL;
             }
             comp->audio_ring_capacity = 0u;
@@ -8717,32 +9200,23 @@ void z80_destroy(CPUState *cpu) {
             comp->audio_ring_fill = 0u;
             comp->audio_device_samples = 0u;
             if (comp->texture != NULL) {
-                SDL_DestroyTexture((SDL_Texture *)comp->texture);
+                cpu_host_hal_destroy_texture(comp->texture);
                 comp->texture = NULL;
             }
             if (comp->renderer != NULL) {
-                SDL_DestroyRenderer((SDL_Renderer *)comp->renderer);
+                cpu_host_hal_destroy_renderer(comp->renderer);
                 comp->renderer = NULL;
             }
             if (comp->window != NULL) {
-                SDL_DestroyWindow((SDL_Window *)comp->window);
+                cpu_host_hal_destroy_window(comp->window);
                 comp->window = NULL;
             }
-            if (comp->sdl_inited != 0u) {
-                SDL_StopTextInput();
-                SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS);
-                SDL_Quit();
-                comp->sdl_inited = 0u;
+            if (comp->host_inited != 0u) {
+                cpu_host_hal_stop_text_input();
+                cpu_host_hal_quit_subsystems();
+                cpu_host_hal_quit();
+                comp->host_inited = 0u;
             }
-        }
-        {
-            ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
-            cpu->active_component_id = "msx_cart0";
-            if (comp->rom_data != NULL) {
-                free(comp->rom_data);
-                comp->rom_data = NULL;
-            }
-            comp->rom_size = 0u;
         }
         free(cpu->memory);
         free(cpu->port_memory);
@@ -8845,8 +9319,8 @@ void z80_reset(CPUState *cpu) {
     cpu->comp_speaker_msx.level = 0;
     cpu->comp_speaker_msx.last_cycle = 0;
     {
-        ComponentState_host_msx_sdl2 *comp = &cpu->comp_host_msx_sdl2;
-        cpu->active_component_id = "host_msx_sdl2";
+        ComponentState_host_msx *comp = &cpu->comp_host_msx;
+        cpu->active_component_id = "host_msx";
         comp->row0 = 0xFFu;
         comp->row1 = 0xFFu;
         comp->row2 = 0xFFu;
@@ -8875,32 +9349,12 @@ void z80_reset(CPUState *cpu) {
         comp->overlay_cpu_hz = 0u;
         comp->overlay_cpu_pct_x10 = 0u;
         {
-            const char *joy_btn_env = getenv("PASM_MSX_JOY_BUTTONS");
+            const char *joy_btn_env = cpu_host_hal_getenv("PASM_MSX_JOY_BUTTONS");
             comp->joy_buttons_profile = (joy_btn_env != NULL && joy_btn_env[0] == '2') ? 1u : 0u;
         }
         if (comp->audio_out_dev != 0u) {
-            SDL_ClearQueuedAudio(comp->audio_out_dev);
+            cpu_host_hal_audio_clear(comp->audio_out_dev);
         }
-    }
-    cpu->comp_msx_cart0.slot_id = 1;
-    cpu->comp_msx_cart0.bank_6000 = 1;
-    cpu->comp_msx_cart0.bank_8000 = 2;
-    cpu->comp_msx_cart0.bank_a000 = 3;
-    {
-        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
-        cpu->active_component_id = "msx_cart0";
-        {
-            const char *slot_env = getenv("PASM_MSX_CART_SLOT");
-            if (slot_env != NULL && slot_env[0] != '\0') {
-                int v = atoi(slot_env);
-                if (v >= 0 && v <= 3) {
-                    comp->slot_id = (uint8_t)v;
-                }
-            }
-        }
-        comp->bank_6000 = 1u;
-        comp->bank_8000 = 2u;
-        comp->bank_a000 = 3u;
     }
     cpu->running = true;
     cpu->halted = false;
@@ -8953,7 +9407,7 @@ typedef struct {
 } SystemRomImage;
 
 static const SystemRomImage g_system_rom_images[] = {
-    { "msx_bios_32k", "../roms/msx.rom", 0x0000u, 32768u },
+    { "msx_bios_32k", "../../roms/msx1/msx.rom", 0x0000u, 32768u },
 };
 
 static bool cpu_path_is_absolute(const char *path) {
@@ -9017,85 +9471,15 @@ int z80_load_system_roms(CPUState *cpu, const char *system_base_dir) {
 }
 
 int z80_load_cartridge_rom(CPUState *cpu, const char *path) {
-    FILE *f;
-    long file_size;
-    uint8_t *buf;
-    ComponentState_msx_cart0 *comp;
-    size_t read_len;
-
-    if (!cpu || !path || !path[0]) return -1;
-    comp = &cpu->comp_msx_cart0;
-    f = fopen(path, "rb");
-    if (!f) return -1;
-    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
-    file_size = ftell(f);
-    if (file_size < 0) { fclose(f); return -1; }
-    if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
-    buf = (uint8_t *)malloc((size_t)file_size);
-    if (!buf) { fclose(f); return -1; }
-    read_len = fread(buf, 1, (size_t)file_size, f);
-    fclose(f);
-    if (read_len != (size_t)file_size) { free(buf); return -1; }
-    if (comp->rom_data != NULL) {
-        free(comp->rom_data);
-        comp->rom_data = NULL;
-    }
-    comp->rom_data = buf;
-    comp->rom_size = (uint32_t)file_size;
-    snprintf(
-        cpu->loaded_rom_debug,
-        sizeof(cpu->loaded_rom_debug),
-        "name=msx_cart0 path=%s",
-        path
-    );
-    return 0;
+    (void)cpu;
+    (void)path;
+    return -1;
 }
 
 
 /* ===== Memory Access ===== */
 uint8_t z80_read_byte(CPUState *cpu, uint16_t addr) {
-    {
-        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
-        cpu->active_component_id = "msx_cart0";
-        if (comp->rom_data != NULL && comp->rom_size > 0u) {
-            uint8_t slotreg = cpu->comp_ppi0.slot_select;
-            uint8_t page = (uint8_t)(addr >> 14);
-            uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
-            if (page_slot == (uint8_t)(comp->slot_id & 0x03u)) {
-                uint32_t bank_size = 0x2000u;
-                uint32_t bank_count = comp->rom_size / bank_size;
-                if (bank_count == 0u) return 0xFFu;
 
-                if (addr >= 0x4000u && addr < 0x6000u) {
-                    uint32_t off = (uint32_t)(addr - 0x4000u);
-                    uint32_t bank_off = off;
-                    if (bank_off < comp->rom_size) return comp->rom_data[bank_off];
-                    return 0xFFu;
-                }
-
-                if (addr >= 0x6000u && addr < 0x8000u) {
-                    uint32_t bank = (uint32_t)(comp->bank_6000 % bank_count);
-                    uint32_t off = bank * bank_size + (uint32_t)(addr - 0x6000u);
-                    if (off < comp->rom_size) return comp->rom_data[off];
-                    return 0xFFu;
-                }
-
-                if (addr >= 0x8000u && addr < 0xA000u) {
-                    uint32_t bank = (uint32_t)(comp->bank_8000 % bank_count);
-                    uint32_t off = bank * bank_size + (uint32_t)(addr - 0x8000u);
-                    if (off < comp->rom_size) return comp->rom_data[off];
-                    return 0xFFu;
-                }
-
-                if (addr >= 0xA000u && addr < 0xC000u) {
-                    uint32_t bank = (uint32_t)(comp->bank_a000 % bank_count);
-                    uint32_t off = bank * bank_size + (uint32_t)(addr - 0xA000u);
-                    if (off < comp->rom_size) return comp->rom_data[off];
-                    return 0xFFu;
-                }
-            }
-        }
-    }
     if (addr >= cpu->memory_size) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return 0xFF;
@@ -9104,37 +9488,13 @@ uint8_t z80_read_byte(CPUState *cpu, uint16_t addr) {
 }
 
 void z80_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
-    {
-        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
-        cpu->active_component_id = "msx_cart0";
-        if (comp->rom_data == NULL || comp->rom_size == 0u) return;
-        {
-            uint8_t slotreg = cpu->comp_ppi0.slot_select;
-            uint8_t page = (uint8_t)(addr >> 14);
-            uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
-            if (page_slot != (uint8_t)(comp->slot_id & 0x03u)) return;
-        }
 
-        if (addr >= 0x6000u && addr < 0x8000u) {
-            comp->bank_6000 = value;
-            return;
-        }
-        if (addr >= 0x8000u && addr < 0xA000u) {
-            comp->bank_8000 = value;
-            return;
-        }
-        if (addr >= 0xA000u && addr < 0xC000u) {
-            comp->bank_a000 = value;
-            return;
-        }
-    }
     if (addr >= cpu->memory_size) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
     }
-    /* Block writes to read-only region: BIOS_32K */
+    /* Ignore writes to read-only region: BIOS_32K */
     if (addr < 0x8000u) {
-        cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
     }
     cpu->memory[addr] = value;
@@ -9366,7 +9726,7 @@ void z80_set_irq(CPUState *cpu, bool enabled) {
 
 /* ===== Debug ===== */
 void z80_dump_registers(CPUState *cpu) {
-    printf("PC: 0x%04X SP: 0x%04X Flags: 0x%02X\n", cpu->pc, cpu->sp, cpu->flags.raw);
+    printf("PC: 0x%04X SP: 0x%04X Flags: 0x%02X\n", cpu->pc, cpu->sp, (uint8_t)((((cpu->flags.raw >> 7) & 1u) << 0) | (((cpu->flags.raw >> 6) & 1u) << 1) | (((cpu->flags.raw >> 4) & 1u) << 2) | (((cpu->flags.raw >> 2) & 1u) << 3) | (((cpu->flags.raw >> 1) & 1u) << 4) | (((cpu->flags.raw >> 0) & 1u) << 5)));
     for (int i = 0; i < 20; i++) {
         printf("R%d: 0x%02X ", i, cpu->registers[i]);
     }

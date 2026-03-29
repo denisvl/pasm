@@ -17,7 +17,7 @@ BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
 def _zx_paths() -> tuple[
     pathlib.Path, pathlib.Path, pathlib.Path, list[pathlib.Path], list[pathlib.Path]
 ]:
-    processor_path, system_path = example_pair("z80", system="z80_spectrum48k_default.yaml")
+    processor_path, system_path = example_pair("z80", system="spectrum48k_default.yaml")
     ic_path = BASE_DIR / "examples" / "ics" / "zx_spectrum_48k_ula.yaml"
     device_paths = [
         BASE_DIR / "examples" / "devices" / "zx48_keyboard.yaml",
@@ -26,7 +26,7 @@ def _zx_paths() -> tuple[
         BASE_DIR / "examples" / "devices" / "zx48_mic.yaml",
     ]
     host_paths = [
-        BASE_DIR / "examples" / "hosts" / "zx48_host_sdl2.yaml",
+        BASE_DIR / "examples" / "hosts" / "zx48_host_hal.yaml",
     ]
     return processor_path, system_path, ic_path, device_paths, host_paths
 
@@ -69,7 +69,7 @@ def test_invalid_connection_endpoint_fails(tmp_path):
     system_data = yaml.safe_load(system_path.read_text(encoding="utf-8"))
     system_data["connections"][0]["to"]["name"] = "missing_callback"
     system_data["memory"]["rom_images"][0]["file"] = str(
-        (BASE_DIR / "examples" / "roms" / "zx48_dummy.rom").resolve()
+        (BASE_DIR / "examples" / "roms" / "zx_spectrum48k" / "zx48_dummy.rom").resolve()
     )
     bad_system = tmp_path / "bad_connection.yaml"
     bad_system.write_text(yaml.safe_dump(system_data, sort_keys=False), encoding="utf-8")
@@ -136,10 +136,10 @@ int main(void) {
     if (!cpu) return 2;
 
     /* FE write/read sequence. */
-    z80_write_byte(cpu, 0x0000, 0x3E); z80_write_byte(cpu, 0x0001, 0x17); /* LD A,17 */
-    z80_write_byte(cpu, 0x0002, 0xD3); z80_write_byte(cpu, 0x0003, 0xFE); /* OUT (FE),A */
-    z80_write_byte(cpu, 0x0004, 0xDB); z80_write_byte(cpu, 0x0005, 0xFE); /* IN A,(FE) */
-    z80_write_byte(cpu, 0x0006, 0x76);                                    /* HALT */
+    z80_write_byte(cpu, 0x8000, 0x3E); z80_write_byte(cpu, 0x8001, 0x17); /* LD A,17 */
+    z80_write_byte(cpu, 0x8002, 0xD3); z80_write_byte(cpu, 0x8003, 0xFE); /* OUT (FE),A */
+    z80_write_byte(cpu, 0x8004, 0xDB); z80_write_byte(cpu, 0x8005, 0xFE); /* IN A,(FE) */
+    z80_write_byte(cpu, 0x8006, 0x76);                                    /* HALT */
 
     while (cpu->running && !cpu->halted) {
         if (z80_step(cpu) != 0) break;
@@ -151,8 +151,8 @@ int main(void) {
 
     /* Contention check. */
     z80_reset(cpu);
-    cpu->pc = 0x2000;
-    z80_write_byte(cpu, 0x2000, 0x00); /* NOP uncontended */
+    cpu->pc = 0x8000;
+    z80_write_byte(cpu, 0x8000, 0x00); /* NOP uncontended RAM */
     uint64_t before = cpu->total_cycles;
     z80_step(cpu);
     uint64_t delta_uncontended = cpu->total_cycles - before;

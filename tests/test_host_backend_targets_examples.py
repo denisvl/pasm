@@ -6,17 +6,15 @@ import yaml
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 
-def test_example_hosts_define_explicit_backend_target():
+def test_example_hosts_do_not_define_backend_block():
     offenders = []
     for path in (BASE_DIR / "examples" / "hosts").rglob("*.yaml"):
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        backend = data.get("backend")
-        target = backend.get("target") if isinstance(backend, dict) else None
-        if not isinstance(target, str) or not target.strip():
+        if "backend" in data:
             offenders.append(str(path.relative_to(BASE_DIR)))
 
     assert not offenders, (
-        "Every example host YAML must define backend.target explicitly:\n"
+        "Example host YAML must remain HAL-only and must not include backend implementation selectors:\n"
         + "\n".join(offenders)
     )
 

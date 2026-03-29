@@ -50,23 +50,27 @@ CANONICAL_HOST_KEY_RE = re.compile(r"^[A-Z0-9_]+$")
 
 
 def _single_host_backend_target(isa_data: Dict[str, Any]) -> str:
-    targets: set[str] = set()
-    for host in isa_data.get("hosts", []):
-        if not isinstance(host, dict):
-            continue
-        backend = host.get("backend", {})
-        if not isinstance(backend, dict):
-            continue
-        target = str(backend.get("target", "")).strip().lower()
-        if target:
-            targets.add(target)
-    if not targets:
-        return ""
-    if len(targets) > 1:
-        raise ValueError(
-            f"multiple host backend targets are not supported in one CPU generation: {sorted(targets)}"
+    target = str(isa_data.get("host_backend_target", "")).strip().lower()
+    hosts = isa_data.get("hosts", []) or []
+    has_hosts = bool(hosts)
+    if not target:
+        if not has_hosts:
+            return ""
+        declared_targets = sorted(
+            {
+                str((host.get("backend") or {}).get("target", "")).strip().lower()
+                for host in hosts
+                if isinstance(host, dict)
+            }
+            - {""}
         )
-    target = next(iter(targets))
+        if not declared_targets:
+            return ""
+        if len(declared_targets) != 1:
+            raise ValueError(
+                f"multiple host backend targets are not supported for CPU generation: {declared_targets}"
+            )
+        target = declared_targets[0]
     if target not in {"sdl2", "stub", "glfw"}:
         raise ValueError(f"unsupported host backend target for CPU generation: {target}")
     return target
@@ -119,6 +123,7 @@ def generate_cpu_impl(
     reset_delay_seconds = max(
         0, int(isa_data.get("system", {}).get("reset_delay_seconds", 0))
     )
+    debug_flags_expr = _generate_debug_flags_expr(isa_data)
 
     hooks_impl = "/* Hook API is emitted in *_hooks.c when enabled. */"
 
@@ -164,6 +169,29 @@ def generate_cpu_impl(
         isa_name=isa_name,
         register_count=register_count,
         reset_delay_seconds=reset_delay_seconds,
+        debug_flags_expr=debug_flags_expr,
+    )
+
+
+def _generate_debug_flags_expr(isa_data: Dict[str, Any]) -> str:
+    """Generate expression used by dump_registers() when printing flags.
+
+    Most CPUs print the native flag register byte. Z80 tests expect a compact
+    mask with only S,Z,H,P,N,C packed into bits 0..5.
+    """
+    flags = isa_data.get("flags", [])
+    names = {str(f.get("name", "")).strip().upper() for f in flags}
+    z80_like = {"S", "Z", "F5", "H", "F3", "P", "N", "C"}.issubset(names)
+    if not z80_like:
+        return "cpu->flags.raw"
+
+    return (
+        "(uint8_t)((((cpu->flags.raw >> 7) & 1u) << 0) | "
+        "(((cpu->flags.raw >> 6) & 1u) << 1) | "
+        "(((cpu->flags.raw >> 4) & 1u) << 2) | "
+        "(((cpu->flags.raw >> 2) & 1u) << 3) | "
+        "(((cpu->flags.raw >> 1) & 1u) << 4) | "
+        "(((cpu->flags.raw >> 0) & 1u) << 5))"
     )
 
 
@@ -704,10 +732,8 @@ def _generate_helpers(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     lines.append("#if defined(_WIN32)")
     lines.append("    Sleep((DWORD)(seconds * 1000u));")
     lines.append("#else")
-    lines.append("    struct timespec req;")
-    lines.append("    req.tv_sec = (time_t)seconds;")
-    lines.append("    req.tv_nsec = 0;")
-    lines.append("    while (nanosleep(&req, &req) == -1 && errno == EINTR) {}")
+    lines.append("    unsigned int remaining = (unsigned int)seconds;")
+    lines.append("    while (remaining != 0u) remaining = sleep(remaining);")
     lines.append("#endif")
     lines.append("}")
     lines.append("")
@@ -1147,21 +1173,7 @@ def _generate_ic_runtime_blocks(
         str(component.get("metadata", {}).get("id", ""))
         for component in isa_data.get("hosts", [])
     }
-    host_backend_targets = set()
-    for component in isa_data.get("hosts", []):
-        backend = component.get("backend") or {}
-        if not isinstance(backend, dict):
-            continue
-        target = str(backend.get("target", "")).strip().lower()
-        if target and target not in {"sdl2", "stub", "glfw"}:
-            raise ValueError(f"unsupported host backend target for CPU generation: {target}")
-        host_backend_targets.add(target)
-    host_backend_targets.discard("")
-    if len(host_backend_targets) > 1:
-        raise ValueError(
-            f"multiple host backend targets are not supported in one CPU generation: {sorted(host_backend_targets)}"
-        )
-    host_backend_target = next(iter(host_backend_targets)) if host_backend_targets else ""
+    host_backend_target = _single_host_backend_target(isa_data)
     host_uses_sdl2_backend = host_backend_target == "sdl2"
     host_uses_glfw_backend = host_backend_target == "glfw"
 
@@ -4757,9 +4769,6 @@ def _generate_dispatch(
             lines.append("    }")
             lines.append("")
 
-    lines.append("    if (cpu->interrupt_pending && !cpu->interrupts_enabled && !cpu->halted) {")
-    lines.append("        cpu->interrupt_pending = false;")
-    lines.append("    }")
     lines.append("    if (cpu->halted) {")
     lines.append("        if (cpu->interrupt_pending && !cpu->interrupts_enabled) {")
     lines.append("            cpu->interrupt_pending = false;")
@@ -4979,6 +4988,7 @@ def _generate_dispatch(
     lines.append(f"void {cpu_prefix}_run_until(CPUState *cpu, uint64_t cycles) {{")
     lines.append("    while (cpu->running) {")
     lines.append("        if (cycles > 0 && cpu->total_cycles >= cycles) break;")
+    lines.append("        if (cpu->halted && !cpu->interrupt_pending) break;")
     lines.append(f"        if ({cpu_prefix}_step(cpu) != 0) break;")
     lines.append("    }")
     lines.append("}")

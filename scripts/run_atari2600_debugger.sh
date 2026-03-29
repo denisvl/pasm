@@ -13,7 +13,7 @@ set -euo pipefail
 #   EXTRA_CARGO_ARGS="--release"
 #   CMAKE_BUILD_TYPE=Release
 #   RUN_SPEED=realtime|max
-#   PASM_SDL_AUDIO=1
+#   PASM_HOST_AUDIO=1
 #   USE_CARTRIDGE=1|0
 #   CARTRIDGE_MAP=examples/cartridges/atari2600/atari2600_mapper_none.yaml
 #   CARTRIDGE_ROM_GEN=../../roms/atari2600/Pac-Man\ \(USA\).a26
@@ -25,7 +25,7 @@ MEMORY_SIZE="${MEMORY_SIZE:-8192}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
-PASM_SDL_AUDIO="${PASM_SDL_AUDIO:-1}"
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/atari2600/atari2600_mapper_none.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/atari2600/Pitfall! (1982) (Activision) [!].a26}"
@@ -41,17 +41,15 @@ PROCESSOR="examples/processors/mos6502.yaml"
 IC_MAIN="examples/ics/atari2600/atari2600_tia_riot.yaml"
 DEVICE_VIDEO="examples/devices/atari2600/atari2600_video.yaml"
 DEVICE_SPK="examples/devices/atari2600/atari2600_speaker.yaml"
-SYSTEM_DIR="examples/systems"
-
 case "${PROFILE}" in
   default)
-    SYSTEM="examples/systems/atari2600/mos6502_atari2600_default.yaml"
+    SYSTEM="examples/systems/atari2600/atari2600_default.yaml"
     HOST="examples/hosts/atari2600/atari2600_host_stub.yaml"
     DEFAULT_OUTPUT="generated/atari2600_default"
     ;;
   interactive)
-    SYSTEM="examples/systems/atari2600/mos6502_atari2600_interactive.yaml"
-    HOST="examples/hosts/atari2600/atari2600_host_sdl2_interactive.yaml"
+    SYSTEM="examples/systems/atari2600/atari2600_interactive.yaml"
+    HOST="examples/hosts/atari2600/atari2600_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/atari2600_interactive"
     ;;
   *)
@@ -65,6 +63,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
+SYSTEM_DIR="$(dirname "${SYSTEM}")"
 SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
 ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 
@@ -96,6 +95,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
+  --host-backend "${HOST_BACKEND:-sdl2}" \
   "${GEN_CARTRIDGE_ARGS[@]}" \
   --output "${OUTPUT_DIR}"
 
@@ -120,7 +120,7 @@ fi
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
-PASM_SDL_AUDIO="${PASM_SDL_AUDIO}" \
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \

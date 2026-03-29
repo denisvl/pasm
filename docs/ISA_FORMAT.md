@@ -166,21 +166,10 @@ Required top-level keys:
 Optional:
 - `clock_hz`
 - `input.keyboard` declarative key mapping
-- `backend.target` compile-time backend selection hint
-
-Host backend target (recommended in v1, required in examples):
-
-```yaml
-backend:
-  target: sdl2
-```
 
 Rules:
-- `backend.target` must match `^[a-z][a-z0-9_]*$`.
-- `sdl2` is the default backend implementation target.
-- `stub` is used for headless/no-UI host adapters.
-- Backend selection remains compile-time in current rollout.
-- A composed system build must not mix multiple backend targets across hosts (single backend target per build).
+- Host YAML is HAL-only and must not encode backend implementation selectors.
+- Backend selection remains compile-time in current rollout and is provided by codegen (`--host-backend`).
 
 Keyboard input mapping (optional, v1):
 
@@ -203,8 +192,8 @@ Rules:
 - duplicate `host_key` entries are rejected.
 
 Compatibility:
-- SDL remains the default host backend implementation target, but it is not part of the YAML input contract.
-- Backend selection is compile-time (not runtime plugin loading) in the current rollout.
+- SDL remains a default host backend implementation, but it is not part of the YAML input contract.
+- Backend selection is compile-time via CLI/codegen (not runtime plugin loading) in the current rollout.
 
 See `docs/HOST_HAL_PLAN.md` for phased migration status and exit criteria.
 
@@ -300,18 +289,18 @@ Generation merge semantics:
 - relative paths resolved from each YAML file directory
 
 Host backend behavior (current rollout):
-- For host adapters, `backend.target` drives default platform setup.
-- `backend.target: sdl2` auto-wires SDL build linkage and CPU-side SDL header inclusion.
-- `backend.target: glfw` auto-wires GLFW build linkage.
+- `--host-backend` drives default platform setup in codegen.
+- `--host-backend sdl2` auto-wires SDL build linkage and CPU-side SDL header inclusion.
+- `--host-backend glfw` auto-wires GLFW build linkage.
 - In-repo host YAML examples therefore keep `coding.linked_libraries: []` for backend libs and avoid explicit `SDL2/SDL.h` in `coding.headers`.
 - Explicit `coding.headers` / `coding.linked_libraries` are still supported for non-backend-specific dependencies.
 
 ## 9) CLI
 
 ```bash
-pasm generate --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...] [--cartridge-map <cartridge.yaml>] [--cartridge-rom <rom_file>] --output <dir> [--dispatch switch|threaded|both] [--validate-only]
-pasm validate --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...] [--cartridge-map <cartridge.yaml>] [--cartridge-rom <rom_file>]
-pasm info --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...] [--cartridge-map <cartridge.yaml>] [--cartridge-rom <rom_file>]
+pasm generate --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...] [--host-backend sdl2|glfw|stub] [--cartridge-map <cartridge.yaml>] [--cartridge-rom <rom_file>] --output <dir> [--dispatch switch|threaded|both] [--validate-only]
+pasm validate --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...] [--host-backend sdl2|glfw|stub] [--cartridge-map <cartridge.yaml>] [--cartridge-rom <rom_file>]
+pasm info --processor <processor.yaml> --system <system.yaml> [--ic <ic.yaml> ...] [--device <device.yaml> ...] [--host <host.yaml> ...] [--host-backend sdl2|glfw|stub] [--cartridge-map <cartridge.yaml>] [--cartridge-rom <rom_file>]
 ```
 
 Aliases:

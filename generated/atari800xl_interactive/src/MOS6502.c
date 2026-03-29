@@ -16,8 +16,7 @@
 #if defined(_WIN32)
 #include <windows.h>
 #else
-#include <errno.h>
-#include <time.h>
+#include <unistd.h>
 #endif
 
 /* ===== Private Helper Functions ===== */
@@ -41,10 +40,8 @@ static void cpu_sleep_seconds(uint32_t seconds) {
 #if defined(_WIN32)
     Sleep((DWORD)(seconds * 1000u));
 #else
-    struct timespec req;
-    req.tv_sec = (time_t)seconds;
-    req.tv_nsec = 0;
-    while (nanosleep(&req, &req) == -1 && errno == EINTR) {}
+    unsigned int remaining = (unsigned int)seconds;
+    while (remaining != 0u) remaining = sleep(remaining);
 #endif
 }
 
@@ -100,6 +97,75 @@ static bool cpu_check_breakpoints(CPUState *cpu) {
     }
     return false;
 }
+
+static void cpu_apply_mos6502_runtime_cycles(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before, uint8_t x_before, uint8_t y_before, uint8_t c_before, uint8_t z_before, uint8_t n_before, uint8_t v_before) {
+    switch (inst->opcode) {
+        /* Branches: +1 when taken, +1 more when target crosses page. */
+        case 0x10u: case 0x30u: case 0x50u: case 0x70u:
+        case 0x90u: case 0xB0u: case 0xD0u: case 0xF0u: {
+            uint8_t taken = 0u;
+            switch (inst->opcode) {
+                case 0x10u: taken = (uint8_t)(n_before == 0u); break; /* BPL */
+                case 0x30u: taken = (uint8_t)(n_before != 0u); break; /* BMI */
+                case 0x50u: taken = (uint8_t)(v_before == 0u); break; /* BVC */
+                case 0x70u: taken = (uint8_t)(v_before != 0u); break; /* BVS */
+                case 0x90u: taken = (uint8_t)(c_before == 0u); break; /* BCC */
+                case 0xB0u: taken = (uint8_t)(c_before != 0u); break; /* BCS */
+                case 0xD0u: taken = (uint8_t)(z_before == 0u); break; /* BNE */
+                case 0xF0u: taken = (uint8_t)(z_before != 0u); break; /* BEQ */
+                default: break;
+            }
+            if (taken != 0u) {
+                uint16_t seq_pc = (uint16_t)(pc_before + inst->length);
+                uint16_t target_pc = (uint16_t)(seq_pc + (int16_t)(int8_t)inst->rel);
+                inst->cycles = (uint8_t)(inst->cycles + 1u);
+                if (((seq_pc ^ target_pc) & 0xFF00u) != 0u) {
+                    inst->cycles = (uint8_t)(inst->cycles + 1u);
+                }
+            }
+            return;
+        }
+
+        /* ABS,X read-like ops: +1 on page cross. */
+        case 0x1Cu: case 0x1Du: case 0x3Cu: case 0x3Du:
+        case 0x5Cu: case 0x5Du: case 0x7Cu: case 0x7Du:
+        case 0xBCu: case 0xBDu: case 0xDCu: case 0xDDu:
+        case 0xFCu: case 0xFDu: {
+            uint16_t ea = (uint16_t)(inst->addr + (uint16_t)x_before);
+            if (((inst->addr ^ ea) & 0xFF00u) != 0u) {
+                inst->cycles = (uint8_t)(inst->cycles + 1u);
+            }
+            return;
+        }
+
+        /* ABS,Y read-like ops: +1 on page cross. */
+        case 0x19u: case 0x39u: case 0x59u: case 0x79u:
+        case 0xB9u: case 0xBBu: case 0xBEu: case 0xBFu:
+        case 0xD9u: case 0xF9u: {
+            uint16_t ea = (uint16_t)(inst->addr + (uint16_t)y_before);
+            if (((inst->addr ^ ea) & 0xFF00u) != 0u) {
+                inst->cycles = (uint8_t)(inst->cycles + 1u);
+            }
+            return;
+        }
+
+        /* (ZP),Y read-like ops: +1 on page cross. */
+        case 0x11u: case 0x31u: case 0x51u: case 0x71u:
+        case 0xB1u: case 0xB3u: case 0xD1u: case 0xF1u: {
+            uint8_t lo = mos6502_read_byte(cpu, (uint16_t)inst->zp);
+            uint8_t hi = mos6502_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));
+            uint16_t base = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+            uint16_t ea = (uint16_t)(base + (uint16_t)y_before);
+            if (((base ^ ea) & 0xFF00u) != 0u) {
+                inst->cycles = (uint8_t)(inst->cycles + 1u);
+            }
+            return;
+        }
+
+        default:
+            return;
+    }
+}
 typedef struct {
     const char *from_component;
     const char *from_kind;
@@ -131,7 +197,7 @@ typedef struct {
 } ComponentKeyboardPress;
 
 typedef struct {
-    int host_key;
+    const char *host_key;
     const ComponentKeyboardPress *presses;
     uint8_t press_count;
 } ComponentKeyboardBinding;
@@ -143,7 +209,430 @@ typedef struct {
     size_t binding_count;
 } ComponentKeyboardMap;
 
+static int32_t cpu_host_hal_key_from_scancode(int scancode);
+
+typedef SDL_Event CPUHostEvent;
+typedef SDL_Rect CPUHostRect;
+typedef SDL_AudioSpec CPUHostAudioSpec;
+#define CPU_HOST_EVENT_QUIT SDL_QUIT
+#define CPU_HOST_EVENT_KEYDOWN SDL_KEYDOWN
+#define CPU_HOST_EVENT_KEYUP SDL_KEYUP
+#define CPU_HOST_INIT_VIDEO SDL_INIT_VIDEO
+#define CPU_HOST_INIT_AUDIO SDL_INIT_AUDIO
+#define CPU_HOST_INIT_EVENTS SDL_INIT_EVENTS
+#define CPU_HOST_WINDOWPOS_CENTERED SDL_WINDOWPOS_CENTERED
+#define CPU_HOST_WINDOW_RESIZABLE SDL_WINDOW_RESIZABLE
+#define CPU_HOST_RENDERER_ACCELERATED SDL_RENDERER_ACCELERATED
+#define CPU_HOST_PIXELFORMAT_ARGB8888 SDL_PIXELFORMAT_ARGB8888
+#define CPU_HOST_TEXTUREACCESS_STREAMING SDL_TEXTUREACCESS_STREAMING
+#define CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE SDL_AUDIO_ALLOW_FREQUENCY_CHANGE
+#define CPU_HOST_AUDIO_FORMAT_S16 AUDIO_S16SYS
+#define CPU_HOST_SCANCODE(name) SDL_SCANCODE_##name
+#define CPU_HOST_HAS_SCANCODE_MAP 1
+#define CPU_HOST_KEYCODE_QUOTE ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(APOSTROPHE)))
+#define CPU_HOST_KEYCODE_SEMICOLON ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(SEMICOLON)))
+#define CPU_HOST_MOD_CTRL KMOD_CTRL
+#define CPU_HOST_MOD_SHIFT KMOD_SHIFT
+#define CPU_HOST_MOD_LCTRL KMOD_LCTRL
+#define cpu_host_hal_log(...) SDL_Log(__VA_ARGS__)
+#define cpu_host_hal_last_error() SDL_GetError()
+static void cpu_host_audio_spec_zero(CPUHostAudioSpec *spec) {
+    if (!spec) return;
+    SDL_zero(*spec);
+}
+
+static uint8_t cpu_host_hal_sdl_inited = 0u;
+static uint32_t cpu_host_hal_sdl_subsystems = 0u;
+static SDL_Window *cpu_host_hal_sdl_primary_window = NULL;
+
+static void cpu_host_hal_pump_events(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_PumpEvents();
+}
+
+static uint32_t cpu_host_hal_ticks_ms(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    return SDL_GetTicks();
+}
+
+static uint8_t cpu_host_hal_window_has_focus(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return 0u;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return 0u;
+    return (SDL_GetKeyboardFocus() == (SDL_Window *)window) ? 1u : 0u;
+}
+
+static void cpu_host_hal_render_present(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_RenderPresent((SDL_Renderer *)renderer);
+}
+
+static int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return -1;
+    if (dev == 0u || !data || len_bytes == 0u) return -1;
+    return SDL_QueueAudio(dev, data, len_bytes);
+}
+
+static uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u) return 0u;
+    return SDL_GetQueuedAudioSize(dev);
+}
+
+static void cpu_host_hal_audio_clear(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_ClearQueuedAudio(dev);
+}
+
+static int cpu_host_hal_renderer_output_size(void *renderer, int *out_w, int *out_h) {
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer || !out_w || !out_h) return -1;
+    if (SDL_GetRendererOutputSize((SDL_Renderer *)renderer, out_w, out_h) != 0) return -1;
+    if (*out_w <= 0 || *out_h <= 0) return -1;
+    return 0;
+}
+
+static int cpu_host_hal_update_texture(void *texture, const CPUHostRect *rect, const void *pixels, int pitch) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!texture || !pixels) return -1;
+    return SDL_UpdateTexture((SDL_Texture *)texture, (const SDL_Rect *)rect, pixels, pitch);
+}
+
+static void cpu_host_hal_render_set_draw_color(void *renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_SetRenderDrawColor((SDL_Renderer *)renderer, r, g, b, a);
+}
+
+static int cpu_host_hal_render_clear(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer) return -1;
+    return SDL_RenderClear((SDL_Renderer *)renderer);
+}
+
+static int cpu_host_hal_render_copy(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer || !texture) return -1;
+    return SDL_RenderCopy(
+        (SDL_Renderer *)renderer,
+        (SDL_Texture *)texture,
+        (const SDL_Rect *)src_rect,
+        (const SDL_Rect *)dst_rect
+    );
+}
+
+static int cpu_host_hal_poll_event(CPUHostEvent *event) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;
+    if (!event) return 0;
+    return SDL_PollEvent((SDL_Event *)event);
+}
+
+static uint32_t cpu_host_hal_event_type(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    return event->type;
+}
+
+static int32_t cpu_host_hal_event_scancode(const CPUHostEvent *event) {
+    if (!event) return 0;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0;
+    return (int32_t)event->key.keysym.scancode;
+}
+
+static uint8_t cpu_host_hal_event_key_repeat(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;
+    return (uint8_t)event->key.repeat;
+}
+
+static uint32_t cpu_host_hal_event_mod_state(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;
+    return (uint32_t)event->key.keysym.mod;
+}
+
+static void cpu_host_hal_set_window_title(void *window, const char *title) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window || !title) return;
+    SDL_SetWindowTitle((SDL_Window *)window, title);
+}
+
+static void cpu_host_hal_destroy_texture(void *texture) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!texture) return;
+    SDL_DestroyTexture((SDL_Texture *)texture);
+}
+
+static void cpu_host_hal_destroy_renderer(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_DestroyRenderer((SDL_Renderer *)renderer);
+}
+
+static void cpu_host_hal_destroy_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) return;
+    if (cpu_host_hal_sdl_primary_window == (SDL_Window *)window) {
+        cpu_host_hal_sdl_primary_window = NULL;
+    }
+    SDL_DestroyWindow((SDL_Window *)window);
+}
+
+static void cpu_host_hal_audio_close(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_CloseAudioDevice(dev);
+}
+
+static void cpu_host_hal_quit_subsystems(void) {
+    uint32_t to_quit = cpu_host_hal_sdl_subsystems & (CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS);
+    if (to_quit != 0u) SDL_QuitSubSystem(to_quit);
+    cpu_host_hal_sdl_subsystems &= ~to_quit;
+    cpu_host_hal_sdl_primary_window = NULL;
+}
+
+static void cpu_host_hal_quit(void) {
+    SDL_Quit();
+    cpu_host_hal_sdl_subsystems = 0u;
+    cpu_host_hal_sdl_inited = 0u;
+    cpu_host_hal_sdl_primary_window = NULL;
+}
+
+static int cpu_host_hal_init(uint32_t flags) {
+    if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;
+    if (cpu_host_hal_sdl_inited == 0u) {
+        if (SDL_Init(flags) != 0) return -1;
+        cpu_host_hal_sdl_inited = 1u;
+        cpu_host_hal_sdl_subsystems |= flags;
+        return 0;
+    }
+    if (flags != 0u) {
+        if (SDL_InitSubSystem(flags) != 0) return -1;
+        cpu_host_hal_sdl_subsystems |= flags;
+    }
+    return 0;
+}
+
+static void *cpu_host_hal_create_window(const char *title, int x, int y, int w, int h, uint32_t flags) {
+    SDL_Window *window;
+    const char *win_title = (title && title[0] != '\0') ? title : "PASM";
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if ((flags & ~CPU_HOST_WINDOW_RESIZABLE) != 0u) return NULL;
+    if (w <= 0) w = 640;
+    if (h <= 0) h = 480;
+    window = SDL_CreateWindow(win_title, x, y, w, h, flags);
+    if (window != NULL && cpu_host_hal_sdl_primary_window == NULL) {
+        cpu_host_hal_sdl_primary_window = window;
+    }
+    return (void *)window;
+}
+
+static void *cpu_host_hal_create_renderer(void *window, int index, uint32_t flags) {
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return NULL;
+    if ((flags & ~CPU_HOST_RENDERER_ACCELERATED) != 0u) return NULL;
+    return (void *)SDL_CreateRenderer((SDL_Window *)window, index, flags);
+}
+
+static void *cpu_host_hal_create_texture(void *renderer, uint32_t format, int access, int w, int h) {
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if (!renderer) return NULL;
+    return (void *)SDL_CreateTexture((SDL_Renderer *)renderer, format, access, w, h);
+}
+
+static uint32_t cpu_host_hal_audio_open(const char *device, int iscapture, const CPUHostAudioSpec *want, CPUHostAudioSpec *have, int allowed_changes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (iscapture != 0) return 0u;
+    if (!want) return 0u;
+    if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;
+    return SDL_OpenAudioDevice(
+        device,
+        iscapture,
+        (const SDL_AudioSpec *)want,
+        (SDL_AudioSpec *)have,
+        allowed_changes
+    );
+}
+
+static void cpu_host_hal_audio_pause(uint32_t dev, int pause_on) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_PauseAudioDevice(dev, pause_on);
+}
+
+static void *cpu_host_hal_alloc(size_t size_bytes) {
+    return SDL_malloc(size_bytes);
+}
+
+static void cpu_host_hal_free(void *ptr) {
+    if (!ptr) return;
+    SDL_free(ptr);
+}
+
+static void cpu_host_hal_memset(void *dst, int value, size_t size_bytes) {
+    if (!dst || size_bytes == 0u) return;
+    SDL_memset(dst, value, size_bytes);
+}
+
+static const char *cpu_host_hal_getenv(const char *name) {
+    if (!name) return NULL;
+    return SDL_getenv(name);
+}
+
+static const uint8_t *cpu_host_hal_keyboard_state(int *key_count) {
+    static const uint8_t empty_state[1] = {0u};
+    const uint8_t *state;
+    if (cpu_host_hal_sdl_inited == 0u) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    state = SDL_GetKeyboardState(key_count);
+    if (!state) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    return state;
+}
+
+static int32_t cpu_host_hal_key_from_scancode(int scancode) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;
+    return (int32_t)SDL_GetKeyFromScancode((SDL_Scancode)scancode);
+}
+
+static void cpu_host_hal_start_text_input(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_StartTextInput();
+}
+
+static void cpu_host_hal_stop_text_input(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_StopTextInput();
+}
+
+static void cpu_host_hal_raise_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return;
+    SDL_RaiseWindow((SDL_Window *)window);
+}
+
+static void cpu_host_hal_show_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return;
+    SDL_ShowWindow((SDL_Window *)window);
+}
+
+static int cpu_host_hal_set_window_input_focus(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return -1;
+    return SDL_SetWindowInputFocus((SDL_Window *)window);
+}
+
+static int cpu_host_hal_set_texture_blend_none(void *texture) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!texture) return -1;
+    return SDL_SetTextureBlendMode((SDL_Texture *)texture, SDL_BLENDMODE_NONE);
+}
+
+static int cpu_host_hal_init_subsystem(uint32_t flags) {
+    if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if (flags != 0u && SDL_InitSubSystem(flags) != 0) return -1;
+    cpu_host_hal_sdl_subsystems |= flags;
+    return 0;
+}
+
+static uint32_t cpu_host_hal_audio_dequeue(uint32_t dev, void *data, uint32_t len_bytes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u || !data || len_bytes == 0u) return 0u;
+    return SDL_DequeueAudio(dev, data, len_bytes);
+}
+
+static int cpu_host_hal_get_window_size(void *window, int *out_w, int *out_h) {
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window || !out_w || !out_h) return -1;
+    SDL_GetWindowSize((SDL_Window *)window, out_w, out_h);
+    if (*out_w <= 0 || *out_h <= 0) return -1;
+    return 0;
+}
+
+static const char *cpu_host_hal_scancode_name(int32_t scancode) {
+    if (cpu_host_hal_sdl_inited == 0u) return "UNKNOWN";
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return "UNKNOWN";
+    const char *name = SDL_GetScancodeName((SDL_Scancode)scancode);
+    if (!name || name[0] == '\0') return "UNKNOWN";
+    return name;
+}
+
+static uint32_t cpu_host_hal_get_mod_state(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0u;
+    return (uint32_t)SDL_GetModState();
+}
+
+static const char *cpu_host_hal_key_name(int32_t keycode) {
+    if (cpu_host_hal_sdl_inited == 0u) return "UNKNOWN";
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return "UNKNOWN";
+    const char *name = SDL_GetKeyName((SDL_Keycode)keycode);
+    if (!name || name[0] == '\0') return "UNKNOWN";
+    return name;
+}
+
 static const ComponentKeyboardMap g_component_keyboard_maps[] = { { "", 0u, NULL, 0u } };
+static uint8_t cpu_component_host_key_is_pressed_noop(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {
+    (void)host_key;
+    (void)host_keys;
+    (void)host_key_count;
+    return 0u;
+}
+static uint8_t cpu_component_host_key_is_pressed(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {
+    return cpu_component_host_key_is_pressed_noop(host_key, host_keys, host_key_count);
+}
 static const ComponentKeyboardMap *cpu_component_find_keyboard_map(const char *component_id) {
     size_t map_count = sizeof(g_component_keyboard_maps) / sizeof(g_component_keyboard_maps[0]);
     for (size_t i = 0; i < map_count; i++) {
@@ -169,8 +658,7 @@ static void cpu_component_apply_declared_keymap(
     if (map->focus_required && has_focus == 0u) return;
     for (size_t bind_idx = 0; bind_idx < map->binding_count; bind_idx++) {
         const ComponentKeyboardBinding *binding = &map->bindings[bind_idx];
-        if (binding->host_key < 0 || (size_t)binding->host_key >= host_key_count) continue;
-        if (host_keys[binding->host_key] == 0u) continue;
+        if (!cpu_component_host_key_is_pressed(binding->host_key, host_keys, host_key_count)) continue;
         for (size_t press_idx = 0; press_idx < binding->press_count; press_idx++) {
             const ComponentKeyboardPress *press = &binding->presses[press_idx];
             if ((size_t)press->row >= row_count || press->bit >= 8u) continue;
@@ -180,17 +668,17 @@ static void cpu_component_apply_declared_keymap(
 }
 
 static const ComponentConnection g_component_connections[] = {
-    { "atari_io", "callback", "keyboard_ascii", "host_atari800xl_sdl2", "callback", "keyboard_ascii" },
-    { "atari_io", "callback", "consol_state", "host_atari800xl_sdl2", "callback", "consol_state" },
-    { "atari_io", "callback", "joystick_porta", "host_atari800xl_sdl2", "callback", "joystick_porta" },
-    { "atari_io", "callback", "trigger0", "host_atari800xl_sdl2", "callback", "trigger0" },
-    { "atari_io", "callback", "trigger1", "host_atari800xl_sdl2", "callback", "trigger1" },
-    { "atari_io", "callback", "trigger2", "host_atari800xl_sdl2", "callback", "trigger2" },
-    { "atari_io", "callback", "trigger3", "host_atari800xl_sdl2", "callback", "trigger3" },
+    { "atari_io", "callback", "keyboard_ascii", "host_atari800xl", "callback", "keyboard_ascii" },
+    { "atari_io", "callback", "consol_state", "host_atari800xl", "callback", "consol_state" },
+    { "atari_io", "callback", "joystick_porta", "host_atari800xl", "callback", "joystick_porta" },
+    { "atari_io", "callback", "trigger0", "host_atari800xl", "callback", "trigger0" },
+    { "atari_io", "callback", "trigger1", "host_atari800xl", "callback", "trigger1" },
+    { "atari_io", "callback", "trigger2", "host_atari800xl", "callback", "trigger2" },
+    { "atari_io", "callback", "trigger3", "host_atari800xl", "callback", "trigger3" },
     { "atari_io", "signal", "frame_ready", "video_sms", "handler", "on_frame_ready" },
-    { "video_sms", "signal", "frame_present", "host_atari800xl_sdl2", "handler", "video_frame" },
+    { "video_sms", "signal", "frame_present", "host_atari800xl", "handler", "video_frame" },
     { "atari_io", "signal", "audio_level", "speaker_sms", "handler", "on_audio_level" },
-    { "speaker_sms", "signal", "pcm_sample", "host_atari800xl_sdl2", "handler", "audio_pcm" },
+    { "speaker_sms", "signal", "pcm_sample", "host_atari800xl", "handler", "audio_pcm" },
 };
 static uint64_t component_atari_io_callback_keyboard_ascii(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
@@ -248,10 +736,10 @@ static uint64_t component_atari_io_callback_trigger3(CPUState *cpu, const uint64
     return __result;
 }
 
-static uint64_t component_host_atari800xl_sdl2_callback_keyboard_ascii(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static uint64_t component_host_atari800xl_callback_keyboard_ascii(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-    cpu->active_component_id = "host_atari800xl_sdl2";
+    ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+    cpu->active_component_id = "host_atari800xl";
     uint64_t __result = 0;
     {
         uint8_t value = 0u;
@@ -264,55 +752,55 @@ static uint64_t component_host_atari800xl_sdl2_callback_keyboard_ascii(CPUState 
     return __result;
 }
 
-static uint64_t component_host_atari800xl_sdl2_callback_consol_state(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static uint64_t component_host_atari800xl_callback_consol_state(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-    cpu->active_component_id = "host_atari800xl_sdl2";
+    ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+    cpu->active_component_id = "host_atari800xl";
     uint64_t __result = 0;
     return (uint64_t)(comp->consol_state & 0x07u);
     return __result;
 }
 
-static uint64_t component_host_atari800xl_sdl2_callback_joystick_porta(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static uint64_t component_host_atari800xl_callback_joystick_porta(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-    cpu->active_component_id = "host_atari800xl_sdl2";
+    ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+    cpu->active_component_id = "host_atari800xl";
     uint64_t __result = 0;
     return (uint64_t)(((comp->joy1_state & 0x0Fu) << 4u) | (comp->joy0_state & 0x0Fu));
     return __result;
 }
 
-static uint64_t component_host_atari800xl_sdl2_callback_trigger0(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static uint64_t component_host_atari800xl_callback_trigger0(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-    cpu->active_component_id = "host_atari800xl_sdl2";
+    ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+    cpu->active_component_id = "host_atari800xl";
     uint64_t __result = 0;
     return (uint64_t)(comp->trig0 & 0x01u);
     return __result;
 }
 
-static uint64_t component_host_atari800xl_sdl2_callback_trigger1(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static uint64_t component_host_atari800xl_callback_trigger1(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-    cpu->active_component_id = "host_atari800xl_sdl2";
+    ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+    cpu->active_component_id = "host_atari800xl";
     uint64_t __result = 0;
     return (uint64_t)(comp->trig1 & 0x01u);
     return __result;
 }
 
-static uint64_t component_host_atari800xl_sdl2_callback_trigger2(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static uint64_t component_host_atari800xl_callback_trigger2(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-    cpu->active_component_id = "host_atari800xl_sdl2";
+    ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+    cpu->active_component_id = "host_atari800xl";
     uint64_t __result = 0;
     return (uint64_t)(comp->trig2 & 0x01u);
     return __result;
 }
 
-static uint64_t component_host_atari800xl_sdl2_callback_trigger3(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static uint64_t component_host_atari800xl_callback_trigger3(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-    cpu->active_component_id = "host_atari800xl_sdl2";
+    ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+    cpu->active_component_id = "host_atari800xl";
     uint64_t __result = 0;
     return (uint64_t)(comp->trig3 & 0x01u);
     return __result;
@@ -332,13 +820,13 @@ static uint64_t cpu_component_dispatch_callback(
     if (strcmp(component_id, "atari_io") == 0 && strcmp(callback_name, "trigger1") == 0) return component_atari_io_callback_trigger1(cpu, args, argc);
     if (strcmp(component_id, "atari_io") == 0 && strcmp(callback_name, "trigger2") == 0) return component_atari_io_callback_trigger2(cpu, args, argc);
     if (strcmp(component_id, "atari_io") == 0 && strcmp(callback_name, "trigger3") == 0) return component_atari_io_callback_trigger3(cpu, args, argc);
-    if (strcmp(component_id, "host_atari800xl_sdl2") == 0 && strcmp(callback_name, "keyboard_ascii") == 0) return component_host_atari800xl_sdl2_callback_keyboard_ascii(cpu, args, argc);
-    if (strcmp(component_id, "host_atari800xl_sdl2") == 0 && strcmp(callback_name, "consol_state") == 0) return component_host_atari800xl_sdl2_callback_consol_state(cpu, args, argc);
-    if (strcmp(component_id, "host_atari800xl_sdl2") == 0 && strcmp(callback_name, "joystick_porta") == 0) return component_host_atari800xl_sdl2_callback_joystick_porta(cpu, args, argc);
-    if (strcmp(component_id, "host_atari800xl_sdl2") == 0 && strcmp(callback_name, "trigger0") == 0) return component_host_atari800xl_sdl2_callback_trigger0(cpu, args, argc);
-    if (strcmp(component_id, "host_atari800xl_sdl2") == 0 && strcmp(callback_name, "trigger1") == 0) return component_host_atari800xl_sdl2_callback_trigger1(cpu, args, argc);
-    if (strcmp(component_id, "host_atari800xl_sdl2") == 0 && strcmp(callback_name, "trigger2") == 0) return component_host_atari800xl_sdl2_callback_trigger2(cpu, args, argc);
-    if (strcmp(component_id, "host_atari800xl_sdl2") == 0 && strcmp(callback_name, "trigger3") == 0) return component_host_atari800xl_sdl2_callback_trigger3(cpu, args, argc);
+    if (strcmp(component_id, "host_atari800xl") == 0 && strcmp(callback_name, "keyboard_ascii") == 0) return component_host_atari800xl_callback_keyboard_ascii(cpu, args, argc);
+    if (strcmp(component_id, "host_atari800xl") == 0 && strcmp(callback_name, "consol_state") == 0) return component_host_atari800xl_callback_consol_state(cpu, args, argc);
+    if (strcmp(component_id, "host_atari800xl") == 0 && strcmp(callback_name, "joystick_porta") == 0) return component_host_atari800xl_callback_joystick_porta(cpu, args, argc);
+    if (strcmp(component_id, "host_atari800xl") == 0 && strcmp(callback_name, "trigger0") == 0) return component_host_atari800xl_callback_trigger0(cpu, args, argc);
+    if (strcmp(component_id, "host_atari800xl") == 0 && strcmp(callback_name, "trigger1") == 0) return component_host_atari800xl_callback_trigger1(cpu, args, argc);
+    if (strcmp(component_id, "host_atari800xl") == 0 && strcmp(callback_name, "trigger2") == 0) return component_host_atari800xl_callback_trigger2(cpu, args, argc);
+    if (strcmp(component_id, "host_atari800xl") == 0 && strcmp(callback_name, "trigger3") == 0) return component_host_atari800xl_callback_trigger3(cpu, args, argc);
     return 0;
 }
 
@@ -361,13 +849,13 @@ static void component_speaker_sms_handler_on_audio_level(CPUState *cpu, const ui
     cpu_component_emit_signal(cpu, "speaker_sms", "pcm_sample", args, argc);
 }
 
-static void component_host_atari800xl_sdl2_handler_video_frame(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static void component_host_atari800xl_handler_video_frame(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-    cpu->active_component_id = "host_atari800xl_sdl2";
-    if (comp->sdl_inited == 0u || argc < 4) return;
-    SDL_Renderer *renderer = (SDL_Renderer *)comp->renderer;
-    SDL_Texture *texture = (SDL_Texture *)comp->texture;
+    ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+    cpu->active_component_id = "host_atari800xl";
+    if (comp->host_inited == 0u || argc < 4) return;
+    void *renderer = comp->renderer;
+    void *texture = comp->texture;
     uint32_t frame = (uint32_t)(args[0] & 0xFFFFFFFFu);
     uint32_t *pixels = (uint32_t *)(uintptr_t)args[1];
     uint32_t w = (uint32_t)(args[2] & 0xFFFFFFFFu);
@@ -385,20 +873,20 @@ static void component_host_atari800xl_sdl2_handler_video_frame(CPUState *cpu, co
         );
     }
     if (comp->texture_w != w || comp->texture_h != h) {
-        SDL_DestroyTexture(texture);
-        texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, (int)w, (int)h);
+        cpu_host_hal_destroy_texture(texture);
+        texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888, CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);
         if (texture == NULL) return;
         comp->texture = (void *)texture;
         comp->texture_w = w;
         comp->texture_h = h;
     }
-    if (SDL_UpdateTexture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    SDL_RenderClear(renderer);
+    if (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
+    cpu_host_hal_render_set_draw_color(renderer, 0, 0, 0, 255);
+    cpu_host_hal_render_clear(renderer);
     int ww = 0;
     int wh = 0;
-    if (SDL_GetRendererOutputSize(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
-    SDL_Rect dst;
+    if (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
+    CPUHostRect dst;
     int scaled_w = ww;
     int scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);
     if (scaled_h > wh) {
@@ -409,14 +897,14 @@ static void component_host_atari800xl_sdl2_handler_video_frame(CPUState *cpu, co
     dst.h = (scaled_h > 0) ? scaled_h : wh;
     dst.x = (ww - dst.w) / 2;
     dst.y = (wh - dst.h) / 2;
-    if (SDL_RenderCopy(renderer, texture, NULL, &dst) != 0) return;
-    SDL_RenderPresent(renderer);
+    if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;
+    cpu_host_hal_render_present(renderer);
 }
 
-static void component_host_atari800xl_sdl2_handler_audio_pcm(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static void component_host_atari800xl_handler_audio_pcm(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-    cpu->active_component_id = "host_atari800xl_sdl2";
+    ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+    cpu->active_component_id = "host_atari800xl";
     if (comp->audio_out_dev == 0u || comp->audio_out_ready == 0u || comp->audio_ring == NULL || comp->audio_ring_capacity == 0u || argc < 1) return;
     uint8_t level_u = (uint8_t)(args[0] & 0xFFu);
     uint64_t cycle = (argc > 1) ? (uint64_t)args[1] : cpu->total_cycles;
@@ -468,8 +956,8 @@ static void cpu_component_dispatch_handler(
 ) {
     if (strcmp(component_id, "video_sms") == 0 && strcmp(handler_name, "on_frame_ready") == 0) { component_video_sms_handler_on_frame_ready(cpu, args, argc); return; }
     if (strcmp(component_id, "speaker_sms") == 0 && strcmp(handler_name, "on_audio_level") == 0) { component_speaker_sms_handler_on_audio_level(cpu, args, argc); return; }
-    if (strcmp(component_id, "host_atari800xl_sdl2") == 0 && strcmp(handler_name, "video_frame") == 0) { component_host_atari800xl_sdl2_handler_video_frame(cpu, args, argc); return; }
-    if (strcmp(component_id, "host_atari800xl_sdl2") == 0 && strcmp(handler_name, "audio_pcm") == 0) { component_host_atari800xl_sdl2_handler_audio_pcm(cpu, args, argc); return; }
+    if (strcmp(component_id, "host_atari800xl") == 0 && strcmp(handler_name, "video_frame") == 0) { component_host_atari800xl_handler_video_frame(cpu, args, argc); return; }
+    if (strcmp(component_id, "host_atari800xl") == 0 && strcmp(handler_name, "audio_pcm") == 0) { component_host_atari800xl_handler_audio_pcm(cpu, args, argc); return; }
     (void)cpu;
     (void)component_id;
     (void)handler_name;
@@ -548,6 +1036,13 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                 comp->pokey_serout_done_latch = 1u;
                 /* Assert serial output complete (bit 3, active-low). */
                 comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x08u);
+                /* Keep SEROR signaling aligned with XL OS polling/IRQ paths:
+                   when output fully completes, also assert bit 4 if enabled. */
+                if ((comp->pokey_irqen & 0x10u) != 0u) {
+                    comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x10u);
+                    cpu->interrupt_vector = 0x00u;
+                    cpu->interrupt_pending = true;
+                }
                 if ((comp->pokey_irqen & 0x08u) != 0u) {
                     cpu->interrupt_vector = 0x00u;
                     cpu->interrupt_pending = true;
@@ -648,7 +1143,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                     cpu->interrupt_pending = true;
                 }
                 if (cpu->memory_size > 0x02FCu) {
-                    cpu->memory[0x02FCu] = comp->keyboard_atascii; /* CH shadow for OS/BASIC polling paths */
+                    cpu->memory[0x02FCu] = comp->keyboard_code; /* CH shadow for OS/BASIC polling paths */
                 }
                 }
             }
@@ -684,7 +1179,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             static const uint32_t atari_hues[16] = {
                 0x00C8C8C8u, 0x00D0A050u, 0x00D08040u, 0x00C86040u,
                 0x00B05070u, 0x008850A0u, 0x006060C0u, 0x004080D0u,
-                0x0030A0D0u, 0x0030B090u, 0x0040B050u, 0x0070B040u,
+                0x003070D0u, 0x002050D0u, 0x003050C0u, 0x005060B0u,
                 0x00A0A840u, 0x00C09040u, 0x00D07850u, 0x00D0B0A0u
             };
             uint8_t colpf0_raw = (cpu->memory_size > 0xD016u) ? cpu->memory[0xD016u] : 0x44u;
@@ -698,7 +1193,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                 uint8_t c = col_raw[ci];
                 uint32_t base = atari_hues[(c >> 4u) & 0x0Fu];
                 uint32_t lum = (uint32_t)(c & 0x0Fu);
-                uint32_t gain = 16u + (lum * 16u);
+                uint32_t gain = 32u + (lum * 15u);
                 uint8_t r = (uint8_t)((((base >> 16u) & 0xFFu) * gain) >> 8u);
                 uint8_t g = (uint8_t)((((base >> 8u) & 0xFFu) * gain) >> 8u);
                 uint8_t b = (uint8_t)(((base & 0xFFu) * gain) >> 8u);
@@ -716,6 +1211,15 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             uint8_t vscroll = (uint8_t)(comp->antic_vscrol & 0x0Fu);
 
             dl_ptr = (uint16_t)((uint16_t)comp->antic_dlistl | ((uint16_t)comp->antic_dlisth << 8u));
+            if (cpu->memory_size > 0x0231u) {
+                /* OS keeps the active ANTIC display list in SDLST shadow.
+                   Prefer it when present so rendering follows BASIC/OS setup
+                   even before direct DLIST register writes are observed. */
+                uint16_t sdlst = (uint16_t)cpu->memory[0x0230u] | ((uint16_t)cpu->memory[0x0231u] << 8u);
+                if (sdlst != 0u && (uint64_t)sdlst < cpu->memory_size) {
+                    dl_ptr = sdlst;
+                }
+            }
             if (comp->antic_chbase != 0u) {
                 char_base = (uint16_t)((uint16_t)(comp->antic_chbase & 0xFEu) << 8u);
             }
@@ -736,15 +1240,16 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             }
 
             for (uint32_t i = 0u; i < 320u * 192u; ++i) {
-                framebuf[i] = bg;
+                framebuf[i] = pf2;
             }
 
             if ((uint64_t)dl_ptr < cpu->memory_size) {
-                uint32_t y = 0u;
+                const int32_t top_crop = 24;
+                int32_t y = -top_crop;
                 uint32_t safety = 0u;
                 uint16_t scan_addr = 0u;
 
-                while (y < 192u && safety < 2048u) {
+                while (y < 192 && safety < 2048u) {
                     uint8_t ir;
                     uint8_t mode;
                     uint32_t bytes_per_row = 0u;
@@ -774,8 +1279,8 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
 
                     if (mode == 0x00u) {
                         uint32_t blank_lines = (uint32_t)(((ir >> 4u) & 0x07u) + 1u);
-                        y += blank_lines;
-                        if (y > 192u) y = 192u;
+                        y += (int32_t)blank_lines;
+                        if (y > 192) y = 192;
                         continue;
                     }
 
@@ -809,7 +1314,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                         uint8_t inverse_enable = (uint8_t)((chact & 0x02u) != 0u);
                         uint8_t blank_enable = (uint8_t)((chact & 0x01u) != 0u);
                         uint8_t mode_23 = (uint8_t)(mode == 0x02u || mode == 0x03u);
-                        for (uint32_t py = 0u; py < line_height && y < 192u; ++py) {
+                        for (uint32_t py = 0u; py < line_height && y < 192; ++py) {
                             uint8_t glyph_row = (uint8_t)((py < 8u) ? py : 7u);
                             if (reflect != 0u) {
                                 glyph_row = (uint8_t)(7u - glyph_row);
@@ -823,11 +1328,15 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                                     (uint8_t)(mode_23 != 0u && inverse_char != 0u && blank_enable != 0u);
                                 uint8_t inverse_draw =
                                     (uint8_t)(mode_23 != 0u && inverse_char != 0u && inverse_enable != 0u);
-                                uint32_t cell_bg = bg;
-                                uint32_t cell_fg = fg;
+                                /* ANTIC text modes map through playfield colors rather
+                                   than raw COLBK/COLPF2 pairing used by bitmap modes.
+                                   Use PF2 as cell background and PF1 as glyph foreground
+                                   for a closer BASIC text palette. */
+                                uint32_t cell_bg = pf2;
+                                uint32_t cell_fg = pf1;
                                 if (inverse_draw != 0u) {
-                                    cell_bg = fg;
-                                    cell_fg = bg;
+                                    cell_bg = pf1;
+                                    cell_fg = pf2;
                                 }
                                 uint32_t x0 = col * 8u * (uint32_t)(40u / text_cols);
                                 uint16_t caddr = (uint16_t)(char_base + (uint16_t)(code * 8u + glyph_row));
@@ -841,8 +1350,8 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                                     for (uint32_t xs = 0u; xs < x_scale; ++xs) {
                                         uint32_t px = x0 + gx * x_scale + xs + hscroll;
                                         if (px < 320u) {
-                                            uint32_t py_out = y + vscroll;
-                                            if (py_out < 192u) {
+                                            int32_t py_out = y + (int32_t)vscroll;
+                                            if (py_out >= 0 && py_out < 192) {
                                                 framebuf[py_out * 320u + px] = (on != 0u) ? cell_fg : cell_bg;
                                             }
                                         }
@@ -862,8 +1371,8 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                         uint32_t x_scale = (logical_width > 0u) ? (320u / logical_width) : 1u;
                         if (x_scale == 0u) x_scale = 1u;
 
-                        for (uint32_t py = 0u; py < line_height && y < 192u; ++py) {
-                            uint32_t py_out = y + vscroll;
+                        for (uint32_t py = 0u; py < line_height && y < 192; ++py) {
+                            int32_t py_out = y + (int32_t)vscroll;
                             for (uint32_t bx = 0u; bx < bytes_per_row; ++bx) {
                                 uint16_t saddr = (uint16_t)(scan_addr + (uint16_t)bx);
                                 uint8_t bits = ((uint64_t)saddr < cpu->memory_size) ? cpu->memory[saddr] : 0u;
@@ -874,7 +1383,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                                         uint32_t color = (pix != 0u) ? pf2 : bg;
                                         for (uint32_t xs = 0u; xs < x_scale; ++xs) {
                                             uint32_t px = px0 + xs;
-                                            if (px < 320u && py_out < 192u) {
+                                            if (px < 320u && py_out >= 0 && py_out < 192) {
                                                 framebuf[py_out * 320u + px] = color;
                                             }
                                         }
@@ -889,7 +1398,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                                         else if (pix == 3u) color = pf3;
                                         for (uint32_t xs = 0u; xs < x_scale; ++xs) {
                                             uint32_t px = px0 + xs;
-                                            if (px < 320u && py_out < 192u) {
+                                            if (px < 320u && py_out >= 0 && py_out < 192) {
                                                 framebuf[py_out * 320u + px] = color;
                                             }
                                         }
@@ -918,9 +1427,16 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         (void)comp->keyboard_sticky;
     }
     {
-        ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-        cpu->active_component_id = "host_atari800xl_sdl2";
-        if (comp->sdl_inited == 0u) return;
+        ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+        cpu->active_component_id = "host_atari800xl";
+        if (comp->host_inited == 0u) return;
+        {
+            static int key_trace = -1;
+            if (key_trace < 0) {
+                const char *env = cpu_host_hal_getenv("PASM_ATARI800XL_KEY_TRACE");
+                key_trace = (env != NULL && env[0] == '1') ? 1 : 0;
+            }
+        }
         {
             uint64_t now = cpu->total_cycles;
             if ((now - comp->last_event_poll_cycle) < 256u) {
@@ -928,156 +1444,161 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             }
             comp->last_event_poll_cycle = now;
         }
-        SDL_Event ev;
-        while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_QUIT) {
+        CPUHostEvent ev;
+        while (cpu_host_hal_poll_event(&ev)) {
+            if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {
                 cpu->running = false;
                 cpu->halted = true;
                 return;
-            } else if (ev.type == SDL_KEYDOWN && ev.key.repeat == 0) {
-                SDL_Scancode sc = ev.key.keysym.scancode;
-                if (sc == SDL_SCANCODE_F2) {
+            } else if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN && cpu_host_hal_event_key_repeat(&ev) == 0) {
+                int32_t sc = cpu_host_hal_event_scancode(&ev);
+                {
+                    static int key_trace = -1;
+                    if (key_trace < 0) {
+                        const char *env = cpu_host_hal_getenv("PASM_ATARI800XL_KEY_TRACE");
+                        key_trace = (env != NULL && env[0] == '1') ? 1 : 0;
+                    }
+                    if (key_trace != 0) {
+                        fprintf(stderr, "[atari800xl-host] keydown sc=%d mod=0x%X\n", (int)sc, (unsigned int)cpu_host_hal_event_mod_state(&ev));
+                    }
+                }
+                if (sc == CPU_HOST_SCANCODE(F2)) {
                     comp->consol_state = (uint8_t)(comp->consol_state & (uint8_t)~0x04u); /* OPTION */
                     continue;
                 }
-                if (sc == SDL_SCANCODE_F3) {
+                if (sc == CPU_HOST_SCANCODE(F3)) {
                     comp->consol_state = (uint8_t)(comp->consol_state & (uint8_t)~0x02u); /* SELECT */
                     continue;
                 }
-                if (sc == SDL_SCANCODE_F4) {
+                if (sc == CPU_HOST_SCANCODE(F4)) {
                     comp->consol_state = (uint8_t)(comp->consol_state & (uint8_t)~0x01u); /* START */
                     continue;
                 }
-                if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_KP_8) {
+                if (sc == CPU_HOST_SCANCODE(UP) || sc == CPU_HOST_SCANCODE(KP_8)) {
                     comp->joy0_state = (uint8_t)(comp->joy0_state & (uint8_t)~0x01u);
                     continue;
                 }
-                if (sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_KP_2) {
+                if (sc == CPU_HOST_SCANCODE(DOWN) || sc == CPU_HOST_SCANCODE(KP_2)) {
                     comp->joy0_state = (uint8_t)(comp->joy0_state & (uint8_t)~0x02u);
                     continue;
                 }
-                if (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_KP_4) {
+                if (sc == CPU_HOST_SCANCODE(LEFT) || sc == CPU_HOST_SCANCODE(KP_4)) {
                     comp->joy0_state = (uint8_t)(comp->joy0_state & (uint8_t)~0x04u);
                     continue;
                 }
-                if (sc == SDL_SCANCODE_RIGHT || sc == SDL_SCANCODE_KP_6) {
+                if (sc == CPU_HOST_SCANCODE(RIGHT) || sc == CPU_HOST_SCANCODE(KP_6)) {
                     comp->joy0_state = (uint8_t)(comp->joy0_state & (uint8_t)~0x08u);
                     continue;
                 }
                 if (
-                    sc == SDL_SCANCODE_RCTRL ||
-                    sc == SDL_SCANCODE_RALT ||
-                    sc == SDL_SCANCODE_SPACE ||
-                    sc == SDL_SCANCODE_KP_0
+                    sc == CPU_HOST_SCANCODE(RCTRL) ||
+                    sc == CPU_HOST_SCANCODE(RALT) ||
+                    sc == CPU_HOST_SCANCODE(KP_0)
                 ) {
                     comp->trig0 = 0u;
                     continue;
                 }
-                if (sc == SDL_SCANCODE_I) {
+                if (sc == CPU_HOST_SCANCODE(I)) {
                     comp->joy1_state = (uint8_t)(comp->joy1_state & (uint8_t)~0x01u);
                 }
-                if (sc == SDL_SCANCODE_K) {
+                if (sc == CPU_HOST_SCANCODE(K)) {
                     comp->joy1_state = (uint8_t)(comp->joy1_state & (uint8_t)~0x02u);
                 }
-                if (sc == SDL_SCANCODE_J) {
+                if (sc == CPU_HOST_SCANCODE(J)) {
                     comp->joy1_state = (uint8_t)(comp->joy1_state & (uint8_t)~0x04u);
                 }
-                if (sc == SDL_SCANCODE_L) {
+                if (sc == CPU_HOST_SCANCODE(L)) {
                     comp->joy1_state = (uint8_t)(comp->joy1_state & (uint8_t)~0x08u);
                 }
-                if (sc == SDL_SCANCODE_LCTRL) {
+                if (sc == CPU_HOST_SCANCODE(LCTRL)) {
                     comp->trig1 = 0u;
                     continue;
                 }
-                if (sc == SDL_SCANCODE_TAB) {
+                if (sc == CPU_HOST_SCANCODE(TAB)) {
                     comp->trig2 = 0u;
                     continue;
                 }
-                if (sc == SDL_SCANCODE_BACKSPACE) {
-                    comp->trig3 = 0u;
-                    continue;
-                }
-                uint8_t controlled = ((ev.key.keysym.mod & KMOD_CTRL) != 0) ? 1u : 0u;
-                uint8_t shifted = ((ev.key.keysym.mod & KMOD_SHIFT) != 0) ? 1u : 0u;
+                uint8_t controlled = ((cpu_host_hal_event_mod_state(&ev) & CPU_HOST_MOD_CTRL) != 0) ? 1u : 0u;
+                uint8_t shifted = ((cpu_host_hal_event_mod_state(&ev) & CPU_HOST_MOD_SHIFT) != 0) ? 1u : 0u;
                 uint8_t ascii = 0u;
                 if (controlled != 0u) {
-                    if (sc >= SDL_SCANCODE_A && sc <= SDL_SCANCODE_Z) {
-                        ascii = (uint8_t)(1u + (uint8_t)(sc - SDL_SCANCODE_A));
-                    } else if (sc == SDL_SCANCODE_2 || sc == SDL_SCANCODE_SPACE) {
+                    if (sc >= CPU_HOST_SCANCODE(A) && sc <= CPU_HOST_SCANCODE(Z)) {
+                        ascii = (uint8_t)(1u + (uint8_t)(sc - CPU_HOST_SCANCODE(A)));
+                    } else if (sc == CPU_HOST_SCANCODE(2) || sc == CPU_HOST_SCANCODE(SPACE)) {
                         ascii = 0x00u;
-                    } else if (sc == SDL_SCANCODE_LEFTBRACKET) {
+                    } else if (sc == CPU_HOST_SCANCODE(LEFTBRACKET)) {
                         ascii = 0x1Bu;
-                    } else if (sc == SDL_SCANCODE_BACKSLASH) {
+                    } else if (sc == CPU_HOST_SCANCODE(BACKSLASH)) {
                         ascii = 0x1Cu;
-                    } else if (sc == SDL_SCANCODE_RIGHTBRACKET) {
+                    } else if (sc == CPU_HOST_SCANCODE(RIGHTBRACKET)) {
                         ascii = 0x1Du;
-                    } else if (sc == SDL_SCANCODE_6) {
+                    } else if (sc == CPU_HOST_SCANCODE(6)) {
                         ascii = 0x1Eu;
-                    } else if (sc == SDL_SCANCODE_MINUS) {
+                    } else if (sc == CPU_HOST_SCANCODE(MINUS)) {
                         ascii = 0x1Fu;
                     }
-                } else if (sc == SDL_SCANCODE_A) ascii = 'A';
-                else if (sc == SDL_SCANCODE_B) ascii = 'B';
-                else if (sc == SDL_SCANCODE_C) ascii = 'C';
-                else if (sc == SDL_SCANCODE_D) ascii = 'D';
-                else if (sc == SDL_SCANCODE_E) ascii = 'E';
-                else if (sc == SDL_SCANCODE_F) ascii = 'F';
-                else if (sc == SDL_SCANCODE_G) ascii = 'G';
-                else if (sc == SDL_SCANCODE_H) ascii = 'H';
-                else if (sc == SDL_SCANCODE_I) ascii = 'I';
-                else if (sc == SDL_SCANCODE_J) ascii = 'J';
-                else if (sc == SDL_SCANCODE_K) ascii = 'K';
-                else if (sc == SDL_SCANCODE_L) ascii = 'L';
-                else if (sc == SDL_SCANCODE_M) ascii = 'M';
-                else if (sc == SDL_SCANCODE_N) ascii = 'N';
-                else if (sc == SDL_SCANCODE_O) ascii = 'O';
-                else if (sc == SDL_SCANCODE_P) ascii = 'P';
-                else if (sc == SDL_SCANCODE_Q) ascii = 'Q';
-                else if (sc == SDL_SCANCODE_R) ascii = 'R';
-                else if (sc == SDL_SCANCODE_S) ascii = 'S';
-                else if (sc == SDL_SCANCODE_T) ascii = 'T';
-                else if (sc == SDL_SCANCODE_U) ascii = 'U';
-                else if (sc == SDL_SCANCODE_V) ascii = 'V';
-                else if (sc == SDL_SCANCODE_W) ascii = 'W';
-                else if (sc == SDL_SCANCODE_X) ascii = 'X';
-                else if (sc == SDL_SCANCODE_Y) ascii = 'Y';
-                else if (sc == SDL_SCANCODE_Z) ascii = 'Z';
-                else if (sc == SDL_SCANCODE_0) ascii = shifted ? ')' : '0';
-                else if (sc == SDL_SCANCODE_1) ascii = shifted ? '!' : '1';
-                else if (sc == SDL_SCANCODE_2) ascii = shifted ? '@' : '2';
-                else if (sc == SDL_SCANCODE_3) ascii = shifted ? '#' : '3';
-                else if (sc == SDL_SCANCODE_4) ascii = shifted ? '$' : '4';
-                else if (sc == SDL_SCANCODE_5) ascii = shifted ? '%' : '5';
-                else if (sc == SDL_SCANCODE_6) ascii = shifted ? '^' : '6';
-                else if (sc == SDL_SCANCODE_7) ascii = shifted ? '&' : '7';
-                else if (sc == SDL_SCANCODE_8) ascii = shifted ? '*' : '8';
-                else if (sc == SDL_SCANCODE_9) ascii = shifted ? '(' : '9';
-                else if (sc == SDL_SCANCODE_KP_0) ascii = '0';
-                else if (sc == SDL_SCANCODE_KP_1) ascii = '1';
-                else if (sc == SDL_SCANCODE_KP_2) ascii = '2';
-                else if (sc == SDL_SCANCODE_KP_3) ascii = '3';
-                else if (sc == SDL_SCANCODE_KP_4) ascii = '4';
-                else if (sc == SDL_SCANCODE_KP_5) ascii = '5';
-                else if (sc == SDL_SCANCODE_KP_6) ascii = '6';
-                else if (sc == SDL_SCANCODE_KP_7) ascii = '7';
-                else if (sc == SDL_SCANCODE_KP_8) ascii = '8';
-                else if (sc == SDL_SCANCODE_KP_9) ascii = '9';
-                else if (sc == SDL_SCANCODE_SPACE) ascii = ' ';
-                else if (sc == SDL_SCANCODE_TAB) ascii = 0x7Fu;
-                else if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER) ascii = 0x9Bu;
-                else if (sc == SDL_SCANCODE_BACKSPACE) ascii = 0x7Eu;
-                else if (sc == SDL_SCANCODE_ESCAPE) ascii = 0x1Bu;
-                else if (sc == SDL_SCANCODE_MINUS) ascii = shifted ? '_' : '-';
-                else if (sc == SDL_SCANCODE_EQUALS) ascii = shifted ? '+' : '=';
-                else if (sc == SDL_SCANCODE_LEFTBRACKET) ascii = shifted ? '{' : '[';
-                else if (sc == SDL_SCANCODE_RIGHTBRACKET) ascii = shifted ? '}' : ']';
-                else if (sc == SDL_SCANCODE_BACKSLASH) ascii = shifted ? '|' : '\\';
-                else if (sc == SDL_SCANCODE_SEMICOLON) ascii = shifted ? ':' : ';';
-                else if (sc == SDL_SCANCODE_APOSTROPHE) ascii = shifted ? '"' : '\'';
-                else if (sc == SDL_SCANCODE_COMMA) ascii = shifted ? '<' : ',';
-                else if (sc == SDL_SCANCODE_PERIOD) ascii = shifted ? '>' : '.';
-                else if (sc == SDL_SCANCODE_SLASH) ascii = shifted ? '?' : '/';
-                else if (sc == SDL_SCANCODE_GRAVE) ascii = shifted ? '~' : '`';
+                } else if (sc == CPU_HOST_SCANCODE(A)) ascii = 'A';
+                else if (sc == CPU_HOST_SCANCODE(B)) ascii = 'B';
+                else if (sc == CPU_HOST_SCANCODE(C)) ascii = 'C';
+                else if (sc == CPU_HOST_SCANCODE(D)) ascii = 'D';
+                else if (sc == CPU_HOST_SCANCODE(E)) ascii = 'E';
+                else if (sc == CPU_HOST_SCANCODE(F)) ascii = 'F';
+                else if (sc == CPU_HOST_SCANCODE(G)) ascii = 'G';
+                else if (sc == CPU_HOST_SCANCODE(H)) ascii = 'H';
+                else if (sc == CPU_HOST_SCANCODE(I)) ascii = 'I';
+                else if (sc == CPU_HOST_SCANCODE(J)) ascii = 'J';
+                else if (sc == CPU_HOST_SCANCODE(K)) ascii = 'K';
+                else if (sc == CPU_HOST_SCANCODE(L)) ascii = 'L';
+                else if (sc == CPU_HOST_SCANCODE(M)) ascii = 'M';
+                else if (sc == CPU_HOST_SCANCODE(N)) ascii = 'N';
+                else if (sc == CPU_HOST_SCANCODE(O)) ascii = 'O';
+                else if (sc == CPU_HOST_SCANCODE(P)) ascii = 'P';
+                else if (sc == CPU_HOST_SCANCODE(Q)) ascii = 'Q';
+                else if (sc == CPU_HOST_SCANCODE(R)) ascii = 'R';
+                else if (sc == CPU_HOST_SCANCODE(S)) ascii = 'S';
+                else if (sc == CPU_HOST_SCANCODE(T)) ascii = 'T';
+                else if (sc == CPU_HOST_SCANCODE(U)) ascii = 'U';
+                else if (sc == CPU_HOST_SCANCODE(V)) ascii = 'V';
+                else if (sc == CPU_HOST_SCANCODE(W)) ascii = 'W';
+                else if (sc == CPU_HOST_SCANCODE(X)) ascii = 'X';
+                else if (sc == CPU_HOST_SCANCODE(Y)) ascii = 'Y';
+                else if (sc == CPU_HOST_SCANCODE(Z)) ascii = 'Z';
+                else if (sc == CPU_HOST_SCANCODE(0)) ascii = shifted ? ')' : '0';
+                else if (sc == CPU_HOST_SCANCODE(1)) ascii = shifted ? '!' : '1';
+                else if (sc == CPU_HOST_SCANCODE(2)) ascii = shifted ? '@' : '2';
+                else if (sc == CPU_HOST_SCANCODE(3)) ascii = shifted ? '#' : '3';
+                else if (sc == CPU_HOST_SCANCODE(4)) ascii = shifted ? '$' : '4';
+                else if (sc == CPU_HOST_SCANCODE(5)) ascii = shifted ? '%' : '5';
+                else if (sc == CPU_HOST_SCANCODE(6)) ascii = shifted ? '^' : '6';
+                else if (sc == CPU_HOST_SCANCODE(7)) ascii = shifted ? '&' : '7';
+                else if (sc == CPU_HOST_SCANCODE(8)) ascii = shifted ? '*' : '8';
+                else if (sc == CPU_HOST_SCANCODE(9)) ascii = shifted ? '(' : '9';
+                else if (sc == CPU_HOST_SCANCODE(KP_0)) ascii = '0';
+                else if (sc == CPU_HOST_SCANCODE(KP_1)) ascii = '1';
+                else if (sc == CPU_HOST_SCANCODE(KP_2)) ascii = '2';
+                else if (sc == CPU_HOST_SCANCODE(KP_3)) ascii = '3';
+                else if (sc == CPU_HOST_SCANCODE(KP_4)) ascii = '4';
+                else if (sc == CPU_HOST_SCANCODE(KP_5)) ascii = '5';
+                else if (sc == CPU_HOST_SCANCODE(KP_6)) ascii = '6';
+                else if (sc == CPU_HOST_SCANCODE(KP_7)) ascii = '7';
+                else if (sc == CPU_HOST_SCANCODE(KP_8)) ascii = '8';
+                else if (sc == CPU_HOST_SCANCODE(KP_9)) ascii = '9';
+                else if (sc == CPU_HOST_SCANCODE(SPACE)) ascii = ' ';
+                else if (sc == CPU_HOST_SCANCODE(TAB)) ascii = 0x7Fu;
+                else if (sc == CPU_HOST_SCANCODE(RETURN) || sc == CPU_HOST_SCANCODE(KP_ENTER)) ascii = 0x9Bu;
+                else if (sc == CPU_HOST_SCANCODE(BACKSPACE)) ascii = 0x7Eu;
+                else if (sc == CPU_HOST_SCANCODE(ESCAPE)) ascii = 0x1Bu;
+                else if (sc == CPU_HOST_SCANCODE(MINUS)) ascii = shifted ? '_' : '-';
+                else if (sc == CPU_HOST_SCANCODE(EQUALS)) ascii = shifted ? '+' : '=';
+                else if (sc == CPU_HOST_SCANCODE(LEFTBRACKET)) ascii = shifted ? '{' : '[';
+                else if (sc == CPU_HOST_SCANCODE(RIGHTBRACKET)) ascii = shifted ? '}' : ']';
+                else if (sc == CPU_HOST_SCANCODE(BACKSLASH)) ascii = shifted ? '|' : '\\';
+                else if (sc == CPU_HOST_SCANCODE(SEMICOLON)) ascii = shifted ? ':' : ';';
+                else if (sc == CPU_HOST_SCANCODE(APOSTROPHE)) ascii = shifted ? '"' : '\'';
+                else if (sc == CPU_HOST_SCANCODE(COMMA)) ascii = shifted ? '<' : ',';
+                else if (sc == CPU_HOST_SCANCODE(PERIOD)) ascii = shifted ? '>' : '.';
+                else if (sc == CPU_HOST_SCANCODE(SLASH)) ascii = shifted ? '?' : '/';
+                else if (sc == CPU_HOST_SCANCODE(GRAVE)) ascii = shifted ? '~' : '`';
                 if (ascii != 0u) {
                     uint8_t next = (uint8_t)((comp->key_q_write_idx + 1u) & 0x0Fu);
                     if (comp->key_queue != NULL && next != comp->key_q_read_idx) {
@@ -1085,49 +1606,56 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                         comp->key_q_write_idx = next;
                     }
                 }
-            } else if (ev.type == SDL_KEYUP) {
-                SDL_Scancode sc = ev.key.keysym.scancode;
-                if (sc == SDL_SCANCODE_F2) {
+            } else if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYUP) {
+                int32_t sc = cpu_host_hal_event_scancode(&ev);
+                {
+                    static int key_trace = -1;
+                    if (key_trace < 0) {
+                        const char *env = cpu_host_hal_getenv("PASM_ATARI800XL_KEY_TRACE");
+                        key_trace = (env != NULL && env[0] == '1') ? 1 : 0;
+                    }
+                    if (key_trace != 0) {
+                        fprintf(stderr, "[atari800xl-host] keyup   sc=%d\n", (int)sc);
+                    }
+                }
+                if (sc == CPU_HOST_SCANCODE(F2)) {
                     comp->consol_state = (uint8_t)(comp->consol_state | 0x04u);
-                } else if (sc == SDL_SCANCODE_F3) {
+                } else if (sc == CPU_HOST_SCANCODE(F3)) {
                     comp->consol_state = (uint8_t)(comp->consol_state | 0x02u);
-                } else if (sc == SDL_SCANCODE_F4) {
+                } else if (sc == CPU_HOST_SCANCODE(F4)) {
                     comp->consol_state = (uint8_t)(comp->consol_state | 0x01u);
-                } else if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_KP_8) {
+                } else if (sc == CPU_HOST_SCANCODE(UP) || sc == CPU_HOST_SCANCODE(KP_8)) {
                     comp->joy0_state = (uint8_t)(comp->joy0_state | 0x01u);
-                } else if (sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_KP_2) {
+                } else if (sc == CPU_HOST_SCANCODE(DOWN) || sc == CPU_HOST_SCANCODE(KP_2)) {
                     comp->joy0_state = (uint8_t)(comp->joy0_state | 0x02u);
-                } else if (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_KP_4) {
+                } else if (sc == CPU_HOST_SCANCODE(LEFT) || sc == CPU_HOST_SCANCODE(KP_4)) {
                     comp->joy0_state = (uint8_t)(comp->joy0_state | 0x04u);
-                } else if (sc == SDL_SCANCODE_RIGHT || sc == SDL_SCANCODE_KP_6) {
+                } else if (sc == CPU_HOST_SCANCODE(RIGHT) || sc == CPU_HOST_SCANCODE(KP_6)) {
                     comp->joy0_state = (uint8_t)(comp->joy0_state | 0x08u);
                 } else if (
-                    sc == SDL_SCANCODE_RCTRL ||
-                    sc == SDL_SCANCODE_RALT ||
-                    sc == SDL_SCANCODE_SPACE ||
-                    sc == SDL_SCANCODE_KP_0
+                    sc == CPU_HOST_SCANCODE(RCTRL) ||
+                    sc == CPU_HOST_SCANCODE(RALT) ||
+                    sc == CPU_HOST_SCANCODE(KP_0)
                 ) {
                     comp->trig0 = 1u;
-                } else if (sc == SDL_SCANCODE_I) {
+                } else if (sc == CPU_HOST_SCANCODE(I)) {
                     comp->joy1_state = (uint8_t)(comp->joy1_state | 0x01u);
-                } else if (sc == SDL_SCANCODE_K) {
+                } else if (sc == CPU_HOST_SCANCODE(K)) {
                     comp->joy1_state = (uint8_t)(comp->joy1_state | 0x02u);
-                } else if (sc == SDL_SCANCODE_J) {
+                } else if (sc == CPU_HOST_SCANCODE(J)) {
                     comp->joy1_state = (uint8_t)(comp->joy1_state | 0x04u);
-                } else if (sc == SDL_SCANCODE_L) {
+                } else if (sc == CPU_HOST_SCANCODE(L)) {
                     comp->joy1_state = (uint8_t)(comp->joy1_state | 0x08u);
-                } else if (sc == SDL_SCANCODE_LCTRL) {
+                } else if (sc == CPU_HOST_SCANCODE(LCTRL)) {
                     comp->trig1 = 1u;
-                } else if (sc == SDL_SCANCODE_TAB) {
+                } else if (sc == CPU_HOST_SCANCODE(TAB)) {
                     comp->trig2 = 1u;
-                } else if (sc == SDL_SCANCODE_BACKSPACE) {
-                    comp->trig3 = 1u;
                 }
             }
         }
         {
             sms_overlay_update_perf(
-                SDL_GetTicks(),
+                cpu_host_hal_ticks_ms(),
                 (uint64_t)comp->frame_count,
                 cpu->total_cycles,
                 (uint64_t)CPU_SYSTEM_CLOCK_HZ,
@@ -1140,7 +1668,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             );
         }
         if (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u && comp->audio_ring != NULL && comp->audio_ring_fill > 0u) {
-            uint32_t queued_samples = SDL_GetQueuedAudioSize(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
+            uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
             uint32_t device_samples = (comp->audio_device_samples > 0u) ? comp->audio_device_samples : 512u;
             uint32_t low_watermark = device_samples * 2u;
             uint32_t target_total = device_samples * 4u;
@@ -1165,7 +1693,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                         if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
                     }
                     comp->audio_ring_fill -= n;
-                    if (SDL_QueueAudio(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t)) != 0) {
+                    if (cpu_host_hal_audio_queue(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t)) != 0) {
                         break;
                     }
                     to_send -= n;
@@ -1309,13 +1837,28 @@ static void inst_ISC_ZP_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* ISC_ABS_UD - arithmetic */
@@ -1326,13 +1869,28 @@ static void inst_ISC_ABS_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* SLO_ZP_UD - arithmetic */
@@ -2117,14 +2675,28 @@ static void inst_ISC_INDX_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
-
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* ISC_INDY_UD - arithmetic */
@@ -2141,14 +2713,28 @@ static void inst_ISC_INDY_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
-
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* ISC_ZPX_UD - arithmetic */
@@ -2162,14 +2748,28 @@ static void inst_ISC_ZPX_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
-
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* ISC_ABSY_UD - arithmetic */
@@ -2183,14 +2783,28 @@ static void inst_ISC_ABSY_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
-
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* ISC_ABSX_UD - arithmetic */
@@ -2204,14 +2818,28 @@ static void inst_ISC_ABSX_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
-
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* KIL_02_UD - control */
@@ -2396,13 +3024,28 @@ static void inst_SBC_IMM_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* ORA_IMM - logic */
@@ -2482,13 +3125,28 @@ static void inst_ADC_IMM(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t m = inst->imm;
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
-    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
-    uint8_t r = (uint8_t)sum;
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+    uint8_t r;
+    if (cpu->flags.D) {
+    uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+    uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+    if (ad > 9u) {
+    ad = (uint8_t)(ad + 6u);
+    ah = (uint8_t)(ah + 1u);
+    }
+    if (ah > 9u) {
+    ah = (uint8_t)(ah + 6u);
+    }
+    r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+    cpu->flags.C = (ah > 0x0Fu);
+    } else {
+    r = (uint8_t)bin_sum;
+    cpu->flags.C = (bin_sum > 0xFFu);
+    }
     cpu->registers[REG_A] = r;
-    cpu->flags.C = (sum > 0xFFu);
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
 }
 
 /* ADC_ZP - arithmetic */
@@ -2496,13 +3154,28 @@ static void inst_ADC_ZP(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t m = mos6502_read_byte(cpu, inst->zp);
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
-    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
-    uint8_t r = (uint8_t)sum;
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+    uint8_t r;
+    if (cpu->flags.D) {
+    uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+    uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+    if (ad > 9u) {
+    ad = (uint8_t)(ad + 6u);
+    ah = (uint8_t)(ah + 1u);
+    }
+    if (ah > 9u) {
+    ah = (uint8_t)(ah + 6u);
+    }
+    r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+    cpu->flags.C = (ah > 0x0Fu);
+    } else {
+    r = (uint8_t)bin_sum;
+    cpu->flags.C = (bin_sum > 0xFFu);
+    }
     cpu->registers[REG_A] = r;
-    cpu->flags.C = (sum > 0xFFu);
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
 }
 
 /* ADC_ABS - arithmetic */
@@ -2510,13 +3183,28 @@ static void inst_ADC_ABS(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t m = mos6502_read_byte(cpu, inst->addr);
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
-    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
-    uint8_t r = (uint8_t)sum;
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+    uint8_t r;
+    if (cpu->flags.D) {
+    uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+    uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+    if (ad > 9u) {
+    ad = (uint8_t)(ad + 6u);
+    ah = (uint8_t)(ah + 1u);
+    }
+    if (ah > 9u) {
+    ah = (uint8_t)(ah + 6u);
+    }
+    r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+    cpu->flags.C = (ah > 0x0Fu);
+    } else {
+    r = (uint8_t)bin_sum;
+    cpu->flags.C = (bin_sum > 0xFFu);
+    }
     cpu->registers[REG_A] = r;
-    cpu->flags.C = (sum > 0xFFu);
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
 }
 
 /* SBC_IMM - arithmetic */
@@ -2525,13 +3213,28 @@ static void inst_SBC_IMM(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* SBC_ZP - arithmetic */
@@ -2540,13 +3243,28 @@ static void inst_SBC_ZP(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* SBC_ABS - arithmetic */
@@ -2555,13 +3273,28 @@ static void inst_SBC_ABS(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* CMP_IMM - arithmetic */
@@ -3360,13 +4093,28 @@ static void inst_ADC_INDX(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t m = mos6502_read_byte(cpu, addr);
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
-    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
-    uint8_t r = (uint8_t)sum;
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+    uint8_t r;
+    if (cpu->flags.D) {
+    uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+    uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+    if (ad > 9u) {
+    ad = (uint8_t)(ad + 6u);
+    ah = (uint8_t)(ah + 1u);
+    }
+    if (ah > 9u) {
+    ah = (uint8_t)(ah + 6u);
+    }
+    r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+    cpu->flags.C = (ah > 0x0Fu);
+    } else {
+    r = (uint8_t)bin_sum;
+    cpu->flags.C = (bin_sum > 0xFFu);
+    }
     cpu->registers[REG_A] = r;
-    cpu->flags.C = (sum > 0xFFu);
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
 }
 
 /* ADC_INDY - arithmetic */
@@ -3378,13 +4126,28 @@ static void inst_ADC_INDY(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t m = mos6502_read_byte(cpu, addr);
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
-    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
-    uint8_t r = (uint8_t)sum;
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+    uint8_t r;
+    if (cpu->flags.D) {
+    uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+    uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+    if (ad > 9u) {
+    ad = (uint8_t)(ad + 6u);
+    ah = (uint8_t)(ah + 1u);
+    }
+    if (ah > 9u) {
+    ah = (uint8_t)(ah + 6u);
+    }
+    r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+    cpu->flags.C = (ah > 0x0Fu);
+    } else {
+    r = (uint8_t)bin_sum;
+    cpu->flags.C = (bin_sum > 0xFFu);
+    }
     cpu->registers[REG_A] = r;
-    cpu->flags.C = (sum > 0xFFu);
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
 }
 
 /* ADC_ZPX - arithmetic */
@@ -3392,13 +4155,28 @@ static void inst_ADC_ZPX(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t m = mos6502_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + cpu->registers[REG_X])));
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
-    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
-    uint8_t r = (uint8_t)sum;
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+    uint8_t r;
+    if (cpu->flags.D) {
+    uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+    uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+    if (ad > 9u) {
+    ad = (uint8_t)(ad + 6u);
+    ah = (uint8_t)(ah + 1u);
+    }
+    if (ah > 9u) {
+    ah = (uint8_t)(ah + 6u);
+    }
+    r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+    cpu->flags.C = (ah > 0x0Fu);
+    } else {
+    r = (uint8_t)bin_sum;
+    cpu->flags.C = (bin_sum > 0xFFu);
+    }
     cpu->registers[REG_A] = r;
-    cpu->flags.C = (sum > 0xFFu);
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
 }
 
 /* ADC_ABSY - arithmetic */
@@ -3406,13 +4184,28 @@ static void inst_ADC_ABSY(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t m = mos6502_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_Y]));
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
-    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
-    uint8_t r = (uint8_t)sum;
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+    uint8_t r;
+    if (cpu->flags.D) {
+    uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+    uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+    if (ad > 9u) {
+    ad = (uint8_t)(ad + 6u);
+    ah = (uint8_t)(ah + 1u);
+    }
+    if (ah > 9u) {
+    ah = (uint8_t)(ah + 6u);
+    }
+    r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+    cpu->flags.C = (ah > 0x0Fu);
+    } else {
+    r = (uint8_t)bin_sum;
+    cpu->flags.C = (bin_sum > 0xFFu);
+    }
     cpu->registers[REG_A] = r;
-    cpu->flags.C = (sum > 0xFFu);
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
 }
 
 /* ADC_ABSX - arithmetic */
@@ -3420,13 +4213,28 @@ static void inst_ADC_ABSX(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t m = mos6502_read_byte(cpu, (uint16_t)(inst->addr + (uint16_t)cpu->registers[REG_X]));
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
-    uint16_t sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
-    uint8_t r = (uint8_t)sum;
+    uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
+    uint8_t r;
+    if (cpu->flags.D) {
+    uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
+    uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
+    if (ad > 9u) {
+    ad = (uint8_t)(ad + 6u);
+    ah = (uint8_t)(ah + 1u);
+    }
+    if (ah > 9u) {
+    ah = (uint8_t)(ah + 6u);
+    }
+    r = (uint8_t)(((uint8_t)(ah << 4) & 0xF0u) | (uint8_t)(ad & 0x0Fu));
+    cpu->flags.C = (ah > 0x0Fu);
+    } else {
+    r = (uint8_t)bin_sum;
+    cpu->flags.C = (bin_sum > 0xFFu);
+    }
     cpu->registers[REG_A] = r;
-    cpu->flags.C = (sum > 0xFFu);
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((~(a ^ m)) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((~(a ^ m)) & (a ^ (uint8_t)bin_sum)) & 0x80u) != 0u);
 }
 
 /* ROR_ZPX - rotate */
@@ -3643,13 +4451,28 @@ static void inst_SBC_INDX(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* SBC_INDY - arithmetic */
@@ -3662,13 +4485,28 @@ static void inst_SBC_INDY(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* SBC_ZPX - arithmetic */
@@ -3677,13 +4515,28 @@ static void inst_SBC_ZPX(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* INC_ZPX - arithmetic */
@@ -3701,13 +4554,28 @@ static void inst_SBC_ABSY(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* SBC_ABSX - arithmetic */
@@ -3716,13 +4584,28 @@ static void inst_SBC_ABSX(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
-    uint16_t wide = (uint16_t)a - sub;
-    uint8_t r = (uint8_t)wide;
-    cpu->registers[REG_A] = r;
+    uint16_t bin_diff = (uint16_t)a - sub;
+    uint8_t r;
+    if (cpu->flags.D) {
+    int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
+    int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
+    if (ad < 0) {
+    ad -= 6;
+    ah -= 1;
+    }
+    if (ah < 0) {
+    ah -= 6;
+    }
+    r = (uint8_t)((((uint16_t)ah << 4) & 0xF0u) | ((uint16_t)ad & 0x0Fu));
     cpu->flags.C = ((uint16_t)a >= sub);
+    } else {
+    r = (uint8_t)bin_diff;
+    cpu->flags.C = ((uint16_t)a >= sub);
+    }
+    cpu->registers[REG_A] = r;
     cpu->flags.Z = (r == 0u);
     cpu->flags.N = ((r & 0x80u) != 0u);
-    cpu->flags.V = ((((a ^ m) & (a ^ r)) & 0x80u) != 0u);
+    cpu->flags.V = ((((a ^ m) & (a ^ (uint8_t)bin_diff)) & 0x80u) != 0u);
 }
 
 /* INC_ABSX - arithmetic */
@@ -3842,9 +4725,6 @@ int mos6502_step(CPUState *cpu) {
         return 0;
     }
 
-    if (cpu->interrupt_pending && !cpu->interrupts_enabled && !cpu->halted) {
-        cpu->interrupt_pending = false;
-    }
     if (cpu->halted) {
         if (cpu->interrupt_pending && !cpu->interrupts_enabled) {
             cpu->interrupt_pending = false;
@@ -3892,6 +4772,13 @@ int mos6502_step(CPUState *cpu) {
     if (cpu->tracing_enabled) {
         mos6502_trace_instruction(cpu, &inst);
     }
+
+    uint8_t x_before = cpu->registers[REG_X];
+    uint8_t y_before = cpu->registers[REG_Y];
+    uint8_t c_before = cpu->flags.C ? 1u : 0u;
+    uint8_t z_before = cpu->flags.Z ? 1u : 0u;
+    uint8_t n_before = cpu->flags.N ? 1u : 0u;
+    uint8_t v_before = cpu->flags.V ? 1u : 0u;
 
     bool executed = false;
     cpu->pc_modified = false;
@@ -5199,6 +6086,8 @@ int mos6502_step(CPUState *cpu) {
         return -1;
     }
 
+    cpu_apply_mos6502_runtime_cycles(cpu, &inst, pc_before, x_before, y_before, c_before, z_before, n_before, v_before);
+
     cpu_components_step_post(cpu, &inst, pc_before);
 
     if (cpu->halted && !cpu->pc_modified) {
@@ -5221,6 +6110,7 @@ void mos6502_run(CPUState *cpu) {
 void mos6502_run_until(CPUState *cpu, uint64_t cycles) {
     while (cpu->running) {
         if (cycles > 0 && cpu->total_cycles >= cycles) break;
+        if (cpu->halted && !cpu->interrupt_pending) break;
         if (mos6502_step(cpu) != 0) break;
     }
 }
@@ -5289,6 +6179,7 @@ CPUState *mos6502_create(size_t memory_size) {
     cpu->comp_atari_io.ram_under_os_low = NULL;
     cpu->comp_atari_io.ram_under_os_high = NULL;
     cpu->comp_atari_io.selftest_rom = NULL;
+    cpu->comp_atari_io.ram_under_selftest = NULL;
     {
         ComponentState_atari_io *comp = &cpu->comp_atari_io;
         cpu->active_component_id = "atari_io";
@@ -5303,15 +6194,11 @@ CPUState *mos6502_create(size_t memory_size) {
         }
         if (comp->selftest_rom == NULL) {
             comp->selftest_rom = (uint8_t *)calloc(0x0800u, sizeof(uint8_t));
-            if (comp->selftest_rom != NULL) {
-                FILE *f = fopen("examples/roms/ATARIXL.ROM", "rb");
-                if (f != NULL) {
-                    if (fseek(f, 0x1000L, SEEK_SET) == 0) {
-                        (void)fread(comp->selftest_rom, 1u, 0x0800u, f);
-                    }
-                    fclose(f);
-                }
-            }
+            /* Self-test bytes are expected to be provided by system ROM loading
+               (CLI/runtime), not by direct file I/O from this component. */
+        }
+        if (comp->ram_under_selftest == NULL) {
+            comp->ram_under_selftest = (uint8_t *)calloc(0x0800u, sizeof(uint8_t));
         }
     }
     cpu->comp_video_sms.frame_count = 0;
@@ -5319,97 +6206,104 @@ CPUState *mos6502_create(size_t memory_size) {
     cpu->comp_video_sms.height = 192;
     cpu->comp_speaker_sms.level = 128;
     cpu->comp_speaker_sms.last_cycle = 0;
-    cpu->comp_host_atari800xl_sdl2.sdl_inited = 0;
-    cpu->comp_host_atari800xl_sdl2.window = NULL;
-    cpu->comp_host_atari800xl_sdl2.renderer = NULL;
-    cpu->comp_host_atari800xl_sdl2.texture = NULL;
-    cpu->comp_host_atari800xl_sdl2.texture_w = 320;
-    cpu->comp_host_atari800xl_sdl2.texture_h = 192;
-    cpu->comp_host_atari800xl_sdl2.audio_out_dev = 0;
-    cpu->comp_host_atari800xl_sdl2.audio_out_ready = 0;
-    cpu->comp_host_atari800xl_sdl2.audio_device_samples = 0;
-    cpu->comp_host_atari800xl_sdl2.frame_count = 0;
-    cpu->comp_host_atari800xl_sdl2.audio_samples = 0;
-    cpu->comp_host_atari800xl_sdl2.audio_level = 0;
-    cpu->comp_host_atari800xl_sdl2.audio_last_cycle = 0;
-    cpu->comp_host_atari800xl_sdl2.audio_sample_cursor = 0;
-    cpu->comp_host_atari800xl_sdl2.audio_rate = 0;
-    cpu->comp_host_atari800xl_sdl2.audio_ring = NULL;
-    cpu->comp_host_atari800xl_sdl2.audio_ring_capacity = 0;
-    cpu->comp_host_atari800xl_sdl2.audio_ring_read_idx = 0;
-    cpu->comp_host_atari800xl_sdl2.audio_ring_write_idx = 0;
-    cpu->comp_host_atari800xl_sdl2.audio_ring_fill = 0;
-    cpu->comp_host_atari800xl_sdl2.key_ascii = 0;
-    cpu->comp_host_atari800xl_sdl2.key_queue = NULL;
-    cpu->comp_host_atari800xl_sdl2.key_q_read_idx = 0;
-    cpu->comp_host_atari800xl_sdl2.key_q_write_idx = 0;
-    cpu->comp_host_atari800xl_sdl2.consol_state = 0x07;
-    cpu->comp_host_atari800xl_sdl2.joy0_state = 0x0F;
-    cpu->comp_host_atari800xl_sdl2.joy1_state = 0x0F;
-    cpu->comp_host_atari800xl_sdl2.trig0 = 1;
-    cpu->comp_host_atari800xl_sdl2.trig1 = 1;
-    cpu->comp_host_atari800xl_sdl2.trig2 = 1;
-    cpu->comp_host_atari800xl_sdl2.trig3 = 1;
-    cpu->comp_host_atari800xl_sdl2.last_event_poll_cycle = 0u;
-    cpu->comp_host_atari800xl_sdl2.overlay_last_ms = 0;
-    cpu->comp_host_atari800xl_sdl2.overlay_last_frame_count = 0;
-    cpu->comp_host_atari800xl_sdl2.overlay_last_cycle_count = 0;
-    cpu->comp_host_atari800xl_sdl2.overlay_fps_x100 = 0;
-    cpu->comp_host_atari800xl_sdl2.overlay_cpu_hz = 0;
-    cpu->comp_host_atari800xl_sdl2.overlay_cpu_pct_x10 = 0;
+    cpu->comp_host_atari800xl.host_inited = 0;
+    cpu->comp_host_atari800xl.window = NULL;
+    cpu->comp_host_atari800xl.renderer = NULL;
+    cpu->comp_host_atari800xl.texture = NULL;
+    cpu->comp_host_atari800xl.texture_w = 320;
+    cpu->comp_host_atari800xl.texture_h = 192;
+    cpu->comp_host_atari800xl.audio_out_dev = 0;
+    cpu->comp_host_atari800xl.audio_out_ready = 0;
+    cpu->comp_host_atari800xl.audio_device_samples = 0;
+    cpu->comp_host_atari800xl.frame_count = 0;
+    cpu->comp_host_atari800xl.audio_samples = 0;
+    cpu->comp_host_atari800xl.audio_level = 0;
+    cpu->comp_host_atari800xl.audio_last_cycle = 0;
+    cpu->comp_host_atari800xl.audio_sample_cursor = 0;
+    cpu->comp_host_atari800xl.audio_rate = 0;
+    cpu->comp_host_atari800xl.audio_ring = NULL;
+    cpu->comp_host_atari800xl.audio_ring_capacity = 0;
+    cpu->comp_host_atari800xl.audio_ring_read_idx = 0;
+    cpu->comp_host_atari800xl.audio_ring_write_idx = 0;
+    cpu->comp_host_atari800xl.audio_ring_fill = 0;
+    cpu->comp_host_atari800xl.key_ascii = 0;
+    cpu->comp_host_atari800xl.key_queue = NULL;
+    cpu->comp_host_atari800xl.key_q_read_idx = 0;
+    cpu->comp_host_atari800xl.key_q_write_idx = 0;
+    cpu->comp_host_atari800xl.consol_state = 0x07;
+    cpu->comp_host_atari800xl.joy0_state = 0x0F;
+    cpu->comp_host_atari800xl.joy1_state = 0x0F;
+    cpu->comp_host_atari800xl.trig0 = 1;
+    cpu->comp_host_atari800xl.trig1 = 1;
+    cpu->comp_host_atari800xl.trig2 = 1;
+    cpu->comp_host_atari800xl.trig3 = 1;
+    cpu->comp_host_atari800xl.last_event_poll_cycle = 0u;
+    cpu->comp_host_atari800xl.overlay_last_ms = 0;
+    cpu->comp_host_atari800xl.overlay_last_frame_count = 0;
+    cpu->comp_host_atari800xl.overlay_last_cycle_count = 0;
+    cpu->comp_host_atari800xl.overlay_fps_x100 = 0;
+    cpu->comp_host_atari800xl.overlay_cpu_hz = 0;
+    cpu->comp_host_atari800xl.overlay_cpu_pct_x10 = 0;
     {
-        ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-        cpu->active_component_id = "host_atari800xl_sdl2";
+        ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+        cpu->active_component_id = "host_atari800xl";
         do {
-            if (comp->sdl_inited != 0u) break;
-            if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) != 0) break;
-            comp->window = SDL_CreateWindow(
+            if (comp->host_inited != 0u) break;
+            if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_EVENTS) != 0) break;
+            comp->window = cpu_host_hal_create_window(
                 "PASM Atari 800XL",
-                SDL_WINDOWPOS_CENTERED,
-                SDL_WINDOWPOS_CENTERED,
-                840,
+                CPU_HOST_WINDOWPOS_CENTERED,
+                CPU_HOST_WINDOWPOS_CENTERED,
+                960,
                 576,
-                SDL_WINDOW_RESIZABLE
+                CPU_HOST_WINDOW_RESIZABLE
             );
             if (comp->window == NULL) break;
-            comp->renderer = SDL_CreateRenderer((SDL_Window *)comp->window, -1, SDL_RENDERER_ACCELERATED);
+            comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, CPU_HOST_RENDERER_ACCELERATED);
             if (comp->renderer == NULL) {
-                comp->renderer = SDL_CreateRenderer((SDL_Window *)comp->window, -1, 0);
+                comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);
             }
             if (comp->renderer == NULL) break;
-            comp->texture = SDL_CreateTexture(
-                (SDL_Renderer *)comp->renderer,
-                SDL_PIXELFORMAT_ARGB8888,
-                SDL_TEXTUREACCESS_STREAMING,
+            comp->texture = cpu_host_hal_create_texture(
+                comp->renderer,
+                CPU_HOST_PIXELFORMAT_ARGB8888,
+                CPU_HOST_TEXTUREACCESS_STREAMING,
                 320,
                 192
             );
             if (comp->texture == NULL) break;
             if (comp->key_queue == NULL) {
-                comp->key_queue = (uint8_t *)SDL_calloc(16u, sizeof(uint8_t));
+                comp->key_queue = (uint8_t *)cpu_host_hal_alloc(16u * sizeof(uint8_t));
                 if (comp->key_queue == NULL) break;
+                cpu_host_hal_memset(comp->key_queue, 0, 16u * sizeof(uint8_t));
             }
-            SDL_ShowWindow((SDL_Window *)comp->window);
-            SDL_RaiseWindow((SDL_Window *)comp->window);
-            (void)SDL_SetWindowInputFocus((SDL_Window *)comp->window);
+            cpu_host_hal_show_window(comp->window);
+            cpu_host_hal_raise_window(comp->window);
+            (void)cpu_host_hal_set_window_input_focus(comp->window);
             {
-                const char *audio_env = getenv("PASM_SDL_AUDIO");
+                const char *audio_env = cpu_host_hal_getenv("PASM_HOST_AUDIO");
                 if (audio_env == NULL || audio_env[0] != '0') {
-                    SDL_AudioSpec want;
-                    SDL_AudioSpec have;
-                    SDL_zero(want);
-                    SDL_zero(have);
+                    if (cpu_host_hal_init_subsystem(CPU_HOST_INIT_AUDIO) != 0) {
+                        /* Keep host running without audio if audio backend is unavailable. */
+                        comp->audio_out_dev = 0u;
+                        comp->audio_out_ready = 0u;
+                        comp->audio_device_samples = 0u;
+                    } else {
+                    CPUHostAudioSpec want;
+                    CPUHostAudioSpec have;
+                    cpu_host_audio_spec_zero(&want);
+                    cpu_host_audio_spec_zero(&have);
                     want.freq = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (int)CPU_AUDIO_SAMPLE_RATE : 44100;
-                    want.format = AUDIO_S16SYS;
+                    want.format = CPU_HOST_AUDIO_FORMAT_S16;
                     want.channels = 1;
                     want.samples = 512;
                     want.callback = NULL;
                     comp->audio_device_samples = 0u;
-                    comp->audio_out_dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-                    if (comp->audio_out_dev != 0u && have.format == AUDIO_S16SYS && have.channels == 1) {
+                    comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have, CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE);
+                    if (comp->audio_out_dev != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels == 1) {
                         uint32_t ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq * 2u) : 88200u;
                         if (ring_capacity < 8192u) ring_capacity = 8192u;
-                        comp->audio_ring = (int16_t *)SDL_malloc((size_t)ring_capacity * sizeof(int16_t));
+                        comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));
                         if (comp->audio_ring != NULL) {
                             comp->audio_rate = (have.freq > 0) ? (uint32_t)have.freq : 44100u;
                             comp->audio_ring_capacity = ring_capacity;
@@ -5418,20 +6312,21 @@ CPUState *mos6502_create(size_t memory_size) {
                             comp->audio_ring_fill = 0u;
                             comp->audio_device_samples = (uint32_t)have.samples;
                             comp->audio_out_ready = 1u;
-                            SDL_PauseAudioDevice(comp->audio_out_dev, 0);
+                            cpu_host_hal_audio_pause(comp->audio_out_dev, 0);
                         } else {
-                            SDL_CloseAudioDevice(comp->audio_out_dev);
+                            cpu_host_hal_audio_close(comp->audio_out_dev);
                             comp->audio_out_dev = 0u;
                             comp->audio_device_samples = 0u;
                         }
                     } else if (comp->audio_out_dev != 0u) {
-                        SDL_CloseAudioDevice(comp->audio_out_dev);
+                        cpu_host_hal_audio_close(comp->audio_out_dev);
                         comp->audio_out_dev = 0u;
                         comp->audio_device_samples = 0u;
                     }
+                    }
                 }
             }
-            comp->sdl_inited = 1u;
+            comp->host_inited = 1u;
         } while (0);
     }
     cpu->comp_atari_cart0.rom_data = NULL;
@@ -5462,21 +6357,25 @@ void mos6502_destroy(CPUState *cpu) {
                 free(comp->selftest_rom);
                 comp->selftest_rom = NULL;
             }
+            if (comp->ram_under_selftest != NULL) {
+                free(comp->ram_under_selftest);
+                comp->ram_under_selftest = NULL;
+            }
         }
         {
-            ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-            cpu->active_component_id = "host_atari800xl_sdl2";
+            ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+            cpu->active_component_id = "host_atari800xl";
             if (comp->audio_out_dev != 0u) {
-                SDL_CloseAudioDevice(comp->audio_out_dev);
+                cpu_host_hal_audio_close(comp->audio_out_dev);
                 comp->audio_out_dev = 0u;
             }
             comp->audio_device_samples = 0u;
             if (comp->audio_ring != NULL) {
-                SDL_free(comp->audio_ring);
+                cpu_host_hal_free(comp->audio_ring);
                 comp->audio_ring = NULL;
             }
             if (comp->key_queue != NULL) {
-                SDL_free(comp->key_queue);
+                cpu_host_hal_free(comp->key_queue);
                 comp->key_queue = NULL;
             }
             comp->audio_ring_capacity = 0u;
@@ -5484,21 +6383,21 @@ void mos6502_destroy(CPUState *cpu) {
             comp->audio_ring_write_idx = 0u;
             comp->audio_ring_fill = 0u;
             if (comp->texture != NULL) {
-                SDL_DestroyTexture((SDL_Texture *)comp->texture);
+                cpu_host_hal_destroy_texture(comp->texture);
                 comp->texture = NULL;
             }
             if (comp->renderer != NULL) {
-                SDL_DestroyRenderer((SDL_Renderer *)comp->renderer);
+                cpu_host_hal_destroy_renderer(comp->renderer);
                 comp->renderer = NULL;
             }
             if (comp->window != NULL) {
-                SDL_DestroyWindow((SDL_Window *)comp->window);
+                cpu_host_hal_destroy_window(comp->window);
                 comp->window = NULL;
             }
-            if (comp->sdl_inited != 0u) {
-                SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS);
-                SDL_Quit();
-                comp->sdl_inited = 0u;
+            if (comp->host_inited != 0u) {
+                cpu_host_hal_quit_subsystems();
+                cpu_host_hal_quit();
+                comp->host_inited = 0u;
             }
         }
         {
@@ -5624,6 +6523,15 @@ void mos6502_reset(CPUState *cpu) {
                 comp->ram_under_os_high[i] = ((uint64_t)a < cpu->memory_size) ? cpu->memory[a] : 0u;
             }
         }
+        if (comp->selftest_rom != NULL) {
+            for (uint16_t i = 0u; i < 0x0800u; ++i) {
+                uint16_t a = (uint16_t)(0x5000u + i);
+                comp->selftest_rom[i] = ((uint64_t)a < cpu->memory_size) ? cpu->memory[a] : 0u;
+            }
+        }
+        if (comp->ram_under_selftest != NULL) {
+            memset(comp->ram_under_selftest, 0, 0x0800u);
+        }
         if (cpu->memory_size >= 0x02FDu) {
             cpu->memory[0x02FCu] = 0xFFu; /* CH */
         }
@@ -5652,8 +6560,8 @@ void mos6502_reset(CPUState *cpu) {
     cpu->comp_speaker_sms.level = 128;
     cpu->comp_speaker_sms.last_cycle = 0;
     {
-        ComponentState_host_atari800xl_sdl2 *comp = &cpu->comp_host_atari800xl_sdl2;
-        cpu->active_component_id = "host_atari800xl_sdl2";
+        ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
+        cpu->active_component_id = "host_atari800xl";
         comp->frame_count = 0u;
         comp->audio_samples = 0u;
         comp->audio_level = 0;
@@ -5683,7 +6591,7 @@ void mos6502_reset(CPUState *cpu) {
         comp->overlay_cpu_hz = 0u;
         comp->overlay_cpu_pct_x10 = 0u;
         if (comp->audio_out_dev != 0u) {
-            SDL_ClearQueuedAudio(comp->audio_out_dev);
+            cpu_host_hal_audio_clear(comp->audio_out_dev);
         }
     }
     cpu->running = true;
@@ -5737,8 +6645,9 @@ typedef struct {
 } SystemRomImage;
 
 static const SystemRomImage g_system_rom_images[] = {
-    { "atari800xl_os_low", "../roms/ATARIXL_C000.ROM", 0xC000u, 4096u },
-    { "atari800xl_os_high", "../roms/ATARIXL_D800.ROM", 0xD800u, 10240u },
+    { "atari800xl_os_low", "../../roms/atari800xl/ATARIXL_C000.ROM", 0xC000u, 4096u },
+    { "atari800xl_os_high", "../../roms/atari800xl/ATARIXL_D800.ROM", 0xD800u, 10240u },
+    { "atari800xl_selftest", "../../roms/atari800xl/ATARIXL_SELFTEST.ROM", 0x5000u, 2048u },
 };
 
 static bool cpu_path_is_absolute(const char *path) {
@@ -5845,6 +6754,9 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
         if (addr >= 0x5000u && addr < 0x5800u) {
             if ((comp->portb & 0x80u) == 0u && comp->selftest_rom != NULL) {
                 return comp->selftest_rom[(uint16_t)(addr - 0x5000u)];
+            }
+            if ((comp->portb & 0x80u) != 0u && comp->ram_under_selftest != NULL) {
+                return comp->ram_under_selftest[(uint16_t)(addr - 0x5000u)];
             }
         }
         if (addr >= 0xA000u && addr < 0xC000u) {
@@ -6007,8 +6919,8 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
         ComponentState_atari_io *comp = &cpu->comp_atari_io;
         cpu->active_component_id = "atari_io";
         if (addr == 0x02FCu) {
-            /* OS CH shadow: keep POKEY keycode in sync until software clears it. */
-            comp->keyboard_atascii = value;
+            /* OS CH shadow (keyboard code), not ATASCII. */
+            comp->keyboard_code = value;
             if (value == 0xFFu) {
                 comp->keyboard_sticky = 0u;
             }
@@ -6017,6 +6929,10 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
             if ((comp->portb & 0x80u) == 0u) {
                 return;
             }
+            if (comp->ram_under_selftest != NULL) {
+                comp->ram_under_selftest[(uint16_t)(addr - 0x5000u)] = value;
+            }
+            return;
         }
         if (addr >= 0xA000u && addr < 0xC000u) {
         #if CPU_CARTRIDGE_COUNT > 0
@@ -6199,6 +7115,10 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
     }
     /* Ignore writes to read-only region: CART_8K */
     if (addr >= 0xA000u && addr < 0xC000u) {
+        return;
+    }
+    /* Ignore writes to read-only region: ROM_SELFTEST */
+    if (addr >= 0x5000u && addr < 0x5800u) {
         return;
     }
     /* Ignore writes to read-only region: ROM_OS_LOW */

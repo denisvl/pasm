@@ -125,8 +125,8 @@ typedef struct ComponentState_speaker_sms {
     uint64_t last_cycle;
 } ComponentState_speaker_sms;
 
-typedef struct ComponentState_host_sg1000_sdl2 {
-    uint8_t sdl_inited;
+typedef struct ComponentState_host_sg1000 {
+    uint8_t host_inited;
     void * window;
     void * renderer;
     void * texture;
@@ -163,7 +163,7 @@ typedef struct ComponentState_host_sg1000_sdl2 {
     uint8_t reset_pressed_prev;
     uint8_t debug_enabled;
     uint8_t crop_left8;
-} ComponentState_host_sg1000_sdl2;
+} ComponentState_host_sg1000;
 
 typedef struct ComponentState_sg_cart0 {
     uint8_t * rom_data;
@@ -252,7 +252,7 @@ struct CPUState {
     ComponentState_sms_psg0 comp_sms_psg0;
     ComponentState_video_sms comp_video_sms;
     ComponentState_speaker_sms comp_speaker_sms;
-    ComponentState_host_sg1000_sdl2 comp_host_sg1000_sdl2;
+    ComponentState_host_sg1000 comp_host_sg1000;
     ComponentState_sg_cart0 comp_sg_cart0;
 };
 

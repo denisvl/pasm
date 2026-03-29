@@ -36,7 +36,7 @@ def test_generate_simple8_full(tmp_path):
 
 def test_generate_trs80_model4_embeds_reset_delay(tmp_path):
     processor_path, system_path = example_pair(
-        "z80", "z80_trs80_model4_interactive.yaml"
+        "z80", "trs80_model4_interactive.yaml"
     )
     outdir = tmp_path / "trs80_reset_delay_test"
     examples_dir = processor_path.parents[1]
@@ -49,7 +49,7 @@ def test_generate_trs80_model4_embeds_reset_delay(tmp_path):
         str(examples_dir / "devices" / "trs80_speaker.yaml"),
     ]
     host_paths = [
-        str(examples_dir / "hosts" / "trs80_host_sdl2_interactive.yaml"),
+        str(examples_dir / "hosts" / "trs80_host_hal_interactive.yaml"),
     ]
 
     gen_mod.generate(

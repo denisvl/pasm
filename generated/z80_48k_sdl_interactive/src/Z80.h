@@ -93,12 +93,13 @@ typedef struct ComponentState_mic0 {
     uint64_t next_sample_cycle;
 } ComponentState_mic0;
 
-typedef struct ComponentState_host_sdl2 {
-    uint8_t sdl_inited;
+typedef struct ComponentState_host_zx48 {
+    uint8_t host_inited;
     void * window;
     void * renderer;
     void * texture;
     uint32_t audio_out_dev;
+    uint32_t audio_device_samples;
     uint32_t audio_in_dev;
     uint8_t row0;
     uint8_t row1;
@@ -136,7 +137,7 @@ typedef struct ComponentState_host_sdl2 {
     uint8_t debug_enabled;
     uint8_t kb_last_row_mask;
     uint8_t kb_last_result;
-} ComponentState_host_sdl2;
+} ComponentState_host_zx48;
 
 
 /* ===== CPU State ===== */
@@ -151,27 +152,27 @@ struct CPUState {
     uint16_t sp;
     union {
         struct {
-            unsigned int S : 1;
-            unsigned int Z : 1;
-            unsigned int H : 1;
-            unsigned int P : 1;
-            unsigned int N : 1;
             unsigned int C : 1;
-            unsigned int _reserved_6 : 1;
-            unsigned int _reserved_7 : 1;
+            unsigned int N : 1;
+            unsigned int P : 1;
+            unsigned int F3 : 1;
+            unsigned int H : 1;
+            unsigned int F5 : 1;
+            unsigned int Z : 1;
+            unsigned int S : 1;
         };
         uint8_t raw;
     } flags;
     union {
         struct {
-            unsigned int S : 1;
-            unsigned int Z : 1;
-            unsigned int H : 1;
-            unsigned int P : 1;
-            unsigned int N : 1;
             unsigned int C : 1;
-            unsigned int _reserved_6 : 1;
-            unsigned int _reserved_7 : 1;
+            unsigned int N : 1;
+            unsigned int P : 1;
+            unsigned int F3 : 1;
+            unsigned int H : 1;
+            unsigned int F5 : 1;
+            unsigned int Z : 1;
+            unsigned int S : 1;
         };
         uint8_t raw;
     } flags_prime;
@@ -220,7 +221,7 @@ struct CPUState {
     ComponentState_video0 comp_video0;
     ComponentState_speaker0 comp_speaker0;
     ComponentState_mic0 comp_mic0;
-    ComponentState_host_sdl2 comp_host_sdl2;
+    ComponentState_host_zx48 comp_host_zx48;
 };
 
 /* ===== Constants ===== */
@@ -267,12 +268,14 @@ typedef enum {
 /* ===== Flag Bits ===== */
 /* Flag bit positions */
 typedef enum {
-    FLAG_S = (1u << 0),
-    FLAG_Z = (1u << 1),
-    FLAG_H = (1u << 2),
-    FLAG_P = (1u << 3),
-    FLAG_N = (1u << 4),
-    FLAG_C = (1u << 5),
+    FLAG_S = (1u << 7),
+    FLAG_Z = (1u << 6),
+    FLAG_F5 = (1u << 5),
+    FLAG_H = (1u << 4),
+    FLAG_F3 = (1u << 3),
+    FLAG_P = (1u << 2),
+    FLAG_N = (1u << 1),
+    FLAG_C = (1u << 0),
 } FlagBits;
 
 /* ===== CPU Lifecycle ===== */

@@ -29,7 +29,7 @@ def _apple2_interactive_paths():
         BASE_DIR / "examples" / "devices" / "apple2" / "apple2_speaker.yaml",
     ]
     host_paths = [
-        BASE_DIR / "examples" / "hosts" / "apple2" / "apple2_host_sdl2_interactive.yaml",
+        BASE_DIR / "examples" / "hosts" / "apple2" / "apple2_host_hal_interactive.yaml",
     ]
     return processor_path, system_path, ic_paths, device_paths, host_paths
 
@@ -51,7 +51,7 @@ def test_apple2_interactive_component_graph_validates():
         "video_apple2",
         "speaker_apple2",
     ]
-    assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_apple2_sdl2"]
+    assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_apple2"]
 
 
 def test_generate_apple2_interactive_with_components():
@@ -77,8 +77,8 @@ def test_generate_apple2_interactive_with_components():
     assert "apple2_glyph" in impl
     assert "A2_HIRES_ADDR" in impl
     assert "cpu_host_hal_event_key_repeat(&ev) == 0" in impl
-    assert "KMOD_SHIFT" in impl
-    assert "KMOD_CTRL" in impl
+    assert "CPU_HOST_MOD_SHIFT" in impl
+    assert "CPU_HOST_MOD_CTRL" in impl
     assert "sc >= CPU_HOST_SCANCODE(A) && sc <= CPU_HOST_SCANCODE(Z)" in impl
     assert "ascii = shifted ? '!'" in impl
     assert 'snprintf(rendered, sizeof(rendered), "LDA #%s"' in impl

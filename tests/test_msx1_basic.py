@@ -13,7 +13,7 @@ BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _msx_paths():
-    processor_path, system_path = example_pair("z80", system="z80_msx1_default.yaml")
+    processor_path, system_path = example_pair("z80", system="msx1_default.yaml")
     ic_paths = [
         BASE_DIR / "examples" / "ics" / "msx1_vdp_tms9918a.yaml",
         BASE_DIR / "examples" / "ics" / "msx1_ppi_8255.yaml",
@@ -31,8 +31,8 @@ def _msx_paths():
 
 
 def _msx_interactive_paths():
-    processor_path, _ = example_pair("z80", system="z80_msx1_default.yaml")
-    system_path = BASE_DIR / "examples" / "systems" / "z80_msx1_interactive.yaml"
+    processor_path, _ = example_pair("z80", system="msx1_default.yaml")
+    system_path = BASE_DIR / "examples" / "systems" / "msx1" / "msx1_interactive.yaml"
     ic_paths = [
         BASE_DIR / "examples" / "ics" / "msx1_vdp_tms9918a.yaml",
         BASE_DIR / "examples" / "ics" / "msx1_ppi_8255.yaml",
@@ -44,7 +44,7 @@ def _msx_interactive_paths():
         BASE_DIR / "examples" / "devices" / "msx_speaker.yaml",
     ]
     host_paths = [
-        BASE_DIR / "examples" / "hosts" / "msx_host_sdl2_interactive.yaml",
+        BASE_DIR / "examples" / "hosts" / "msx_host_hal_interactive.yaml",
     ]
     return processor_path, system_path, ic_paths, device_paths, host_paths
 
@@ -78,7 +78,7 @@ def test_msx1_interactive_component_graph_validates():
         [str(path) for path in host_paths],
     )
     assert data["system"]["metadata"]["name"] == "Z80MSX1InteractiveSystem"
-    assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_msx_sdl2"]
+    assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_msx"]
 
 
 def test_msx1_ppi_keyboard_row_decode_and_bsr_generation(tmp_path):
@@ -100,9 +100,9 @@ def test_msx1_ppi_keyboard_row_decode_and_bsr_generation(tmp_path):
     assert "uint8_t hi = (uint8_t)((comp->port_c >> 4) & 0x0Fu);" in c_src
     assert "value = comp->port_c;" in c_src
     assert "uint8_t value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFF;" in c_src
-    assert "SDL_SCANCODE_LEFT" in c_src
-    assert "SDL_SCANCODE_RIGHT" in c_src
-    assert "SDL_SCANCODE_RETURN" in c_src
+    assert "CPU_HOST_SCANCODE(LEFT)" in c_src
+    assert "CPU_HOST_SCANCODE(RIGHT)" in c_src
+    assert "CPU_HOST_SCANCODE(RETURN)" in c_src
     assert "cpu->interrupt_vector = 0xFFu;" in c_src
     assert "cpu->interrupt_pending = true;" in c_src
 

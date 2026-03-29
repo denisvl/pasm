@@ -138,8 +138,8 @@ typedef struct ComponentState_speaker_msx {
     uint64_t last_cycle;
 } ComponentState_speaker_msx;
 
-typedef struct ComponentState_host_msx_sdl2 {
-    uint8_t sdl_inited;
+typedef struct ComponentState_host_msx {
+    uint8_t host_inited;
     void * window;
     void * renderer;
     void * texture;
@@ -181,16 +181,7 @@ typedef struct ComponentState_host_msx_sdl2 {
     uint8_t row9;
     uint8_t row10;
     uint8_t joy_buttons_profile;
-} ComponentState_host_msx_sdl2;
-
-typedef struct ComponentState_msx_cart0 {
-    uint8_t * rom_data;
-    uint32_t rom_size;
-    uint8_t slot_id;
-    uint8_t bank_6000;
-    uint8_t bank_8000;
-    uint8_t bank_a000;
-} ComponentState_msx_cart0;
+} ComponentState_host_msx;
 
 
 /* ===== CPU State ===== */
@@ -275,8 +266,7 @@ struct CPUState {
     ComponentState_keyboard_msx comp_keyboard_msx;
     ComponentState_video_msx comp_video_msx;
     ComponentState_speaker_msx comp_speaker_msx;
-    ComponentState_host_msx_sdl2 comp_host_msx_sdl2;
-    ComponentState_msx_cart0 comp_msx_cart0;
+    ComponentState_host_msx comp_host_msx;
 };
 
 /* ===== Constants ===== */
@@ -290,11 +280,11 @@ struct CPUState {
 #define CPU_AUDIO_SAMPLE_RATE 44100ULL
 #define CPU_AUDIO_CHANNELS 1
 #define CPU_AUDIO_FORMAT "s16le"
-/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"msx1_cartridge_interactive\"} */
+/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"msx1_interactive\"} */
 #define CPU_IC_COUNT 3
 #define CPU_DEVICE_COUNT 3
 #define CPU_HOST_COUNT 1
-#define CPU_CARTRIDGE_COUNT 1
+#define CPU_CARTRIDGE_COUNT 0
 
 /* ===== Register Enum ===== */
 typedef enum {

@@ -38,16 +38,15 @@ Last updated on: March 28, 2026
 ### Schema
 - [x] Extend host input schema to support canonical `host_key` model.
 - [x] Mark SDL-specific source/key patterns as deprecated during transition.
-- [x] Add host backend target metadata (`backend.target`) for compile-time backend selection.
+- [x] Keep host YAML backend-neutral (no backend selector fields in YAML contract).
 - [x] Remove legacy SDL-only constraints in Phase 3.
 
 ### Parser
 - [x] Add canonical host key validation.
 - [x] Remove legacy SDL keyboard syntax acceptance (`sdl_scancode` / `SDL_SCANCODE_*`).
 - [x] Keep duplicate binding and bit/row range validation behavior.
-- [x] Normalize/validate host backend target (`backend.target`, explicit and required).
-- [x] Enforce a single host backend target per composed build (mixed backend targets rejected).
-  - Parser now requires explicit `backend.target` (no model-name inference fallback).
+- [x] Normalize/validate codegen-selected host backend target (`--host-backend`).
+- [x] Enforce explicit backend selection in codegen whenever hosts are present (no YAML fallback).
   - Host keyboard validation now uses a backend-neutral canonical key allowlist (`host_key`) directly, without SDL-prefixed compatibility-key conversion during validation.
 
 ### Codegen
@@ -60,19 +59,19 @@ Last updated on: March 28, 2026
   - Generated key-resolution helper is unified at call site and guarded by backend capability (`CPU_HOST_HAS_SCANCODE_MAP`) instead of split backend-specific helper names.
   - CPU codegen host-keyboard ingestion now fails fast on invalid host input contracts (non-`host_key` source, non-canonical keys, malformed press rows/bits) instead of silently dropping invalid bindings.
   - CPU generation now enforces a strict single supported backend target set (`sdl2`/`stub`/`glfw`) and rejects mixed or unsupported backend targets.
-  - CPU generation no longer infers backend target from host model naming; `backend.target` is the source of truth.
+  - CPU generation no longer infers backend target from host model naming or host YAML `backend`; codegen-selected backend is the source of truth.
   - Added regression coverage to keep in-repo SDL2 host YAML snippets free of direct `SDL_*` symbol usage.
 
 ### Build
 - [x] Keep compile-time backend selection model.
 - [x] Move SDL linking decisions behind backend-target configuration.
-  - Backend-target-driven SDL setup/linking is implemented for `backend.target: sdl2` (auto-setup no longer inferred from `linked_libraries` names alone).
+  - Backend-target-driven SDL setup/linking is implemented for `--host-backend sdl2` (auto-setup no longer inferred from `linked_libraries` names alone).
   - Build generation now enforces a strict single backend target matrix (`sdl2`/`stub`/`glfw`) and rejects mixed or unsupported backend target sets.
   - `glfw` now has backend-target-driven build setup/link handling (`find_package(glfw3 ...)` and auto link target fallback) without SDL auto-setup/linking.
-  - CPU code generation now auto-includes SDL headers for `backend.target: sdl2`, so in-repo SDL2 host YAML snippets no longer need explicit `SDL2/SDL.h` coding headers.
+  - CPU code generation now auto-includes SDL headers for `--host-backend sdl2`, so in-repo SDL2 host YAML snippets no longer need explicit `SDL2/SDL.h` coding headers.
   - In-repo SDL2 host YAML snippets now rely on backend-target-driven link setup (no explicit `linked_libraries: SDL2` entries required).
   - Scope for this phase is complete for the currently supported targets (`sdl2`, `stub`, `glfw`).
-- [x] Migrate in-repo host YAML files to explicit `backend.target` metadata (`sdl2`/`stub`).
+- [x] Migrate in-repo host YAML files to HAL-only metadata (no backend selectors).
 
 ### Runtime
 - [x] Define Host HAL calls for events, frame present, audio output, timing, and focus hooks.

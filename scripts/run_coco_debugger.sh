@@ -13,7 +13,7 @@ set -euo pipefail
 #   EXTRA_CARGO_ARGS="--release"
 #   CMAKE_BUILD_TYPE=Release
 #   RUN_SPEED=realtime|max
-#   PASM_SDL_AUDIO=1
+#   PASM_HOST_AUDIO=1
 #   CARTRIDGE_MAP=examples/cartridges/coco1/coco_mapper_none.yaml
 #   CARTRIDGE_ROM_GEN=../../roms/coco1/Dungeons of Daggorath (1982) (26-3093) (DynaMicro) [!].ccc
 #   CARTRIDGE_ROM_RUN=/abs/path/to/cart.rom  (optional override)
@@ -24,7 +24,7 @@ MEMORY_SIZE="${MEMORY_SIZE:-65536}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
-PASM_SDL_AUDIO="${PASM_SDL_AUDIO:-1}"
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-}"
 
@@ -39,17 +39,16 @@ IC_MAIN="examples/ics/coco1/coco1_peripherals.yaml"
 DEVICE_KB="examples/devices/coco1/coco_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/coco1/coco_video.yaml"
 DEVICE_SPK="examples/devices/coco1/coco_speaker.yaml"
-SYSTEM_DIR="examples/systems"
 
 case "${PROFILE}" in
   default)
-    SYSTEM="examples/systems/mc6809/mc6809_coco1_default.yaml"
+    SYSTEM="examples/systems/coco1/coco1_default.yaml"
     HOST="examples/hosts/coco1/coco_host_stub.yaml"
     DEFAULT_OUTPUT="generated/mc6809_coco1"
     ;;
   interactive)
-    SYSTEM="examples/systems/mc6809/mc6809_coco1_interactive.yaml"
-    HOST="examples/hosts/coco1/coco_host_sdl2_interactive.yaml"
+    SYSTEM="examples/systems/coco1/coco1_interactive.yaml"
+    HOST="examples/hosts/coco1/coco_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/mc6809_coco1_sdl"
     ;;
   *)
@@ -63,12 +62,17 @@ OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
+SYSTEM_DIR="$(dirname "${SYSTEM}")"
 SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
 
 USE_CARTRIDGE=0
-if [[ -n "${CARTRIDGE_MAP}" || -n "${CARTRIDGE_ROM_GEN}" ]]; then
-  if [[ -z "${CARTRIDGE_MAP}" || -z "${CARTRIDGE_ROM_GEN}" ]]; then
-    echo "Set both CARTRIDGE_MAP and CARTRIDGE_ROM_GEN, or set neither." >&2
+if [[ -n "${CARTRIDGE_MAP}" || -n "${CARTRIDGE_ROM_GEN}" || -n "${CARTRIDGE_ROM_RUN:-}" ]]; then
+  if [[ -z "${CARTRIDGE_MAP}" ]]; then
+    echo "Set CARTRIDGE_MAP when enabling cartridge mode." >&2
+    exit 4
+  fi
+  if [[ -z "${CARTRIDGE_ROM_GEN}" && -z "${CARTRIDGE_ROM_RUN:-}" ]]; then
+    echo "Set either CARTRIDGE_ROM_GEN or CARTRIDGE_ROM_RUN when enabling cartridge mode." >&2
     exit 4
   fi
   USE_CARTRIDGE=1
@@ -90,7 +94,13 @@ if [[ "${USE_CARTRIDGE}" == "1" ]]; then
     echo "Cartridge ROM not found: ${CARTRIDGE_ROM_RUNTIME}" >&2
     exit 4
   fi
-  GEN_CARTRIDGE_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_GEN}")
+  if [[ -n "${CARTRIDGE_ROM_GEN}" ]]; then
+    GEN_CARTRIDGE_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_GEN}")
+  else
+    # Ensure cartridge component is present in generated emulator even when
+    # caller provides only a runtime ROM path override.
+    GEN_CARTRIDGE_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_RUNTIME}")
+  fi
   RUN_CARTRIDGE_ARGS+=(--cart-rom "${CARTRIDGE_ROM_RUNTIME}")
 fi
 
@@ -103,6 +113,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
+  --host-backend "${HOST_BACKEND:-sdl2}" \
   "${GEN_CARTRIDGE_ARGS[@]}" \
   --output "${OUTPUT_DIR}"
 
@@ -120,7 +131,7 @@ fi
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
-PASM_SDL_AUDIO="${PASM_SDL_AUDIO}" \
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \

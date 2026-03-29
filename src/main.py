@@ -69,6 +69,11 @@ def main():
         help="Input YAML host definition file (repeatable, order-preserving)",
     )
     gen_parser.add_argument(
+        "--host-backend",
+        choices=["sdl2", "glfw", "stub"],
+        help="Host HAL backend target (required when --host is provided)",
+    )
+    gen_parser.add_argument(
         "--cartridge-map",
         help="Input YAML cartridge mapper definition file (single active cartridge)",
     )
@@ -133,6 +138,11 @@ def main():
         help="Input YAML host definition file (repeatable, order-preserving)",
     )
     val_parser.add_argument(
+        "--host-backend",
+        choices=["sdl2", "glfw", "stub"],
+        help="Host HAL backend target (required when --host is provided)",
+    )
+    val_parser.add_argument(
         "--cartridge-map",
         help="Input YAML cartridge mapper definition file (single active cartridge)",
     )
@@ -181,6 +191,11 @@ def main():
         help="Input YAML host definition file (repeatable, order-preserving)",
     )
     info_parser.add_argument(
+        "--host-backend",
+        choices=["sdl2", "glfw", "stub"],
+        help="Host HAL backend target (required when --host is provided)",
+    )
+    info_parser.add_argument(
         "--cartridge-map",
         help="Input YAML cartridge mapper definition file (single active cartridge)",
     )
@@ -220,6 +235,7 @@ def generate_command(args):
     ic_paths = list(getattr(args, "ic", []) or [])
     device_paths = list(getattr(args, "device", []) or [])
     host_paths = list(getattr(args, "host", []) or [])
+    host_backend_target = getattr(args, "host_backend", None)
     cartridge_map_path = getattr(args, "cartridge_map", None)
     cartridge_rom_path = getattr(args, "cartridge_rom", None)
 
@@ -271,6 +287,7 @@ def generate_command(args):
             host_paths=host_paths,
             cartridge_path=cartridge_map_path,
             cartridge_rom_path=cartridge_rom_path,
+            host_backend_target=host_backend_target,
         )
     except Exception as e:
         logger.error(f"Error loading processor/system definition: {e}")
@@ -304,6 +321,7 @@ def generate_command(args):
         host_paths=host_paths,
         cartridge_map_path=cartridge_map_path,
         cartridge_rom_path=cartridge_rom_path,
+        host_backend_target=host_backend_target,
     )
     generator.generate(output_dir, dispatch_mode=args.dispatch)
 
@@ -318,6 +336,7 @@ def validate_command(args):
     ic_paths = list(getattr(args, "ic", []) or [])
     device_paths = list(getattr(args, "device", []) or [])
     host_paths = list(getattr(args, "host", []) or [])
+    host_backend_target = getattr(args, "host_backend", None)
     cartridge_map_path = getattr(args, "cartridge_map", None)
     cartridge_rom_path = getattr(args, "cartridge_rom", None)
 
@@ -353,6 +372,7 @@ def validate_command(args):
             host_paths=host_paths,
             cartridge_path=cartridge_map_path,
             cartridge_rom_path=cartridge_rom_path,
+            host_backend_target=host_backend_target,
         )
 
         if args.verbose:
@@ -377,6 +397,7 @@ def info_command(args):
     ic_paths = list(getattr(args, "ic", []) or [])
     device_paths = list(getattr(args, "device", []) or [])
     host_paths = list(getattr(args, "host", []) or [])
+    host_backend_target = getattr(args, "host_backend", None)
     cartridge_map_path = getattr(args, "cartridge_map", None)
     cartridge_rom_path = getattr(args, "cartridge_rom", None)
 
@@ -412,6 +433,7 @@ def info_command(args):
             host_paths=host_paths,
             cartridge_path=cartridge_map_path,
             cartridge_rom_path=cartridge_rom_path,
+            host_backend_target=host_backend_target,
         )
         summary = loader.get_summary(isa_data)
 

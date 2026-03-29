@@ -1027,7 +1027,7 @@ int z80_dbg_focus_host_window(CPUState *cpu) {
 #if defined(SDL_MAJOR_VERSION)
     int focused = 0;
     {
-        ComponentState_host_cpc_sdl2 *comp = &cpu->comp_host_cpc_sdl2;
+        ComponentState_host_cpc *comp = &cpu->comp_host_cpc;
         if (comp->window != NULL) {
             SDL_Window *wnd = (SDL_Window *)comp->window;
             SDL_ShowWindow(wnd);

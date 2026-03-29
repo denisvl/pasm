@@ -20,29 +20,28 @@ def _make_path(path: str) -> str:
     return path.replace("\\", "/")
 
 
-def _host_backend_targets(isa_data: Dict[str, Any]) -> set[str]:
-    targets: set[str] = set()
-    for host in isa_data.get("hosts", []):
-        if not isinstance(host, dict):
-            continue
-        backend = host.get("backend", {})
-        if not isinstance(backend, dict):
-            continue
-        target = str(backend.get("target", "")).strip().lower()
-        if target:
-            targets.add(target)
-    return targets
-
-
 def _single_host_backend_target(isa_data: Dict[str, Any]) -> Optional[str]:
-    targets = _host_backend_targets(isa_data)
-    if not targets:
-        return None
-    if len(targets) > 1:
-        raise ValueError(
-            f"multiple host backend targets are not supported in one build: {sorted(targets)}"
+    target = str(isa_data.get("host_backend_target", "")).strip().lower()
+    hosts = isa_data.get("hosts", []) or []
+    has_hosts = bool(hosts)
+    if not target:
+        if not has_hosts:
+            return None
+        declared_targets = sorted(
+            {
+                str((host.get("backend") or {}).get("target", "")).strip().lower()
+                for host in hosts
+                if isinstance(host, dict)
+            }
+            - {""}
         )
-    target = next(iter(targets))
+        if not declared_targets:
+            return None
+        if len(declared_targets) != 1:
+            raise ValueError(
+                f"multiple host backend targets are not supported for build generation: {declared_targets}"
+            )
+        target = declared_targets[0]
     if target not in {"sdl2", "stub", "glfw"}:
         raise ValueError(f"unsupported host backend target for build generation: {target}")
     return target

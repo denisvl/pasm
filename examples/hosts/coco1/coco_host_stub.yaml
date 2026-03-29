@@ -1,11 +1,9 @@
 metadata:
   id: host_coco
   type: host_adapter
-  model: coco1_headless_stub
+  model: coco1_hal_headless
   version: "1.0"
 
-backend:
-  target: stub
 
 state:
   - name: frame_count

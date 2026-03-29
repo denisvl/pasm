@@ -20,6 +20,10 @@ memory:
       start: 0xB000
       size: 0x1000
       read_write: true
+    - name: ROM_SELFTEST
+      start: 0x5000
+      size: 0x0800
+      read_only: true
     - name: ROM_OS_LOW
       start: 0xC000
       size: 0x1000
@@ -40,6 +44,10 @@ memory:
     - name: atari800xl_os_high
       file: ../../roms/atari800xl/ATARIXL_D800.ROM
       target_region: ROM_OS_HIGH
+      offset: 0
+    - name: atari800xl_selftest
+      file: ../../roms/atari800xl/ATARIXL_SELFTEST.ROM
+      target_region: ROM_SELFTEST
       offset: 0
 
 hooks:
@@ -65,7 +73,7 @@ components:
     - video_sms
     - speaker_sms
   hosts:
-    - host_atari800xl_sdl2
+    - host_atari800xl
   cartridge: atari_cart0
 
 connections:
@@ -74,7 +82,7 @@ connections:
       kind: callback
       name: keyboard_ascii
     to:
-      component: host_atari800xl_sdl2
+      component: host_atari800xl
       kind: callback
       name: keyboard_ascii
 
@@ -83,7 +91,7 @@ connections:
       kind: callback
       name: consol_state
     to:
-      component: host_atari800xl_sdl2
+      component: host_atari800xl
       kind: callback
       name: consol_state
 
@@ -92,7 +100,7 @@ connections:
       kind: callback
       name: joystick_porta
     to:
-      component: host_atari800xl_sdl2
+      component: host_atari800xl
       kind: callback
       name: joystick_porta
 
@@ -101,7 +109,7 @@ connections:
       kind: callback
       name: trigger0
     to:
-      component: host_atari800xl_sdl2
+      component: host_atari800xl
       kind: callback
       name: trigger0
 
@@ -110,7 +118,7 @@ connections:
       kind: callback
       name: trigger1
     to:
-      component: host_atari800xl_sdl2
+      component: host_atari800xl
       kind: callback
       name: trigger1
 
@@ -119,7 +127,7 @@ connections:
       kind: callback
       name: trigger2
     to:
-      component: host_atari800xl_sdl2
+      component: host_atari800xl
       kind: callback
       name: trigger2
 
@@ -128,7 +136,7 @@ connections:
       kind: callback
       name: trigger3
     to:
-      component: host_atari800xl_sdl2
+      component: host_atari800xl
       kind: callback
       name: trigger3
 
@@ -146,7 +154,7 @@ connections:
       kind: signal
       name: frame_present
     to:
-      component: host_atari800xl_sdl2
+      component: host_atari800xl
       kind: handler
       name: video_frame
 
@@ -164,7 +172,7 @@ connections:
       kind: signal
       name: pcm_sample
     to:
-      component: host_atari800xl_sdl2
+      component: host_atari800xl
       kind: handler
       name: audio_pcm
 

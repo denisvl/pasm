@@ -4,7 +4,7 @@
 CC = gcc
 AR = ar
 CFLAGS = -Wall -Wextra -std=c11 -O2 
-LDFLAGS =  
+LDFLAGS =  -lSDL2
 
 
 SRC_DIR = src

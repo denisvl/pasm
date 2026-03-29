@@ -11,7 +11,7 @@ set -euo pipefail
 #   MEMORY_SIZE=65536
 #   OUTPUT_DIR=generated/z80_sg1000_sdl
 #   EXTRA_CARGO_ARGS="--release"
-#   PASM_SDL_AUDIO=1
+#   PASM_HOST_AUDIO=1
 #   PASM_SG1000_JOY2_CONNECTED=0|1   (host player 2 connection flag)
 #   RUN_SPEED=realtime|max
 #   CARTRIDGE_MAP=examples/cartridges/sg1000/sg1000_mapper_none.yaml
@@ -22,7 +22,7 @@ PROFILE="${1:-interactive}"
 START_PC="${START_PC:-0x0000}"
 MEMORY_SIZE="${MEMORY_SIZE:-65536}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
-PASM_SDL_AUDIO="${PASM_SDL_AUDIO:-1}"
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 PASM_SG1000_JOY2_CONNECTED="${PASM_SG1000_JOY2_CONNECTED:-0}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
@@ -43,13 +43,13 @@ SYSTEM_DIR="examples/systems"
 
 case "${PROFILE}" in
   default)
-    SYSTEM="examples/systems/sg1000/z80_sg1000_default.yaml"
+    SYSTEM="examples/systems/sg1000/sg1000_default.yaml"
     HOST="examples/hosts/sg1000/sg1000_host_stub.yaml"
     DEFAULT_OUTPUT="generated/z80_sg1000"
     ;;
   interactive)
-    SYSTEM="examples/systems/sg1000/z80_sg1000_interactive.yaml"
-    HOST="examples/hosts/sg1000/sg1000_host_sdl2_interactive.yaml"
+    SYSTEM="examples/systems/sg1000/sg1000_interactive.yaml"
+    HOST="examples/hosts/sg1000/sg1000_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/z80_sg1000_sdl"
     ;;
   *)
@@ -85,6 +85,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
+  --host-backend "${HOST_BACKEND:-sdl2}" \
   --cartridge-map "${CARTRIDGE_MAP}" \
   --cartridge-rom "${CARTRIDGE_ROM_GEN}" \
   --output "${OUTPUT_DIR}"
@@ -99,7 +100,7 @@ echo "    cartridge_map=${CARTRIDGE_MAP}"
 echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
 echo "    cartridge_rom_runtime=${CARTRIDGE_ROM_RUNTIME}"
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
-PASM_SDL_AUDIO="${PASM_SDL_AUDIO}" \
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 PASM_SG1000_JOY2_CONNECTED="${PASM_SG1000_JOY2_CONNECTED}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \

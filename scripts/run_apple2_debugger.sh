@@ -25,12 +25,12 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
 PROCESSOR="examples/processors/mos6502.yaml"
-SYSTEM_DIR="examples/systems"
+SYSTEM_DIR="examples/systems/apple2"
 IC_IO="examples/ics/apple2/apple2_io.yaml"
 DEVICE_KB="examples/devices/apple2/apple2_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/apple2/apple2_video.yaml"
 DEVICE_SPK="examples/devices/apple2/apple2_speaker.yaml"
-HOST_INTERACTIVE="examples/hosts/apple2/apple2_host_sdl2_interactive.yaml"
+HOST_INTERACTIVE="examples/hosts/apple2/apple2_host_hal_interactive.yaml"
 
 case "${PROFILE}" in
   default)
@@ -63,6 +63,7 @@ if [[ "${PROFILE}" == "interactive" ]]; then
     --device "${DEVICE_VIDEO}" \
     --device "${DEVICE_SPK}" \
     --host "${HOST_INTERACTIVE}" \
+  --host-backend "${HOST_BACKEND:-sdl2}" \
     --output "${OUTPUT_DIR}"
 else
   uv run python -m src.main generate \

@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
     uint64_t max_cycles = 0;
     const char *system_dir = NULL;
     const char *rom_file = NULL;
-    const char *cart_rom_file = "/home/dvlop/projects/pasm/examples/roms/Hang-On II (Japan).sg";
+    const char *cart_rom_file = "/home/dvlop/projects/pasm/examples/roms/sg1000/Hang-On II (Japan).sg";
     uint16_t load_addr = 0;
     const char *test_name = NULL;
     
@@ -71,6 +71,7 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Failed to load cartridge ROM: %s\n", cart_rom_file);
             return 1;
         }
+        z80_reset(cpu);
         printf("Loaded cartridge ROM: %s\n", cart_rom_file);
     }
     if (rom_file) {

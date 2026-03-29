@@ -88,8 +88,8 @@ typedef struct ComponentState_speaker_apple2 {
     uint64_t last_cycle;
 } ComponentState_speaker_apple2;
 
-typedef struct ComponentState_host_apple2_sdl2 {
-    uint8_t sdl_inited;
+typedef struct ComponentState_host_apple2 {
+    uint8_t host_inited;
     void * window;
     void * renderer;
     void * texture;
@@ -117,7 +117,7 @@ typedef struct ComponentState_host_apple2_sdl2 {
     uint32_t overlay_fps_x100;
     uint64_t overlay_cpu_hz;
     uint32_t overlay_cpu_pct_x10;
-} ComponentState_host_apple2_sdl2;
+} ComponentState_host_apple2;
 
 
 /* ===== CPU State ===== */
@@ -182,7 +182,7 @@ struct CPUState {
     ComponentState_keyboard_apple2 comp_keyboard_apple2;
     ComponentState_video_apple2 comp_video_apple2;
     ComponentState_speaker_apple2 comp_speaker_apple2;
-    ComponentState_host_apple2_sdl2 comp_host_apple2_sdl2;
+    ComponentState_host_apple2 comp_host_apple2;
 };
 
 /* ===== Constants ===== */

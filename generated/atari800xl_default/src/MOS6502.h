@@ -82,11 +82,6 @@ typedef struct ComponentState_atari_io {
     uint8_t antic_vscrol;
     uint8_t antic_pmbase;
     uint8_t antic_chbase;
-    uint8_t gtia_colpf0;
-    uint8_t gtia_colpf1;
-    uint8_t gtia_colpf2;
-    uint8_t gtia_colpf3;
-    uint8_t gtia_colbk;
     uint32_t frame_counter;
     uint64_t last_frame_cycle;
     uint32_t random_lfsr;

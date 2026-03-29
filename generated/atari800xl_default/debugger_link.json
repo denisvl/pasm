@@ -20,7 +20,9 @@
   },
   "link": {
     "library_paths": [],
-    "library_names": [],
+    "library_names": [
+      "SDL2"
+    ],
     "library_files": []
   },
   "memory_default_size": 65536,

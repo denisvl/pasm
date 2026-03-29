@@ -4,5 +4,7 @@ __pycache__/
 .ruff_cache/
 *.pyc
 build/
+*.o
+tools/debugger_tui/target/
 
 examples/roms/

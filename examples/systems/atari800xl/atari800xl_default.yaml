@@ -20,6 +20,10 @@ memory:
       start: 0xB000
       size: 0x1000
       read_write: true
+    - name: ROM_SELFTEST
+      start: 0x5000
+      size: 0x0800
+      read_only: true
     - name: ROM_OS_LOW
       start: 0xC000
       size: 0x1000
@@ -40,6 +44,10 @@ memory:
     - name: atari800xl_os_high
       file: ../../roms/atari800xl/ATARIXL_D800.ROM
       target_region: ROM_OS_HIGH
+      offset: 0
+    - name: atari800xl_selftest
+      file: ../../roms/atari800xl/ATARIXL_SELFTEST.ROM
+      target_region: ROM_SELFTEST
       offset: 0
     - name: atari800xl_basic
       file: ../../roms/atari800xl/BASIC_C.ROM

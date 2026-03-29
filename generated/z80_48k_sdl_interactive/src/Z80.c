@@ -16,8 +16,7 @@
 #if defined(_WIN32)
 #include <windows.h>
 #else
-#include <errno.h>
-#include <time.h>
+#include <unistd.h>
 #endif
 
 /* ===== Private Helper Functions ===== */
@@ -41,10 +40,8 @@ static void cpu_sleep_seconds(uint32_t seconds) {
 #if defined(_WIN32)
     Sleep((DWORD)(seconds * 1000u));
 #else
-    struct timespec req;
-    req.tv_sec = (time_t)seconds;
-    req.tv_nsec = 0;
-    while (nanosleep(&req, &req) == -1 && errno == EINTR) {}
+    unsigned int remaining = (unsigned int)seconds;
+    while (remaining != 0u) remaining = sleep(remaining);
 #endif
 }
 
@@ -100,6 +97,7 @@ static bool cpu_check_breakpoints(CPUState *cpu) {
     }
     return false;
 }
+
 typedef struct {
     const char *from_component;
     const char *from_kind;
@@ -131,7 +129,7 @@ typedef struct {
 } ComponentKeyboardPress;
 
 typedef struct {
-    int host_key;
+    const char *host_key;
     const ComponentKeyboardPress *presses;
     uint8_t press_count;
 } ComponentKeyboardBinding;
@@ -143,269 +141,755 @@ typedef struct {
     size_t binding_count;
 } ComponentKeyboardMap;
 
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_0[] = {
+static int32_t cpu_host_hal_key_from_scancode(int scancode);
+
+typedef SDL_Event CPUHostEvent;
+typedef SDL_Rect CPUHostRect;
+typedef SDL_AudioSpec CPUHostAudioSpec;
+#define CPU_HOST_EVENT_QUIT SDL_QUIT
+#define CPU_HOST_EVENT_KEYDOWN SDL_KEYDOWN
+#define CPU_HOST_EVENT_KEYUP SDL_KEYUP
+#define CPU_HOST_INIT_VIDEO SDL_INIT_VIDEO
+#define CPU_HOST_INIT_AUDIO SDL_INIT_AUDIO
+#define CPU_HOST_INIT_EVENTS SDL_INIT_EVENTS
+#define CPU_HOST_WINDOWPOS_CENTERED SDL_WINDOWPOS_CENTERED
+#define CPU_HOST_WINDOW_RESIZABLE SDL_WINDOW_RESIZABLE
+#define CPU_HOST_RENDERER_ACCELERATED SDL_RENDERER_ACCELERATED
+#define CPU_HOST_PIXELFORMAT_ARGB8888 SDL_PIXELFORMAT_ARGB8888
+#define CPU_HOST_TEXTUREACCESS_STREAMING SDL_TEXTUREACCESS_STREAMING
+#define CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE SDL_AUDIO_ALLOW_FREQUENCY_CHANGE
+#define CPU_HOST_AUDIO_FORMAT_S16 AUDIO_S16SYS
+#define CPU_HOST_SCANCODE(name) SDL_SCANCODE_##name
+#define CPU_HOST_HAS_SCANCODE_MAP 1
+#define CPU_HOST_KEYCODE_QUOTE ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(APOSTROPHE)))
+#define CPU_HOST_KEYCODE_SEMICOLON ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(SEMICOLON)))
+#define CPU_HOST_MOD_CTRL KMOD_CTRL
+#define CPU_HOST_MOD_SHIFT KMOD_SHIFT
+#define CPU_HOST_MOD_LCTRL KMOD_LCTRL
+#define cpu_host_hal_log(...) SDL_Log(__VA_ARGS__)
+#define cpu_host_hal_last_error() SDL_GetError()
+static void cpu_host_audio_spec_zero(CPUHostAudioSpec *spec) {
+    if (!spec) return;
+    SDL_zero(*spec);
+}
+
+static uint8_t cpu_host_hal_sdl_inited = 0u;
+static uint32_t cpu_host_hal_sdl_subsystems = 0u;
+static SDL_Window *cpu_host_hal_sdl_primary_window = NULL;
+
+static void cpu_host_hal_pump_events(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_PumpEvents();
+}
+
+static uint32_t cpu_host_hal_ticks_ms(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    return SDL_GetTicks();
+}
+
+static uint8_t cpu_host_hal_window_has_focus(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return 0u;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return 0u;
+    return (SDL_GetKeyboardFocus() == (SDL_Window *)window) ? 1u : 0u;
+}
+
+static void cpu_host_hal_render_present(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_RenderPresent((SDL_Renderer *)renderer);
+}
+
+static int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return -1;
+    if (dev == 0u || !data || len_bytes == 0u) return -1;
+    return SDL_QueueAudio(dev, data, len_bytes);
+}
+
+static uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u) return 0u;
+    return SDL_GetQueuedAudioSize(dev);
+}
+
+static void cpu_host_hal_audio_clear(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_ClearQueuedAudio(dev);
+}
+
+static int cpu_host_hal_renderer_output_size(void *renderer, int *out_w, int *out_h) {
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer || !out_w || !out_h) return -1;
+    if (SDL_GetRendererOutputSize((SDL_Renderer *)renderer, out_w, out_h) != 0) return -1;
+    if (*out_w <= 0 || *out_h <= 0) return -1;
+    return 0;
+}
+
+static int cpu_host_hal_update_texture(void *texture, const CPUHostRect *rect, const void *pixels, int pitch) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!texture || !pixels) return -1;
+    return SDL_UpdateTexture((SDL_Texture *)texture, (const SDL_Rect *)rect, pixels, pitch);
+}
+
+static void cpu_host_hal_render_set_draw_color(void *renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_SetRenderDrawColor((SDL_Renderer *)renderer, r, g, b, a);
+}
+
+static int cpu_host_hal_render_clear(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer) return -1;
+    return SDL_RenderClear((SDL_Renderer *)renderer);
+}
+
+static int cpu_host_hal_render_copy(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer || !texture) return -1;
+    return SDL_RenderCopy(
+        (SDL_Renderer *)renderer,
+        (SDL_Texture *)texture,
+        (const SDL_Rect *)src_rect,
+        (const SDL_Rect *)dst_rect
+    );
+}
+
+static int cpu_host_hal_poll_event(CPUHostEvent *event) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;
+    if (!event) return 0;
+    return SDL_PollEvent((SDL_Event *)event);
+}
+
+static uint32_t cpu_host_hal_event_type(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    return event->type;
+}
+
+static int32_t cpu_host_hal_event_scancode(const CPUHostEvent *event) {
+    if (!event) return 0;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0;
+    return (int32_t)event->key.keysym.scancode;
+}
+
+static uint8_t cpu_host_hal_event_key_repeat(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;
+    return (uint8_t)event->key.repeat;
+}
+
+static uint32_t cpu_host_hal_event_mod_state(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;
+    return (uint32_t)event->key.keysym.mod;
+}
+
+static void cpu_host_hal_set_window_title(void *window, const char *title) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window || !title) return;
+    SDL_SetWindowTitle((SDL_Window *)window, title);
+}
+
+static void cpu_host_hal_destroy_texture(void *texture) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!texture) return;
+    SDL_DestroyTexture((SDL_Texture *)texture);
+}
+
+static void cpu_host_hal_destroy_renderer(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_DestroyRenderer((SDL_Renderer *)renderer);
+}
+
+static void cpu_host_hal_destroy_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) return;
+    if (cpu_host_hal_sdl_primary_window == (SDL_Window *)window) {
+        cpu_host_hal_sdl_primary_window = NULL;
+    }
+    SDL_DestroyWindow((SDL_Window *)window);
+}
+
+static void cpu_host_hal_audio_close(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_CloseAudioDevice(dev);
+}
+
+static void cpu_host_hal_quit_subsystems(void) {
+    uint32_t to_quit = cpu_host_hal_sdl_subsystems & (CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS);
+    if (to_quit != 0u) SDL_QuitSubSystem(to_quit);
+    cpu_host_hal_sdl_subsystems &= ~to_quit;
+    cpu_host_hal_sdl_primary_window = NULL;
+}
+
+static void cpu_host_hal_quit(void) {
+    SDL_Quit();
+    cpu_host_hal_sdl_subsystems = 0u;
+    cpu_host_hal_sdl_inited = 0u;
+    cpu_host_hal_sdl_primary_window = NULL;
+}
+
+static int cpu_host_hal_init(uint32_t flags) {
+    if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;
+    if (cpu_host_hal_sdl_inited == 0u) {
+        if (SDL_Init(flags) != 0) return -1;
+        cpu_host_hal_sdl_inited = 1u;
+        cpu_host_hal_sdl_subsystems |= flags;
+        return 0;
+    }
+    if (flags != 0u) {
+        if (SDL_InitSubSystem(flags) != 0) return -1;
+        cpu_host_hal_sdl_subsystems |= flags;
+    }
+    return 0;
+}
+
+static void *cpu_host_hal_create_window(const char *title, int x, int y, int w, int h, uint32_t flags) {
+    SDL_Window *window;
+    const char *win_title = (title && title[0] != '\0') ? title : "PASM";
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if ((flags & ~CPU_HOST_WINDOW_RESIZABLE) != 0u) return NULL;
+    if (w <= 0) w = 640;
+    if (h <= 0) h = 480;
+    window = SDL_CreateWindow(win_title, x, y, w, h, flags);
+    if (window != NULL && cpu_host_hal_sdl_primary_window == NULL) {
+        cpu_host_hal_sdl_primary_window = window;
+    }
+    return (void *)window;
+}
+
+static void *cpu_host_hal_create_renderer(void *window, int index, uint32_t flags) {
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return NULL;
+    if ((flags & ~CPU_HOST_RENDERER_ACCELERATED) != 0u) return NULL;
+    return (void *)SDL_CreateRenderer((SDL_Window *)window, index, flags);
+}
+
+static void *cpu_host_hal_create_texture(void *renderer, uint32_t format, int access, int w, int h) {
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if (!renderer) return NULL;
+    return (void *)SDL_CreateTexture((SDL_Renderer *)renderer, format, access, w, h);
+}
+
+static uint32_t cpu_host_hal_audio_open(const char *device, int iscapture, const CPUHostAudioSpec *want, CPUHostAudioSpec *have, int allowed_changes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (iscapture != 0) return 0u;
+    if (!want) return 0u;
+    if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;
+    return SDL_OpenAudioDevice(
+        device,
+        iscapture,
+        (const SDL_AudioSpec *)want,
+        (SDL_AudioSpec *)have,
+        allowed_changes
+    );
+}
+
+static void cpu_host_hal_audio_pause(uint32_t dev, int pause_on) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_PauseAudioDevice(dev, pause_on);
+}
+
+static void *cpu_host_hal_alloc(size_t size_bytes) {
+    return SDL_malloc(size_bytes);
+}
+
+static void cpu_host_hal_free(void *ptr) {
+    if (!ptr) return;
+    SDL_free(ptr);
+}
+
+static void cpu_host_hal_memset(void *dst, int value, size_t size_bytes) {
+    if (!dst || size_bytes == 0u) return;
+    SDL_memset(dst, value, size_bytes);
+}
+
+static const char *cpu_host_hal_getenv(const char *name) {
+    if (!name) return NULL;
+    return SDL_getenv(name);
+}
+
+static const uint8_t *cpu_host_hal_keyboard_state(int *key_count) {
+    static const uint8_t empty_state[1] = {0u};
+    const uint8_t *state;
+    if (cpu_host_hal_sdl_inited == 0u) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    state = SDL_GetKeyboardState(key_count);
+    if (!state) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    return state;
+}
+
+static int32_t cpu_host_hal_key_from_scancode(int scancode) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;
+    return (int32_t)SDL_GetKeyFromScancode((SDL_Scancode)scancode);
+}
+
+static void cpu_host_hal_start_text_input(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_StartTextInput();
+}
+
+static void cpu_host_hal_stop_text_input(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_StopTextInput();
+}
+
+static void cpu_host_hal_raise_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return;
+    SDL_RaiseWindow((SDL_Window *)window);
+}
+
+static void cpu_host_hal_show_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return;
+    SDL_ShowWindow((SDL_Window *)window);
+}
+
+static int cpu_host_hal_set_window_input_focus(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return -1;
+    return SDL_SetWindowInputFocus((SDL_Window *)window);
+}
+
+static int cpu_host_hal_set_texture_blend_none(void *texture) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!texture) return -1;
+    return SDL_SetTextureBlendMode((SDL_Texture *)texture, SDL_BLENDMODE_NONE);
+}
+
+static int cpu_host_hal_init_subsystem(uint32_t flags) {
+    if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if (flags != 0u && SDL_InitSubSystem(flags) != 0) return -1;
+    cpu_host_hal_sdl_subsystems |= flags;
+    return 0;
+}
+
+static uint32_t cpu_host_hal_audio_dequeue(uint32_t dev, void *data, uint32_t len_bytes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u || !data || len_bytes == 0u) return 0u;
+    return SDL_DequeueAudio(dev, data, len_bytes);
+}
+
+static int cpu_host_hal_get_window_size(void *window, int *out_w, int *out_h) {
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window || !out_w || !out_h) return -1;
+    SDL_GetWindowSize((SDL_Window *)window, out_w, out_h);
+    if (*out_w <= 0 || *out_h <= 0) return -1;
+    return 0;
+}
+
+static const char *cpu_host_hal_scancode_name(int32_t scancode) {
+    if (cpu_host_hal_sdl_inited == 0u) return "UNKNOWN";
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return "UNKNOWN";
+    const char *name = SDL_GetScancodeName((SDL_Scancode)scancode);
+    if (!name || name[0] == '\0') return "UNKNOWN";
+    return name;
+}
+
+static uint32_t cpu_host_hal_get_mod_state(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0u;
+    return (uint32_t)SDL_GetModState();
+}
+
+static const char *cpu_host_hal_key_name(int32_t keycode) {
+    if (cpu_host_hal_sdl_inited == 0u) return "UNKNOWN";
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return "UNKNOWN";
+    const char *name = SDL_GetKeyName((SDL_Keycode)keycode);
+    if (!name || name[0] == '\0') return "UNKNOWN";
+    return name;
+}
+
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_0[] = {
     { 0u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_1[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_1[] = {
     { 0u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_2[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_2[] = {
     { 0u, 1u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_3[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_3[] = {
     { 0u, 2u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_4[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_4[] = {
     { 0u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_5[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_5[] = {
     { 0u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_6[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_6[] = {
     { 1u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_7[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_7[] = {
     { 1u, 1u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_8[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_8[] = {
     { 1u, 2u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_9[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_9[] = {
     { 1u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_10[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_10[] = {
     { 1u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_11[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_11[] = {
     { 2u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_12[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_12[] = {
     { 2u, 1u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_13[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_13[] = {
     { 2u, 2u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_14[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_14[] = {
     { 2u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_15[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_15[] = {
     { 2u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_16[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_16[] = {
     { 3u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_17[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_17[] = {
     { 3u, 1u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_18[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_18[] = {
     { 3u, 2u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_19[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_19[] = {
     { 3u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_20[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_20[] = {
     { 3u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_21[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_21[] = {
     { 4u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_22[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_22[] = {
     { 4u, 1u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_23[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_23[] = {
     { 4u, 2u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_24[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_24[] = {
     { 4u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_25[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_25[] = {
     { 4u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_26[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_26[] = {
     { 5u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_27[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_27[] = {
     { 5u, 1u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_28[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_28[] = {
     { 5u, 2u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_29[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_29[] = {
     { 5u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_30[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_30[] = {
     { 5u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_31[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_31[] = {
     { 6u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_32[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_32[] = {
     { 6u, 1u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_33[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_33[] = {
     { 6u, 2u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_34[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_34[] = {
     { 6u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_35[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_35[] = {
     { 6u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_36[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_36[] = {
     { 7u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_37[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_37[] = {
     { 7u, 1u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_38[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_38[] = {
     { 7u, 1u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_39[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_39[] = {
     { 7u, 2u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_40[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_40[] = {
     { 7u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_41[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_41[] = {
     { 7u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_42[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_42[] = {
     { 0u, 0u },
     { 4u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_43[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_43[] = {
     { 0u, 0u },
     { 4u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_44[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_44[] = {
     { 0u, 0u },
     { 3u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_45[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_45[] = {
     { 0u, 0u },
     { 4u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_46[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_46[] = {
     { 0u, 0u },
     { 4u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_47[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_47[] = {
     { 0u, 0u },
     { 4u, 2u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_48[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_48[] = {
     { 0u, 0u },
     { 7u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_49[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_49[] = {
     { 7u, 1u },
     { 7u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_50[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_50[] = {
     { 7u, 1u },
     { 7u, 2u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_51[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_51[] = {
     { 7u, 1u },
     { 0u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_52[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_52[] = {
     { 7u, 1u },
     { 5u, 1u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_53[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_53[] = {
     { 7u, 1u },
     { 5u, 0u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_54[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_54[] = {
     { 7u, 1u },
     { 6u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_55[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_55[] = {
     { 7u, 1u },
     { 6u, 1u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_56[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_56[] = {
     { 7u, 1u },
     { 5u, 4u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_57[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_57[] = {
     { 7u, 1u },
     { 5u, 3u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_58[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_58[] = {
     { 7u, 1u },
     { 1u, 2u },
 };
-static const ComponentKeyboardPress component_host_sdl2_keyboard_presses_59[] = {
+static const ComponentKeyboardPress component_host_zx48_keyboard_presses_59[] = {
     { 7u, 1u },
     { 0u, 2u },
 };
-static const ComponentKeyboardBinding component_host_sdl2_keyboard_bindings[] = {
-    { SDL_SCANCODE_LSHIFT, component_host_sdl2_keyboard_presses_0, 1u },
-    { SDL_SCANCODE_RSHIFT, component_host_sdl2_keyboard_presses_1, 1u },
-    { SDL_SCANCODE_Z, component_host_sdl2_keyboard_presses_2, 1u },
-    { SDL_SCANCODE_X, component_host_sdl2_keyboard_presses_3, 1u },
-    { SDL_SCANCODE_C, component_host_sdl2_keyboard_presses_4, 1u },
-    { SDL_SCANCODE_V, component_host_sdl2_keyboard_presses_5, 1u },
-    { SDL_SCANCODE_A, component_host_sdl2_keyboard_presses_6, 1u },
-    { SDL_SCANCODE_S, component_host_sdl2_keyboard_presses_7, 1u },
-    { SDL_SCANCODE_D, component_host_sdl2_keyboard_presses_8, 1u },
-    { SDL_SCANCODE_F, component_host_sdl2_keyboard_presses_9, 1u },
-    { SDL_SCANCODE_G, component_host_sdl2_keyboard_presses_10, 1u },
-    { SDL_SCANCODE_Q, component_host_sdl2_keyboard_presses_11, 1u },
-    { SDL_SCANCODE_W, component_host_sdl2_keyboard_presses_12, 1u },
-    { SDL_SCANCODE_E, component_host_sdl2_keyboard_presses_13, 1u },
-    { SDL_SCANCODE_R, component_host_sdl2_keyboard_presses_14, 1u },
-    { SDL_SCANCODE_T, component_host_sdl2_keyboard_presses_15, 1u },
-    { SDL_SCANCODE_1, component_host_sdl2_keyboard_presses_16, 1u },
-    { SDL_SCANCODE_2, component_host_sdl2_keyboard_presses_17, 1u },
-    { SDL_SCANCODE_3, component_host_sdl2_keyboard_presses_18, 1u },
-    { SDL_SCANCODE_4, component_host_sdl2_keyboard_presses_19, 1u },
-    { SDL_SCANCODE_5, component_host_sdl2_keyboard_presses_20, 1u },
-    { SDL_SCANCODE_0, component_host_sdl2_keyboard_presses_21, 1u },
-    { SDL_SCANCODE_9, component_host_sdl2_keyboard_presses_22, 1u },
-    { SDL_SCANCODE_8, component_host_sdl2_keyboard_presses_23, 1u },
-    { SDL_SCANCODE_7, component_host_sdl2_keyboard_presses_24, 1u },
-    { SDL_SCANCODE_6, component_host_sdl2_keyboard_presses_25, 1u },
-    { SDL_SCANCODE_P, component_host_sdl2_keyboard_presses_26, 1u },
-    { SDL_SCANCODE_O, component_host_sdl2_keyboard_presses_27, 1u },
-    { SDL_SCANCODE_I, component_host_sdl2_keyboard_presses_28, 1u },
-    { SDL_SCANCODE_U, component_host_sdl2_keyboard_presses_29, 1u },
-    { SDL_SCANCODE_Y, component_host_sdl2_keyboard_presses_30, 1u },
-    { SDL_SCANCODE_RETURN, component_host_sdl2_keyboard_presses_31, 1u },
-    { SDL_SCANCODE_L, component_host_sdl2_keyboard_presses_32, 1u },
-    { SDL_SCANCODE_K, component_host_sdl2_keyboard_presses_33, 1u },
-    { SDL_SCANCODE_J, component_host_sdl2_keyboard_presses_34, 1u },
-    { SDL_SCANCODE_H, component_host_sdl2_keyboard_presses_35, 1u },
-    { SDL_SCANCODE_SPACE, component_host_sdl2_keyboard_presses_36, 1u },
-    { SDL_SCANCODE_RALT, component_host_sdl2_keyboard_presses_37, 1u },
-    { SDL_SCANCODE_LALT, component_host_sdl2_keyboard_presses_38, 1u },
-    { SDL_SCANCODE_M, component_host_sdl2_keyboard_presses_39, 1u },
-    { SDL_SCANCODE_N, component_host_sdl2_keyboard_presses_40, 1u },
-    { SDL_SCANCODE_B, component_host_sdl2_keyboard_presses_41, 1u },
-    { SDL_SCANCODE_BACKSPACE, component_host_sdl2_keyboard_presses_42, 2u },
-    { SDL_SCANCODE_DELETE, component_host_sdl2_keyboard_presses_43, 2u },
-    { SDL_SCANCODE_LEFT, component_host_sdl2_keyboard_presses_44, 2u },
-    { SDL_SCANCODE_DOWN, component_host_sdl2_keyboard_presses_45, 2u },
-    { SDL_SCANCODE_UP, component_host_sdl2_keyboard_presses_46, 2u },
-    { SDL_SCANCODE_RIGHT, component_host_sdl2_keyboard_presses_47, 2u },
-    { SDL_SCANCODE_ESCAPE, component_host_sdl2_keyboard_presses_48, 2u },
-    { SDL_SCANCODE_COMMA, component_host_sdl2_keyboard_presses_49, 2u },
-    { SDL_SCANCODE_PERIOD, component_host_sdl2_keyboard_presses_50, 2u },
-    { SDL_SCANCODE_SLASH, component_host_sdl2_keyboard_presses_51, 2u },
-    { SDL_SCANCODE_SEMICOLON, component_host_sdl2_keyboard_presses_52, 2u },
-    { SDL_SCANCODE_APOSTROPHE, component_host_sdl2_keyboard_presses_53, 2u },
-    { SDL_SCANCODE_MINUS, component_host_sdl2_keyboard_presses_54, 2u },
-    { SDL_SCANCODE_EQUALS, component_host_sdl2_keyboard_presses_55, 2u },
-    { SDL_SCANCODE_LEFTBRACKET, component_host_sdl2_keyboard_presses_56, 2u },
-    { SDL_SCANCODE_RIGHTBRACKET, component_host_sdl2_keyboard_presses_57, 2u },
-    { SDL_SCANCODE_BACKSLASH, component_host_sdl2_keyboard_presses_58, 2u },
-    { SDL_SCANCODE_GRAVE, component_host_sdl2_keyboard_presses_59, 2u },
+static const ComponentKeyboardBinding component_host_zx48_keyboard_bindings[] = {
+    { "LSHIFT", component_host_zx48_keyboard_presses_0, 1u },
+    { "RSHIFT", component_host_zx48_keyboard_presses_1, 1u },
+    { "Z", component_host_zx48_keyboard_presses_2, 1u },
+    { "X", component_host_zx48_keyboard_presses_3, 1u },
+    { "C", component_host_zx48_keyboard_presses_4, 1u },
+    { "V", component_host_zx48_keyboard_presses_5, 1u },
+    { "A", component_host_zx48_keyboard_presses_6, 1u },
+    { "S", component_host_zx48_keyboard_presses_7, 1u },
+    { "D", component_host_zx48_keyboard_presses_8, 1u },
+    { "F", component_host_zx48_keyboard_presses_9, 1u },
+    { "G", component_host_zx48_keyboard_presses_10, 1u },
+    { "Q", component_host_zx48_keyboard_presses_11, 1u },
+    { "W", component_host_zx48_keyboard_presses_12, 1u },
+    { "E", component_host_zx48_keyboard_presses_13, 1u },
+    { "R", component_host_zx48_keyboard_presses_14, 1u },
+    { "T", component_host_zx48_keyboard_presses_15, 1u },
+    { "1", component_host_zx48_keyboard_presses_16, 1u },
+    { "2", component_host_zx48_keyboard_presses_17, 1u },
+    { "3", component_host_zx48_keyboard_presses_18, 1u },
+    { "4", component_host_zx48_keyboard_presses_19, 1u },
+    { "5", component_host_zx48_keyboard_presses_20, 1u },
+    { "0", component_host_zx48_keyboard_presses_21, 1u },
+    { "9", component_host_zx48_keyboard_presses_22, 1u },
+    { "8", component_host_zx48_keyboard_presses_23, 1u },
+    { "7", component_host_zx48_keyboard_presses_24, 1u },
+    { "6", component_host_zx48_keyboard_presses_25, 1u },
+    { "P", component_host_zx48_keyboard_presses_26, 1u },
+    { "O", component_host_zx48_keyboard_presses_27, 1u },
+    { "I", component_host_zx48_keyboard_presses_28, 1u },
+    { "U", component_host_zx48_keyboard_presses_29, 1u },
+    { "Y", component_host_zx48_keyboard_presses_30, 1u },
+    { "RETURN", component_host_zx48_keyboard_presses_31, 1u },
+    { "L", component_host_zx48_keyboard_presses_32, 1u },
+    { "K", component_host_zx48_keyboard_presses_33, 1u },
+    { "J", component_host_zx48_keyboard_presses_34, 1u },
+    { "H", component_host_zx48_keyboard_presses_35, 1u },
+    { "SPACE", component_host_zx48_keyboard_presses_36, 1u },
+    { "RALT", component_host_zx48_keyboard_presses_37, 1u },
+    { "LALT", component_host_zx48_keyboard_presses_38, 1u },
+    { "M", component_host_zx48_keyboard_presses_39, 1u },
+    { "N", component_host_zx48_keyboard_presses_40, 1u },
+    { "B", component_host_zx48_keyboard_presses_41, 1u },
+    { "BACKSPACE", component_host_zx48_keyboard_presses_42, 2u },
+    { "DELETE", component_host_zx48_keyboard_presses_43, 2u },
+    { "LEFT", component_host_zx48_keyboard_presses_44, 2u },
+    { "DOWN", component_host_zx48_keyboard_presses_45, 2u },
+    { "UP", component_host_zx48_keyboard_presses_46, 2u },
+    { "RIGHT", component_host_zx48_keyboard_presses_47, 2u },
+    { "ESCAPE", component_host_zx48_keyboard_presses_48, 2u },
+    { "COMMA", component_host_zx48_keyboard_presses_49, 2u },
+    { "PERIOD", component_host_zx48_keyboard_presses_50, 2u },
+    { "SLASH", component_host_zx48_keyboard_presses_51, 2u },
+    { "SEMICOLON", component_host_zx48_keyboard_presses_52, 2u },
+    { "APOSTROPHE", component_host_zx48_keyboard_presses_53, 2u },
+    { "MINUS", component_host_zx48_keyboard_presses_54, 2u },
+    { "EQUALS", component_host_zx48_keyboard_presses_55, 2u },
+    { "LEFTBRACKET", component_host_zx48_keyboard_presses_56, 2u },
+    { "RIGHTBRACKET", component_host_zx48_keyboard_presses_57, 2u },
+    { "BACKSLASH", component_host_zx48_keyboard_presses_58, 2u },
+    { "GRAVE", component_host_zx48_keyboard_presses_59, 2u },
 };
 static const ComponentKeyboardMap g_component_keyboard_maps[] = {
-    { "host_sdl2", 1u, component_host_sdl2_keyboard_bindings, (sizeof(component_host_sdl2_keyboard_bindings) / sizeof(component_host_sdl2_keyboard_bindings[0])) },
+    { "host_zx48", 1u, component_host_zx48_keyboard_bindings, (sizeof(component_host_zx48_keyboard_bindings) / sizeof(component_host_zx48_keyboard_bindings[0])) },
 };
+static uint8_t cpu_component_host_key_is_pressed(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {
+#if CPU_HOST_HAS_SCANCODE_MAP
+    if (!host_key || !host_keys || host_key_count == 0u) return 0u;
+    if (0) return 0u;
+    else if (strcmp(host_key, "0") == 0) return ((size_t)CPU_HOST_SCANCODE(0) < host_key_count && host_keys[CPU_HOST_SCANCODE(0)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "1") == 0) return ((size_t)CPU_HOST_SCANCODE(1) < host_key_count && host_keys[CPU_HOST_SCANCODE(1)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "2") == 0) return ((size_t)CPU_HOST_SCANCODE(2) < host_key_count && host_keys[CPU_HOST_SCANCODE(2)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "3") == 0) return ((size_t)CPU_HOST_SCANCODE(3) < host_key_count && host_keys[CPU_HOST_SCANCODE(3)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "4") == 0) return ((size_t)CPU_HOST_SCANCODE(4) < host_key_count && host_keys[CPU_HOST_SCANCODE(4)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "5") == 0) return ((size_t)CPU_HOST_SCANCODE(5) < host_key_count && host_keys[CPU_HOST_SCANCODE(5)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "6") == 0) return ((size_t)CPU_HOST_SCANCODE(6) < host_key_count && host_keys[CPU_HOST_SCANCODE(6)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "7") == 0) return ((size_t)CPU_HOST_SCANCODE(7) < host_key_count && host_keys[CPU_HOST_SCANCODE(7)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "8") == 0) return ((size_t)CPU_HOST_SCANCODE(8) < host_key_count && host_keys[CPU_HOST_SCANCODE(8)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "9") == 0) return ((size_t)CPU_HOST_SCANCODE(9) < host_key_count && host_keys[CPU_HOST_SCANCODE(9)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "A") == 0) return ((size_t)CPU_HOST_SCANCODE(A) < host_key_count && host_keys[CPU_HOST_SCANCODE(A)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "APOSTROPHE") == 0) return ((size_t)CPU_HOST_SCANCODE(APOSTROPHE) < host_key_count && host_keys[CPU_HOST_SCANCODE(APOSTROPHE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "B") == 0) return ((size_t)CPU_HOST_SCANCODE(B) < host_key_count && host_keys[CPU_HOST_SCANCODE(B)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "BACKSLASH") == 0) return ((size_t)CPU_HOST_SCANCODE(BACKSLASH) < host_key_count && host_keys[CPU_HOST_SCANCODE(BACKSLASH)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "BACKSPACE") == 0) return ((size_t)CPU_HOST_SCANCODE(BACKSPACE) < host_key_count && host_keys[CPU_HOST_SCANCODE(BACKSPACE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "C") == 0) return ((size_t)CPU_HOST_SCANCODE(C) < host_key_count && host_keys[CPU_HOST_SCANCODE(C)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "COMMA") == 0) return ((size_t)CPU_HOST_SCANCODE(COMMA) < host_key_count && host_keys[CPU_HOST_SCANCODE(COMMA)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "D") == 0) return ((size_t)CPU_HOST_SCANCODE(D) < host_key_count && host_keys[CPU_HOST_SCANCODE(D)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "DELETE") == 0) return ((size_t)CPU_HOST_SCANCODE(DELETE) < host_key_count && host_keys[CPU_HOST_SCANCODE(DELETE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "DOWN") == 0) return ((size_t)CPU_HOST_SCANCODE(DOWN) < host_key_count && host_keys[CPU_HOST_SCANCODE(DOWN)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "E") == 0) return ((size_t)CPU_HOST_SCANCODE(E) < host_key_count && host_keys[CPU_HOST_SCANCODE(E)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "EQUALS") == 0) return ((size_t)CPU_HOST_SCANCODE(EQUALS) < host_key_count && host_keys[CPU_HOST_SCANCODE(EQUALS)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "ESCAPE") == 0) return ((size_t)CPU_HOST_SCANCODE(ESCAPE) < host_key_count && host_keys[CPU_HOST_SCANCODE(ESCAPE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "F") == 0) return ((size_t)CPU_HOST_SCANCODE(F) < host_key_count && host_keys[CPU_HOST_SCANCODE(F)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "G") == 0) return ((size_t)CPU_HOST_SCANCODE(G) < host_key_count && host_keys[CPU_HOST_SCANCODE(G)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "GRAVE") == 0) return ((size_t)CPU_HOST_SCANCODE(GRAVE) < host_key_count && host_keys[CPU_HOST_SCANCODE(GRAVE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "H") == 0) return ((size_t)CPU_HOST_SCANCODE(H) < host_key_count && host_keys[CPU_HOST_SCANCODE(H)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "I") == 0) return ((size_t)CPU_HOST_SCANCODE(I) < host_key_count && host_keys[CPU_HOST_SCANCODE(I)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "J") == 0) return ((size_t)CPU_HOST_SCANCODE(J) < host_key_count && host_keys[CPU_HOST_SCANCODE(J)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "K") == 0) return ((size_t)CPU_HOST_SCANCODE(K) < host_key_count && host_keys[CPU_HOST_SCANCODE(K)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "L") == 0) return ((size_t)CPU_HOST_SCANCODE(L) < host_key_count && host_keys[CPU_HOST_SCANCODE(L)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "LALT") == 0) return ((size_t)CPU_HOST_SCANCODE(LALT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LALT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "LEFT") == 0) return ((size_t)CPU_HOST_SCANCODE(LEFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LEFT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "LEFTBRACKET") == 0) return ((size_t)CPU_HOST_SCANCODE(LEFTBRACKET) < host_key_count && host_keys[CPU_HOST_SCANCODE(LEFTBRACKET)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "LSHIFT") == 0) return ((size_t)CPU_HOST_SCANCODE(LSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LSHIFT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "M") == 0) return ((size_t)CPU_HOST_SCANCODE(M) < host_key_count && host_keys[CPU_HOST_SCANCODE(M)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "MINUS") == 0) return ((size_t)CPU_HOST_SCANCODE(MINUS) < host_key_count && host_keys[CPU_HOST_SCANCODE(MINUS)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "N") == 0) return ((size_t)CPU_HOST_SCANCODE(N) < host_key_count && host_keys[CPU_HOST_SCANCODE(N)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "O") == 0) return ((size_t)CPU_HOST_SCANCODE(O) < host_key_count && host_keys[CPU_HOST_SCANCODE(O)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "P") == 0) return ((size_t)CPU_HOST_SCANCODE(P) < host_key_count && host_keys[CPU_HOST_SCANCODE(P)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "PERIOD") == 0) return ((size_t)CPU_HOST_SCANCODE(PERIOD) < host_key_count && host_keys[CPU_HOST_SCANCODE(PERIOD)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "Q") == 0) return ((size_t)CPU_HOST_SCANCODE(Q) < host_key_count && host_keys[CPU_HOST_SCANCODE(Q)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "R") == 0) return ((size_t)CPU_HOST_SCANCODE(R) < host_key_count && host_keys[CPU_HOST_SCANCODE(R)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "RALT") == 0) return ((size_t)CPU_HOST_SCANCODE(RALT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RALT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "RETURN") == 0) return ((size_t)CPU_HOST_SCANCODE(RETURN) < host_key_count && host_keys[CPU_HOST_SCANCODE(RETURN)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "RIGHT") == 0) return ((size_t)CPU_HOST_SCANCODE(RIGHT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RIGHT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "RIGHTBRACKET") == 0) return ((size_t)CPU_HOST_SCANCODE(RIGHTBRACKET) < host_key_count && host_keys[CPU_HOST_SCANCODE(RIGHTBRACKET)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "RSHIFT") == 0) return ((size_t)CPU_HOST_SCANCODE(RSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RSHIFT)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "S") == 0) return ((size_t)CPU_HOST_SCANCODE(S) < host_key_count && host_keys[CPU_HOST_SCANCODE(S)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "SEMICOLON") == 0) return ((size_t)CPU_HOST_SCANCODE(SEMICOLON) < host_key_count && host_keys[CPU_HOST_SCANCODE(SEMICOLON)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "SLASH") == 0) return ((size_t)CPU_HOST_SCANCODE(SLASH) < host_key_count && host_keys[CPU_HOST_SCANCODE(SLASH)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "SPACE") == 0) return ((size_t)CPU_HOST_SCANCODE(SPACE) < host_key_count && host_keys[CPU_HOST_SCANCODE(SPACE)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "T") == 0) return ((size_t)CPU_HOST_SCANCODE(T) < host_key_count && host_keys[CPU_HOST_SCANCODE(T)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "U") == 0) return ((size_t)CPU_HOST_SCANCODE(U) < host_key_count && host_keys[CPU_HOST_SCANCODE(U)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "UP") == 0) return ((size_t)CPU_HOST_SCANCODE(UP) < host_key_count && host_keys[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "V") == 0) return ((size_t)CPU_HOST_SCANCODE(V) < host_key_count && host_keys[CPU_HOST_SCANCODE(V)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "W") == 0) return ((size_t)CPU_HOST_SCANCODE(W) < host_key_count && host_keys[CPU_HOST_SCANCODE(W)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "X") == 0) return ((size_t)CPU_HOST_SCANCODE(X) < host_key_count && host_keys[CPU_HOST_SCANCODE(X)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "Y") == 0) return ((size_t)CPU_HOST_SCANCODE(Y) < host_key_count && host_keys[CPU_HOST_SCANCODE(Y)] != 0u) ? 1u : 0u;
+    else if (strcmp(host_key, "Z") == 0) return ((size_t)CPU_HOST_SCANCODE(Z) < host_key_count && host_keys[CPU_HOST_SCANCODE(Z)] != 0u) ? 1u : 0u;
+    return 0u;
+#else
+    (void)host_key;
+    (void)host_keys;
+    (void)host_key_count;
+    return 0u;
+#endif
+}
 static const ComponentKeyboardMap *cpu_component_find_keyboard_map(const char *component_id) {
     size_t map_count = sizeof(g_component_keyboard_maps) / sizeof(g_component_keyboard_maps[0]);
     for (size_t i = 0; i < map_count; i++) {
@@ -431,8 +915,7 @@ static void cpu_component_apply_declared_keymap(
     if (map->focus_required && has_focus == 0u) return;
     for (size_t bind_idx = 0; bind_idx < map->binding_count; bind_idx++) {
         const ComponentKeyboardBinding *binding = &map->bindings[bind_idx];
-        if (binding->host_key < 0 || (size_t)binding->host_key >= host_key_count) continue;
-        if (host_keys[binding->host_key] == 0u) continue;
+        if (!cpu_component_host_key_is_pressed(binding->host_key, host_keys, host_key_count)) continue;
         for (size_t press_idx = 0; press_idx < binding->press_count; press_idx++) {
             const ComponentKeyboardPress *press = &binding->presses[press_idx];
             if ((size_t)press->row >= row_count || press->bit >= 8u) continue;
@@ -443,17 +926,17 @@ static void cpu_component_apply_declared_keymap(
 
 static const ComponentConnection g_component_connections[] = {
     { "ula0", "callback", "keyboard_read", "keyboard0", "callback", "read_matrix" },
-    { "keyboard0", "callback", "host_matrix", "host_sdl2", "callback", "keyboard_matrix" },
-    { "mic0", "callback", "sample_input", "host_sdl2", "callback", "mic_sample" },
+    { "keyboard0", "callback", "host_matrix", "host_zx48", "callback", "keyboard_matrix" },
+    { "mic0", "callback", "sample_input", "host_zx48", "callback", "mic_sample" },
     { "mic0", "signal", "mic_level", "ula0", "handler", "mic_input" },
     { "ula0", "signal", "border_changed", "video0", "handler", "on_border_changed" },
     { "ula0", "signal", "frame_boundary", "video0", "handler", "on_frame_boundary" },
-    { "ula0", "signal", "frame_boundary", "host_sdl2", "handler", "frame_boundary" },
+    { "ula0", "signal", "frame_boundary", "host_zx48", "handler", "frame_boundary" },
     { "ula0", "signal", "beeper_level", "speaker0", "handler", "on_beeper_level" },
-    { "ula0", "signal", "irq_edge", "host_sdl2", "handler", "irq_edge" },
-    { "video0", "signal", "frame_ready", "host_sdl2", "handler", "video_frame" },
-    { "video0", "signal", "border_present", "host_sdl2", "handler", "video_border" },
-    { "speaker0", "signal", "pcm_sample", "host_sdl2", "handler", "audio_pcm" },
+    { "ula0", "signal", "irq_edge", "host_zx48", "handler", "irq_edge" },
+    { "video0", "signal", "frame_ready", "host_zx48", "handler", "video_frame" },
+    { "video0", "signal", "border_present", "host_zx48", "handler", "video_border" },
+    { "speaker0", "signal", "pcm_sample", "host_zx48", "handler", "audio_pcm" },
 };
 static uint64_t component_ula0_callback_keyboard_read(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
@@ -491,12 +974,12 @@ static uint64_t component_mic0_callback_sample_input(CPUState *cpu, const uint64
     return __result;
 }
 
-static uint64_t component_host_sdl2_callback_keyboard_matrix(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static uint64_t component_host_zx48_callback_keyboard_matrix(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_sdl2 *comp = &cpu->comp_host_sdl2;
-    cpu->active_component_id = "host_sdl2";
+    ComponentState_host_zx48 *comp = &cpu->comp_host_zx48;
+    cpu->active_component_id = "host_zx48";
     uint64_t __result = 0;
-    if (comp->sdl_inited == 0u) return 0xFFu;
+    if (comp->host_inited == 0u) return 0xFFu;
     uint8_t row_mask = (argc > 0) ? (uint8_t)(args[0] & 0xFFu) : 0xFFu;
     uint8_t lo = 0x1Fu;
     if ((row_mask & 0x01u) == 0u) lo = (uint8_t)(lo & comp->row0);
@@ -513,8 +996,8 @@ static uint64_t component_host_sdl2_callback_keyboard_matrix(CPUState *cpu, cons
             row_mask != comp->kb_last_row_mask ||
             result != comp->kb_last_result
         )) {
-        SDL_Log(
-            "host_sdl2: keyboard_matrix row_mask=0x%02X result=0x%02X focus=%u",
+        cpu_host_hal_log(
+            "host_zx48: keyboard_matrix row_mask=0x%02X result=0x%02X focus=%u",
             row_mask,
             result,
             (unsigned)comp->has_keyboard_focus
@@ -526,14 +1009,14 @@ static uint64_t component_host_sdl2_callback_keyboard_matrix(CPUState *cpu, cons
     return __result;
 }
 
-static uint64_t component_host_sdl2_callback_mic_sample(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static uint64_t component_host_zx48_callback_mic_sample(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_sdl2 *comp = &cpu->comp_host_sdl2;
-    cpu->active_component_id = "host_sdl2";
+    ComponentState_host_zx48 *comp = &cpu->comp_host_zx48;
+    cpu->active_component_id = "host_zx48";
     uint64_t __result = 0;
     if (comp->audio_in_dev != 0u) {
         int16_t sample = 0;
-        if (SDL_DequeueAudio(comp->audio_in_dev, &sample, (uint32_t)sizeof(sample)) == sizeof(sample)) {
+        if (cpu_host_hal_audio_dequeue(comp->audio_in_dev, &sample, (uint32_t)sizeof(sample)) == sizeof(sample)) {
             comp->last_mic = (sample > 0) ? 1u : 0u;
         }
     }
@@ -552,8 +1035,8 @@ static uint64_t cpu_component_dispatch_callback(
     if (strcmp(component_id, "keyboard0") == 0 && strcmp(callback_name, "read_matrix") == 0) return component_keyboard0_callback_read_matrix(cpu, args, argc);
     if (strcmp(component_id, "keyboard0") == 0 && strcmp(callback_name, "host_matrix") == 0) return component_keyboard0_callback_host_matrix(cpu, args, argc);
     if (strcmp(component_id, "mic0") == 0 && strcmp(callback_name, "sample_input") == 0) return component_mic0_callback_sample_input(cpu, args, argc);
-    if (strcmp(component_id, "host_sdl2") == 0 && strcmp(callback_name, "keyboard_matrix") == 0) return component_host_sdl2_callback_keyboard_matrix(cpu, args, argc);
-    if (strcmp(component_id, "host_sdl2") == 0 && strcmp(callback_name, "mic_sample") == 0) return component_host_sdl2_callback_mic_sample(cpu, args, argc);
+    if (strcmp(component_id, "host_zx48") == 0 && strcmp(callback_name, "keyboard_matrix") == 0) return component_host_zx48_callback_keyboard_matrix(cpu, args, argc);
+    if (strcmp(component_id, "host_zx48") == 0 && strcmp(callback_name, "mic_sample") == 0) return component_host_zx48_callback_mic_sample(cpu, args, argc);
     return 0;
 }
 
@@ -625,18 +1108,18 @@ static void component_speaker0_handler_on_beeper_level(CPUState *cpu, const uint
     comp->current_level = (uint8_t)(args[0] & 0xFFu);
 }
 
-static void component_host_sdl2_handler_irq_edge(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static void component_host_zx48_handler_irq_edge(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_sdl2 *comp = &cpu->comp_host_sdl2;
-    cpu->active_component_id = "host_sdl2";
+    ComponentState_host_zx48 *comp = &cpu->comp_host_zx48;
+    cpu->active_component_id = "host_zx48";
     (void)args;
     (void)argc;
 }
 
-static void component_host_sdl2_handler_frame_boundary(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static void component_host_zx48_handler_frame_boundary(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_sdl2 *comp = &cpu->comp_host_sdl2;
-    cpu->active_component_id = "host_sdl2";
+    ComponentState_host_zx48 *comp = &cpu->comp_host_zx48;
+    cpu->active_component_id = "host_zx48";
     uint32_t frame_count = 0u;
     if (argc > 0) {
         frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
@@ -644,13 +1127,13 @@ static void component_host_sdl2_handler_frame_boundary(CPUState *cpu, const uint
     comp->video_frames = (uint64_t)frame_count;
 }
 
-static void component_host_sdl2_handler_video_frame(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static void component_host_zx48_handler_video_frame(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_sdl2 *comp = &cpu->comp_host_sdl2;
-    cpu->active_component_id = "host_sdl2";
-    if (comp->sdl_inited == 0u || argc < 5) return;
-    SDL_Renderer *renderer = (SDL_Renderer *)comp->renderer;
-    SDL_Texture *texture = (SDL_Texture *)comp->texture;
+    ComponentState_host_zx48 *comp = &cpu->comp_host_zx48;
+    cpu->active_component_id = "host_zx48";
+    if (comp->host_inited == 0u || argc < 5) return;
+    void *renderer = comp->renderer;
+    void *texture = comp->texture;
     uint32_t *pixels = (uint32_t *)(uintptr_t)args[1];
     uint32_t w = (uint32_t)(args[2] & 0xFFFFFFFFu);
     uint32_t h = (uint32_t)(args[3] & 0xFFFFFFFFu);
@@ -673,25 +1156,25 @@ static void component_host_sdl2_handler_video_frame(CPUState *cpu, const uint64_
         { 0, 215, 0 }, { 0, 215, 215 }, { 215, 215, 0 }, { 215, 215, 215 }
     };
     uint8_t border = (uint8_t)(args[4] & 0x07u);
-    SDL_SetRenderDrawColor(
+    cpu_host_hal_render_set_draw_color(
         renderer,
         border_rgb[border][0],
         border_rgb[border][1],
         border_rgb[border][2],
         255
     );
-    SDL_RenderClear(renderer);
-    if (SDL_UpdateTexture(texture, NULL, pixels, (int)(256u * sizeof(uint32_t))) != 0) return;
+    cpu_host_hal_render_clear(renderer);
+    if (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(256u * sizeof(uint32_t))) != 0) return;
     int ww = 0;
     int wh = 0;
-    if (SDL_GetRendererOutputSize(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) {
+    if (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) {
         if (comp->window != NULL) {
-            SDL_GetWindowSize((SDL_Window *)comp->window, &ww, &wh);
+            cpu_host_hal_get_window_size(comp->window, &ww, &wh);
         }
     }
     if (ww <= 0) ww = 704;
     if (wh <= 0) wh = 608;
-    SDL_Rect dst;
+    CPUHostRect dst;
     dst.x = (ww * 48) / 352;
     dst.y = (wh * 56) / 304;
     dst.w = (ww * 256) / 352;
@@ -702,23 +1185,23 @@ static void component_host_sdl2_handler_video_frame(CPUState *cpu, const uint64_
         dst.w = ww;
         dst.h = wh;
     }
-    if (SDL_RenderCopy(renderer, texture, NULL, &dst) != 0) return;
-    SDL_RenderPresent(renderer);
+    if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;
+    cpu_host_hal_render_present(renderer);
 }
 
-static void component_host_sdl2_handler_video_border(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static void component_host_zx48_handler_video_border(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_sdl2 *comp = &cpu->comp_host_sdl2;
-    cpu->active_component_id = "host_sdl2";
+    ComponentState_host_zx48 *comp = &cpu->comp_host_zx48;
+    cpu->active_component_id = "host_zx48";
     if (argc > 0) {
         comp->border_color = (uint8_t)(args[0] & 0xFFu);
     }
 }
 
-static void component_host_sdl2_handler_audio_pcm(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+static void component_host_zx48_handler_audio_pcm(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
-    ComponentState_host_sdl2 *comp = &cpu->comp_host_sdl2;
-    cpu->active_component_id = "host_sdl2";
+    ComponentState_host_zx48 *comp = &cpu->comp_host_zx48;
+    cpu->active_component_id = "host_zx48";
     if (comp->audio_out_dev == 0u || comp->audio_out_ready == 0u || comp->audio_ring == NULL || comp->audio_ring_capacity == 0u || argc < 1) return;
     uint8_t level = (uint8_t)(args[0] & 0xFFu);
     uint64_t cycle = (argc > 1) ? (uint64_t)args[1] : cpu->total_cycles;
@@ -729,7 +1212,7 @@ static void component_host_sdl2_handler_audio_pcm(CPUState *cpu, const uint64_t 
     if (comp->audio_last_level != level) {
         comp->audio_last_level = level;
         if (comp->debug_enabled != 0u) {
-            SDL_Log("host_sdl2: beeper level=%u", (unsigned)level);
+            cpu_host_hal_log("host_zx48: beeper level=%u", (unsigned)level);
         }
     }
     int16_t next_level = (int16_t)(comp->audio_level + ((target - comp->audio_level) / 6));
@@ -743,22 +1226,25 @@ static void component_host_sdl2_handler_audio_pcm(CPUState *cpu, const uint64_t 
     if (target_sample_index < comp->audio_sample_cursor) {
         comp->audio_sample_cursor = target_sample_index;
     }
-    uint64_t samples_to_emit = target_sample_index - comp->audio_sample_cursor;
-    if (samples_to_emit > 4096u) samples_to_emit = 4096u;
-    if (samples_to_emit > 0u) {
-        for (uint64_t i = 0u; i < samples_to_emit; ++i) {
-            if (comp->audio_ring_fill >= comp->audio_ring_capacity) {
-                comp->audio_ring_read_idx += 1u;
-                if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
-                comp->audio_ring_fill -= 1u;
+    {
+        uint64_t samples_to_emit = target_sample_index - comp->audio_sample_cursor;
+        while (samples_to_emit > 0u) {
+            uint64_t n = (samples_to_emit > 4096u) ? 4096u : samples_to_emit;
+            for (uint64_t i = 0u; i < n; ++i) {
+                if (comp->audio_ring_fill >= comp->audio_ring_capacity) {
+                    comp->audio_ring_read_idx += 1u;
+                    if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+                    comp->audio_ring_fill -= 1u;
+                }
+                comp->audio_ring[comp->audio_ring_write_idx] = comp->audio_level;
+                comp->audio_ring_write_idx += 1u;
+                if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
+                comp->audio_ring_fill += 1u;
             }
-            comp->audio_ring[comp->audio_ring_write_idx] = comp->audio_level;
-            comp->audio_ring_write_idx += 1u;
-            if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
-            comp->audio_ring_fill += 1u;
+            comp->audio_samples += (uint32_t)n;
+            comp->audio_sample_cursor += n;
+            samples_to_emit -= n;
         }
-        comp->audio_samples += (uint32_t)samples_to_emit;
-        comp->audio_sample_cursor += samples_to_emit;
     }
     comp->audio_last_cycle = cycle;
     comp->audio_level = next_level;
@@ -775,11 +1261,11 @@ static void cpu_component_dispatch_handler(
     if (strcmp(component_id, "video0") == 0 && strcmp(handler_name, "on_frame_boundary") == 0) { component_video0_handler_on_frame_boundary(cpu, args, argc); return; }
     if (strcmp(component_id, "video0") == 0 && strcmp(handler_name, "on_border_changed") == 0) { component_video0_handler_on_border_changed(cpu, args, argc); return; }
     if (strcmp(component_id, "speaker0") == 0 && strcmp(handler_name, "on_beeper_level") == 0) { component_speaker0_handler_on_beeper_level(cpu, args, argc); return; }
-    if (strcmp(component_id, "host_sdl2") == 0 && strcmp(handler_name, "irq_edge") == 0) { component_host_sdl2_handler_irq_edge(cpu, args, argc); return; }
-    if (strcmp(component_id, "host_sdl2") == 0 && strcmp(handler_name, "frame_boundary") == 0) { component_host_sdl2_handler_frame_boundary(cpu, args, argc); return; }
-    if (strcmp(component_id, "host_sdl2") == 0 && strcmp(handler_name, "video_frame") == 0) { component_host_sdl2_handler_video_frame(cpu, args, argc); return; }
-    if (strcmp(component_id, "host_sdl2") == 0 && strcmp(handler_name, "video_border") == 0) { component_host_sdl2_handler_video_border(cpu, args, argc); return; }
-    if (strcmp(component_id, "host_sdl2") == 0 && strcmp(handler_name, "audio_pcm") == 0) { component_host_sdl2_handler_audio_pcm(cpu, args, argc); return; }
+    if (strcmp(component_id, "host_zx48") == 0 && strcmp(handler_name, "irq_edge") == 0) { component_host_zx48_handler_irq_edge(cpu, args, argc); return; }
+    if (strcmp(component_id, "host_zx48") == 0 && strcmp(handler_name, "frame_boundary") == 0) { component_host_zx48_handler_frame_boundary(cpu, args, argc); return; }
+    if (strcmp(component_id, "host_zx48") == 0 && strcmp(handler_name, "video_frame") == 0) { component_host_zx48_handler_video_frame(cpu, args, argc); return; }
+    if (strcmp(component_id, "host_zx48") == 0 && strcmp(handler_name, "video_border") == 0) { component_host_zx48_handler_video_border(cpu, args, argc); return; }
+    if (strcmp(component_id, "host_zx48") == 0 && strcmp(handler_name, "audio_pcm") == 0) { component_host_zx48_handler_audio_pcm(cpu, args, argc); return; }
     (void)cpu;
     (void)component_id;
     (void)handler_name;
@@ -890,51 +1376,51 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         }
     }
     {
-        ComponentState_host_sdl2 *comp = &cpu->comp_host_sdl2;
-        cpu->active_component_id = "host_sdl2";
-        if (comp->sdl_inited == 0u) return;
+        ComponentState_host_zx48 *comp = &cpu->comp_host_zx48;
+        cpu->active_component_id = "host_zx48";
+        if (comp->host_inited == 0u) return;
         uint64_t now = cpu->comp_ula0.tstate_global;
         if ((now - comp->last_event_poll_tstate) < 2048u) return;
         comp->last_event_poll_tstate = now;
-        SDL_Event ev;
-        while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_QUIT) {
+        CPUHostEvent ev;
+        while (cpu_host_hal_poll_event(&ev)) {
+            if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {
                 cpu->running = false;
                 cpu->halted = true;
             }
             if (comp->debug_enabled != 0u) {
-                if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
-                    SDL_Log(
-                        "host_sdl2: key event type=%d scancode=%d key=%s",
-                        ev.type,
-                        (int)ev.key.keysym.scancode,
-                        SDL_GetKeyName(ev.key.keysym.sym)
+                if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN || cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYUP) {
+                    cpu_host_hal_log(
+                        "host_zx48: key event type=%d scancode=%d key=%s",
+                        cpu_host_hal_event_type(&ev),
+                        (int)cpu_host_hal_event_scancode(&ev),
+                        cpu_host_hal_key_name(ev.key.keysym.sym)
                     );
                 }
             }
         }
-        SDL_PumpEvents();
-        comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == (SDL_Window *)comp->window) ? 1u : 0u;
+        cpu_host_hal_pump_events();
+        comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
         if (comp->has_keyboard_focus != comp->last_focus_state) {
             comp->last_focus_state = comp->has_keyboard_focus;
             if (comp->window != NULL) {
-                SDL_SetWindowTitle(
-                    (SDL_Window *)comp->window,
+                cpu_host_hal_set_window_title(
+                    comp->window,
                     (comp->has_keyboard_focus != 0u)
                         ? "PASM ZX Spectrum 48K [FOCUS]"
                         : "PASM ZX Spectrum 48K [NO-FOCUS]"
                 );
             }
             if (comp->debug_enabled != 0u) {
-                SDL_Log(
-                    "host_sdl2: keyboard focus=%u",
+                cpu_host_hal_log(
+                    "host_zx48: keyboard focus=%u",
                     (unsigned)comp->has_keyboard_focus
                 );
             }
         }
         {
             sms_overlay_update_perf(
-                SDL_GetTicks(),
+                cpu_host_hal_ticks_ms(),
                 comp->video_frames,
                 cpu->total_cycles,
                 (uint64_t)CPU_SYSTEM_CLOCK_HZ,
@@ -947,13 +1433,13 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             );
         }
         int key_count = 0;
-        const uint8_t *ks = SDL_GetKeyboardState(&key_count);
+        const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
         if (ks == NULL || key_count <= 0) return;
 
         uint8_t rows[8] = { 0x1Fu, 0x1Fu, 0x1Fu, 0x1Fu, 0x1Fu, 0x1Fu, 0x1Fu, 0x1Fu };
         cpu_component_apply_declared_keymap(
             cpu,
-            "host_sdl2",
+            "host_zx48",
             ks,
             (size_t)key_count,
             rows,
@@ -969,15 +1455,24 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         comp->row6 = rows[6];
         comp->row7 = rows[7];
         if (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u && comp->audio_ring != NULL && comp->audio_ring_fill > 0u) {
-            uint32_t queued_samples = SDL_GetQueuedAudioSize(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
-            uint32_t rate = (comp->audio_rate > 0u) ? comp->audio_rate : 44100u;
-            uint32_t low_watermark = rate / 60u;
-            uint32_t target_watermark = rate / 20u;
-            if (low_watermark < 256u) low_watermark = 256u;
-            if (target_watermark < 1024u) target_watermark = 1024u;
-            if (target_watermark > 8192u) target_watermark = 8192u;
+            uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
+            uint32_t device_samples = (comp->audio_device_samples > 0u) ? comp->audio_device_samples : 512u;
+            uint32_t low_watermark = device_samples * 2u;
+            uint32_t target_total = device_samples * 4u;
+            uint32_t max_total = device_samples * 8u;
+            uint32_t total_backlog = queued_samples + comp->audio_ring_fill;
+            if (total_backlog > max_total) {
+                uint32_t drop = total_backlog - max_total;
+                if (drop > comp->audio_ring_fill) {
+                    drop = comp->audio_ring_fill;
+                }
+                if (drop > 0u) {
+                    comp->audio_ring_read_idx = (comp->audio_ring_read_idx + drop) % comp->audio_ring_capacity;
+                    comp->audio_ring_fill -= drop;
+                }
+            }
             if (queued_samples < low_watermark) {
-                uint32_t desired = target_watermark - queued_samples;
+                uint32_t desired = target_total - queued_samples;
                 uint32_t to_send = (comp->audio_ring_fill < desired) ? comp->audio_ring_fill : desired;
                 while (to_send > 0u) {
                     int16_t chunk[1024];
@@ -988,7 +1483,9 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                         if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
                     }
                     comp->audio_ring_fill -= n;
-                    (void)SDL_QueueAudio(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t));
+                    if (cpu_host_hal_audio_queue(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t)) != 0) {
+                        break;
+                    }
                     to_send -= n;
                 }
             }
@@ -1388,6 +1885,9 @@ static void inst_ADD_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SUB_A_N - arithmetic */
@@ -1403,6 +1903,7 @@ static void inst_SUB_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* ADC_A_N - arithmetic */
@@ -1419,6 +1920,8 @@ static void inst_ADC_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SBC_A_N - arithmetic */
@@ -1436,6 +1939,8 @@ static void inst_SBC_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* AND_A_N - logic */
@@ -1447,6 +1952,7 @@ static void inst_AND_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* XOR_A_N - logic */
@@ -1458,6 +1964,7 @@ static void inst_XOR_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* OR_A_N - logic */
@@ -1469,6 +1976,7 @@ static void inst_OR_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* CP_A_N - logic */
@@ -1482,6 +1990,7 @@ static void inst_CP_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ inst->n) & (a ^ result8) & 0x80) != 0);
     cpu->flags.C = ((result > 0xFF));
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (inst->n & 0x28u));
 }
 
 /* ADD_HL_BC - arithmetic */
@@ -1496,6 +2005,7 @@ static void inst_ADD_HL_BC(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (bc & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(hl >> 8) & 0x28u));
 }
 
 /* ADD_HL_DE - arithmetic */
@@ -1510,6 +2020,7 @@ static void inst_ADD_HL_DE(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (de & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(hl >> 8) & 0x28u));
 }
 
 /* ADD_HL_HL - arithmetic */
@@ -1523,6 +2034,7 @@ static void inst_ADD_HL_HL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (lhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(hl >> 8) & 0x28u));
 }
 
 /* ADD_HL_SP - arithmetic */
@@ -1537,6 +2049,7 @@ static void inst_ADD_HL_SP(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(hl >> 8) & 0x28u));
 }
 
 /* ADD_IX_BC - arithmetic */
@@ -1548,6 +2061,7 @@ static void inst_ADD_IX_BC(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->ix >> 8) & 0x28u));
 }
 
 /* ADD_IX_DE - arithmetic */
@@ -1559,6 +2073,7 @@ static void inst_ADD_IX_DE(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->ix >> 8) & 0x28u));
 }
 
 /* ADD_IX_IX - arithmetic */
@@ -1569,6 +2084,7 @@ static void inst_ADD_IX_IX(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (lhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->ix >> 8) & 0x28u));
 }
 
 /* ADD_IX_SP - arithmetic */
@@ -1580,6 +2096,7 @@ static void inst_ADD_IX_SP(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->ix >> 8) & 0x28u));
 }
 
 /* ADD_IY_BC - arithmetic */
@@ -1591,6 +2108,7 @@ static void inst_ADD_IY_BC(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->iy >> 8) & 0x28u));
 }
 
 /* ADD_IY_DE - arithmetic */
@@ -1602,6 +2120,7 @@ static void inst_ADD_IY_DE(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->iy >> 8) & 0x28u));
 }
 
 /* ADD_IY_IY - arithmetic */
@@ -1612,6 +2131,7 @@ static void inst_ADD_IY_IY(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (lhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->iy >> 8) & 0x28u));
 }
 
 /* ADD_IY_SP - arithmetic */
@@ -1623,6 +2143,7 @@ static void inst_ADD_IY_SP(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->iy >> 8) & 0x28u));
 }
 
 /* SCF - logic */
@@ -1630,6 +2151,7 @@ static void inst_SCF(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (true);
     cpu->flags.N = (false);
     cpu->flags.H = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* CCF - logic */
@@ -1638,6 +2160,7 @@ static void inst_CCF(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (!old_carry);
     cpu->flags.N = (false);
     cpu->flags.H = (old_carry);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* CPL - logic */
@@ -1645,39 +2168,32 @@ static void inst_CPL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->registers[REG_A] = (uint8_t)(~cpu->registers[REG_A]);
     cpu->flags.N = (true);
     cpu->flags.H = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* DAA - logic */
 static void inst_DAA(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
-    uint8_t old_a = a;
-    uint8_t adjust = 0;
-    bool carry = cpu->flags.C;
-    bool subtract = cpu->flags.N;
-    if (!subtract) {
-    if (cpu->flags.H || ((a & 0x0F) > 9)) {
-    adjust |= 0x06;
+    uint8_t correction = 0;
+    if (((a & 0x0Fu) > 0x09u) || cpu->flags.H) {
+    correction = (uint8_t)(correction + 0x06u);
     }
-    if (carry || (a > 0x99)) {
-    adjust |= 0x60;
-    carry = true;
+    if ((a > 0x99u) || cpu->flags.C) {
+    correction = (uint8_t)(correction + 0x60u);
+    cpu->flags.C = (true);
     }
-    a = (uint8_t)(a + adjust);
+    if (cpu->flags.N) {
+    cpu->flags.H = (cpu->flags.H && ((a & 0x0Fu) < 0x06u));
+    a = (uint8_t)(a - correction);
     } else {
-    if (cpu->flags.H) {
-    adjust |= 0x06;
-    }
-    if (carry) {
-    adjust |= 0x60;
-    }
-    a = (uint8_t)(a - adjust);
+    cpu->flags.H = ((a & 0x0Fu) > 0x09u);
+    a = (uint8_t)(a + correction);
     }
     cpu->registers[REG_A] = a;
-    cpu->flags.C = (carry);
-    cpu->flags.Z = (a == 0);
-    cpu->flags.S = ((a & 0x80) != 0);
-    cpu->flags.H = (((old_a ^ a) & 0x10) != 0);
+    cpu->flags.S = ((a & 0x80u) != 0u);
+    cpu->flags.Z = (a == 0u);
     cpu->flags.P = (cpu_parity(a));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (a & 0x28u));
 }
 
 /* NEG - arithmetic */
@@ -1691,6 +2207,7 @@ static void inst_NEG(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((a & 0x0F) != 0);
     cpu->flags.P = (a == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result & 0x28u));
 }
 
 /* RRD - rotate */
@@ -1710,6 +2227,7 @@ static void inst_RRD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(new_a));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (new_a & 0x28u));
 }
 
 /* RLD - rotate */
@@ -1729,6 +2247,7 @@ static void inst_RLD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(new_a));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (new_a & 0x28u));
 }
 
 /* INC_HLI - arithmetic */
@@ -1742,6 +2261,7 @@ static void inst_INC_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_HLI - arithmetic */
@@ -1755,6 +2275,7 @@ static void inst_DEC_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* ADC_HL_BC - arithmetic */
@@ -1772,6 +2293,7 @@ static void inst_ADC_HL_BC(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* ADC_HL_DE - arithmetic */
@@ -1789,6 +2311,7 @@ static void inst_ADC_HL_DE(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* ADC_HL_HL - arithmetic */
@@ -1806,6 +2329,7 @@ static void inst_ADC_HL_HL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* ADC_HL_SP - arithmetic */
@@ -1823,42 +2347,45 @@ static void inst_ADC_HL_SP(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* SBC_HL_BC - arithmetic */
 static void inst_SBC_HL_BC(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
     uint16_t bc = (uint16_t)((cpu->registers[REG_B] << 8) | cpu->registers[REG_C]);
-    uint16_t carry = cpu->flags.C ? 1u : 0u;
-    uint16_t subtrahend = (uint16_t)(bc + carry);
-    uint32_t result = (uint32_t)hl - (uint32_t)subtrahend;
+    uint32_t carry = cpu->flags.C ? 1u : 0u;
+    uint32_t full_subtrahend = (uint32_t)bc + carry;
+    uint32_t result = (uint32_t)hl - full_subtrahend;
     uint16_t out = (uint16_t)(result & 0xFFFF);
     cpu->registers[REG_H] = (uint8_t)(out >> 8);
     cpu->registers[REG_L] = (uint8_t)(out & 0xFF);
-    cpu->flags.C = (hl < subtrahend);
+    cpu->flags.C = ((uint32_t)hl < full_subtrahend);
     cpu->flags.H = (((hl ^ bc ^ out) & 0x1000u) != 0);
     cpu->flags.P = ((((hl ^ bc) & (hl ^ out)) & 0x8000u) != 0);
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* SBC_HL_DE - arithmetic */
 static void inst_SBC_HL_DE(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
     uint16_t de = (uint16_t)((cpu->registers[REG_D] << 8) | cpu->registers[REG_E]);
-    uint16_t carry = cpu->flags.C ? 1u : 0u;
-    uint16_t subtrahend = (uint16_t)(de + carry);
-    uint32_t result = (uint32_t)hl - (uint32_t)subtrahend;
+    uint32_t carry = cpu->flags.C ? 1u : 0u;
+    uint32_t full_subtrahend = (uint32_t)de + carry;
+    uint32_t result = (uint32_t)hl - full_subtrahend;
     uint16_t out = (uint16_t)(result & 0xFFFF);
     cpu->registers[REG_H] = (uint8_t)(out >> 8);
     cpu->registers[REG_L] = (uint8_t)(out & 0xFF);
-    cpu->flags.C = (hl < subtrahend);
+    cpu->flags.C = ((uint32_t)hl < full_subtrahend);
     cpu->flags.H = (((hl ^ de ^ out) & 0x1000u) != 0);
     cpu->flags.P = ((((hl ^ de) & (hl ^ out)) & 0x8000u) != 0);
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* SBC_HL_HL - arithmetic */
@@ -1866,36 +2393,38 @@ static void inst_SBC_HL_HL(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
     uint16_t lhs = hl;
     uint16_t rhs = hl;
-    uint16_t carry = cpu->flags.C ? 1u : 0u;
-    uint16_t subtrahend = (uint16_t)(rhs + carry);
-    uint32_t result = (uint32_t)lhs - (uint32_t)subtrahend;
+    uint32_t carry = cpu->flags.C ? 1u : 0u;
+    uint32_t full_subtrahend = (uint32_t)rhs + carry;
+    uint32_t result = (uint32_t)lhs - full_subtrahend;
     uint16_t out = (uint16_t)(result & 0xFFFF);
     cpu->registers[REG_H] = (uint8_t)(out >> 8);
     cpu->registers[REG_L] = (uint8_t)(out & 0xFF);
-    cpu->flags.C = (lhs < subtrahend);
+    cpu->flags.C = ((uint32_t)lhs < full_subtrahend);
     cpu->flags.H = (((lhs ^ rhs ^ out) & 0x1000u) != 0);
     cpu->flags.P = ((((lhs ^ rhs) & (lhs ^ out)) & 0x8000u) != 0);
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* SBC_HL_SP - arithmetic */
 static void inst_SBC_HL_SP(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
     uint16_t sp = cpu->sp;
-    uint16_t carry = cpu->flags.C ? 1u : 0u;
-    uint16_t subtrahend = (uint16_t)(sp + carry);
-    uint32_t result = (uint32_t)hl - (uint32_t)subtrahend;
+    uint32_t carry = cpu->flags.C ? 1u : 0u;
+    uint32_t full_subtrahend = (uint32_t)sp + carry;
+    uint32_t result = (uint32_t)hl - full_subtrahend;
     uint16_t out = (uint16_t)(result & 0xFFFF);
     cpu->registers[REG_H] = (uint8_t)(out >> 8);
     cpu->registers[REG_L] = (uint8_t)(out & 0xFF);
-    cpu->flags.C = (hl < subtrahend);
+    cpu->flags.C = ((uint32_t)hl < full_subtrahend);
     cpu->flags.H = (((hl ^ sp ^ out) & 0x1000u) != 0);
     cpu->flags.P = ((((hl ^ sp) & (hl ^ out)) & 0x8000u) != 0);
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* LD_HLI_A - data_transfer */
@@ -2106,6 +2635,7 @@ static void inst_INC_IXH(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IXH - arithmetic */
@@ -2118,6 +2648,7 @@ static void inst_DEC_IXH(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* LD_IXH_N - data_transfer */
@@ -2135,6 +2666,7 @@ static void inst_INC_IXL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IXL - arithmetic */
@@ -2147,6 +2679,7 @@ static void inst_DEC_IXL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* LD_IXL_N - data_transfer */
@@ -2164,6 +2697,7 @@ static void inst_INC_IYH(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IYH - arithmetic */
@@ -2176,6 +2710,7 @@ static void inst_DEC_IYH(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* LD_IYH_N - data_transfer */
@@ -2193,6 +2728,7 @@ static void inst_INC_IYL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IYL - arithmetic */
@@ -2205,6 +2741,7 @@ static void inst_DEC_IYL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* LD_IYL_N - data_transfer */
@@ -2226,6 +2763,7 @@ static void inst_ADD_A_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* ADC_A_IXD - arithmetic */
@@ -2243,6 +2781,7 @@ static void inst_ADC_A_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SUB_IXD - arithmetic */
@@ -2259,6 +2798,7 @@ static void inst_SUB_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SBC_A_IXD - arithmetic */
@@ -2277,6 +2817,7 @@ static void inst_SBC_A_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* AND_IXD - logic */
@@ -2290,6 +2831,8 @@ static void inst_AND_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* XOR_IXD - logic */
@@ -2303,6 +2846,7 @@ static void inst_XOR_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* OR_IXD - logic */
@@ -2316,6 +2860,8 @@ static void inst_OR_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* CP_IXD - logic */
@@ -2331,6 +2877,7 @@ static void inst_CP_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ val) & (a ^ result8) & 0x80) != 0);
     cpu->flags.C = ((result > 0xFF));
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (val & 0x28u));
 }
 
 /* ADD_A_IYD - arithmetic */
@@ -2347,6 +2894,7 @@ static void inst_ADD_A_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* ADC_A_IYD - arithmetic */
@@ -2364,6 +2912,7 @@ static void inst_ADC_A_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SUB_IYD - arithmetic */
@@ -2380,6 +2929,7 @@ static void inst_SUB_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SBC_A_IYD - arithmetic */
@@ -2398,6 +2948,7 @@ static void inst_SBC_A_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* AND_IYD - logic */
@@ -2411,6 +2962,7 @@ static void inst_AND_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* XOR_IYD - logic */
@@ -2424,6 +2976,8 @@ static void inst_XOR_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* OR_IYD - logic */
@@ -2437,6 +2991,7 @@ static void inst_OR_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* CP_IYD - logic */
@@ -2452,6 +3007,8 @@ static void inst_CP_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ val) & (a ^ result8) & 0x80) != 0);
     cpu->flags.C = ((result > 0xFF));
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (val & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (val & 0x28u));
 }
 
 /* ALU_A_IXHIXL_DD - arithmetic */
@@ -2485,6 +3042,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 1) { /* ADC */
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t result = (uint16_t)a + (uint16_t)value + (uint16_t)carry_in;
@@ -2496,6 +3054,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 2) { /* SUB */
     uint16_t result = (uint16_t)a - (uint16_t)value;
     uint8_t out = (uint8_t)(result & 0xFF);
@@ -2506,6 +3065,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 3) { /* SBC */
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t subtrahend = (uint16_t)value + (uint16_t)carry_in;
@@ -2518,6 +3078,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 4) { /* AND */
     uint8_t out = (uint8_t)(a & value);
     cpu->registers[REG_A] = out;
@@ -2527,6 +3088,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 5) { /* XOR */
     uint8_t out = (uint8_t)(a ^ value);
     cpu->registers[REG_A] = out;
@@ -2536,6 +3098,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 6) { /* OR */
     uint8_t out = (uint8_t)(a | value);
     cpu->registers[REG_A] = out;
@@ -2545,6 +3108,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else { /* CP */
     uint16_t result = (uint16_t)a - (uint16_t)value;
     uint8_t out = (uint8_t)(result & 0xFF);
@@ -2554,6 +3118,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ value) & (a ^ out) & 0x80) != 0);
     cpu->flags.C = (a < value);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
     }
 }
 
@@ -2588,6 +3153,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 1) { /* ADC */
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t result = (uint16_t)a + (uint16_t)value + (uint16_t)carry_in;
@@ -2599,6 +3165,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 2) { /* SUB */
     uint16_t result = (uint16_t)a - (uint16_t)value;
     uint8_t out = (uint8_t)(result & 0xFF);
@@ -2609,6 +3176,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 3) { /* SBC */
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t subtrahend = (uint16_t)value + (uint16_t)carry_in;
@@ -2621,6 +3189,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 4) { /* AND */
     uint8_t out = (uint8_t)(a & value);
     cpu->registers[REG_A] = out;
@@ -2630,6 +3199,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 5) { /* XOR */
     uint8_t out = (uint8_t)(a ^ value);
     cpu->registers[REG_A] = out;
@@ -2639,6 +3209,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 6) { /* OR */
     uint8_t out = (uint8_t)(a | value);
     cpu->registers[REG_A] = out;
@@ -2648,6 +3219,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else { /* CP */
     uint16_t result = (uint16_t)a - (uint16_t)value;
     uint8_t out = (uint8_t)(result & 0xFF);
@@ -2657,6 +3229,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ value) & (a ^ out) & 0x80) != 0);
     cpu->flags.C = (a < value);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
     }
 }
 
@@ -2671,6 +3244,7 @@ static void inst_INC_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IXD - arithmetic */
@@ -2684,6 +3258,7 @@ static void inst_DEC_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* INC_IYD - arithmetic */
@@ -2697,6 +3272,7 @@ static void inst_INC_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IYD - arithmetic */
@@ -2710,6 +3286,7 @@ static void inst_DEC_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* HALT - control */
@@ -2776,6 +3353,7 @@ static void inst_ADD_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* JP_NN - control */
@@ -2885,6 +3463,9 @@ static void inst_LDIR(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (bc != 0);
     cpu->flags.N = (false);
+    uint8_t sum = (uint8_t)(cpu->registers[REG_A] + val);
+    cpu->flags.F5 = ((sum & 0x02u) != 0u);
+    cpu->flags.F3 = ((sum & 0x08u) != 0u);
     if (bc != 0) {
     cpu->total_cycles += 5;
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) - 2);
@@ -2911,6 +3492,9 @@ static void inst_LDI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (bc != 0);
     cpu->flags.N = (false);
+    uint8_t sum = (uint8_t)(cpu->registers[REG_A] + val);
+    cpu->flags.F5 = ((sum & 0x02u) != 0u);
+    cpu->flags.F3 = ((sum & 0x08u) != 0u);
 }
 
 /* LDD - data_transfer */
@@ -2932,6 +3516,9 @@ static void inst_LDD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (bc != 0);
     cpu->flags.N = (false);
+    uint8_t sum = (uint8_t)(cpu->registers[REG_A] + val);
+    cpu->flags.F5 = ((sum & 0x02u) != 0u);
+    cpu->flags.F3 = ((sum & 0x08u) != 0u);
 }
 
 /* LDDR - data_transfer */
@@ -2953,6 +3540,9 @@ static void inst_LDDR(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (bc != 0);
     cpu->flags.N = (false);
+    uint8_t sum = (uint8_t)(cpu->registers[REG_A] + val);
+    cpu->flags.F5 = ((sum & 0x02u) != 0u);
+    cpu->flags.F3 = ((sum & 0x08u) != 0u);
     if (bc != 0) {
     cpu->total_cycles += 5;
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) - 2);
@@ -2983,6 +3573,7 @@ static void inst_AND_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* OR_A_R - logic */
@@ -3008,6 +3599,7 @@ static void inst_OR_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* XOR_A_R - logic */
@@ -3033,6 +3625,7 @@ static void inst_XOR_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* RLC_A - rotate */
@@ -3042,6 +3635,7 @@ static void inst_RLC_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (carry != 0);
     cpu->flags.H = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* RL_A - rotate */
@@ -3052,6 +3646,7 @@ static void inst_RL_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (new_carry != 0);
     cpu->flags.H = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* RR_A - rotate */
@@ -3062,6 +3657,7 @@ static void inst_RR_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (new_carry != 0);
     cpu->flags.H = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* BIT_0_A - bit */
@@ -3070,7 +3666,8 @@ static void inst_BIT_0_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x01) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x01) == 0x80));
+    cpu->flags.S = ((0x01u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_0_HLI - bit */
@@ -3081,7 +3678,8 @@ static void inst_BIT_0_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x01) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x01) == 0x80));
+    cpu->flags.S = ((0x01u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_1_A - bit */
@@ -3090,7 +3688,8 @@ static void inst_BIT_1_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x02) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x02) == 0x80));
+    cpu->flags.S = ((0x02u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_1_HLI - bit */
@@ -3101,7 +3700,8 @@ static void inst_BIT_1_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x02) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x02) == 0x80));
+    cpu->flags.S = ((0x02u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_2_A - bit */
@@ -3110,7 +3710,8 @@ static void inst_BIT_2_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x04) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x04) == 0x80));
+    cpu->flags.S = ((0x04u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_2_HLI - bit */
@@ -3121,7 +3722,8 @@ static void inst_BIT_2_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x04) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x04) == 0x80));
+    cpu->flags.S = ((0x04u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_3_A - bit */
@@ -3130,7 +3732,8 @@ static void inst_BIT_3_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x08) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x08) == 0x80));
+    cpu->flags.S = ((0x08u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_3_HLI - bit */
@@ -3141,7 +3744,8 @@ static void inst_BIT_3_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x08) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x08) == 0x80));
+    cpu->flags.S = ((0x08u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_4_A - bit */
@@ -3150,7 +3754,8 @@ static void inst_BIT_4_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x10) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x10) == 0x80));
+    cpu->flags.S = ((0x10u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_4_HLI - bit */
@@ -3161,7 +3766,8 @@ static void inst_BIT_4_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x10) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x10) == 0x80));
+    cpu->flags.S = ((0x10u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_5_A - bit */
@@ -3170,7 +3776,8 @@ static void inst_BIT_5_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x20) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x20) == 0x80));
+    cpu->flags.S = ((0x20u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_5_HLI - bit */
@@ -3181,7 +3788,8 @@ static void inst_BIT_5_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x20) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x20) == 0x80));
+    cpu->flags.S = ((0x20u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_6_A - bit */
@@ -3190,7 +3798,8 @@ static void inst_BIT_6_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x40) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x40) == 0x80));
+    cpu->flags.S = ((0x40u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_6_HLI - bit */
@@ -3201,7 +3810,8 @@ static void inst_BIT_6_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x40) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x40) == 0x80));
+    cpu->flags.S = ((0x40u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_7_A - bit */
@@ -3210,7 +3820,8 @@ static void inst_BIT_7_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x80) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x80) == 0x80));
+    cpu->flags.S = ((0x80u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_7_HLI - bit */
@@ -3221,22 +3832,25 @@ static void inst_BIT_7_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x80) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x80) == 0x80));
+    cpu->flags.S = ((0x80u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* IN_A_N - data_transfer */
 static void inst_IN_A_N(CPUState *cpu, DecodedInstruction *inst) {
-    cpu->registers[REG_A] = z80_read_port(cpu, inst->n);
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_A] << 8u) | (uint16_t)inst->n);
+    cpu->registers[REG_A] = z80_read_port(cpu, port);
 }
 
 /* OUT_N_A - data_transfer */
 static void inst_OUT_N_A(CPUState *cpu, DecodedInstruction *inst) {
-    z80_write_port(cpu, inst->n, cpu->registers[REG_A]);
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_A] << 8u) | (uint16_t)inst->n);
+    z80_write_port(cpu, port, cpu->registers[REG_A]);
 }
 
 /* IN_R_C - data_transfer */
 static void inst_IN_R_C(CPUState *cpu, DecodedInstruction *inst) {
-    uint16_t port = (uint16_t)cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_port(cpu, port);
     uint8_t r = inst->r & 0x07;
     if (r == 0) cpu->registers[REG_B] = value;
@@ -3251,11 +3865,13 @@ static void inst_IN_R_C(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* OUT_C_R - data_transfer */
 static void inst_OUT_C_R(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t r = inst->r & 0x07;
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = 0;
     if (r == 0) value = cpu->registers[REG_B];
     else if (r == 1) value = cpu->registers[REG_C];
@@ -3264,7 +3880,7 @@ static void inst_OUT_C_R(CPUState *cpu, DecodedInstruction *inst) {
     else if (r == 4) value = cpu->registers[REG_H];
     else if (r == 5) value = cpu->registers[REG_L];
     else if (r == 7) value = cpu->registers[REG_A];
-    z80_write_port(cpu, (uint16_t)cpu->registers[REG_C], value);
+    z80_write_port(cpu, port, value);
 }
 
 /* LD_I_A - data_transfer */
@@ -3413,6 +4029,7 @@ static void inst_CP_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ val) & (a ^ result8) & 0x80) != 0);
     cpu->flags.C = ((result > 0xFF));
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (val & 0x28u));
 }
 
 /* CALL_NN - control */
@@ -3814,6 +4431,7 @@ static void inst_SUB_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* ADC_A_R - arithmetic */
@@ -3843,6 +4461,7 @@ static void inst_ADC_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SBC_A_R - arithmetic */
@@ -3873,6 +4492,7 @@ static void inst_SBC_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* INC_R - arithmetic */
@@ -3919,6 +4539,7 @@ static void inst_INC_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_R - arithmetic */
@@ -3965,6 +4586,7 @@ static void inst_DEC_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* CPI - data_transfer */
@@ -3985,6 +4607,9 @@ static void inst_CPI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->registers[REG_B] = (uint8_t)(bc >> 8);
     cpu->registers[REG_C] = (uint8_t)(bc & 0xFF);
     cpu->flags.P = (bc != 0);
+    uint8_t adjust = (uint8_t)(result - (cpu->flags.H ? 1u : 0u));
+    cpu->flags.F5 = ((adjust & 0x02u) != 0u);
+    cpu->flags.F3 = ((adjust & 0x08u) != 0u);
 }
 
 /* CPIR - data_transfer */
@@ -4005,6 +4630,9 @@ static void inst_CPIR(CPUState *cpu, DecodedInstruction *inst) {
     cpu->registers[REG_B] = (uint8_t)(bc >> 8);
     cpu->registers[REG_C] = (uint8_t)(bc & 0xFF);
     cpu->flags.P = (bc != 0);
+    uint8_t adjust = (uint8_t)(result - (cpu->flags.H ? 1u : 0u));
+    cpu->flags.F5 = ((adjust & 0x02u) != 0u);
+    cpu->flags.F3 = ((adjust & 0x08u) != 0u);
     if (bc != 0 && result != 0) {
     cpu->total_cycles += 5;
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) - 2);
@@ -4030,6 +4658,9 @@ static void inst_CPD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->registers[REG_B] = (uint8_t)(bc >> 8);
     cpu->registers[REG_C] = (uint8_t)(bc & 0xFF);
     cpu->flags.P = (bc != 0);
+    uint8_t adjust = (uint8_t)(result - (cpu->flags.H ? 1u : 0u));
+    cpu->flags.F5 = ((adjust & 0x02u) != 0u);
+    cpu->flags.F3 = ((adjust & 0x08u) != 0u);
 }
 
 /* CPDR - data_transfer */
@@ -4050,6 +4681,9 @@ static void inst_CPDR(CPUState *cpu, DecodedInstruction *inst) {
     cpu->registers[REG_B] = (uint8_t)(bc >> 8);
     cpu->registers[REG_C] = (uint8_t)(bc & 0xFF);
     cpu->flags.P = (bc != 0);
+    uint8_t adjust = (uint8_t)(result - (cpu->flags.H ? 1u : 0u));
+    cpu->flags.F5 = ((adjust & 0x02u) != 0u);
+    cpu->flags.F3 = ((adjust & 0x08u) != 0u);
     if (bc != 0 && result != 0) {
     cpu->total_cycles += 5;
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) - 2);
@@ -4064,6 +4698,7 @@ static void inst_RRC_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (carry != 0);
     cpu->flags.H = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* SRA_A - rotate */
@@ -4077,6 +4712,7 @@ static void inst_SRA_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* SLA_A - rotate */
@@ -4089,6 +4725,7 @@ static void inst_SLA_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* SRL_A - rotate */
@@ -4101,6 +4738,7 @@ static void inst_SRL_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* RLC_HLI - rotate */
@@ -4116,6 +4754,7 @@ static void inst_RLC_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RRC_HLI - rotate */
@@ -4131,6 +4770,7 @@ static void inst_RRC_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RL_HLI - rotate */
@@ -4147,6 +4787,7 @@ static void inst_RL_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RR_HLI - rotate */
@@ -4163,6 +4804,7 @@ static void inst_RR_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLA_HLI - rotate */
@@ -4178,6 +4820,7 @@ static void inst_SLA_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLL_HLI - rotate */
@@ -4193,6 +4836,7 @@ static void inst_SLL_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRA_HLI - rotate */
@@ -4209,6 +4853,7 @@ static void inst_SRA_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRL_HLI - rotate */
@@ -4224,6 +4869,7 @@ static void inst_SRL_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RLC_R - rotate */
@@ -4263,6 +4909,7 @@ static void inst_RLC_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RRC_R - rotate */
@@ -4302,6 +4949,7 @@ static void inst_RRC_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RL_R - rotate */
@@ -4342,6 +4990,7 @@ static void inst_RL_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RR_R - rotate */
@@ -4382,6 +5031,7 @@ static void inst_RR_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLA_R - rotate */
@@ -4421,6 +5071,7 @@ static void inst_SLA_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLL_R - rotate */
@@ -4460,6 +5111,7 @@ static void inst_SLL_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRA_R - rotate */
@@ -4500,6 +5152,7 @@ static void inst_SRA_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRL_R - rotate */
@@ -4539,6 +5192,7 @@ static void inst_SRL_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RLC_IXD - rotate */
@@ -4554,6 +5208,7 @@ static void inst_RLC_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RLC_IYD - rotate */
@@ -4569,6 +5224,7 @@ static void inst_RLC_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RRC_IXD - rotate */
@@ -4584,6 +5240,7 @@ static void inst_RRC_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RRC_IYD - rotate */
@@ -4599,6 +5256,7 @@ static void inst_RRC_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RL_IXD - rotate */
@@ -4615,6 +5273,7 @@ static void inst_RL_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RL_IYD - rotate */
@@ -4631,6 +5290,7 @@ static void inst_RL_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RR_IXD - rotate */
@@ -4647,6 +5307,7 @@ static void inst_RR_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RR_IYD - rotate */
@@ -4663,6 +5324,7 @@ static void inst_RR_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLA_IXD - rotate */
@@ -4678,6 +5340,7 @@ static void inst_SLA_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLA_IYD - rotate */
@@ -4693,6 +5356,7 @@ static void inst_SLA_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLL_IXD - rotate */
@@ -4708,6 +5372,7 @@ static void inst_SLL_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLL_IYD - rotate */
@@ -4723,6 +5388,7 @@ static void inst_SLL_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRA_IXD - rotate */
@@ -4739,6 +5405,7 @@ static void inst_SRA_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRA_IYD - rotate */
@@ -4755,6 +5422,7 @@ static void inst_SRA_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRL_IXD - rotate */
@@ -4770,6 +5438,7 @@ static void inst_SRL_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRL_IYD - rotate */
@@ -4785,6 +5454,7 @@ static void inst_SRL_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* BIT_0_IXD - bit */
@@ -4795,7 +5465,8 @@ static void inst_BIT_0_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x01) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x01) == 0x80));
+    cpu->flags.S = ((0x01u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_0_IXD - bit */
@@ -4822,7 +5493,8 @@ static void inst_BIT_0_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x01) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x01) == 0x80));
+    cpu->flags.S = ((0x01u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_0_IYD - bit */
@@ -4849,7 +5521,8 @@ static void inst_BIT_1_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x02) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x02) == 0x80));
+    cpu->flags.S = ((0x02u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_1_IXD - bit */
@@ -4876,7 +5549,8 @@ static void inst_BIT_2_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x04) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x04) == 0x80));
+    cpu->flags.S = ((0x04u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_2_IXD - bit */
@@ -4903,7 +5577,8 @@ static void inst_BIT_3_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x08) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x08) == 0x80));
+    cpu->flags.S = ((0x08u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_3_IXD - bit */
@@ -4930,7 +5605,8 @@ static void inst_BIT_4_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x10) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x10) == 0x80));
+    cpu->flags.S = ((0x10u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_4_IXD - bit */
@@ -4957,7 +5633,8 @@ static void inst_BIT_5_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x20) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x20) == 0x80));
+    cpu->flags.S = ((0x20u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_5_IXD - bit */
@@ -4984,7 +5661,8 @@ static void inst_BIT_6_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x40) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x40) == 0x80));
+    cpu->flags.S = ((0x40u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_6_IXD - bit */
@@ -5011,7 +5689,8 @@ static void inst_BIT_7_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x80) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x80) == 0x80));
+    cpu->flags.S = ((0x80u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_7_IXD - bit */
@@ -5038,7 +5717,8 @@ static void inst_BIT_1_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x02) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x02) == 0x80));
+    cpu->flags.S = ((0x02u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_1_IYD - bit */
@@ -5065,7 +5745,8 @@ static void inst_BIT_2_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x04) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x04) == 0x80));
+    cpu->flags.S = ((0x04u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_2_IYD - bit */
@@ -5092,7 +5773,8 @@ static void inst_BIT_3_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x08) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x08) == 0x80));
+    cpu->flags.S = ((0x08u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_3_IYD - bit */
@@ -5119,7 +5801,8 @@ static void inst_BIT_4_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x10) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x10) == 0x80));
+    cpu->flags.S = ((0x10u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_4_IYD - bit */
@@ -5146,7 +5829,8 @@ static void inst_BIT_5_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x20) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x20) == 0x80));
+    cpu->flags.S = ((0x20u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_5_IYD - bit */
@@ -5173,7 +5857,8 @@ static void inst_BIT_6_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x40) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x40) == 0x80));
+    cpu->flags.S = ((0x40u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_6_IYD - bit */
@@ -5200,7 +5885,8 @@ static void inst_BIT_7_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x80) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x80) == 0x80));
+    cpu->flags.S = ((0x80u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_7_IYD - bit */
@@ -5277,6 +5963,7 @@ static void inst_ROT_SHIFT_IXD_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* ROT_SHIFT_IYD_R - rotate */
@@ -5337,6 +6024,7 @@ static void inst_ROT_SHIFT_IYD_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* BIT_IXD_R - bit */
@@ -5351,6 +6039,7 @@ static void inst_BIT_IXD_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (!bit_set);
     cpu->flags.N = (false);
     cpu->flags.S = (((inst->bit & 0x07) == 7) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(addr >> 8) & 0x28u));
 }
 
 /* BIT_IYD_R - bit */
@@ -5365,6 +6054,7 @@ static void inst_BIT_IYD_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (!bit_set);
     cpu->flags.N = (false);
     cpu->flags.S = (((inst->bit & 0x07) == 7) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(addr >> 8) & 0x28u));
 }
 
 /* SET_IXD_R - bit */
@@ -5655,6 +6345,7 @@ static void inst_RES_7_HLI(CPUState *cpu, DecodedInstruction *inst) {
 static void inst_BIT_R(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t r = inst->r & 0x07;
     uint8_t value = 0;
+    uint8_t fxy = 0;
     if (r == 0) value = cpu->registers[REG_B];
     else if (r == 1) value = cpu->registers[REG_C];
     else if (r == 2) value = cpu->registers[REG_D];
@@ -5665,8 +6356,12 @@ static void inst_BIT_R(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
     value = z80_read_byte(cpu, hl);
     cpu->total_cycles += 4;
+    fxy = (uint8_t)((hl >> 8) & 0x28u);
     } else {
     value = cpu->registers[REG_A];
+    }
+    if (r != 6) {
+    fxy = (uint8_t)(value & 0x28u);
     }
     uint8_t mask = (uint8_t)(1u << (inst->bit & 0x07));
     bool bit_set = (value & mask) != 0;
@@ -5675,6 +6370,7 @@ static void inst_BIT_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (!bit_set);
     cpu->flags.N = (false);
     cpu->flags.S = (((inst->bit & 0x07) == 7) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | fxy);
 }
 
 /* SET_R - bit */
@@ -5797,14 +6493,15 @@ static void inst_DJNZ_D(CPUState *cpu, DecodedInstruction *inst) {
 /* INI - data_transfer */
 static void inst_INI(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl++;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port + 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l + 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -5817,14 +6514,15 @@ static void inst_INI(CPUState *cpu, DecodedInstruction *inst) {
 /* IND - data_transfer */
 static void inst_IND(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl--;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port - 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l - 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -5837,14 +6535,15 @@ static void inst_IND(CPUState *cpu, DecodedInstruction *inst) {
 /* INIR - data_transfer */
 static void inst_INIR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl++;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port + 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l + 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -5862,14 +6561,15 @@ static void inst_INIR(CPUState *cpu, DecodedInstruction *inst) {
 /* INDR - data_transfer */
 static void inst_INDR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl--;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port - 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l - 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -5887,7 +6587,7 @@ static void inst_INDR(CPUState *cpu, DecodedInstruction *inst) {
 /* OUTI - data_transfer */
 static void inst_OUTI(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl++;
@@ -5907,7 +6607,7 @@ static void inst_OUTI(CPUState *cpu, DecodedInstruction *inst) {
 /* OUTD - data_transfer */
 static void inst_OUTD(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl--;
@@ -5927,7 +6627,7 @@ static void inst_OUTD(CPUState *cpu, DecodedInstruction *inst) {
 /* OTIR - data_transfer */
 static void inst_OTIR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl++;
@@ -5952,7 +6652,7 @@ static void inst_OTIR(CPUState *cpu, DecodedInstruction *inst) {
 /* OTDR - data_transfer */
 static void inst_OTDR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl--;
@@ -6033,6 +6733,11 @@ int z80_step(CPUState *cpu) {
     }
 
     if (cpu->halted) {
+        if (cpu->interrupt_pending && !cpu->interrupts_enabled) {
+            cpu->interrupt_pending = false;
+            cpu->halted = false;
+            return 0;
+        }
         uint16_t halted_pc = cpu->pc;
         DecodedInstruction halted_inst = {0};
         halted_inst.pc = halted_pc;
@@ -8062,6 +8767,7 @@ void z80_run(CPUState *cpu) {
 void z80_run_until(CPUState *cpu, uint64_t cycles) {
     while (cpu->running) {
         if (cycles > 0 && cpu->total_cycles >= cycles) break;
+        if (cpu->halted && !cpu->interrupt_pending) break;
         if (z80_step(cpu) != 0) break;
     }
 }
@@ -8107,196 +8813,201 @@ CPUState *z80_create(size_t memory_size) {
     cpu->comp_speaker0.next_sample_cycle = 0;
     cpu->comp_mic0.current_level = 0;
     cpu->comp_mic0.next_sample_cycle = 0;
-    cpu->comp_host_sdl2.sdl_inited = 0;
-    cpu->comp_host_sdl2.window = NULL;
-    cpu->comp_host_sdl2.renderer = NULL;
-    cpu->comp_host_sdl2.texture = NULL;
-    cpu->comp_host_sdl2.audio_out_dev = 0;
-    cpu->comp_host_sdl2.audio_in_dev = 0;
-    cpu->comp_host_sdl2.row0 = 0x1F;
-    cpu->comp_host_sdl2.row1 = 0x1F;
-    cpu->comp_host_sdl2.row2 = 0x1F;
-    cpu->comp_host_sdl2.row3 = 0x1F;
-    cpu->comp_host_sdl2.row4 = 0x1F;
-    cpu->comp_host_sdl2.row5 = 0x1F;
-    cpu->comp_host_sdl2.row6 = 0x1F;
-    cpu->comp_host_sdl2.row7 = 0x1F;
-    cpu->comp_host_sdl2.last_mic = 0;
-    cpu->comp_host_sdl2.border_color = 0;
-    cpu->comp_host_sdl2.video_frames = 0;
-    cpu->comp_host_sdl2.last_event_poll_tstate = 0;
-    cpu->comp_host_sdl2.overlay_last_ms = 0;
-    cpu->comp_host_sdl2.overlay_last_frame_count = 0;
-    cpu->comp_host_sdl2.overlay_last_cycle_count = 0;
-    cpu->comp_host_sdl2.overlay_fps_x100 = 0;
-    cpu->comp_host_sdl2.overlay_cpu_hz = 0;
-    cpu->comp_host_sdl2.overlay_cpu_pct_x10 = 0;
-    cpu->comp_host_sdl2.audio_level = 0;
-    cpu->comp_host_sdl2.audio_last_level = 0;
-    cpu->comp_host_sdl2.audio_last_cycle = 0;
-    cpu->comp_host_sdl2.audio_sample_cursor = 0;
-    cpu->comp_host_sdl2.audio_samples = 0;
-    cpu->comp_host_sdl2.audio_rate = 0;
-    cpu->comp_host_sdl2.audio_ring = NULL;
-    cpu->comp_host_sdl2.audio_ring_capacity = 0;
-    cpu->comp_host_sdl2.audio_ring_read_idx = 0;
-    cpu->comp_host_sdl2.audio_ring_write_idx = 0;
-    cpu->comp_host_sdl2.audio_ring_fill = 0;
-    cpu->comp_host_sdl2.audio_out_ready = 0;
-    cpu->comp_host_sdl2.audio_in_ready = 0;
-    cpu->comp_host_sdl2.has_keyboard_focus = 0;
-    cpu->comp_host_sdl2.last_focus_state = 0;
-    cpu->comp_host_sdl2.debug_enabled = 0;
-    cpu->comp_host_sdl2.kb_last_row_mask = 0xFF;
-    cpu->comp_host_sdl2.kb_last_result = 0xFF;
+    cpu->comp_host_zx48.host_inited = 0;
+    cpu->comp_host_zx48.window = NULL;
+    cpu->comp_host_zx48.renderer = NULL;
+    cpu->comp_host_zx48.texture = NULL;
+    cpu->comp_host_zx48.audio_out_dev = 0;
+    cpu->comp_host_zx48.audio_device_samples = 0;
+    cpu->comp_host_zx48.audio_in_dev = 0;
+    cpu->comp_host_zx48.row0 = 0x1F;
+    cpu->comp_host_zx48.row1 = 0x1F;
+    cpu->comp_host_zx48.row2 = 0x1F;
+    cpu->comp_host_zx48.row3 = 0x1F;
+    cpu->comp_host_zx48.row4 = 0x1F;
+    cpu->comp_host_zx48.row5 = 0x1F;
+    cpu->comp_host_zx48.row6 = 0x1F;
+    cpu->comp_host_zx48.row7 = 0x1F;
+    cpu->comp_host_zx48.last_mic = 0;
+    cpu->comp_host_zx48.border_color = 0;
+    cpu->comp_host_zx48.video_frames = 0;
+    cpu->comp_host_zx48.last_event_poll_tstate = 0;
+    cpu->comp_host_zx48.overlay_last_ms = 0;
+    cpu->comp_host_zx48.overlay_last_frame_count = 0;
+    cpu->comp_host_zx48.overlay_last_cycle_count = 0;
+    cpu->comp_host_zx48.overlay_fps_x100 = 0;
+    cpu->comp_host_zx48.overlay_cpu_hz = 0;
+    cpu->comp_host_zx48.overlay_cpu_pct_x10 = 0;
+    cpu->comp_host_zx48.audio_level = 0;
+    cpu->comp_host_zx48.audio_last_level = 0;
+    cpu->comp_host_zx48.audio_last_cycle = 0;
+    cpu->comp_host_zx48.audio_sample_cursor = 0;
+    cpu->comp_host_zx48.audio_samples = 0;
+    cpu->comp_host_zx48.audio_rate = 0;
+    cpu->comp_host_zx48.audio_ring = NULL;
+    cpu->comp_host_zx48.audio_ring_capacity = 0;
+    cpu->comp_host_zx48.audio_ring_read_idx = 0;
+    cpu->comp_host_zx48.audio_ring_write_idx = 0;
+    cpu->comp_host_zx48.audio_ring_fill = 0;
+    cpu->comp_host_zx48.audio_out_ready = 0;
+    cpu->comp_host_zx48.audio_in_ready = 0;
+    cpu->comp_host_zx48.has_keyboard_focus = 0;
+    cpu->comp_host_zx48.last_focus_state = 0;
+    cpu->comp_host_zx48.debug_enabled = 0;
+    cpu->comp_host_zx48.kb_last_row_mask = 0xFF;
+    cpu->comp_host_zx48.kb_last_result = 0xFF;
     {
-        ComponentState_host_sdl2 *comp = &cpu->comp_host_sdl2;
-        cpu->active_component_id = "host_sdl2";
-        if (comp->sdl_inited == 0u) {
-            int sdl_ok = 1;
-            const char *dbg = SDL_getenv("PASM_SDL_DEBUG");
+        ComponentState_host_zx48 *comp = &cpu->comp_host_zx48;
+        cpu->active_component_id = "host_zx48";
+        if (comp->host_inited == 0u) {
+            int host_ok = 1;
+            const char *dbg = cpu_host_hal_getenv("PASM_HOST_DEBUG");
             comp->debug_enabled = (dbg != NULL && dbg[0] != '\0' && dbg[0] != '0') ? 1u : 0u;
-            if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
-                SDL_Log("host_sdl2: SDL_Init(video/events) failed: %s", SDL_GetError());
-                sdl_ok = 0;
+            if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_EVENTS) != 0) {
+                cpu_host_hal_log("host_zx48: cpu_host_hal_init(video/events) failed: %s", cpu_host_hal_last_error());
+                host_ok = 0;
             }
-            if (sdl_ok) {
-                comp->window = SDL_CreateWindow(
+            if (host_ok) {
+                comp->window = cpu_host_hal_create_window(
                     "PASM ZX Spectrum 48K",
-                    SDL_WINDOWPOS_CENTERED,
-                    SDL_WINDOWPOS_CENTERED,
+                    CPU_HOST_WINDOWPOS_CENTERED,
+                    CPU_HOST_WINDOWPOS_CENTERED,
                     704,
                     608,
-                    SDL_WINDOW_RESIZABLE
+                    CPU_HOST_WINDOW_RESIZABLE
                 );
                 if (comp->window == NULL) {
-                    sdl_ok = 0;
+                    host_ok = 0;
                 }
             }
-            if (sdl_ok) {
-                comp->renderer = SDL_CreateRenderer(
-                    (SDL_Window *)comp->window,
+            if (host_ok) {
+                comp->renderer = cpu_host_hal_create_renderer(
+                    comp->window,
                     -1,
-                    SDL_RENDERER_ACCELERATED
+                    CPU_HOST_RENDERER_ACCELERATED
                 );
                 if (comp->renderer == NULL) {
-                    comp->renderer = SDL_CreateRenderer((SDL_Window *)comp->window, -1, 0);
+                    comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);
                 }
                 if (comp->renderer == NULL) {
-                    sdl_ok = 0;
+                    host_ok = 0;
                 }
             }
-            if (sdl_ok) {
-                comp->texture = SDL_CreateTexture(
-                    (SDL_Renderer *)comp->renderer,
-                    SDL_PIXELFORMAT_ARGB8888,
-                    SDL_TEXTUREACCESS_STREAMING,
+            if (host_ok) {
+                comp->texture = cpu_host_hal_create_texture(
+                    comp->renderer,
+                    CPU_HOST_PIXELFORMAT_ARGB8888,
+                    CPU_HOST_TEXTUREACCESS_STREAMING,
                     256,
                     192
                 );
                 if (comp->texture == NULL) {
-                    sdl_ok = 0;
+                    host_ok = 0;
                 } else {
-                    (void)SDL_SetTextureBlendMode((SDL_Texture *)comp->texture, SDL_BLENDMODE_NONE);
+                    (void)cpu_host_hal_set_texture_blend_none(comp->texture);
                 }
             }
-            if (sdl_ok) {
-                SDL_ShowWindow((SDL_Window *)comp->window);
-                SDL_RaiseWindow((SDL_Window *)comp->window);
-                (void)SDL_SetWindowInputFocus((SDL_Window *)comp->window);
-                SDL_SetRenderDrawColor((SDL_Renderer *)comp->renderer, 0, 0, 0, 255);
-                SDL_RenderClear((SDL_Renderer *)comp->renderer);
-                SDL_RenderPresent((SDL_Renderer *)comp->renderer);
-                comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == (SDL_Window *)comp->window) ? 1u : 0u;
+            if (host_ok) {
+                cpu_host_hal_show_window(comp->window);
+                cpu_host_hal_raise_window(comp->window);
+                (void)cpu_host_hal_set_window_input_focus(comp->window);
+                cpu_host_hal_render_set_draw_color(comp->renderer, 0, 0, 0, 255);
+                cpu_host_hal_render_clear(comp->renderer);
+                cpu_host_hal_render_present(comp->renderer);
+                comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
                 comp->last_focus_state = comp->has_keyboard_focus;
                 if (comp->debug_enabled != 0u) {
-                    SDL_Log(
-                        "host_sdl2: window init focus=%u",
+                    cpu_host_hal_log(
+                        "host_zx48: window init focus=%u",
                         (unsigned)comp->has_keyboard_focus
                     );
                 }
             }
-            if (sdl_ok) {
-                SDL_AudioSpec want;
-                SDL_AudioSpec have_out;
-                SDL_AudioSpec have_in;
-                SDL_zero(want);
-                SDL_zero(have_out);
-                SDL_zero(have_in);
+            if (host_ok) {
+                CPUHostAudioSpec want;
+                CPUHostAudioSpec have_out;
+                CPUHostAudioSpec have_in;
+                cpu_host_audio_spec_zero(&want);
+                cpu_host_audio_spec_zero(&have_out);
+                cpu_host_audio_spec_zero(&have_in);
                 want.freq = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (int)CPU_AUDIO_SAMPLE_RATE : 44100;
-                want.format = AUDIO_S16SYS;
+                want.format = CPU_HOST_AUDIO_FORMAT_S16;
                 want.channels = 1;
-                want.samples = 1024;
+                want.samples = 512;
                 want.callback = NULL;
                 comp->audio_out_ready = 0u;
                 comp->audio_in_ready = 0u;
-                if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
-                    SDL_Log("host_sdl2: audio subsystem unavailable: %s", SDL_GetError());
+                comp->audio_device_samples = 0u;
+                if (cpu_host_hal_init_subsystem(CPU_HOST_INIT_AUDIO) != 0) {
+                    cpu_host_hal_log("host_zx48: audio subsystem unavailable: %s", cpu_host_hal_last_error());
                 } else {
-                    comp->audio_out_dev = SDL_OpenAudioDevice(
+                    comp->audio_out_dev = cpu_host_hal_audio_open(
                         NULL,
                         0,
                         &want,
                         &have_out,
-                        SDL_AUDIO_ALLOW_FREQUENCY_CHANGE
+                        CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE
                     );
                     if (comp->audio_out_dev != 0u) {
-                        if (have_out.format != AUDIO_S16SYS || have_out.channels != 1) {
-                            SDL_Log(
-                                "host_sdl2: unsupported out format (fmt=%u ch=%u), disabling audio out",
+                        if (have_out.format != CPU_HOST_AUDIO_FORMAT_S16 || have_out.channels != 1) {
+                            cpu_host_hal_log(
+                                "host_zx48: unsupported out format (fmt=%u ch=%u), disabling audio out",
                                 (unsigned)have_out.format,
                                 (unsigned)have_out.channels
                             );
-                            SDL_CloseAudioDevice(comp->audio_out_dev);
+                            cpu_host_hal_audio_close(comp->audio_out_dev);
                             comp->audio_out_dev = 0u;
+                            comp->audio_device_samples = 0u;
                         } else {
                             uint32_t ring_capacity = (have_out.freq > 0) ? ((uint32_t)have_out.freq * 2u) : 88200u;
                             if (ring_capacity < 8192u) ring_capacity = 8192u;
-                            comp->audio_ring = (int16_t *)SDL_malloc((size_t)ring_capacity * sizeof(int16_t));
+                            comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));
                             if (comp->audio_ring != NULL) {
                                 comp->audio_rate = (have_out.freq > 0) ? (uint32_t)have_out.freq : 44100u;
+                                comp->audio_device_samples = (uint32_t)have_out.samples;
                                 comp->audio_ring_capacity = ring_capacity;
                                 comp->audio_ring_read_idx = 0u;
                                 comp->audio_ring_write_idx = 0u;
                                 comp->audio_ring_fill = 0u;
                                 comp->audio_out_ready = 1u;
-                                SDL_PauseAudioDevice(comp->audio_out_dev, 0);
+                                cpu_host_hal_audio_pause(comp->audio_out_dev, 0);
                                 if (comp->debug_enabled != 0u) {
-                                    SDL_Log(
-                                        "host_sdl2: audio out ready freq=%d",
+                                    cpu_host_hal_log(
+                                        "host_zx48: audio out ready freq=%d",
                                         have_out.freq
                                     );
                                 }
                             } else {
-                                SDL_CloseAudioDevice(comp->audio_out_dev);
+                                cpu_host_hal_audio_close(comp->audio_out_dev);
                                 comp->audio_out_dev = 0u;
+                                comp->audio_device_samples = 0u;
                             }
                         }
                     } else {
-                        SDL_Log("host_sdl2: audio output open failed: %s", SDL_GetError());
+                        cpu_host_hal_log("host_zx48: audio output open failed: %s", cpu_host_hal_last_error());
                     }
-                    comp->audio_in_dev = SDL_OpenAudioDevice(
+                    comp->audio_in_dev = cpu_host_hal_audio_open(
                         NULL,
                         1,
                         &want,
                         &have_in,
-                        SDL_AUDIO_ALLOW_FREQUENCY_CHANGE
+                        CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE
                     );
                     if (comp->audio_in_dev != 0u) {
-                        if (have_in.format != AUDIO_S16SYS || have_in.channels != 1) {
-                            SDL_Log(
-                                "host_sdl2: unsupported in format (fmt=%u ch=%u), disabling audio in",
+                        if (have_in.format != CPU_HOST_AUDIO_FORMAT_S16 || have_in.channels != 1) {
+                            cpu_host_hal_log(
+                                "host_zx48: unsupported in format (fmt=%u ch=%u), disabling audio in",
                                 (unsigned)have_in.format,
                                 (unsigned)have_in.channels
                             );
-                            SDL_CloseAudioDevice(comp->audio_in_dev);
+                            cpu_host_hal_audio_close(comp->audio_in_dev);
                             comp->audio_in_dev = 0u;
                         } else {
                             comp->audio_in_ready = 1u;
-                            SDL_PauseAudioDevice(comp->audio_in_dev, 0);
+                            cpu_host_hal_audio_pause(comp->audio_in_dev, 0);
                         }
                     } else {
-                        SDL_Log("host_sdl2: audio input open failed: %s", SDL_GetError());
+                        cpu_host_hal_log("host_zx48: audio input open failed: %s", cpu_host_hal_last_error());
                     }
                 }
                 comp->row0 = 0x1Fu;
@@ -8307,30 +9018,31 @@ CPUState *z80_create(size_t memory_size) {
                 comp->row5 = 0x1Fu;
                 comp->row6 = 0x1Fu;
                 comp->row7 = 0x1Fu;
-                comp->sdl_inited = 1u;
+                comp->host_inited = 1u;
             } else {
                 if (comp->audio_out_dev != 0u) {
-                    SDL_CloseAudioDevice(comp->audio_out_dev);
+                    cpu_host_hal_audio_close(comp->audio_out_dev);
                     comp->audio_out_dev = 0u;
+                    comp->audio_device_samples = 0u;
                 }
                 if (comp->audio_in_dev != 0u) {
-                    SDL_CloseAudioDevice(comp->audio_in_dev);
+                    cpu_host_hal_audio_close(comp->audio_in_dev);
                     comp->audio_in_dev = 0u;
                 }
                 if (comp->texture != NULL) {
-                    SDL_DestroyTexture((SDL_Texture *)comp->texture);
+                    cpu_host_hal_destroy_texture(comp->texture);
                     comp->texture = NULL;
                 }
                 if (comp->renderer != NULL) {
-                    SDL_DestroyRenderer((SDL_Renderer *)comp->renderer);
+                    cpu_host_hal_destroy_renderer(comp->renderer);
                     comp->renderer = NULL;
                 }
                 if (comp->window != NULL) {
-                    SDL_DestroyWindow((SDL_Window *)comp->window);
+                    cpu_host_hal_destroy_window(comp->window);
                     comp->window = NULL;
                 }
-                SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS);
-                SDL_Quit();
+                cpu_host_hal_quit_subsystems();
+                cpu_host_hal_quit();
             }
         }
     }
@@ -8342,42 +9054,43 @@ CPUState *z80_create(size_t memory_size) {
 void z80_destroy(CPUState *cpu) {
     if (cpu) {
         {
-            ComponentState_host_sdl2 *comp = &cpu->comp_host_sdl2;
-            cpu->active_component_id = "host_sdl2";
+            ComponentState_host_zx48 *comp = &cpu->comp_host_zx48;
+            cpu->active_component_id = "host_zx48";
             if (comp->audio_out_dev != 0u) {
-                SDL_CloseAudioDevice(comp->audio_out_dev);
+                cpu_host_hal_audio_close(comp->audio_out_dev);
                 comp->audio_out_dev = 0u;
             }
             comp->audio_out_ready = 0u;
             if (comp->audio_ring != NULL) {
-                SDL_free(comp->audio_ring);
+                cpu_host_hal_free(comp->audio_ring);
                 comp->audio_ring = NULL;
             }
             comp->audio_ring_capacity = 0u;
             comp->audio_ring_read_idx = 0u;
             comp->audio_ring_write_idx = 0u;
             comp->audio_ring_fill = 0u;
+            comp->audio_device_samples = 0u;
             if (comp->audio_in_dev != 0u) {
-                SDL_CloseAudioDevice(comp->audio_in_dev);
+                cpu_host_hal_audio_close(comp->audio_in_dev);
                 comp->audio_in_dev = 0u;
             }
             comp->audio_in_ready = 0u;
             if (comp->texture != NULL) {
-                SDL_DestroyTexture((SDL_Texture *)comp->texture);
+                cpu_host_hal_destroy_texture(comp->texture);
                 comp->texture = NULL;
             }
             if (comp->renderer != NULL) {
-                SDL_DestroyRenderer((SDL_Renderer *)comp->renderer);
+                cpu_host_hal_destroy_renderer(comp->renderer);
                 comp->renderer = NULL;
             }
             if (comp->window != NULL) {
-                SDL_DestroyWindow((SDL_Window *)comp->window);
+                cpu_host_hal_destroy_window(comp->window);
                 comp->window = NULL;
             }
-            if (comp->sdl_inited != 0u) {
-                SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS);
-                SDL_Quit();
-                comp->sdl_inited = 0u;
+            if (comp->host_inited != 0u) {
+                cpu_host_hal_quit_subsystems();
+                cpu_host_hal_quit();
+                comp->host_inited = 0u;
                 comp->has_keyboard_focus = 0u;
             }
         }
@@ -8421,8 +9134,8 @@ void z80_reset(CPUState *cpu) {
     cpu->comp_mic0.current_level = 0;
     cpu->comp_mic0.next_sample_cycle = 0;
     {
-        ComponentState_host_sdl2 *comp = &cpu->comp_host_sdl2;
-        cpu->active_component_id = "host_sdl2";
+        ComponentState_host_zx48 *comp = &cpu->comp_host_zx48;
+        cpu->active_component_id = "host_zx48";
         comp->row0 = 0x1Fu;
         comp->row1 = 0x1Fu;
         comp->row2 = 0x1Fu;
@@ -8441,7 +9154,7 @@ void z80_reset(CPUState *cpu) {
         comp->audio_ring_read_idx = 0u;
         comp->audio_ring_write_idx = 0u;
         comp->audio_ring_fill = 0u;
-        comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == (SDL_Window *)comp->window) ? 1u : 0u;
+        comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
         comp->last_focus_state = comp->has_keyboard_focus;
         comp->kb_last_row_mask = 0xFFu;
         comp->kb_last_result = 0xFFu;
@@ -8452,7 +9165,7 @@ void z80_reset(CPUState *cpu) {
         comp->overlay_cpu_hz = 0u;
         comp->overlay_cpu_pct_x10 = 0u;
         if (comp->audio_out_dev != 0u) {
-            SDL_ClearQueuedAudio(comp->audio_out_dev);
+            cpu_host_hal_audio_clear(comp->audio_out_dev);
         }
     }
     cpu->running = true;
@@ -8506,7 +9219,7 @@ typedef struct {
 } SystemRomImage;
 
 static const SystemRomImage g_system_rom_images[] = {
-    { "spectrum48_rom", "../roms/48k.rom", 0x0000u, 16384u },
+    { "spectrum48_rom", "../../roms/zx_spectrum48k/48k.rom", 0x0000u, 16384u },
 };
 
 static bool cpu_path_is_absolute(const char *path) {
@@ -8631,9 +9344,8 @@ void z80_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
     }
-    /* Block writes to read-only region: ROM */
+    /* Ignore writes to read-only region: ROM */
     if (addr < 0x4000u) {
-        cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
     }
     cpu->memory[addr] = value;
@@ -8720,7 +9432,7 @@ void z80_set_irq(CPUState *cpu, bool enabled) {
 
 /* ===== Debug ===== */
 void z80_dump_registers(CPUState *cpu) {
-    printf("PC: 0x%04X SP: 0x%04X Flags: 0x%02X\n", cpu->pc, cpu->sp, cpu->flags.raw);
+    printf("PC: 0x%04X SP: 0x%04X Flags: 0x%02X\n", cpu->pc, cpu->sp, (uint8_t)((((cpu->flags.raw >> 7) & 1u) << 0) | (((cpu->flags.raw >> 6) & 1u) << 1) | (((cpu->flags.raw >> 4) & 1u) << 2) | (((cpu->flags.raw >> 2) & 1u) << 3) | (((cpu->flags.raw >> 1) & 1u) << 4) | (((cpu->flags.raw >> 0) & 1u) << 5)));
     for (int i = 0; i < 20; i++) {
         printf("R%d: 0x%02X ", i, cpu->registers[i]);
     }

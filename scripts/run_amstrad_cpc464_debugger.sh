@@ -13,13 +13,13 @@ set -euo pipefail
 #   EXTRA_CARGO_ARGS="--release"
 #   CMAKE_BUILD_TYPE=Release
 #   RUN_SPEED=realtime|max
-#   PASM_SDL_AUDIO=1|0
+#   PASM_HOST_AUDIO=1|0
 
 PROFILE="${1:-interactive}"
 START_PC="${START_PC:-0x0000}"
 MEMORY_SIZE="${MEMORY_SIZE:-65536}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
-PASM_SDL_AUDIO="${PASM_SDL_AUDIO:-1}"
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 
@@ -32,17 +32,17 @@ IC_MAIN="examples/ics/cpc464/amstrad_cpc_io.yaml"
 DEVICE_KB="examples/devices/cpc464/cpc_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/cpc464/cpc_video.yaml"
 DEVICE_SPK="examples/devices/cpc464/cpc_speaker.yaml"
-SYSTEM_DIR="examples/systems"
+SYSTEM_DIR="examples/systems/cpc464"
 
 case "${PROFILE}" in
   default)
-    SYSTEM="examples/systems/cpc464/z80_amstrad_cpc464_default.yaml"
+    SYSTEM="examples/systems/cpc464/cpc464_default.yaml"
     HOST="examples/hosts/cpc464/cpc_host_stub.yaml"
     DEFAULT_OUTPUT="generated/z80_amstrad_cpc464"
     ;;
   interactive)
-    SYSTEM="examples/systems/cpc464/z80_amstrad_cpc464_interactive.yaml"
-    HOST="examples/hosts/cpc464/cpc_host_sdl2_interactive.yaml"
+    SYSTEM="examples/systems/cpc464/cpc464_interactive.yaml"
+    HOST="examples/hosts/cpc464/cpc_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/z80_amstrad_cpc464_sdl"
     ;;
   *)
@@ -66,6 +66,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
+  --host-backend "${HOST_BACKEND:-sdl2}" \
   --output "${OUTPUT_DIR}"
 
 echo "[2/3] Building emulator with CMake -> ${BUILD_DIR}"
@@ -74,10 +75,10 @@ cmake --build "${BUILD_DIR}"
 
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
-echo "    expected_roms: examples/roms/cpc464/OS_464.ROM and examples/roms/cpc464/BASIC_664.ROM"
+echo "    expected_roms: examples/roms/cpc464/OS_464.ROM and examples/roms/cpc464/BASIC_1.0.ROM"
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
-PASM_SDL_AUDIO="${PASM_SDL_AUDIO}" \
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \

@@ -13,13 +13,14 @@ set -euo pipefail
 #   EXTRA_CARGO_ARGS="--release"
 #   CMAKE_BUILD_TYPE=Release
 #   RUN_SPEED=realtime|max
-#   PASM_SDL_AUDIO=1
-#   USE_CARTRIDGE=1|0
+#   PASM_HOST_AUDIO=1
+#   USE_CARTRIDGE=0|1
 #   CARTRIDGE_MAP=examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml
 #   CARTRIDGE_ROM_GEN=../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/cart.rom
 #   OS_ROM=../../roms/atari800xl/ATARIXL.ROM
 #   BASIC_ROM=../../roms/atari800xl/BASIC_C.ROM
+#   SELFTEST_ROM=../../roms/atari800xl/ATARIXL_SELFTEST.ROM
 
 PROFILE="${1:-interactive}"
 START_PC="${START_PC:-}"
@@ -27,13 +28,14 @@ MEMORY_SIZE="${MEMORY_SIZE:-65536}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
-PASM_SDL_AUDIO="${PASM_SDL_AUDIO:-1}"
-USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
+USE_CARTRIDGE="${USE_CARTRIDGE:-0}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 OS_ROM="${OS_ROM:-../../roms/atari800xl/ATARIXL.ROM}"
 BASIC_ROM="${BASIC_ROM:-../../roms/atari800xl/BASIC_C.ROM}"
+SELFTEST_ROM="${SELFTEST_ROM:-../../roms/atari800xl/ATARIXL_SELFTEST.ROM}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -45,8 +47,6 @@ PROCESSOR="examples/processors/mos6502.yaml"
 IC_MAIN="examples/ics/atari800xl/atari800xl_io.yaml"
 DEVICE_VIDEO="examples/devices/sms/sms_video.yaml"
 DEVICE_SPK="examples/devices/sms/sms_speaker.yaml"
-SYSTEM_DIR="examples/systems"
-
 case "${PROFILE}" in
   default)
     if [[ "${USE_CARTRIDGE}" != "0" ]]; then
@@ -63,7 +63,7 @@ case "${PROFILE}" in
     else
       SYSTEM="examples/systems/atari800xl/atari800xl_interactive.yaml"
     fi
-    HOST="examples/hosts/atari800xl/atari800xl_host_sdl2_interactive.yaml"
+    HOST="examples/hosts/atari800xl/atari800xl_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/atari800xl_interactive"
     ;;
   *)
@@ -77,8 +77,12 @@ OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
+SYSTEM_DIR="$(dirname "${SYSTEM}")"
 SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
 ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
+SYSTEM_FOR_GEN="${SYSTEM}"
+SYSTEM_ORIGINAL_CONTENT=""
+RESTORE_SYSTEM=0
 
 GEN_CARTRIDGE_ARGS=()
 RUN_CARTRIDGE_ARGS=()
@@ -102,18 +106,59 @@ fi
 if [[ ! -f "${SYSTEM_DIR_ABS}/${BASIC_ROM}" && ! -f "${BASIC_ROM}" ]]; then
   echo "Warning: BASIC ROM not found (${BASIC_ROM})." >&2
 fi
+if [[ ! -f "${SYSTEM_DIR_ABS}/${SELFTEST_ROM}" && ! -f "${SELFTEST_ROM}" ]]; then
+  OS_SRC="${SYSTEM_DIR_ABS}/${OS_ROM}"
+  SELFTEST_DST="${SYSTEM_DIR_ABS}/${SELFTEST_ROM}"
+  if [[ -f "${OS_SRC}" ]]; then
+    mkdir -p "$(dirname "${SELFTEST_DST}")"
+    dd if="${OS_SRC}" of="${SELFTEST_DST}" bs=1 skip=$((0x1000)) count=$((0x0800)) status=none
+    echo "Generated self-test ROM slice: ${SELFTEST_DST}"
+  else
+    echo "Warning: self-test ROM not found (${SELFTEST_ROM}) and source OS ROM missing (${OS_ROM})." >&2
+  fi
+fi
 if [[ "${USE_CARTRIDGE}" != "0" && ! -f "${ROM_RUNTIME}" ]]; then
   echo "Warning: cartridge ROM not found (${ROM_RUNTIME})." >&2
 fi
 
+# Materialize ROM path overrides directly into selected system YAML for codegen,
+# then restore original content on script exit.
+SYSTEM_ORIGINAL_CONTENT="$(cat "${SYSTEM}")"
+RESTORE_SYSTEM=1
+trap 'if [[ "${RESTORE_SYSTEM}" == "1" ]]; then printf "%s" "${SYSTEM_ORIGINAL_CONTENT}" > "${SYSTEM}"; fi' EXIT
+python - "${SYSTEM}" "${OS_ROM}" "${BASIC_ROM}" "${SELFTEST_ROM}" <<'PY'
+import sys
+import yaml
+
+path, os_rom, basic_rom, selftest_rom = sys.argv[1:5]
+
+with open(path, "r", encoding="utf-8") as f:
+    data = yaml.safe_load(f)
+
+rom_images = data.get("memory", {}).get("rom_images", [])
+for rom in rom_images:
+    name = str(rom.get("name", ""))
+    if name == "atari800xl_basic":
+        rom["file"] = basic_rom
+    elif name == "atari800xl_selftest":
+        rom["file"] = selftest_rom
+    elif name in ("atari800xl_os", "atari800xl_os_rom"):
+        rom["file"] = os_rom
+
+with open(path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(data, f, sort_keys=False)
+PY
+SYSTEM_FOR_GEN="${SYSTEM}"
+
 echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
-  --system "${SYSTEM}" \
+  --system "${SYSTEM_FOR_GEN}" \
   --ic "${IC_MAIN}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
+  --host-backend "${HOST_BACKEND:-sdl2}" \
   "${GEN_CARTRIDGE_ARGS[@]}" \
   --output "${OUTPUT_DIR}"
 
@@ -139,7 +184,7 @@ fi
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
-PASM_SDL_AUDIO="${PASM_SDL_AUDIO}" \
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \

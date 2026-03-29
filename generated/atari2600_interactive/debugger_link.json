@@ -29,6 +29,6 @@
   "cartridge": {
     "enabled": true,
     "id": "atari2600_cart0",
-    "default_rom_path": "/home/dvlop/projects/pasm/examples/roms/Pitfall! (1982) (Activision) [!].a26"
+    "default_rom_path": "/home/dvlop/projects/pasm/examples/roms/atari2600/Pitfall! (1982) (Activision) [!].a26"
   }
 }

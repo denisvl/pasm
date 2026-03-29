@@ -229,8 +229,8 @@ typedef struct ComponentState_speaker_atari2600 {
     uint64_t last_cycle;
 } ComponentState_speaker_atari2600;
 
-typedef struct ComponentState_host_atari2600_sdl2 {
-    uint8_t sdl_inited;
+typedef struct ComponentState_host_atari2600 {
+    uint8_t host_inited;
     void * window;
     void * renderer;
     void * texture;
@@ -262,7 +262,7 @@ typedef struct ComponentState_host_atari2600_sdl2 {
     uint32_t overlay_fps_x100;
     uint64_t overlay_cpu_hz;
     uint32_t overlay_cpu_pct_x10;
-} ComponentState_host_atari2600_sdl2;
+} ComponentState_host_atari2600;
 
 typedef struct ComponentState_atari2600_cart0 {
     uint8_t * rom_data;
@@ -332,7 +332,7 @@ struct CPUState {
     ComponentState_atari2600_io comp_atari2600_io;
     ComponentState_video_atari2600 comp_video_atari2600;
     ComponentState_speaker_atari2600 comp_speaker_atari2600;
-    ComponentState_host_atari2600_sdl2 comp_host_atari2600_sdl2;
+    ComponentState_host_atari2600 comp_host_atari2600;
     ComponentState_atari2600_cart0 comp_atari2600_cart0;
 };
 

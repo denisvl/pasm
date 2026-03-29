@@ -68,6 +68,7 @@ typedef struct ComponentState_cpc_io {
     uint64_t irq_accum;
     uint64_t ga_hsync_accum;
     uint8_t ga_hsync_count;
+    uint8_t ga_irq_window;
     uint8_t ga_irq_pending;
     uint8_t ga_irq_issued;
     uint64_t audio_emit_accum;
@@ -84,9 +85,14 @@ typedef struct ComponentState_cpc_io {
     uint8_t ppi_port_b;
     uint8_t ppi_port_c;
     uint8_t ppi_ctrl;
+    uint8_t tape_level;
+    uint8_t printer_ready;
+    uint8_t jumpers;
     uint8_t * ay_regs;
     uint8_t ay_reg_index;
+    uint8_t ay_ctrl_last;
     uint8_t ay_level;
+    uint8_t ay_last_mix;
     uint32_t ay_phase_a;
     uint32_t ay_phase_b;
     uint32_t ay_phase_c;
@@ -96,6 +102,20 @@ typedef struct ComponentState_cpc_io {
     uint8_t ay_tone_c;
     uint8_t ay_noise_bit;
     uint32_t ay_noise_lfsr;
+    uint32_t ay_env_phase;
+    uint8_t ay_env_value;
+    int8_t ay_env_dir;
+    uint8_t ay_env_hold;
+    uint16_t crtc_ma;
+    uint8_t crtc_ra;
+    uint8_t crtc_hc;
+    uint8_t crtc_vc;
+    uint8_t crtc_vadj;
+    uint8_t crtc_hsync;
+    uint8_t crtc_vsync;
+    uint8_t crtc_display;
+    uint8_t display_active;
+    uint8_t crtc_char_accum;
 } ComponentState_cpc_io;
 
 typedef struct ComponentState_keyboard_cpc {

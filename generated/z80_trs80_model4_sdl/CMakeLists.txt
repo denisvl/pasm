@@ -75,9 +75,11 @@ else()
 endif()
 
 target_include_directories(z80_test PRIVATE
+    "/home/dvlop/projects/pasm/examples/ics/hosts/include"
     "/home/dvlop/projects/pasm/examples/hosts/include"
 )
 target_include_directories(z80_emu PRIVATE
+    "/home/dvlop/projects/pasm/examples/ics/hosts/include"
     "/home/dvlop/projects/pasm/examples/hosts/include"
 )
 

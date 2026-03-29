@@ -1,11 +1,9 @@
 metadata:
   id: host_nes
   type: host_adapter
-  model: nes_headless_stub
+  model: nes_hal_headless
   version: "1.0"
 
-backend:
-  target: stub
 
 state:
   - name: joy1

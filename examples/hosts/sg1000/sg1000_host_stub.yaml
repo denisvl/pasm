@@ -1,11 +1,9 @@
 metadata:
   id: host_sg1000
   type: host_adapter
-  model: sg1000_headless_stub
+  model: sg1000_hal_headless
   version: "1.0"
 
-backend:
-  target: stub
 
 state:
   - name: joy1

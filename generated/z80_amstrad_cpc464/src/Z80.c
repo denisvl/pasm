@@ -11,7 +11,7 @@
 #include <string.h>
 #include "Z80.h"
 #include "Z80_decoder.h"
-
+#include <SDL2/SDL.h>
 #if defined(_WIN32)
 #include <windows.h>
 #else
@@ -99,6 +99,7 @@ static bool cpu_check_breakpoints(CPUState *cpu) {
     }
     return false;
 }
+
 typedef struct {
     const char *from_component;
     const char *from_kind;
@@ -130,7 +131,7 @@ typedef struct {
 } ComponentKeyboardPress;
 
 typedef struct {
-    int host_key;
+    const char *host_key;
     const ComponentKeyboardPress *presses;
     uint8_t press_count;
 } ComponentKeyboardBinding;
@@ -142,7 +143,430 @@ typedef struct {
     size_t binding_count;
 } ComponentKeyboardMap;
 
+static int32_t cpu_host_hal_key_from_scancode(int scancode);
+
+typedef SDL_Event CPUHostEvent;
+typedef SDL_Rect CPUHostRect;
+typedef SDL_AudioSpec CPUHostAudioSpec;
+#define CPU_HOST_EVENT_QUIT SDL_QUIT
+#define CPU_HOST_EVENT_KEYDOWN SDL_KEYDOWN
+#define CPU_HOST_EVENT_KEYUP SDL_KEYUP
+#define CPU_HOST_INIT_VIDEO SDL_INIT_VIDEO
+#define CPU_HOST_INIT_AUDIO SDL_INIT_AUDIO
+#define CPU_HOST_INIT_EVENTS SDL_INIT_EVENTS
+#define CPU_HOST_WINDOWPOS_CENTERED SDL_WINDOWPOS_CENTERED
+#define CPU_HOST_WINDOW_RESIZABLE SDL_WINDOW_RESIZABLE
+#define CPU_HOST_RENDERER_ACCELERATED SDL_RENDERER_ACCELERATED
+#define CPU_HOST_PIXELFORMAT_ARGB8888 SDL_PIXELFORMAT_ARGB8888
+#define CPU_HOST_TEXTUREACCESS_STREAMING SDL_TEXTUREACCESS_STREAMING
+#define CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE SDL_AUDIO_ALLOW_FREQUENCY_CHANGE
+#define CPU_HOST_AUDIO_FORMAT_S16 AUDIO_S16SYS
+#define CPU_HOST_SCANCODE(name) SDL_SCANCODE_##name
+#define CPU_HOST_HAS_SCANCODE_MAP 1
+#define CPU_HOST_KEYCODE_QUOTE ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(APOSTROPHE)))
+#define CPU_HOST_KEYCODE_SEMICOLON ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(SEMICOLON)))
+#define CPU_HOST_MOD_CTRL KMOD_CTRL
+#define CPU_HOST_MOD_SHIFT KMOD_SHIFT
+#define CPU_HOST_MOD_LCTRL KMOD_LCTRL
+#define cpu_host_hal_log(...) SDL_Log(__VA_ARGS__)
+#define cpu_host_hal_last_error() SDL_GetError()
+static void cpu_host_audio_spec_zero(CPUHostAudioSpec *spec) {
+    if (!spec) return;
+    SDL_zero(*spec);
+}
+
+static uint8_t cpu_host_hal_sdl_inited = 0u;
+static uint32_t cpu_host_hal_sdl_subsystems = 0u;
+static SDL_Window *cpu_host_hal_sdl_primary_window = NULL;
+
+static void cpu_host_hal_pump_events(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_PumpEvents();
+}
+
+static uint32_t cpu_host_hal_ticks_ms(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    return SDL_GetTicks();
+}
+
+static uint8_t cpu_host_hal_window_has_focus(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return 0u;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return 0u;
+    return (SDL_GetKeyboardFocus() == (SDL_Window *)window) ? 1u : 0u;
+}
+
+static void cpu_host_hal_render_present(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_RenderPresent((SDL_Renderer *)renderer);
+}
+
+static int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return -1;
+    if (dev == 0u || !data || len_bytes == 0u) return -1;
+    return SDL_QueueAudio(dev, data, len_bytes);
+}
+
+static uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u) return 0u;
+    return SDL_GetQueuedAudioSize(dev);
+}
+
+static void cpu_host_hal_audio_clear(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_ClearQueuedAudio(dev);
+}
+
+static int cpu_host_hal_renderer_output_size(void *renderer, int *out_w, int *out_h) {
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer || !out_w || !out_h) return -1;
+    if (SDL_GetRendererOutputSize((SDL_Renderer *)renderer, out_w, out_h) != 0) return -1;
+    if (*out_w <= 0 || *out_h <= 0) return -1;
+    return 0;
+}
+
+static int cpu_host_hal_update_texture(void *texture, const CPUHostRect *rect, const void *pixels, int pitch) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!texture || !pixels) return -1;
+    return SDL_UpdateTexture((SDL_Texture *)texture, (const SDL_Rect *)rect, pixels, pitch);
+}
+
+static void cpu_host_hal_render_set_draw_color(void *renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_SetRenderDrawColor((SDL_Renderer *)renderer, r, g, b, a);
+}
+
+static int cpu_host_hal_render_clear(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer) return -1;
+    return SDL_RenderClear((SDL_Renderer *)renderer);
+}
+
+static int cpu_host_hal_render_copy(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer || !texture) return -1;
+    return SDL_RenderCopy(
+        (SDL_Renderer *)renderer,
+        (SDL_Texture *)texture,
+        (const SDL_Rect *)src_rect,
+        (const SDL_Rect *)dst_rect
+    );
+}
+
+static int cpu_host_hal_poll_event(CPUHostEvent *event) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;
+    if (!event) return 0;
+    return SDL_PollEvent((SDL_Event *)event);
+}
+
+static uint32_t cpu_host_hal_event_type(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    return event->type;
+}
+
+static int32_t cpu_host_hal_event_scancode(const CPUHostEvent *event) {
+    if (!event) return 0;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0;
+    return (int32_t)event->key.keysym.scancode;
+}
+
+static uint8_t cpu_host_hal_event_key_repeat(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;
+    return (uint8_t)event->key.repeat;
+}
+
+static uint32_t cpu_host_hal_event_mod_state(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;
+    return (uint32_t)event->key.keysym.mod;
+}
+
+static void cpu_host_hal_set_window_title(void *window, const char *title) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window || !title) return;
+    SDL_SetWindowTitle((SDL_Window *)window, title);
+}
+
+static void cpu_host_hal_destroy_texture(void *texture) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!texture) return;
+    SDL_DestroyTexture((SDL_Texture *)texture);
+}
+
+static void cpu_host_hal_destroy_renderer(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_DestroyRenderer((SDL_Renderer *)renderer);
+}
+
+static void cpu_host_hal_destroy_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) return;
+    if (cpu_host_hal_sdl_primary_window == (SDL_Window *)window) {
+        cpu_host_hal_sdl_primary_window = NULL;
+    }
+    SDL_DestroyWindow((SDL_Window *)window);
+}
+
+static void cpu_host_hal_audio_close(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_CloseAudioDevice(dev);
+}
+
+static void cpu_host_hal_quit_subsystems(void) {
+    uint32_t to_quit = cpu_host_hal_sdl_subsystems & (CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS);
+    if (to_quit != 0u) SDL_QuitSubSystem(to_quit);
+    cpu_host_hal_sdl_subsystems &= ~to_quit;
+    cpu_host_hal_sdl_primary_window = NULL;
+}
+
+static void cpu_host_hal_quit(void) {
+    SDL_Quit();
+    cpu_host_hal_sdl_subsystems = 0u;
+    cpu_host_hal_sdl_inited = 0u;
+    cpu_host_hal_sdl_primary_window = NULL;
+}
+
+static int cpu_host_hal_init(uint32_t flags) {
+    if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;
+    if (cpu_host_hal_sdl_inited == 0u) {
+        if (SDL_Init(flags) != 0) return -1;
+        cpu_host_hal_sdl_inited = 1u;
+        cpu_host_hal_sdl_subsystems |= flags;
+        return 0;
+    }
+    if (flags != 0u) {
+        if (SDL_InitSubSystem(flags) != 0) return -1;
+        cpu_host_hal_sdl_subsystems |= flags;
+    }
+    return 0;
+}
+
+static void *cpu_host_hal_create_window(const char *title, int x, int y, int w, int h, uint32_t flags) {
+    SDL_Window *window;
+    const char *win_title = (title && title[0] != '\0') ? title : "PASM";
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if ((flags & ~CPU_HOST_WINDOW_RESIZABLE) != 0u) return NULL;
+    if (w <= 0) w = 640;
+    if (h <= 0) h = 480;
+    window = SDL_CreateWindow(win_title, x, y, w, h, flags);
+    if (window != NULL && cpu_host_hal_sdl_primary_window == NULL) {
+        cpu_host_hal_sdl_primary_window = window;
+    }
+    return (void *)window;
+}
+
+static void *cpu_host_hal_create_renderer(void *window, int index, uint32_t flags) {
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return NULL;
+    if ((flags & ~CPU_HOST_RENDERER_ACCELERATED) != 0u) return NULL;
+    return (void *)SDL_CreateRenderer((SDL_Window *)window, index, flags);
+}
+
+static void *cpu_host_hal_create_texture(void *renderer, uint32_t format, int access, int w, int h) {
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if (!renderer) return NULL;
+    return (void *)SDL_CreateTexture((SDL_Renderer *)renderer, format, access, w, h);
+}
+
+static uint32_t cpu_host_hal_audio_open(const char *device, int iscapture, const CPUHostAudioSpec *want, CPUHostAudioSpec *have, int allowed_changes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (iscapture != 0) return 0u;
+    if (!want) return 0u;
+    if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;
+    return SDL_OpenAudioDevice(
+        device,
+        iscapture,
+        (const SDL_AudioSpec *)want,
+        (SDL_AudioSpec *)have,
+        allowed_changes
+    );
+}
+
+static void cpu_host_hal_audio_pause(uint32_t dev, int pause_on) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_PauseAudioDevice(dev, pause_on);
+}
+
+static void *cpu_host_hal_alloc(size_t size_bytes) {
+    return SDL_malloc(size_bytes);
+}
+
+static void cpu_host_hal_free(void *ptr) {
+    if (!ptr) return;
+    SDL_free(ptr);
+}
+
+static void cpu_host_hal_memset(void *dst, int value, size_t size_bytes) {
+    if (!dst || size_bytes == 0u) return;
+    SDL_memset(dst, value, size_bytes);
+}
+
+static const char *cpu_host_hal_getenv(const char *name) {
+    if (!name) return NULL;
+    return SDL_getenv(name);
+}
+
+static const uint8_t *cpu_host_hal_keyboard_state(int *key_count) {
+    static const uint8_t empty_state[1] = {0u};
+    const uint8_t *state;
+    if (cpu_host_hal_sdl_inited == 0u) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    state = SDL_GetKeyboardState(key_count);
+    if (!state) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    return state;
+}
+
+static int32_t cpu_host_hal_key_from_scancode(int scancode) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;
+    return (int32_t)SDL_GetKeyFromScancode((SDL_Scancode)scancode);
+}
+
+static void cpu_host_hal_start_text_input(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_StartTextInput();
+}
+
+static void cpu_host_hal_stop_text_input(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_StopTextInput();
+}
+
+static void cpu_host_hal_raise_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return;
+    SDL_RaiseWindow((SDL_Window *)window);
+}
+
+static void cpu_host_hal_show_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return;
+    SDL_ShowWindow((SDL_Window *)window);
+}
+
+static int cpu_host_hal_set_window_input_focus(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return -1;
+    return SDL_SetWindowInputFocus((SDL_Window *)window);
+}
+
+static int cpu_host_hal_set_texture_blend_none(void *texture) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!texture) return -1;
+    return SDL_SetTextureBlendMode((SDL_Texture *)texture, SDL_BLENDMODE_NONE);
+}
+
+static int cpu_host_hal_init_subsystem(uint32_t flags) {
+    if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if (flags != 0u && SDL_InitSubSystem(flags) != 0) return -1;
+    cpu_host_hal_sdl_subsystems |= flags;
+    return 0;
+}
+
+static uint32_t cpu_host_hal_audio_dequeue(uint32_t dev, void *data, uint32_t len_bytes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u || !data || len_bytes == 0u) return 0u;
+    return SDL_DequeueAudio(dev, data, len_bytes);
+}
+
+static int cpu_host_hal_get_window_size(void *window, int *out_w, int *out_h) {
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window || !out_w || !out_h) return -1;
+    SDL_GetWindowSize((SDL_Window *)window, out_w, out_h);
+    if (*out_w <= 0 || *out_h <= 0) return -1;
+    return 0;
+}
+
+static const char *cpu_host_hal_scancode_name(int32_t scancode) {
+    if (cpu_host_hal_sdl_inited == 0u) return "UNKNOWN";
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return "UNKNOWN";
+    const char *name = SDL_GetScancodeName((SDL_Scancode)scancode);
+    if (!name || name[0] == '\0') return "UNKNOWN";
+    return name;
+}
+
+static uint32_t cpu_host_hal_get_mod_state(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0u;
+    return (uint32_t)SDL_GetModState();
+}
+
+static const char *cpu_host_hal_key_name(int32_t keycode) {
+    if (cpu_host_hal_sdl_inited == 0u) return "UNKNOWN";
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return "UNKNOWN";
+    const char *name = SDL_GetKeyName((SDL_Keycode)keycode);
+    if (!name || name[0] == '\0') return "UNKNOWN";
+    return name;
+}
+
 static const ComponentKeyboardMap g_component_keyboard_maps[] = { { "", 0u, NULL, 0u } };
+static uint8_t cpu_component_host_key_is_pressed_noop(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {
+    (void)host_key;
+    (void)host_keys;
+    (void)host_key_count;
+    return 0u;
+}
+static uint8_t cpu_component_host_key_is_pressed(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {
+    return cpu_component_host_key_is_pressed_noop(host_key, host_keys, host_key_count);
+}
 static const ComponentKeyboardMap *cpu_component_find_keyboard_map(const char *component_id) {
     size_t map_count = sizeof(g_component_keyboard_maps) / sizeof(g_component_keyboard_maps[0]);
     for (size_t i = 0; i < map_count; i++) {
@@ -168,8 +592,7 @@ static void cpu_component_apply_declared_keymap(
     if (map->focus_required && has_focus == 0u) return;
     for (size_t bind_idx = 0; bind_idx < map->binding_count; bind_idx++) {
         const ComponentKeyboardBinding *binding = &map->bindings[bind_idx];
-        if (binding->host_key < 0 || (size_t)binding->host_key >= host_key_count) continue;
-        if (host_keys[binding->host_key] == 0u) continue;
+        if (!cpu_component_host_key_is_pressed(binding->host_key, host_keys, host_key_count)) continue;
         for (size_t press_idx = 0; press_idx < binding->press_count; press_idx++) {
             const ComponentKeyboardPress *press = &binding->presses[press_idx];
             if ((size_t)press->row >= row_count || press->bit >= 8u) continue;
@@ -347,22 +770,41 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         cpu->active_component_id = "cpc_io";
         static uint32_t framebuf[320u * 200u];
         static const uint32_t cpc_hw_palette[32] = {
-            0xFF000000u, 0xFF000080u, 0xFF0000FFu, 0xFF800000u,
-            0xFF800080u, 0xFF8000FFu, 0xFFFF0000u, 0xFFFF0080u,
-            0xFFFF00FFu, 0xFF008000u, 0xFF008080u, 0xFF0080FFu,
-            0xFF808000u, 0xFF808080u, 0xFF8080FFu, 0xFFFF8000u,
-            0xFFFF8080u, 0xFFFF80FFu, 0xFF00FF00u, 0xFF00FF80u,
-            0xFF00FFFFu, 0xFF80FF00u, 0xFF80FF80u, 0xFF80FFFFu,
-            0xFFFFFF00u, 0xFFFFFF80u, 0xFFFFFFFFu, 0xFF202020u,
-            0xFF404040u, 0xFF606060u, 0xFF909090u, 0xFFC0C0C0u
+            0xFF808080u, 0xFF808080u, 0xFF00FF80u, 0xFFFFFF80u,
+            0xFF000080u, 0xFFFF0080u, 0xFF008080u, 0xFFFF8080u,
+            0xFFFF0080u, 0xFFFFFF80u, 0xFFFFFF00u, 0xFFFFFFFFu,
+            0xFFFF0000u, 0xFFFF00FFu, 0xFFFF8000u, 0xFFFF80FFu,
+            0xFF000080u, 0xFF00FF80u, 0xFF00FF00u, 0xFF00FFFFu,
+            0xFF000000u, 0xFF0000FFu, 0xFF008000u, 0xFF0080FFu,
+            0xFF800080u, 0xFF80FF80u, 0xFF80FF00u, 0xFF80FFFFu,
+            0xFF800000u, 0xFF8000FFu, 0xFF808000u, 0xFF8080FFu
         };
+        static const uint8_t ay_vol_table[16] = {
+            0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 9u, 11u, 14u, 17u, 21u, 26u, 31u, 38u
+        };
+        static int irq_trace_init = 0;
+        static int irq_trace_on = 0;
+        static uint32_t irq_trace_count = 0u;
+        static FILE *irq_trace_fp = NULL;
+        if (irq_trace_init == 0) {
+            const char *env = getenv("PASM_CPC_IRQ_TRACE");
+            irq_trace_on = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+            irq_trace_init = 1;
+            if (irq_trace_on != 0) {
+                irq_trace_fp = fopen("log/cpc_irq_trace.log", "w");
+                if (irq_trace_fp == NULL) irq_trace_fp = stderr;
+                fprintf(irq_trace_fp, "# cycle,pc,iff1,im,hsync_count,pending,issued,window,hsync,vsync\n");
+                fflush(irq_trace_fp);
+            }
+        }
 
         uint64_t now = cpu->total_cycles;
+        uint64_t delta = 0u;
         if (comp->last_cycle == 0u) {
             comp->last_cycle = now;
         }
         if (now >= comp->last_cycle) {
-            uint64_t delta = now - comp->last_cycle;
+            delta = now - comp->last_cycle;
             comp->tstate_accum += delta;
             comp->irq_accum += delta;
             comp->ga_hsync_accum += delta;
@@ -371,20 +813,178 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         comp->last_cycle = now;
 
         {
-            uint64_t hsync_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 15625u) : 256u;
-            if (hsync_period == 0u) hsync_period = 256u;
-            while (comp->ga_hsync_accum >= hsync_period) {
-                comp->ga_hsync_accum -= hsync_period;
-                comp->ga_hsync_count = (uint8_t)(comp->ga_hsync_count + 1u);
-                if (comp->ga_hsync_count >= 52u) {
-                    comp->ga_hsync_count = 0u;
-                    comp->ga_irq_pending = 1u;
-                    comp->ga_irq_issued = 0u;
+            uint64_t cycles = delta;
+            uint8_t htotal = 63u;
+            uint8_t hdisp = 40u;
+            uint8_t hsync_pos = 46u;
+            uint8_t hsync_w = 8u;
+            uint8_t vtotal = 38u;
+            uint8_t vadjust = 0u;
+            uint8_t vdisp = 25u;
+            uint8_t vsync_pos = 30u;
+            uint8_t vsync_w = 2u;
+            uint8_t raster_max = 7u;
+            uint8_t skew = 0u;
+            if (comp->crtc_regs != NULL) {
+                htotal = comp->crtc_regs[0];
+                hdisp = comp->crtc_regs[1];
+                hsync_pos = comp->crtc_regs[2];
+                hsync_w = (uint8_t)(comp->crtc_regs[3] & 0x0Fu);
+                vtotal = (uint8_t)(comp->crtc_regs[4] & 0x7Fu);
+                vadjust = (uint8_t)(comp->crtc_regs[5] & 0x1Fu);
+                vdisp = (uint8_t)(comp->crtc_regs[6] & 0x7Fu);
+                vsync_pos = (uint8_t)(comp->crtc_regs[7] & 0x7Fu);
+                vsync_w = (uint8_t)((comp->crtc_regs[3] >> 4u) & 0x0Fu);
+                raster_max = (uint8_t)(comp->crtc_regs[9] & 0x1Fu);
+                skew = (uint8_t)((comp->crtc_regs[8] >> 4u) & 0x03u);
+            }
+            if (hsync_w == 0u) hsync_w = 16u;
+            if (vsync_w == 0u) vsync_w = 16u;
+            if (htotal == 0u) htotal = 1u;
+            while (cycles > 0u) {
+                uint8_t step = (cycles >= 4u) ? 4u : (uint8_t)cycles;
+                comp->crtc_char_accum = (uint8_t)(comp->crtc_char_accum + step);
+                cycles -= step;
+                if (comp->crtc_char_accum < 4u) continue;
+                comp->crtc_char_accum = (uint8_t)(comp->crtc_char_accum - 4u);
+
+                /* Horizontal character tick. */
+                comp->crtc_hc = (uint8_t)(comp->crtc_hc + 1u);
+                if (comp->crtc_hc == hsync_pos) {
+                    comp->crtc_hsync = 1u;
+                    comp->ga_hsync_count = (uint8_t)(comp->ga_hsync_count + 1u);
+                    if (comp->ga_hsync_count >= 52u) {
+                        comp->ga_hsync_count = 0u;
+                        comp->ga_irq_pending = 1u;
+                        comp->ga_irq_issued = 0u;
+                        comp->ga_irq_window = 1u;
+                        if (irq_trace_on != 0 && irq_trace_count < 2000u) {
+                            fprintf(
+                                irq_trace_fp,
+                                "%llu,%04X,%u,%u,%u,%u,%u,%u,%u,%u\n",
+                                (unsigned long long)cpu->total_cycles,
+                                (unsigned)cpu->pc,
+                                (unsigned)cpu->interrupts_enabled,
+                                (unsigned)cpu->interrupt_mode,
+                                (unsigned)comp->ga_hsync_count,
+                                (unsigned)comp->ga_irq_pending,
+                                (unsigned)comp->ga_irq_issued,
+                                (unsigned)comp->ga_irq_window,
+                                (unsigned)comp->crtc_hsync,
+                                (unsigned)comp->crtc_vsync
+                            );
+                            irq_trace_count += 1u;
+                            if ((irq_trace_count & 63u) == 0u) fflush(irq_trace_fp);
+                        }
+                    }
+                }
+                if (comp->crtc_hsync != 0u) {
+                    if ((uint8_t)(comp->crtc_hc - hsync_pos) >= hsync_w) comp->crtc_hsync = 0u;
+                }
+
+                if (comp->crtc_hc > htotal) {
+                    comp->crtc_hc = 0u;
+                    if (hsync_pos == 0u || hsync_pos > htotal) {
+                        comp->crtc_hsync = 1u;
+                        comp->ga_hsync_count = (uint8_t)(comp->ga_hsync_count + 1u);
+                        if (comp->ga_hsync_count >= 52u) {
+                            comp->ga_hsync_count = 0u;
+                            comp->ga_irq_pending = 1u;
+                            comp->ga_irq_issued = 0u;
+                            comp->ga_irq_window = 1u;
+                            if (irq_trace_on != 0 && irq_trace_count < 2000u) {
+                                fprintf(
+                                    irq_trace_fp,
+                                    "%llu,%04X,%u,%u,%u,%u,%u,%u,%u,%u\n",
+                                    (unsigned long long)cpu->total_cycles,
+                                    (unsigned)cpu->pc,
+                                    (unsigned)cpu->interrupts_enabled,
+                                    (unsigned)cpu->interrupt_mode,
+                                    (unsigned)comp->ga_hsync_count,
+                                    (unsigned)comp->ga_irq_pending,
+                                    (unsigned)comp->ga_irq_issued,
+                                    (unsigned)comp->ga_irq_window,
+                                    (unsigned)comp->crtc_hsync,
+                                    (unsigned)comp->crtc_vsync
+                                );
+                                irq_trace_count += 1u;
+                                if ((irq_trace_count & 63u) == 0u) fflush(irq_trace_fp);
+                            }
+                        }
+                    }
+                    /* End of scanline. */
+                    if (comp->crtc_ra >= raster_max) {
+                        comp->crtc_ra = 0u;
+                        if (comp->crtc_vadj != 0u) {
+                            comp->crtc_vadj = (uint8_t)(comp->crtc_vadj - 1u);
+                            if (comp->crtc_vadj == 0u) {
+                                comp->crtc_vc = 0u;
+                                if (comp->crtc_regs != NULL) {
+                                    comp->crtc_ma = (uint16_t)(((uint16_t)comp->crtc_regs[12] << 8u) | comp->crtc_regs[13]);
+                                }
+                            }
+                        } else {
+                            comp->crtc_vc = (uint8_t)(comp->crtc_vc + 1u);
+                            comp->crtc_ma = (uint16_t)(comp->crtc_ma + hdisp);
+                            if (comp->crtc_vc > vtotal) {
+                                comp->crtc_vc = 0u;
+                                if (vadjust != 0u) {
+                                    comp->crtc_vadj = vadjust;
+                                } else if (comp->crtc_regs != NULL) {
+                                    comp->crtc_ma = (uint16_t)(((uint16_t)comp->crtc_regs[12] << 8u) | comp->crtc_regs[13]);
+                                }
+                            }
+                        }
+                    } else {
+                        comp->crtc_ra = (uint8_t)(comp->crtc_ra + 1u);
+                    }
+
+                    /* VSYNC update at line start. */
+                    if (comp->crtc_vc == vsync_pos && comp->crtc_ra == 0u) {
+                        comp->crtc_vsync = 1u;
+                    }
+                    if (comp->crtc_vsync != 0u) {
+                        if (comp->crtc_vc == vsync_pos && comp->crtc_ra >= vsync_w) {
+                            comp->crtc_vsync = 0u;
+                        }
+                    }
                 }
             }
+
+            {
+                uint8_t hstart = skew;
+                uint8_t hend = (uint8_t)(hstart + hdisp);
+                uint8_t vstart = (uint8_t)(comp->crtc_regs != NULL ? (comp->crtc_regs[8] & 0x03u) : 0u);
+                uint8_t vstop = (uint8_t)(vstart + vdisp);
+                uint8_t h_ok = (comp->crtc_hc >= hstart && comp->crtc_hc < hend) ? 1u : 0u;
+                uint8_t v_ok = (comp->crtc_vc >= vstart && comp->crtc_vc < vstop) ? 1u : 0u;
+                comp->crtc_display = (uint8_t)((h_ok != 0u && v_ok != 0u) ? 1u : 0u);
+                comp->display_active = comp->crtc_display;
+            }
+
             if (comp->ga_irq_pending != 0u && comp->ga_irq_issued == 0u) {
                 z80_interrupt(cpu, 0xFFu);
                 comp->ga_irq_issued = 1u;
+                comp->ga_irq_pending = 0u;
+                comp->ga_irq_window = 0u;
+                if (irq_trace_on != 0 && irq_trace_count < 2000u) {
+                    fprintf(
+                        irq_trace_fp,
+                        "%llu,%04X,%u,%u,%u,%u,%u,%u,%u,%u\n",
+                        (unsigned long long)cpu->total_cycles,
+                        (unsigned)cpu->pc,
+                        (unsigned)cpu->interrupts_enabled,
+                        (unsigned)cpu->interrupt_mode,
+                        (unsigned)comp->ga_hsync_count,
+                        (unsigned)comp->ga_irq_pending,
+                        (unsigned)comp->ga_irq_issued,
+                        (unsigned)comp->ga_irq_window,
+                        (unsigned)comp->crtc_hsync,
+                        (unsigned)comp->crtc_vsync
+                    );
+                    irq_trace_count += 1u;
+                    if ((irq_trace_count & 63u) == 0u) fflush(irq_trace_fp);
+                }
                 {
                     uint64_t irq_up[1] = { 1u };
                     uint64_t irq_down[1] = { 0u };
@@ -395,21 +995,26 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         }
 
         {
-            uint64_t emit_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 11025u) : 362u;
+            uint32_t sample_rate = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (uint32_t)CPU_AUDIO_SAMPLE_RATE : 44100u;
+            uint64_t emit_period = (CPU_SYSTEM_CLOCK_HZ > 0u && sample_rate > 0u)
+                ? (CPU_SYSTEM_CLOCK_HZ / (uint64_t)sample_rate)
+                : 362u;
             if (emit_period == 0u) emit_period = 1u;
             while (comp->audio_emit_accum >= emit_period) {
                 comp->audio_emit_accum -= emit_period;
                 {
-                    uint32_t ay_ticks = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (uint32_t)((CPU_SYSTEM_CLOCK_HZ / 4u) / 11025u) : 90u;
+                    uint32_t ay_ticks = (CPU_SYSTEM_CLOCK_HZ > 0u && sample_rate > 0u)
+                        ? (uint32_t)((CPU_SYSTEM_CLOCK_HZ / 4u) / (uint64_t)sample_rate)
+                        : 90u;
                     uint32_t pA = 1u;
                     uint32_t pB = 1u;
                     uint32_t pC = 1u;
                     uint32_t pN = 1u;
                     uint8_t mix = 0x3Fu;
-                    int ch0 = 0;
-                    int ch1 = 0;
-                    int ch2 = 0;
-                    int sum = 0;
+                    uint8_t ch0 = 0u;
+                    uint8_t ch1 = 0u;
+                    uint8_t ch2 = 0u;
+                    uint32_t sum = 0u;
                     uint8_t out_level = 128u;
 
                     if (ay_ticks == 0u) ay_ticks = 1u;
@@ -455,26 +1060,86 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                     }
 
                     {
-                        uint8_t v0 = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[8] & 0x0Fu) : 0u;
-                        uint8_t v1 = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[9] & 0x0Fu) : 0u;
-                        uint8_t v2 = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[10] & 0x0Fu) : 0u;
+                        uint16_t env_reg = (comp->ay_regs != NULL)
+                            ? (uint16_t)(comp->ay_regs[11] | ((uint16_t)comp->ay_regs[12] << 8u))
+                            : 1u;
+                        uint32_t env_period = (env_reg == 0u) ? 1u : (uint32_t)env_reg;
+                        env_period *= 16u;
+                        comp->ay_env_phase += ay_ticks;
+                        while (comp->ay_env_phase >= env_period) {
+                            comp->ay_env_phase -= env_period;
+                            if (comp->ay_env_hold != 0u) break;
+                            if (comp->ay_env_dir > 0) {
+                                if (comp->ay_env_value < 15u) {
+                                    comp->ay_env_value += 1u;
+                                } else {
+                                    uint8_t shape = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[13] & 0x0Fu) : 0u;
+                                    uint8_t cont = (uint8_t)((shape & 0x08u) != 0u);
+                                    uint8_t alt = (uint8_t)((shape & 0x02u) != 0u);
+                                    uint8_t hold = (uint8_t)((shape & 0x01u) != 0u);
+                                    uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                                    if (cont == 0u || hold != 0u) {
+                                        comp->ay_env_hold = 1u;
+                                    } else if (alt != 0u) {
+                                        comp->ay_env_dir = -comp->ay_env_dir;
+                                    } else {
+                                        comp->ay_env_value = attack != 0u ? 0u : 15u;
+                                        comp->ay_env_dir = attack != 0u ? 1 : -1;
+                                    }
+                                }
+                            } else {
+                                if (comp->ay_env_value > 0u) {
+                                    comp->ay_env_value -= 1u;
+                                } else {
+                                    uint8_t shape = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[13] & 0x0Fu) : 0u;
+                                    uint8_t cont = (uint8_t)((shape & 0x08u) != 0u);
+                                    uint8_t alt = (uint8_t)((shape & 0x02u) != 0u);
+                                    uint8_t hold = (uint8_t)((shape & 0x01u) != 0u);
+                                    uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                                    if (cont == 0u || hold != 0u) {
+                                        comp->ay_env_hold = 1u;
+                                    } else if (alt != 0u) {
+                                        comp->ay_env_dir = -comp->ay_env_dir;
+                                    } else {
+                                        comp->ay_env_value = attack != 0u ? 0u : 15u;
+                                        comp->ay_env_dir = attack != 0u ? 1 : -1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    {
+                        uint8_t v0 = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[8] & 0x1Fu) : 0u;
+                        uint8_t v1 = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[9] & 0x1Fu) : 0u;
+                        uint8_t v2 = (comp->ay_regs != NULL) ? (uint8_t)(comp->ay_regs[10] & 0x1Fu) : 0u;
+                        uint8_t env = comp->ay_env_value & 0x0Fu;
+                        uint8_t a0 = ((v0 & 0x10u) != 0u) ? env : (v0 & 0x0Fu);
+                        uint8_t a1 = ((v1 & 0x10u) != 0u) ? env : (v1 & 0x0Fu);
+                        uint8_t a2 = ((v2 & 0x10u) != 0u) ? env : (v2 & 0x0Fu);
                         uint8_t t0 = ((mix & 0x01u) == 0u) ? comp->ay_tone_a : 1u;
                         uint8_t t1 = ((mix & 0x02u) == 0u) ? comp->ay_tone_b : 1u;
                         uint8_t t2 = ((mix & 0x04u) == 0u) ? comp->ay_tone_c : 1u;
                         uint8_t n0 = ((mix & 0x08u) == 0u) ? comp->ay_noise_bit : 1u;
                         uint8_t n1 = ((mix & 0x10u) == 0u) ? comp->ay_noise_bit : 1u;
                         uint8_t n2 = ((mix & 0x20u) == 0u) ? comp->ay_noise_bit : 1u;
-                        ch0 = ((t0 & n0) != 0u) ? (int)v0 : -(int)v0;
-                        ch1 = ((t1 & n1) != 0u) ? (int)v1 : -(int)v1;
-                        ch2 = ((t2 & n2) != 0u) ? (int)v2 : -(int)v2;
+                        ch0 = ((t0 & n0) != 0u) ? ay_vol_table[a0] : 0u;
+                        ch1 = ((t1 & n1) != 0u) ? ay_vol_table[a1] : 0u;
+                        ch2 = ((t2 & n2) != 0u) ? ay_vol_table[a2] : 0u;
                     }
 
-                    sum = ch0 + ch1 + ch2;
+                    sum = (uint32_t)ch0 + (uint32_t)ch1 + (uint32_t)ch2;
                     {
-                        int mixed = 128 + (sum * 4);
+                        int mixed = 128 + (int)((sum * 127u) / 114u);
                         if (mixed < 0) mixed = 0;
                         if (mixed > 255) mixed = 255;
-                        out_level = (uint8_t)mixed;
+                        {
+                            int filtered = (int)comp->ay_last_mix + ((mixed - (int)comp->ay_last_mix) / 5);
+                            if (filtered < 0) filtered = 0;
+                            if (filtered > 255) filtered = 255;
+                            comp->ay_last_mix = (uint8_t)filtered;
+                            out_level = (uint8_t)filtered;
+                        }
                     }
                     comp->ay_level = out_level;
                     {
@@ -493,12 +1158,11 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                 comp->frame_counter += 1u;
 
                 {
-                uint32_t mode = (uint32_t)(comp->ga_mode & 0x03u);
-                uint16_t ma = 0x3000u;
-                if (comp->crtc_regs != NULL) {
-                    ma = (uint16_t)(((uint16_t)comp->crtc_regs[12] << 8u) | comp->crtc_regs[13]);
-                }
-                uint16_t screen_base = (uint16_t)(ma & 0x3FFFu);
+                    uint32_t mode = (uint32_t)(comp->ga_mode & 0x03u);
+                    uint16_t ma_start = 0x3000u;
+                    if (comp->crtc_regs != NULL) {
+                        ma_start = (uint16_t)(((uint16_t)comp->crtc_regs[12] << 8u) | comp->crtc_regs[13]);
+                    }
 
                     uint32_t pens[17];
                     for (uint32_t i = 0u; i < 17u; ++i) {
@@ -506,96 +1170,97 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                         if (comp->ga_inks != NULL) hw = (uint8_t)(comp->ga_inks[i] & 0x1Fu);
                         pens[i] = cpc_hw_palette[hw];
                     }
+                    for (uint32_t i = 0u; i < 320u * 200u; ++i) framebuf[i] = pens[16];
 
-                    for (uint32_t i = 0u; i < 320u * 200u; ++i) {
-                        framebuf[i] = pens[16];
+                    uint8_t r0 = 63u;
+                    uint8_t r1 = 40u;
+                    uint8_t r6 = 25u;
+                    uint8_t r8 = 0u;
+                    uint8_t r9 = 7u;
+                    if (comp->crtc_regs != NULL) {
+                        r0 = comp->crtc_regs[0];
+                        r1 = comp->crtc_regs[1];
+                        r6 = comp->crtc_regs[6];
+                        r8 = comp->crtc_regs[8];
+                        r9 = comp->crtc_regs[9];
                     }
+                    uint32_t total_chars = (uint32_t)r0 + 1u;
+                    uint32_t disp_chars = (r1 == 0u) ? 40u : (uint32_t)r1;
+                    uint32_t char_rows = (r6 == 0u) ? 25u : (uint32_t)r6;
+                    uint32_t raster_h = (uint32_t)((r9 & 0x1Fu) + 1u);
+                    uint32_t hstart = (uint32_t)((r8 >> 4u) & 0x03u);
+                    uint32_t vstart = (uint32_t)(r8 & 0x03u);
 
-                    {
-                        uint32_t chars = 40u;
-                        uint32_t char_rows = 25u;
-                        uint32_t raster_h = 8u;
+                    if (disp_chars > total_chars) disp_chars = total_chars;
+                    if (disp_chars > 80u) disp_chars = 80u;
+                    if (char_rows > 32u) char_rows = 32u;
+                    if (raster_h == 0u) raster_h = 8u;
+                    if (raster_h > 16u) raster_h = 16u;
 
-                        if (comp->crtc_regs != NULL) {
-                            uint8_t r1 = comp->crtc_regs[1];
-                            uint8_t r6 = comp->crtc_regs[6];
-                            uint8_t r9 = comp->crtc_regs[9];
-                            if (r1 != 0u) chars = (uint32_t)r1;
-                            if (r6 != 0u) char_rows = (uint32_t)r6;
-                            raster_h = (uint32_t)((r9 & 0x1Fu) + 1u);
-                        }
-                        if (chars == 0u) chars = 40u;
-                        if (chars > 80u) chars = 80u;
-                        if (char_rows == 0u) char_rows = 25u;
-                        if (char_rows > 32u) char_rows = 32u;
-                        if (raster_h == 0u) raster_h = 8u;
-                        if (raster_h > 16u) raster_h = 16u;
+                    uint16_t ma = ma_start;
+                    for (uint32_t row = 0u; row < char_rows; ++row) {
+                        if (row < vstart) continue;
+                        for (uint32_t ra = 0u; ra < raster_h; ++ra) {
+                            uint32_t y = (row - vstart) * raster_h + ra;
+                            if (y >= 200u) continue;
+                            for (uint32_t cx = 0u; cx < disp_chars; ++cx) {
+                                uint32_t hc = hstart + cx;
+                                uint16_t ma_char = (uint16_t)((ma + (uint16_t)hc) & 0x73FFu);
+                                uint16_t j = (uint16_t)(ma_char << 1u);
+                                uint16_t addr = (uint16_t)(
+                                    (j & 0x07FEu)
+                                    | ((j & 0x6000u) << 1u)
+                                    | (((uint16_t)ra & 0x07u) << 11u)
+                                );
+                                uint16_t addr0 = addr;
+                                uint16_t addr1 = (uint16_t)(addr | 1u);
+                                uint8_t b0 = ((uint64_t)addr0 < cpu->memory_size) ? cpu->memory[addr0] : 0u;
+                                uint8_t b1 = ((uint64_t)addr1 < cpu->memory_size) ? cpu->memory[addr1] : 0u;
+                                uint32_t x = cx * 8u;
 
-                        for (uint32_t y = 0u; y < 200u; ++y) {
-                            uint32_t crow = y / raster_h;
-                            uint32_t ra = y % raster_h;
-                            if (crow >= char_rows) continue;
-
-                            {
-                                uint16_t ma_row = (uint16_t)(screen_base + (uint16_t)(crow * chars));
-                                for (uint32_t cx = 0u; cx < chars; ++cx) {
-                                    uint16_t ma_char = (uint16_t)((ma_row + (uint16_t)cx) & 0x3FFFu);
-                                    uint16_t addr = (uint16_t)(
-                                        (((uint16_t)(ma_char & 0x3000u)) << 2u)
-                                        | (((uint16_t)ra & 0x07u) << 11u)
-                                        | (((uint16_t)(ma_char & 0x03FFu)) << 1u)
-                                    );
-                                    uint16_t addr0 = addr;
-                                    uint16_t addr1 = (uint16_t)(addr | 1u);
-                                    uint8_t b0 = ((uint64_t)addr0 < cpu->memory_size) ? cpu->memory[addr0] : 0u;
-                                    uint8_t b1 = ((uint64_t)addr1 < cpu->memory_size) ? cpu->memory[addr1] : 0u;
-                                    uint32_t x = cx * 8u;
-
-                                    if (mode == 2u) {
-                                        for (uint32_t bit = 0u; bit < 8u; ++bit) {
-                                            uint8_t on = (uint8_t)((b0 >> (7u - bit)) & 0x01u);
-                                            if (x + bit < 320u) {
-                                                framebuf[y * 320u + x + bit] = pens[on != 0u ? 1u : 0u];
-                                            }
-                                        }
-                                    } else if (mode == 0u) {
-                                        uint8_t p0 = (uint8_t)((((b0 >> 7u) & 1u) << 0u) | (((b0 >> 3u) & 1u) << 1u) | (((b0 >> 5u) & 1u) << 2u) | (((b0 >> 1u) & 1u) << 3u));
-                                        uint8_t p1 = (uint8_t)((((b0 >> 6u) & 1u) << 0u) | (((b0 >> 2u) & 1u) << 1u) | (((b0 >> 4u) & 1u) << 2u) | (((b0 >> 0u) & 1u) << 3u));
-                                        uint8_t p2 = (uint8_t)((((b1 >> 7u) & 1u) << 0u) | (((b1 >> 3u) & 1u) << 1u) | (((b1 >> 5u) & 1u) << 2u) | (((b1 >> 1u) & 1u) << 3u));
-                                        uint8_t p3 = (uint8_t)((((b1 >> 6u) & 1u) << 0u) | (((b1 >> 2u) & 1u) << 1u) | (((b1 >> 4u) & 1u) << 2u) | (((b1 >> 0u) & 1u) << 3u));
-                                        if (x + 7u < 320u) {
-                                            framebuf[y * 320u + x + 0u] = pens[p0 & 0x0Fu];
-                                            framebuf[y * 320u + x + 1u] = pens[p0 & 0x0Fu];
-                                            framebuf[y * 320u + x + 2u] = pens[p1 & 0x0Fu];
-                                            framebuf[y * 320u + x + 3u] = pens[p1 & 0x0Fu];
-                                            framebuf[y * 320u + x + 4u] = pens[p2 & 0x0Fu];
-                                            framebuf[y * 320u + x + 5u] = pens[p2 & 0x0Fu];
-                                            framebuf[y * 320u + x + 6u] = pens[p3 & 0x0Fu];
-                                            framebuf[y * 320u + x + 7u] = pens[p3 & 0x0Fu];
-                                        }
-                                    } else {
-                                        uint8_t p0 = (uint8_t)(((b0 >> 7u) & 1u) | (((b0 >> 3u) & 1u) << 1u));
-                                        uint8_t p1 = (uint8_t)(((b0 >> 6u) & 1u) | (((b0 >> 2u) & 1u) << 1u));
-                                        uint8_t p2 = (uint8_t)(((b0 >> 5u) & 1u) | (((b0 >> 1u) & 1u) << 1u));
-                                        uint8_t p3 = (uint8_t)(((b0 >> 4u) & 1u) | (((b0 >> 0u) & 1u) << 1u));
-                                        uint8_t p4 = (uint8_t)(((b1 >> 7u) & 1u) | (((b1 >> 3u) & 1u) << 1u));
-                                        uint8_t p5 = (uint8_t)(((b1 >> 6u) & 1u) | (((b1 >> 2u) & 1u) << 1u));
-                                        uint8_t p6 = (uint8_t)(((b1 >> 5u) & 1u) | (((b1 >> 1u) & 1u) << 1u));
-                                        uint8_t p7 = (uint8_t)(((b1 >> 4u) & 1u) | (((b1 >> 0u) & 1u) << 1u));
-                                        if (x + 7u < 320u) {
-                                            framebuf[y * 320u + x + 0u] = pens[p0 & 0x03u];
-                                            framebuf[y * 320u + x + 1u] = pens[p1 & 0x03u];
-                                            framebuf[y * 320u + x + 2u] = pens[p2 & 0x03u];
-                                            framebuf[y * 320u + x + 3u] = pens[p3 & 0x03u];
-                                            framebuf[y * 320u + x + 4u] = pens[p4 & 0x03u];
-                                            framebuf[y * 320u + x + 5u] = pens[p5 & 0x03u];
-                                            framebuf[y * 320u + x + 6u] = pens[p6 & 0x03u];
-                                            framebuf[y * 320u + x + 7u] = pens[p7 & 0x03u];
-                                        }
+                                if (mode == 2u) {
+                                    for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                                        uint8_t on = (uint8_t)((b0 >> (7u - bit)) & 0x01u);
+                                        if (x + bit < 320u) framebuf[y * 320u + x + bit] = pens[on != 0u ? 1u : 0u];
+                                    }
+                                } else if (mode == 0u) {
+                                    uint8_t p0 = (uint8_t)((((b0 >> 7u) & 1u) << 0u) | (((b0 >> 3u) & 1u) << 1u) | (((b0 >> 5u) & 1u) << 2u) | (((b0 >> 1u) & 1u) << 3u));
+                                    uint8_t p1 = (uint8_t)((((b0 >> 6u) & 1u) << 0u) | (((b0 >> 2u) & 1u) << 1u) | (((b0 >> 4u) & 1u) << 2u) | (((b0 >> 0u) & 1u) << 3u));
+                                    uint8_t p2 = (uint8_t)((((b1 >> 7u) & 1u) << 0u) | (((b1 >> 3u) & 1u) << 1u) | (((b1 >> 5u) & 1u) << 2u) | (((b1 >> 1u) & 1u) << 3u));
+                                    uint8_t p3 = (uint8_t)((((b1 >> 6u) & 1u) << 0u) | (((b1 >> 2u) & 1u) << 1u) | (((b1 >> 4u) & 1u) << 2u) | (((b1 >> 0u) & 1u) << 3u));
+                                    if (x + 7u < 320u) {
+                                        framebuf[y * 320u + x + 0u] = pens[p0 & 0x0Fu];
+                                        framebuf[y * 320u + x + 1u] = pens[p0 & 0x0Fu];
+                                        framebuf[y * 320u + x + 2u] = pens[p1 & 0x0Fu];
+                                        framebuf[y * 320u + x + 3u] = pens[p1 & 0x0Fu];
+                                        framebuf[y * 320u + x + 4u] = pens[p2 & 0x0Fu];
+                                        framebuf[y * 320u + x + 5u] = pens[p2 & 0x0Fu];
+                                        framebuf[y * 320u + x + 6u] = pens[p3 & 0x0Fu];
+                                        framebuf[y * 320u + x + 7u] = pens[p3 & 0x0Fu];
+                                    }
+                                } else {
+                                    uint8_t p0 = (uint8_t)(((b0 >> 7u) & 1u) | (((b0 >> 3u) & 1u) << 1u));
+                                    uint8_t p1 = (uint8_t)(((b0 >> 6u) & 1u) | (((b0 >> 2u) & 1u) << 1u));
+                                    uint8_t p2 = (uint8_t)(((b0 >> 5u) & 1u) | (((b0 >> 1u) & 1u) << 1u));
+                                    uint8_t p3 = (uint8_t)(((b0 >> 4u) & 1u) | (((b0 >> 0u) & 1u) << 1u));
+                                    uint8_t p4 = (uint8_t)(((b1 >> 7u) & 1u) | (((b1 >> 3u) & 1u) << 1u));
+                                    uint8_t p5 = (uint8_t)(((b1 >> 6u) & 1u) | (((b1 >> 2u) & 1u) << 1u));
+                                    uint8_t p6 = (uint8_t)(((b1 >> 5u) & 1u) | (((b1 >> 1u) & 1u) << 1u));
+                                    uint8_t p7 = (uint8_t)(((b1 >> 4u) & 1u) | (((b1 >> 0u) & 1u) << 1u));
+                                    if (x + 7u < 320u) {
+                                        framebuf[y * 320u + x + 0u] = pens[p0 & 0x03u];
+                                        framebuf[y * 320u + x + 1u] = pens[p1 & 0x03u];
+                                        framebuf[y * 320u + x + 2u] = pens[p2 & 0x03u];
+                                        framebuf[y * 320u + x + 3u] = pens[p3 & 0x03u];
+                                        framebuf[y * 320u + x + 4u] = pens[p4 & 0x03u];
+                                        framebuf[y * 320u + x + 5u] = pens[p5 & 0x03u];
+                                        framebuf[y * 320u + x + 6u] = pens[p6 & 0x03u];
+                                        framebuf[y * 320u + x + 7u] = pens[p7 & 0x03u];
                                     }
                                 }
                             }
                         }
+                        ma = (uint16_t)(ma + disp_chars);
                     }
                 }
 
@@ -606,25 +1271,6 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                         320u,
                         200u
                     };
-                    {
-                        static uint8_t dumped = 0u;
-                        if (dumped == 0u && comp->frame_counter >= 40u) {
-                            FILE *fp = fopen("/tmp/cpc_frame.ppm", "wb");
-                            if (fp != NULL) {
-                                (void)fprintf(fp, "P6\n320 200\n255\n");
-                                for (uint32_t pi = 0u; pi < 320u * 200u; ++pi) {
-                                    uint32_t px = framebuf[pi];
-                                    uint8_t rgb[3];
-                                    rgb[0] = (uint8_t)((px >> 16) & 0xFFu);
-                                    rgb[1] = (uint8_t)((px >> 8) & 0xFFu);
-                                    rgb[2] = (uint8_t)(px & 0xFFu);
-                                    (void)fwrite(rgb, 1u, 3u, fp);
-                                }
-                                fclose(fp);
-                            }
-                            dumped = 1u;
-                        }
-                    }
                     cpu_component_emit_signal(cpu, "cpc_io", "frame_ready", frame_args, 4);
                 }
             }
@@ -5871,7 +6517,15 @@ int z80_step(CPUState *cpu) {
         return 0;
     }
 
+    if (cpu->interrupt_pending && !cpu->interrupts_enabled && !cpu->halted) {
+        cpu->interrupt_pending = false;
+    }
     if (cpu->halted) {
+        if (cpu->interrupt_pending && !cpu->interrupts_enabled) {
+            cpu->interrupt_pending = false;
+            cpu->halted = false;
+            return 0;
+        }
         uint16_t halted_pc = cpu->pc;
         DecodedInstruction halted_inst = {0};
         halted_inst.pc = halted_pc;
@@ -7935,6 +8589,7 @@ CPUState *z80_create(size_t memory_size) {
     cpu->comp_cpc_io.irq_accum = 0;
     cpu->comp_cpc_io.ga_hsync_accum = 0;
     cpu->comp_cpc_io.ga_hsync_count = 0;
+    cpu->comp_cpc_io.ga_irq_window = 0;
     cpu->comp_cpc_io.ga_irq_pending = 0;
     cpu->comp_cpc_io.ga_irq_issued = 0;
     cpu->comp_cpc_io.audio_emit_accum = 0;
@@ -7950,10 +8605,15 @@ CPUState *z80_create(size_t memory_size) {
     cpu->comp_cpc_io.ppi_port_a = 0xFF;
     cpu->comp_cpc_io.ppi_port_b = 0xFF;
     cpu->comp_cpc_io.ppi_port_c = 0;
-    cpu->comp_cpc_io.ppi_ctrl = 0x9B;
+    cpu->comp_cpc_io.ppi_ctrl = 0x82;
+    cpu->comp_cpc_io.tape_level = 0x80;
+    cpu->comp_cpc_io.printer_ready = 1;
+    cpu->comp_cpc_io.jumpers = 0x7F;
     cpu->comp_cpc_io.ay_regs = NULL;
     cpu->comp_cpc_io.ay_reg_index = 0;
+    cpu->comp_cpc_io.ay_ctrl_last = 0;
     cpu->comp_cpc_io.ay_level = 128;
+    cpu->comp_cpc_io.ay_last_mix = 128;
     cpu->comp_cpc_io.ay_phase_a = 0;
     cpu->comp_cpc_io.ay_phase_b = 0;
     cpu->comp_cpc_io.ay_phase_c = 0;
@@ -7963,6 +8623,20 @@ CPUState *z80_create(size_t memory_size) {
     cpu->comp_cpc_io.ay_tone_c = 1;
     cpu->comp_cpc_io.ay_noise_bit = 1;
     cpu->comp_cpc_io.ay_noise_lfsr = 0x1FFFF;
+    cpu->comp_cpc_io.ay_env_phase = 0;
+    cpu->comp_cpc_io.ay_env_value = 0;
+    cpu->comp_cpc_io.ay_env_dir = -1;
+    cpu->comp_cpc_io.ay_env_hold = 0;
+    cpu->comp_cpc_io.crtc_ma = 0;
+    cpu->comp_cpc_io.crtc_ra = 0;
+    cpu->comp_cpc_io.crtc_hc = 0;
+    cpu->comp_cpc_io.crtc_vc = 0;
+    cpu->comp_cpc_io.crtc_vadj = 0;
+    cpu->comp_cpc_io.crtc_hsync = 0;
+    cpu->comp_cpc_io.crtc_vsync = 0;
+    cpu->comp_cpc_io.crtc_display = 0;
+    cpu->comp_cpc_io.display_active = 0;
+    cpu->comp_cpc_io.crtc_char_accum = 0;
     {
         ComponentState_cpc_io *comp = &cpu->comp_cpc_io;
         cpu->active_component_id = "cpc_io";
@@ -7982,26 +8656,8 @@ CPUState *z80_create(size_t memory_size) {
             comp->ay_regs = (uint8_t *)calloc(16u, sizeof(uint8_t));
         }
 
-        if (comp->lower_rom != NULL) {
-            FILE *f = fopen("examples/roms/OS_464.ROM", "rb");
-            if (f == NULL) {
-                f = fopen("examples/roms/cpc464_os.rom", "rb");
-            }
-            if (f != NULL) {
-                (void)fread(comp->lower_rom, 1u, 0x4000u, f);
-                fclose(f);
-            }
-        }
-        if (comp->upper_rom != NULL) {
-            FILE *f = fopen("examples/roms/BASIC_664.ROM", "rb");
-            if (f == NULL) {
-                f = fopen("examples/roms/cpc464_basic.rom", "rb");
-            }
-            if (f != NULL) {
-                (void)fread(comp->upper_rom, 1u, 0x4000u, f);
-                fclose(f);
-            }
-        }
+        /* ROM contents are expected to be provided by system ROM loading
+           (CLI/runtime), not by direct file I/O from this component. */
     }
     cpu->comp_keyboard_cpc.last_row = 0;
     cpu->comp_video_cpc.frame_count = 0;
@@ -8072,6 +8728,7 @@ void z80_reset(CPUState *cpu) {
     cpu->comp_cpc_io.irq_accum = 0;
     cpu->comp_cpc_io.ga_hsync_accum = 0;
     cpu->comp_cpc_io.ga_hsync_count = 0;
+    cpu->comp_cpc_io.ga_irq_window = 0;
     cpu->comp_cpc_io.ga_irq_pending = 0;
     cpu->comp_cpc_io.ga_irq_issued = 0;
     cpu->comp_cpc_io.audio_emit_accum = 0;
@@ -8083,9 +8740,14 @@ void z80_reset(CPUState *cpu) {
     cpu->comp_cpc_io.ppi_port_a = 0xFF;
     cpu->comp_cpc_io.ppi_port_b = 0xFF;
     cpu->comp_cpc_io.ppi_port_c = 0;
-    cpu->comp_cpc_io.ppi_ctrl = 0x9B;
+    cpu->comp_cpc_io.ppi_ctrl = 0x82;
+    cpu->comp_cpc_io.tape_level = 0x80;
+    cpu->comp_cpc_io.printer_ready = 1;
+    cpu->comp_cpc_io.jumpers = 0x7F;
     cpu->comp_cpc_io.ay_reg_index = 0;
+    cpu->comp_cpc_io.ay_ctrl_last = 0;
     cpu->comp_cpc_io.ay_level = 128;
+    cpu->comp_cpc_io.ay_last_mix = 128;
     cpu->comp_cpc_io.ay_phase_a = 0;
     cpu->comp_cpc_io.ay_phase_b = 0;
     cpu->comp_cpc_io.ay_phase_c = 0;
@@ -8095,6 +8757,20 @@ void z80_reset(CPUState *cpu) {
     cpu->comp_cpc_io.ay_tone_c = 1;
     cpu->comp_cpc_io.ay_noise_bit = 1;
     cpu->comp_cpc_io.ay_noise_lfsr = 0x1FFFF;
+    cpu->comp_cpc_io.ay_env_phase = 0;
+    cpu->comp_cpc_io.ay_env_value = 0;
+    cpu->comp_cpc_io.ay_env_dir = -1;
+    cpu->comp_cpc_io.ay_env_hold = 0;
+    cpu->comp_cpc_io.crtc_ma = 0;
+    cpu->comp_cpc_io.crtc_ra = 0;
+    cpu->comp_cpc_io.crtc_hc = 0;
+    cpu->comp_cpc_io.crtc_vc = 0;
+    cpu->comp_cpc_io.crtc_vadj = 0;
+    cpu->comp_cpc_io.crtc_hsync = 0;
+    cpu->comp_cpc_io.crtc_vsync = 0;
+    cpu->comp_cpc_io.crtc_display = 0;
+    cpu->comp_cpc_io.display_active = 0;
+    cpu->comp_cpc_io.crtc_char_accum = 0;
     {
         ComponentState_cpc_io *comp = &cpu->comp_cpc_io;
         cpu->active_component_id = "cpc_io";
@@ -8106,6 +8782,7 @@ void z80_reset(CPUState *cpu) {
         comp->ga_hsync_count = 0u;
         comp->ga_irq_pending = 0u;
         comp->ga_irq_issued = 0u;
+        comp->ga_irq_window = 0u;
         comp->audio_emit_accum = 0u;
         comp->lower_rom_enabled = 1u;
         comp->upper_rom_enabled = 1u;
@@ -8143,12 +8820,20 @@ void z80_reset(CPUState *cpu) {
         comp->ppi_port_a = 0xFFu;
         comp->ppi_port_b = 0xFFu;
         comp->ppi_port_c = 0x00u;
-        comp->ppi_ctrl = 0x9Bu;
+        comp->ppi_ctrl = 0x82u;
+        comp->tape_level = 0x80u;
+        comp->printer_ready = 1u;
+        comp->jumpers = 0x7Fu;
         if (comp->ay_regs != NULL) {
             memset(comp->ay_regs, 0, 16u);
+            /* AY port A must default to input mode for CPC keyboard scanning. */
+            comp->ay_regs[7] = 0xFFu;
+            comp->ay_regs[14] = 0xFFu;
         }
         comp->ay_reg_index = 0u;
+        comp->ay_ctrl_last = 0u;
         comp->ay_level = 128u;
+        comp->ay_last_mix = 128u;
         comp->ay_phase_a = 0u;
         comp->ay_phase_b = 0u;
         comp->ay_phase_c = 0u;
@@ -8158,6 +8843,28 @@ void z80_reset(CPUState *cpu) {
         comp->ay_tone_c = 1u;
         comp->ay_noise_bit = 1u;
         comp->ay_noise_lfsr = 0x1FFFFu;
+        comp->ay_env_phase = 0u;
+        comp->ay_env_value = 0u;
+        comp->ay_env_dir = -1;
+        comp->ay_env_hold = 0u;
+        comp->crtc_ma = 0u;
+        comp->crtc_ra = 0u;
+        comp->crtc_hc = 0u;
+        comp->crtc_vc = 0u;
+        comp->crtc_vadj = 0u;
+        comp->crtc_hsync = 0u;
+        comp->crtc_vsync = 0u;
+        comp->crtc_display = 0u;
+        comp->display_active = 0u;
+        comp->crtc_char_accum = 0u;
+        /* Mirror loaded system ROM bytes into fixed CPC ROM banks.
+           System ROM loader places bytes in cpu->memory before reset. */
+        if (comp->lower_rom != NULL && cpu->memory_size >= 0x4000u) {
+            memcpy(comp->lower_rom, &cpu->memory[0x0000u], 0x4000u);
+        }
+        if (comp->upper_rom != NULL && cpu->memory_size >= 0x10000u) {
+            memcpy(comp->upper_rom, &cpu->memory[0xC000u], 0x4000u);
+        }
     }
     cpu->comp_keyboard_cpc.last_row = 0;
     cpu->comp_video_cpc.frame_count = 0;
@@ -8208,10 +8915,75 @@ int z80_load_rom(CPUState *cpu, const char *filename, uint16_t address) {
     );
     return 0;
 }
+typedef struct {
+    const char *name;
+    const char *path;
+    uint16_t address;
+    uint32_t max_size;
+} SystemRomImage;
+
+static const SystemRomImage g_system_rom_images[] = {
+    { "cpc464_os_rom", "../../roms/cpc464/OS_464.ROM", 0x0000u, 16384u },
+    { "cpc464_basic_rom", "../../roms/cpc464/BASIC_1.0.ROM", 0xC000u, 16384u },
+};
+
+static bool cpu_path_is_absolute(const char *path) {
+    if (!path || !path[0]) return false;
+    if (path[0] == '/' || path[0] == '\\') return true;
+    if (((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':') return true;
+    return false;
+}
+
 int z80_load_system_roms(CPUState *cpu, const char *system_base_dir) {
     if (!cpu) return -1;
-    (void)system_base_dir;
-    cpu->loaded_rom_debug[0] = '\0';
+    char full_path[1024];
+    size_t rom_count = sizeof(g_system_rom_images) / sizeof(g_system_rom_images[0]);
+    for (size_t i = 0; i < rom_count; i++) {
+        const SystemRomImage *rom = &g_system_rom_images[i];
+        const char *path_to_open = rom->path;
+
+        if (!cpu_path_is_absolute(rom->path) && system_base_dir && system_base_dir[0]) {
+            size_t base_len = strlen(system_base_dir);
+            bool needs_sep = !(system_base_dir[base_len - 1] == '/' || system_base_dir[base_len - 1] == '\\');
+            int n = snprintf(full_path, sizeof(full_path), "%s%s%s", system_base_dir, needs_sep ? "/" : "", rom->path);
+            if (n < 0 || (size_t)n >= sizeof(full_path)) return -1;
+            path_to_open = full_path;
+        }
+
+        FILE *f = fopen(path_to_open, "rb");
+        if (!f) return -1;
+        if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+        long file_size = ftell(f);
+        if (file_size < 0) { fclose(f); return -1; }
+        if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+
+        if ((uint64_t)file_size > rom->max_size) { fclose(f); return -1; }
+        if ((uint64_t)rom->address + (uint64_t)file_size > cpu->memory_size) { fclose(f); return -1; }
+
+        size_t read_len = fread(&cpu->memory[rom->address], 1, (size_t)file_size, f);
+        fclose(f);
+        if (read_len != (size_t)file_size) return -1;
+        if (i == 0u) {
+            if (rom_count > 1u) {
+                snprintf(
+                    cpu->loaded_rom_debug,
+                    sizeof(cpu->loaded_rom_debug),
+                    "name=%s path=%s (+%llu more)",
+                    rom->name,
+                    path_to_open,
+                    (unsigned long long)(rom_count - 1u)
+                );
+            } else {
+                snprintf(
+                    cpu->loaded_rom_debug,
+                    sizeof(cpu->loaded_rom_debug),
+                    "name=%s path=%s",
+                    rom->name,
+                    path_to_open
+                );
+            }
+        }
+    }
     return 0;
 }
 
@@ -8227,30 +8999,21 @@ uint8_t z80_read_byte(CPUState *cpu, uint16_t addr) {
     {
         ComponentState_cpc_io *comp = &cpu->comp_cpc_io;
         cpu->active_component_id = "cpc_io";
-        {
-            uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 50u) : 80000u;
-            uint64_t active_span = (frame_period * 4u) / 5u;
-            if (frame_period == 0u) frame_period = 80000u;
-            if (active_span == 0u) active_span = frame_period / 2u;
-            if (addr >= 0x4000u && addr < 0x8000u) {
-                uint64_t in_frame = cpu->total_cycles % frame_period;
-                if (in_frame < active_span) {
-                    uint64_t slot = cpu->total_cycles & 0x03u;
-                    if (slot != 0u) {
-                        uint64_t wait = 4u - slot;
-                        cpu->total_cycles += wait;
-                        comp->tstate_accum += wait;
-                        comp->ga_hsync_accum += wait;
-                        comp->audio_emit_accum += wait;
-                    }
-                }
-            }
-        }
         if (comp->lower_rom_enabled != 0u && addr < 0x4000u && comp->lower_rom != NULL) {
             return comp->lower_rom[addr & 0x3FFFu];
         }
         if (comp->upper_rom_enabled != 0u && addr >= 0xC000u && comp->upper_rom != NULL) {
             return comp->upper_rom[(uint16_t)(addr - 0xC000u) & 0x3FFFu];
+        }
+        if (comp->display_active != 0u) {
+            uint64_t slot = cpu->total_cycles & 0x03u;
+            if (slot != 0u) {
+                uint64_t wait = 4u - slot;
+                cpu->total_cycles += wait;
+                comp->tstate_accum += wait;
+                comp->ga_hsync_accum += wait;
+                comp->audio_emit_accum += wait;
+            }
         }
         return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
     }
@@ -8265,23 +9028,14 @@ void z80_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
     {
         ComponentState_cpc_io *comp = &cpu->comp_cpc_io;
         cpu->active_component_id = "cpc_io";
-        {
-            uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 50u) : 80000u;
-            uint64_t active_span = (frame_period * 4u) / 5u;
-            if (frame_period == 0u) frame_period = 80000u;
-            if (active_span == 0u) active_span = frame_period / 2u;
-            if (addr >= 0x4000u && addr < 0x8000u) {
-                uint64_t in_frame = cpu->total_cycles % frame_period;
-                if (in_frame < active_span) {
-                    uint64_t slot = cpu->total_cycles & 0x03u;
-                    if (slot != 0u) {
-                        uint64_t wait = 4u - slot;
-                        cpu->total_cycles += wait;
-                        comp->tstate_accum += wait;
-                        comp->ga_hsync_accum += wait;
-                        comp->audio_emit_accum += wait;
-                    }
-                }
+        if (comp->display_active != 0u) {
+            uint64_t slot = cpu->total_cycles & 0x03u;
+            if (slot != 0u) {
+                uint64_t wait = 4u - slot;
+                cpu->total_cycles += wait;
+                comp->tstate_accum += wait;
+                comp->ga_hsync_accum += wait;
+                comp->audio_emit_accum += wait;
             }
         }
         if ((uint64_t)addr < cpu->memory_size) {
@@ -8292,7 +9046,14 @@ void z80_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
     }
-
+    /* Ignore writes to read-only region: ROM_LOWER */
+    if (addr < 0x4000u) {
+        return;
+    }
+    /* Ignore writes to read-only region: ROM_UPPER */
+    if (addr >= 0xC000u) {
+        return;
+    }
     cpu->memory[addr] = value;
 }
 
@@ -8317,41 +9078,86 @@ uint8_t z80_read_port(CPUState *cpu, uint16_t port) {
         cpu->active_component_id = "cpc_io";
         uint16_t ph = (uint16_t)(port & 0xFF00u);
         if (ph == 0xF400u) {
-            uint8_t pa_input = (uint8_t)((comp->ppi_ctrl & 0x10u) != 0u);
-            if (pa_input != 0u) {
-                uint8_t row = 0u;
-                if (comp->ay_regs != NULL) {
-                    row = (uint8_t)(comp->ay_regs[14] & 0x0Fu);
+            static int kb_trace_init = 0;
+            static int kb_trace_on = 0;
+            static uint32_t kb_trace_count = 0u;
+            static FILE *kb_trace_fp = NULL;
+            if (kb_trace_init == 0) {
+                const char *env = getenv("PASM_CPC_KB_TRACE");
+                kb_trace_on = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                kb_trace_init = 1;
+                if (kb_trace_on != 0) {
+                    kb_trace_fp = fopen("log/cpc_kb_trace.log", "w");
+                    if (kb_trace_fp == NULL) kb_trace_fp = stderr;
+                    fprintf(kb_trace_fp, "# cycle,pc,ctrl,row,reg,reg7,reg14,kb,ret\n");
+                    fflush(kb_trace_fp);
                 }
-                {
+            }
+            uint8_t pa_input = (uint8_t)((comp->ppi_ctrl & 0x10u) != 0u);
+            uint8_t ctrl = (uint8_t)((comp->ppi_port_c >> 6u) & 0x03u);
+            if (pa_input == 0u) {
+                value = comp->ppi_port_a;
+            } else if (ctrl == 0x01u) {
+                uint8_t ridx = (uint8_t)(comp->ay_reg_index & 0x0Fu);
+                if (ridx == 14u && comp->ay_regs != NULL) {
+                    uint8_t row = (uint8_t)(comp->ppi_port_c & 0x0Fu);
                     uint64_t cb_args[1] = { (uint64_t)row };
-                    value = (uint8_t)cpu_component_call(cpu, "cpc_io", "keyboard_read_row", cb_args, 1);
+                    uint8_t kb = (uint8_t)cpu_component_call(cpu, "cpc_io", "keyboard_read_row", cb_args, 1);
+                    if ((comp->ay_regs[7] & 0x40u) == 0u) {
+                        value = kb;
+                    } else {
+                        value = (uint8_t)(comp->ay_regs[14] & kb);
+                    }
+                    comp->ppi_port_a = value;
+                    if (kb_trace_on != 0 && kb_trace_count < 5000u) {
+                        fprintf(
+                            kb_trace_fp,
+                            "%llu,%04X,%u,%u,%u,%02X,%02X,%02X,%02X\n",
+                            (unsigned long long)cpu->total_cycles,
+                            (unsigned)cpu->pc,
+                            (unsigned)ctrl,
+                            (unsigned)row,
+                            (unsigned)ridx,
+                            (unsigned)comp->ay_regs[7],
+                            (unsigned)comp->ay_regs[14],
+                            (unsigned)kb,
+                            (unsigned)value
+                        );
+                        kb_trace_count += 1u;
+                        if ((kb_trace_count & 63u) == 0u) fflush(kb_trace_fp);
+                    }
+                } else {
+                    value = (comp->ay_regs != NULL) ? comp->ay_regs[ridx] : 0xFFu;
+                    comp->ppi_port_a = value;
                 }
             } else {
-                value = comp->ppi_port_a;
+                value = 0xFFu;
             }
         } else if (ph == 0xF500u) {
             uint8_t pb_input = (uint8_t)((comp->ppi_ctrl & 0x02u) != 0u);
             if (pb_input != 0u) {
-                uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 50u) : 80000u;
-                uint64_t vblank_span;
-                uint64_t in_frame;
-                uint8_t vsync;
-                if (frame_period == 0u) frame_period = 80000u;
-                in_frame = cpu->total_cycles % frame_period;
-                vblank_span = frame_period / 20u;
-                if (vblank_span == 0u) vblank_span = 1u;
-                vsync = (in_frame >= (frame_period - vblank_span)) ? 1u : 0u;
-                value = (uint8_t)((comp->ppi_port_b & 0xFEu) | vsync);
+                uint8_t v = (uint8_t)(comp->tape_level & 0x80u);
+                if (comp->printer_ready == 0u) v |= 0x40u;
+                v = (uint8_t)(v | (comp->jumpers & 0x7Fu));
+                if (comp->crtc_vsync != 0u) v |= 0x01u;
+                value = v;
             } else {
                 value = comp->ppi_port_b;
             }
         } else if (ph == 0xF600u) {
             uint8_t c = comp->ppi_port_c;
-            uint8_t cl_input = (uint8_t)((comp->ppi_ctrl & 0x01u) != 0u);
-            uint8_t cu_input = (uint8_t)((comp->ppi_ctrl & 0x08u) != 0u);
-            if (cl_input != 0u) c = (uint8_t)((c & 0xF0u) | 0x0Fu);
-            if (cu_input != 0u) c = (uint8_t)((c & 0x0Fu) | 0xF0u);
+            uint8_t direction = (uint8_t)(comp->ppi_ctrl & 0x09u);
+            if (direction != 0u) {
+                if ((direction & 0x08u) != 0u) {
+                    uint8_t val = (uint8_t)(comp->ppi_port_c & 0xC0u);
+                    c = (uint8_t)(c & 0x0Fu);
+                    if (val == 0xC0u) val = 0x80u;
+                    c = (uint8_t)(c | val | 0x20u);
+                    if ((comp->tape_level & 0x10u) != 0u) {
+                        c = (uint8_t)(c | 0x10u);
+                    }
+                }
+            }
             value = c;
         } else if (ph == 0xF700u) {
             value = comp->ppi_ctrl;
@@ -8362,18 +9168,41 @@ uint8_t z80_read_port(CPUState *cpu, uint16_t port) {
 }
 
 void z80_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
-    {
-        static uint32_t dbg_pw = 0u;
-        if (dbg_pw < 40u) {
-            fprintf(stderr, "DBG OUT #%u port=%04X val=%02X pc=%04X\n", (unsigned)dbg_pw, (unsigned)port, (unsigned)value, (unsigned)cpu->pc);
-            dbg_pw += 1u;
-        }
-    }
 
     {
         ComponentState_cpc_io *comp = &cpu->comp_cpc_io;
         cpu->active_component_id = "cpc_io";
         uint16_t ph = (uint16_t)(port & 0xFF00u);
+        static int ay_trace_init = 0;
+        static int ay_trace_on = 0;
+        static uint32_t ay_trace_count = 0u;
+        static FILE *ay_trace_fp = NULL;
+        static int ppi_trace_init = 0;
+        static int ppi_trace_on = 0;
+        static uint32_t ppi_trace_count = 0u;
+        static FILE *ppi_trace_fp = NULL;
+        if (ay_trace_init == 0) {
+            const char *env = getenv("PASM_CPC_KB_TRACE");
+            ay_trace_on = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+            ay_trace_init = 1;
+            if (ay_trace_on != 0) {
+                ay_trace_fp = fopen("log/cpc_ay_trace.log", "w");
+                if (ay_trace_fp == NULL) ay_trace_fp = stderr;
+                fprintf(ay_trace_fp, "# cycle,pc,port,op,ridx,data,reg7,reg14,pc6_7,ppiA\n");
+                fflush(ay_trace_fp);
+            }
+        }
+        if (ppi_trace_init == 0) {
+            const char *env = getenv("PASM_CPC_KB_TRACE");
+            ppi_trace_on = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+            ppi_trace_init = 1;
+            if (ppi_trace_on != 0) {
+                ppi_trace_fp = fopen("log/cpc_ppi_trace.log", "w");
+                if (ppi_trace_fp == NULL) ppi_trace_fp = stderr;
+                fprintf(ppi_trace_fp, "# cycle,pc,port,value,ppi_ctrl,ppi_a,ppi_b,ppi_c\n");
+                fflush(ppi_trace_fp);
+            }
+        }
 
         if ((port & 0xC000u) == 0x4000u) {
             uint8_t cmd = (uint8_t)(value & 0xC0u);
@@ -8412,26 +9241,115 @@ void z80_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
             if ((comp->ppi_ctrl & 0x10u) == 0u) {
                 comp->ppi_port_a = value;
             }
+            if ((comp->ppi_ctrl & 0x08u) == 0u && comp->ay_regs != NULL) {
+                uint8_t ctrl = (uint8_t)(comp->ppi_port_c & 0xC0u);
+                if ((ctrl & 0x80u) != 0u && (comp->ay_ctrl_last & 0x80u) == 0u) {
+                    uint8_t psg_data = comp->ppi_port_a;
+                    if (ctrl == 0xC0u) {
+                        comp->ay_reg_index = (uint8_t)(psg_data & 0x0Fu);
+                        if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                            fprintf(
+                                ay_trace_fp,
+                                "%llu,%04X,%04X,SEL,%u,%02X,%02X,%02X,%u,%02X\n",
+                                (unsigned long long)cpu->total_cycles,
+                                (unsigned)cpu->pc,
+                                (unsigned)port,
+                                (unsigned)comp->ay_reg_index,
+                                (unsigned)psg_data,
+                                (unsigned)comp->ay_regs[7],
+                                (unsigned)comp->ay_regs[14],
+                                (unsigned)(comp->ppi_port_c & 0xC0u),
+                                (unsigned)comp->ppi_port_a
+                            );
+                            ay_trace_count += 1u;
+                            if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
+                        }
+                    } else if (ctrl == 0x80u) {
+                        uint8_t ridx = (uint8_t)(comp->ay_reg_index & 0x0Fu);
+                        comp->ay_regs[ridx] = psg_data;
+                        if (ridx == 13u) {
+                            uint8_t shape = (uint8_t)(psg_data & 0x0Fu);
+                            uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                            comp->ay_env_value = attack != 0u ? 0u : 15u;
+                            comp->ay_env_dir = attack != 0u ? 1 : -1;
+                            comp->ay_env_hold = 0u;
+                            comp->ay_env_phase = 0u;
+                        }
+                        {
+                            uint8_t v0 = (uint8_t)(comp->ay_regs[8] & 0x0Fu);
+                            uint8_t v1 = (uint8_t)(comp->ay_regs[9] & 0x0Fu);
+                            uint8_t v2 = (uint8_t)(comp->ay_regs[10] & 0x0Fu);
+                            uint8_t level = (uint8_t)(((uint32_t)(v0 + v1 + v2) * 255u) / 45u);
+                            comp->ay_level = level;
+                        }
+                        if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                            fprintf(
+                                ay_trace_fp,
+                                "%llu,%04X,%04X,WR,%u,%02X,%02X,%02X,%u,%02X\n",
+                                (unsigned long long)cpu->total_cycles,
+                                (unsigned)cpu->pc,
+                                (unsigned)port,
+                                (unsigned)ridx,
+                                (unsigned)psg_data,
+                                (unsigned)comp->ay_regs[7],
+                                (unsigned)comp->ay_regs[14],
+                                (unsigned)(comp->ppi_port_c & 0xC0u),
+                                (unsigned)comp->ppi_port_a
+                            );
+                            ay_trace_count += 1u;
+                            if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
+                        }
+                    }
+                }
+                comp->ay_ctrl_last = (uint8_t)(comp->ppi_port_c & 0xC0u);
+            }
+            if (ppi_trace_on != 0 && ppi_trace_count < 5000u) {
+                fprintf(
+                    ppi_trace_fp,
+                    "%llu,%04X,%04X,%02X,%02X,%02X,%02X,%02X\n",
+                    (unsigned long long)cpu->total_cycles,
+                    (unsigned)cpu->pc,
+                    (unsigned)port,
+                    (unsigned)value,
+                    (unsigned)comp->ppi_ctrl,
+                    (unsigned)comp->ppi_port_a,
+                    (unsigned)comp->ppi_port_b,
+                    (unsigned)comp->ppi_port_c
+                );
+                ppi_trace_count += 1u;
+                if ((ppi_trace_count & 63u) == 0u) fflush(ppi_trace_fp);
+            }
             return;
         }
         if (ph == 0xF500u) {
             if ((comp->ppi_ctrl & 0x02u) == 0u) {
                 comp->ppi_port_b = value;
             }
+            if (ppi_trace_on != 0 && ppi_trace_count < 5000u) {
+                fprintf(
+                    ppi_trace_fp,
+                    "%llu,%04X,%04X,%02X,%02X,%02X,%02X,%02X\n",
+                    (unsigned long long)cpu->total_cycles,
+                    (unsigned)cpu->pc,
+                    (unsigned)port,
+                    (unsigned)value,
+                    (unsigned)comp->ppi_ctrl,
+                    (unsigned)comp->ppi_port_a,
+                    (unsigned)comp->ppi_port_b,
+                    (unsigned)comp->ppi_port_c
+                );
+                ppi_trace_count += 1u;
+                if ((ppi_trace_count & 63u) == 0u) fflush(ppi_trace_fp);
+            }
             return;
         }
         if (ph == 0xF700u) {
-            uint8_t old_c = comp->ppi_port_c;
-            uint8_t old_bdir = (uint8_t)((old_c >> 7u) & 0x01u);
-            uint8_t old_bc1 = (uint8_t)((old_c >> 6u) & 0x01u);
-
             if ((value & 0x80u) != 0u) {
                 /* 8255 mode set/control word. */
                 comp->ppi_ctrl = value;
-                if ((value & 0x10u) != 0u) comp->ppi_port_a = 0xFFu;
-                if ((value & 0x02u) != 0u) comp->ppi_port_b = 0xFFu;
-                if ((value & 0x08u) != 0u) comp->ppi_port_c = (uint8_t)(comp->ppi_port_c | 0xF0u);
-                if ((value & 0x01u) != 0u) comp->ppi_port_c = (uint8_t)(comp->ppi_port_c | 0x0Fu);
+                if ((comp->ppi_ctrl & 0x08u) == 0u) {
+                    comp->ay_ctrl_last = (uint8_t)(comp->ppi_port_c & 0xC0u);
+                }
             } else {
                 /* 8255 bit set/reset on Port C. */
                 uint8_t bit = (uint8_t)((value >> 1u) & 0x07u);
@@ -8440,20 +9358,39 @@ void z80_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
                 } else {
                     comp->ppi_port_c = (uint8_t)(comp->ppi_port_c & (uint8_t)~(uint8_t)(1u << bit));
                 }
-            }
-
-            {
-                uint8_t new_bdir = (uint8_t)((comp->ppi_port_c >> 7u) & 0x01u);
-                uint8_t new_bc1 = (uint8_t)((comp->ppi_port_c >> 6u) & 0x01u);
-                if (new_bdir != old_bdir || new_bc1 != old_bc1) {
-                    if (new_bdir != 0u && new_bc1 != 0u) {
-                        comp->ay_reg_index = (uint8_t)(comp->ppi_port_a & 0x0Fu);
-                    } else if (new_bdir != 0u && new_bc1 == 0u) {
-                        if (comp->ay_regs != NULL) {
+                if ((comp->ppi_ctrl & 0x08u) == 0u && comp->ay_regs != NULL) {
+                    uint8_t ctrl = (uint8_t)(comp->ppi_port_c & 0xC0u);
+                    if ((ctrl & 0x80u) != 0u && (comp->ay_ctrl_last & 0x80u) == 0u) {
+                        uint8_t psg_data = comp->ppi_port_a;
+                        if (ctrl == 0xC0u) {
+                            comp->ay_reg_index = (uint8_t)(psg_data & 0x0Fu);
+                            if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                                fprintf(
+                                    ay_trace_fp,
+                                    "%llu,%04X,%04X,SEL,%u,%02X,%02X,%02X,%u,%02X\n",
+                                    (unsigned long long)cpu->total_cycles,
+                                    (unsigned)cpu->pc,
+                                    (unsigned)port,
+                                    (unsigned)comp->ay_reg_index,
+                                    (unsigned)psg_data,
+                                    (unsigned)comp->ay_regs[7],
+                                    (unsigned)comp->ay_regs[14],
+                                    (unsigned)ctrl,
+                                    (unsigned)comp->ppi_port_a
+                                );
+                                ay_trace_count += 1u;
+                                if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
+                            }
+                        } else if (ctrl == 0x80u) {
                             uint8_t ridx = (uint8_t)(comp->ay_reg_index & 0x0Fu);
-                            comp->ay_regs[ridx] = comp->ppi_port_a;
-                            if (ridx == 14u) {
-                                comp->ay_regs[14] = (uint8_t)(comp->ay_regs[14] & 0x0Fu);
+                            comp->ay_regs[ridx] = psg_data;
+                            if (ridx == 13u) {
+                                uint8_t shape = (uint8_t)(psg_data & 0x0Fu);
+                                uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                                comp->ay_env_value = attack != 0u ? 0u : 15u;
+                                comp->ay_env_dir = attack != 0u ? 1 : -1;
+                                comp->ay_env_hold = 0u;
+                                comp->ay_env_phase = 0u;
                             }
                             {
                                 uint8_t v0 = (uint8_t)(comp->ay_regs[8] & 0x0Fu);
@@ -8462,68 +9399,132 @@ void z80_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
                                 uint8_t level = (uint8_t)(((uint32_t)(v0 + v1 + v2) * 255u) / 45u);
                                 comp->ay_level = level;
                             }
-                        }
-                    } else if (new_bdir == 0u && new_bc1 != 0u) {
-                        if (comp->ay_regs != NULL) {
-                            uint8_t ridx = (uint8_t)(comp->ay_reg_index & 0x0Fu);
-                            if (ridx == 14u) {
-                                uint8_t row = (uint8_t)(comp->ay_regs[14] & 0x0Fu);
-                                uint64_t cb_args[1] = { (uint64_t)row };
-                                comp->ppi_port_a = (uint8_t)cpu_component_call(cpu, "cpc_io", "keyboard_read_row", cb_args, 1);
-                            } else {
-                                comp->ppi_port_a = comp->ay_regs[ridx];
+                            if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                                fprintf(
+                                    ay_trace_fp,
+                                    "%llu,%04X,%04X,WR,%u,%02X,%02X,%02X,%u,%02X\n",
+                                    (unsigned long long)cpu->total_cycles,
+                                    (unsigned)cpu->pc,
+                                    (unsigned)port,
+                                    (unsigned)ridx,
+                                    (unsigned)psg_data,
+                                    (unsigned)comp->ay_regs[7],
+                                    (unsigned)comp->ay_regs[14],
+                                    (unsigned)ctrl,
+                                    (unsigned)comp->ppi_port_a
+                                );
+                                ay_trace_count += 1u;
+                                if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
                             }
                         }
                     }
+                    comp->ay_ctrl_last = (uint8_t)(comp->ppi_port_c & 0xC0u);
                 }
+            }
+            if (ppi_trace_on != 0 && ppi_trace_count < 5000u) {
+                fprintf(
+                    ppi_trace_fp,
+                    "%llu,%04X,%04X,%02X,%02X,%02X,%02X,%02X\n",
+                    (unsigned long long)cpu->total_cycles,
+                    (unsigned)cpu->pc,
+                    (unsigned)port,
+                    (unsigned)value,
+                    (unsigned)comp->ppi_ctrl,
+                    (unsigned)comp->ppi_port_a,
+                    (unsigned)comp->ppi_port_b,
+                    (unsigned)comp->ppi_port_c
+                );
+                ppi_trace_count += 1u;
+                if ((ppi_trace_count & 63u) == 0u) fflush(ppi_trace_fp);
             }
             return;
         }
         if (ph == 0xF600u) {
-            uint8_t old_c = comp->ppi_port_c;
-            uint8_t old_bdir = (uint8_t)((old_c >> 7u) & 0x01u);
-            uint8_t old_bc1 = (uint8_t)((old_c >> 6u) & 0x01u);
             if ((comp->ppi_ctrl & 0x08u) == 0u) {
                 comp->ppi_port_c = (uint8_t)((comp->ppi_port_c & 0x0Fu) | (value & 0xF0u));
             }
             if ((comp->ppi_ctrl & 0x01u) == 0u) {
                 comp->ppi_port_c = (uint8_t)((comp->ppi_port_c & 0xF0u) | (value & 0x0Fu));
             }
-            {
-                uint8_t new_bdir = (uint8_t)((comp->ppi_port_c >> 7u) & 0x01u);
-                uint8_t new_bc1 = (uint8_t)((comp->ppi_port_c >> 6u) & 0x01u);
-                if (new_bdir != old_bdir || new_bc1 != old_bc1) {
-                    if (new_bdir != 0u && new_bc1 != 0u) {
-                        comp->ay_reg_index = (uint8_t)(comp->ppi_port_a & 0x0Fu);
-                    } else if (new_bdir != 0u && new_bc1 == 0u) {
-                        if (comp->ay_regs != NULL) {
-                            uint8_t ridx = (uint8_t)(comp->ay_reg_index & 0x0Fu);
-                            comp->ay_regs[ridx] = comp->ppi_port_a;
-                            if (ridx == 14u) {
-                                comp->ay_regs[14] = (uint8_t)(comp->ay_regs[14] & 0x0Fu);
-                            }
-                            {
-                                uint8_t v0 = (uint8_t)(comp->ay_regs[8] & 0x0Fu);
-                                uint8_t v1 = (uint8_t)(comp->ay_regs[9] & 0x0Fu);
-                                uint8_t v2 = (uint8_t)(comp->ay_regs[10] & 0x0Fu);
-                                uint8_t level = (uint8_t)(((uint32_t)(v0 + v1 + v2) * 255u) / 45u);
-                                comp->ay_level = level;
-                            }
+            if ((comp->ppi_ctrl & 0x08u) == 0u && comp->ay_regs != NULL) {
+                uint8_t ctrl = (uint8_t)(comp->ppi_port_c & 0xC0u);
+                if ((ctrl & 0x80u) != 0u && (comp->ay_ctrl_last & 0x80u) == 0u) {
+                    uint8_t psg_data = comp->ppi_port_a;
+                    if (ctrl == 0xC0u) {
+                        comp->ay_reg_index = (uint8_t)(psg_data & 0x0Fu);
+                        if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                            fprintf(
+                                ay_trace_fp,
+                                "%llu,%04X,%04X,SEL,%u,%02X,%02X,%02X,%u,%02X\n",
+                                (unsigned long long)cpu->total_cycles,
+                                (unsigned)cpu->pc,
+                                (unsigned)port,
+                                (unsigned)comp->ay_reg_index,
+                                (unsigned)psg_data,
+                                (unsigned)comp->ay_regs[7],
+                                (unsigned)comp->ay_regs[14],
+                                (unsigned)(comp->ppi_port_c & 0xC0u),
+                                (unsigned)comp->ppi_port_a
+                            );
+                            ay_trace_count += 1u;
+                            if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
                         }
-                    } else if (new_bdir == 0u && new_bc1 != 0u) {
-                        if (comp->ay_regs != NULL) {
-                            uint8_t ridx = (uint8_t)(comp->ay_reg_index & 0x0Fu);
-                            if (ridx == 14u) {
-                                uint8_t row = (uint8_t)(comp->ay_regs[14] & 0x0Fu);
-                                uint64_t cb_args[1] = { (uint64_t)row };
-                                comp->ppi_port_a = (uint8_t)cpu_component_call(cpu, "cpc_io", "keyboard_read_row", cb_args, 1);
-                            } else {
-                                comp->ppi_port_a = comp->ay_regs[ridx];
-                            }
+                    } else if (ctrl == 0x80u) {
+                        uint8_t ridx = (uint8_t)(comp->ay_reg_index & 0x0Fu);
+                        comp->ay_regs[ridx] = psg_data;
+                        if (ridx == 13u) {
+                            uint8_t shape = (uint8_t)(psg_data & 0x0Fu);
+                            uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                            comp->ay_env_value = attack != 0u ? 0u : 15u;
+                            comp->ay_env_dir = attack != 0u ? 1 : -1;
+                            comp->ay_env_hold = 0u;
+                            comp->ay_env_phase = 0u;
+                        }
+                        {
+                            uint8_t v0 = (uint8_t)(comp->ay_regs[8] & 0x0Fu);
+                            uint8_t v1 = (uint8_t)(comp->ay_regs[9] & 0x0Fu);
+                            uint8_t v2 = (uint8_t)(comp->ay_regs[10] & 0x0Fu);
+                            uint8_t level = (uint8_t)(((uint32_t)(v0 + v1 + v2) * 255u) / 45u);
+                            comp->ay_level = level;
+                        }
+                        if (ay_trace_on != 0 && ay_trace_count < 5000u) {
+                            fprintf(
+                                ay_trace_fp,
+                                "%llu,%04X,%04X,WR,%u,%02X,%02X,%02X,%u,%02X\n",
+                                (unsigned long long)cpu->total_cycles,
+                                (unsigned)cpu->pc,
+                                (unsigned)port,
+                                (unsigned)ridx,
+                                (unsigned)psg_data,
+                                (unsigned)comp->ay_regs[7],
+                                (unsigned)comp->ay_regs[14],
+                                (unsigned)(comp->ppi_port_c & 0xC0u),
+                                (unsigned)comp->ppi_port_a
+                            );
+                            ay_trace_count += 1u;
+                            if ((ay_trace_count & 63u) == 0u) fflush(ay_trace_fp);
                         }
                     }
                 }
+                comp->ay_ctrl_last = (uint8_t)(comp->ppi_port_c & 0xC0u);
             }
+            if (ppi_trace_on != 0 && ppi_trace_count < 5000u) {
+                fprintf(
+                    ppi_trace_fp,
+                    "%llu,%04X,%04X,%02X,%02X,%02X,%02X,%02X\n",
+                    (unsigned long long)cpu->total_cycles,
+                    (unsigned)cpu->pc,
+                    (unsigned)port,
+                    (unsigned)value,
+                    (unsigned)comp->ppi_ctrl,
+                    (unsigned)comp->ppi_port_a,
+                    (unsigned)comp->ppi_port_b,
+                    (unsigned)comp->ppi_port_c
+                );
+                ppi_trace_count += 1u;
+                if ((ppi_trace_count & 63u) == 0u) fflush(ppi_trace_fp);
+            }
+            return;
         }
     }
     if (port >= cpu->port_size) return;

@@ -187,8 +187,7 @@ CPU_IMPL_TEMPLATE = (
 #if defined(_WIN32)
 #include <windows.h>
 #else
-#include <errno.h>
-#include <time.h>
+#include <unistd.h>
 #endif
 
 /* ===== Private Helper Functions ===== */
@@ -340,7 +339,7 @@ void {cpu_prefix}_write_port(CPUState *cpu, uint16_t port, uint8_t value) {{
 
 /* ===== Debug ===== */
 void {cpu_prefix}_dump_registers(CPUState *cpu) {{
-    printf("PC: 0x%04X SP: 0x%04X Flags: 0x%02X\\n", cpu->pc, cpu->sp, cpu->flags.raw);
+    printf("PC: 0x%04X SP: 0x%04X Flags: 0x%02X\\n", cpu->pc, cpu->sp, {debug_flags_expr});
     for (int i = 0; i < {register_count}; i++) {{
         printf("R%d: 0x%02X ", i, cpu->registers[i]);
     }}

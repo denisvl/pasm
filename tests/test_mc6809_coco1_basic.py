@@ -31,14 +31,14 @@ def test_mc6809_yaml_validates():
 def test_coco1_interactive_stack_validates():
     data = yaml_loader.load_processor_system(
         str(BASE_DIR / "examples" / "processors" / "mc6809.yaml"),
-        str(BASE_DIR / "examples" / "systems" / "mc6809" / "mc6809_coco1_interactive.yaml"),
+        str(BASE_DIR / "examples" / "systems" / "coco1" / "coco1_interactive.yaml"),
         ic_paths=[str(BASE_DIR / "examples" / "ics" / "coco1" / "coco1_peripherals.yaml")],
         device_paths=[
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_keyboard.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_video.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_speaker.yaml"),
         ],
-        host_paths=[str(BASE_DIR / "examples" / "hosts" / "coco1" / "coco_host_sdl2_interactive.yaml")],
+        host_paths=[str(BASE_DIR / "examples" / "hosts" / "coco1" / "coco_host_hal_interactive.yaml")],
         cartridge_path=str(
             BASE_DIR / "examples" / "cartridges" / "coco1" / "coco_mapper_none.yaml"
         ),
@@ -65,21 +65,21 @@ def test_coco1_interactive_stack_validates():
 def test_coco1_keyboard_wiring_and_bindings():
     data = yaml_loader.load_processor_system(
         str(BASE_DIR / "examples" / "processors" / "mc6809.yaml"),
-        str(BASE_DIR / "examples" / "systems" / "mc6809" / "mc6809_coco1_interactive.yaml"),
+        str(BASE_DIR / "examples" / "systems" / "coco1" / "coco1_interactive.yaml"),
         ic_paths=[str(BASE_DIR / "examples" / "ics" / "coco1" / "coco1_peripherals.yaml")],
         device_paths=[
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_keyboard.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_video.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_speaker.yaml"),
         ],
-        host_paths=[str(BASE_DIR / "examples" / "hosts" / "coco1" / "coco_host_sdl2_interactive.yaml")],
+        host_paths=[str(BASE_DIR / "examples" / "hosts" / "coco1" / "coco_host_hal_interactive.yaml")],
         cartridge_path=str(
             BASE_DIR / "examples" / "cartridges" / "coco1" / "coco_mapper_none.yaml"
         ),
         cartridge_rom_path=str(BASE_DIR / "examples" / "roms" / "coco1" / "coco.rom"),
     )
 
-    host = next(comp for comp in data["hosts"] if comp["metadata"]["id"] == "host_coco_sdl2")
+    host = next(comp for comp in data["hosts"] if comp["metadata"]["id"] == "host_coco")
     keyboard = next(comp for comp in data["devices"] if comp["metadata"]["id"] == "keyboard_coco")
     callbacks = {cb["name"] for cb in keyboard["interfaces"]["callbacks"]}
     assert {"read_row", "host_matrix"} <= callbacks
@@ -110,7 +110,7 @@ def test_coco1_keyboard_wiring_and_bindings():
         "keyboard_coco",
         "callback",
         "host_matrix",
-        "host_coco_sdl2",
+        "host_coco",
         "callback",
         "keyboard_matrix",
     ) in conn_pairs
@@ -118,7 +118,7 @@ def test_coco1_keyboard_wiring_and_bindings():
         "coco1_io",
         "callback",
         "joystick_read_axis",
-        "host_coco_sdl2",
+        "host_coco",
         "callback",
         "joystick_axis",
     ) in conn_pairs
@@ -126,7 +126,7 @@ def test_coco1_keyboard_wiring_and_bindings():
         "coco1_io",
         "callback",
         "joystick_read_button",
-        "host_coco_sdl2",
+        "host_coco",
         "callback",
         "joystick_button",
     ) in conn_pairs
@@ -155,7 +155,7 @@ def test_generate_mc6809_coco1():
     outdir = _make_workdir("mc6809_coco1_")
     gen_mod.generate(
         str(BASE_DIR / "examples" / "processors" / "mc6809.yaml"),
-        str(BASE_DIR / "examples" / "systems" / "mc6809" / "mc6809_coco1_default.yaml"),
+        str(BASE_DIR / "examples" / "systems" / "coco1" / "coco1_default.yaml"),
         str(outdir),
         ic_paths=[str(BASE_DIR / "examples" / "ics" / "coco1" / "coco1_peripherals.yaml")],
         device_paths=[

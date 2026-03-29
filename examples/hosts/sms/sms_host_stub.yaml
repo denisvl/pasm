@@ -1,11 +1,9 @@
 metadata:
   id: host_sms
   type: host_adapter
-  model: sms_headless_stub
+  model: sms_hal_headless
   version: "1.0"
 
-backend:
-  target: stub
 
 state:
   - name: joy1

@@ -1,0 +1,518 @@
+metadata:
+  id: host_atari2600
+  type: host_adapter
+  model: atari2600_hal_interactive
+  version: "1.0"
+
+
+state:
+  - name: host_inited
+    type: uint8_t
+    initial: "0"
+  - name: window
+    type: void *
+    initial: "NULL"
+  - name: renderer
+    type: void *
+    initial: "NULL"
+  - name: texture
+    type: void *
+    initial: "NULL"
+  - name: texture_w
+    type: uint32_t
+    initial: "160"
+  - name: texture_h
+    type: uint32_t
+    initial: "192"
+  - name: audio_out_dev
+    type: uint32_t
+    initial: "0"
+  - name: audio_out_ready
+    type: uint8_t
+    initial: "0"
+  - name: audio_device_samples
+    type: uint32_t
+    initial: "0"
+  - name: audio_rate
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring
+    type: int16_t *
+    initial: "NULL"
+  - name: audio_ring_capacity
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring_read_idx
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring_write_idx
+    type: uint32_t
+    initial: "0"
+  - name: audio_ring_fill
+    type: uint32_t
+    initial: "0"
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: audio_samples
+    type: uint32_t
+    initial: "0"
+  - name: audio_hp_prev_in
+    type: int32_t
+    initial: "0"
+  - name: audio_hp_prev_out
+    type: int32_t
+    initial: "0"
+  - name: joy1
+    type: uint8_t
+    initial: "0x00"
+  - name: joy2
+    type: uint8_t
+    initial: "0x00"
+  - name: console_state
+    type: uint8_t
+    initial: "0xFF"
+  - name: joy2_connected
+    type: uint8_t
+    initial: "0"
+  - name: has_keyboard_focus
+    type: uint8_t
+    initial: "0"
+  - name: last_focus_state
+    type: uint8_t
+    initial: "0"
+  - name: last_event_poll_cycle
+    type: uint64_t
+    initial: "0"
+  - name: overlay_last_ms
+    type: uint32_t
+    initial: "0"
+  - name: overlay_last_frame_count
+    type: uint64_t
+    initial: "0"
+  - name: overlay_last_cycle_count
+    type: uint64_t
+    initial: "0"
+  - name: overlay_fps_x100
+    type: uint32_t
+    initial: "0"
+  - name: overlay_cpu_hz
+    type: uint64_t
+    initial: "0"
+  - name: overlay_cpu_pct_x10
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: read_joy1
+      args: []
+      returns: u8
+    - name: read_joy2
+      args: []
+      returns: u8
+    - name: read_console
+      args: []
+      returns: u8
+  handlers:
+    - name: video_frame
+      args: [u32, u64, u32, u32]
+    - name: audio_pcm
+      args: [u8, u64]
+  signals: []
+
+input:
+  keyboard:
+    focus_required: true
+    bindings:
+      # Controller 1
+      - host_key: UP
+        presses: [{ row: 0, bit: 0 }]
+      - host_key: DOWN
+        presses: [{ row: 0, bit: 1 }]
+      - host_key: LEFT
+        presses: [{ row: 0, bit: 2 }]
+      - host_key: RIGHT
+        presses: [{ row: 0, bit: 3 }]
+      - host_key: Z
+        presses: [{ row: 0, bit: 4 }]
+      - host_key: SPACE
+        presses: [{ row: 0, bit: 4 }]
+
+      # Controller 2 (numpad)
+      - host_key: KP_8
+        presses: [{ row: 1, bit: 0 }]
+      - host_key: KP_2
+        presses: [{ row: 1, bit: 1 }]
+      - host_key: KP_4
+        presses: [{ row: 1, bit: 2 }]
+      - host_key: KP_6
+        presses: [{ row: 1, bit: 3 }]
+      - host_key: KP_0
+        presses: [{ row: 1, bit: 4 }]
+
+      # Console switches (active low)
+      - host_key: R
+        presses: [{ row: 2, bit: 0 }] # Reset
+      - host_key: F
+        presses: [{ row: 2, bit: 1 }] # Select
+      - host_key: C
+        presses: [{ row: 2, bit: 3 }] # Color/BW
+
+behavior:
+  snippets:
+    init: |
+      do {
+          if (comp->host_inited != 0u) break;
+          if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) break;
+
+          comp->window = cpu_host_hal_create_window(
+              "PASM Atari 2600",
+              CPU_HOST_WINDOWPOS_CENTERED,
+              CPU_HOST_WINDOWPOS_CENTERED,
+              768,
+              576,
+              CPU_HOST_WINDOW_RESIZABLE
+          );
+          if (comp->window == NULL) break;
+
+          comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, CPU_HOST_RENDERER_ACCELERATED);
+          if (comp->renderer == NULL) {
+              comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);
+          }
+          if (comp->renderer == NULL) break;
+
+          comp->texture = cpu_host_hal_create_texture(
+              comp->renderer,
+              CPU_HOST_PIXELFORMAT_ARGB8888,
+              CPU_HOST_TEXTUREACCESS_STREAMING,
+              160,
+              192
+          );
+          if (comp->texture == NULL) break;
+
+          {
+              const char *audio_env = cpu_host_hal_getenv("PASM_HOST_AUDIO");
+              if (audio_env == NULL || audio_env[0] != '0') {
+                  CPUHostAudioSpec want;
+                  CPUHostAudioSpec have;
+                  uint32_t expected_rate = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (uint32_t)CPU_AUDIO_SAMPLE_RATE : 44100u;
+                  cpu_host_audio_spec_zero(&want);
+                  cpu_host_audio_spec_zero(&have);
+                  want.freq = (int)expected_rate;
+                  want.format = CPU_HOST_AUDIO_FORMAT_S16;
+                  want.channels = 1;
+                  want.samples = 512;
+                  want.callback = NULL;
+
+                  comp->audio_out_ready = 0u;
+                  comp->audio_device_samples = 0u;
+                  comp->audio_rate = 0u;
+                  comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have, 0);
+
+                  if (
+                      comp->audio_out_dev != 0u &&
+                      have.format == CPU_HOST_AUDIO_FORMAT_S16 &&
+                      have.channels == 1 &&
+                      have.freq > 0 &&
+                      (uint32_t)have.freq == expected_rate &&
+                      have.samples > 0
+                  ) {
+                      uint32_t ring_capacity = (uint32_t)have.samples * 8u;
+                      if (ring_capacity < 4096u) ring_capacity = 4096u;
+                      comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));
+                      if (comp->audio_ring != NULL) {
+                          cpu_host_hal_memset(comp->audio_ring, 0, ring_capacity * sizeof(int16_t));
+                          comp->audio_ring_capacity = ring_capacity;
+                          comp->audio_ring_read_idx = 0u;
+                          comp->audio_ring_write_idx = 0u;
+                          comp->audio_ring_fill = 0u;
+                          comp->audio_rate = (uint32_t)have.freq;
+                          comp->audio_device_samples = (uint32_t)have.samples;
+                          comp->audio_out_ready = 1u;
+                          cpu_host_hal_audio_pause(comp->audio_out_dev, 0);
+                      } else {
+                          cpu_host_hal_audio_close(comp->audio_out_dev);
+                          comp->audio_out_dev = 0u;
+                          comp->audio_rate = 0u;
+                          comp->audio_device_samples = 0u;
+                      }
+                  } else if (comp->audio_out_dev != 0u) {
+                      cpu_host_hal_audio_close(comp->audio_out_dev);
+                      comp->audio_out_dev = 0u;
+                      comp->audio_rate = 0u;
+                      comp->audio_device_samples = 0u;
+                  }
+              }
+          }
+
+          {
+              const char *joy2_env = cpu_host_hal_getenv("PASM_ATARI2600_JOY2_CONNECTED");
+              comp->joy2_connected = (joy2_env != NULL && joy2_env[0] == '1') ? 1u : 0u;
+          }
+          comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
+          comp->last_focus_state = comp->has_keyboard_focus;
+          comp->host_inited = 1u;
+      } while (0);
+    reset: |
+      comp->frame_count = 0u;
+      comp->audio_samples = 0u;
+      comp->audio_hp_prev_in = 0;
+      comp->audio_hp_prev_out = 0;
+      comp->joy1 = 0u;
+      comp->joy2 = 0u;
+      comp->console_state = 0xFFu;
+      comp->audio_ring_read_idx = 0u;
+      comp->audio_ring_write_idx = 0u;
+      comp->audio_ring_fill = 0u;
+      comp->last_event_poll_cycle = 0u;
+      comp->overlay_last_ms = 0u;
+      comp->overlay_last_frame_count = 0u;
+      comp->overlay_last_cycle_count = 0u;
+      comp->overlay_fps_x100 = 0u;
+      comp->overlay_cpu_hz = 0u;
+      comp->overlay_cpu_pct_x10 = 0u;
+      if (comp->audio_out_dev != 0u) cpu_host_hal_audio_clear(comp->audio_out_dev);
+    step_post: |
+      if (comp->host_inited == 0u) return;
+      if ((cpu->total_cycles - comp->last_event_poll_cycle) < 1024u) return;
+      comp->last_event_poll_cycle = cpu->total_cycles;
+
+      {
+          CPUHostEvent ev;
+          while (cpu_host_hal_poll_event(&ev)) {
+              if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {
+                  cpu->running = false;
+                  cpu->halted = true;
+              }
+          }
+          cpu_host_hal_pump_events();
+      }
+
+      comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
+      if (comp->has_keyboard_focus != comp->last_focus_state) {
+          comp->last_focus_state = comp->has_keyboard_focus;
+          if (comp->window != NULL) {
+              cpu_host_hal_set_window_title(
+                  comp->window,
+                  (comp->has_keyboard_focus != 0u) ? "PASM Atari 2600 [FOCUS]" : "PASM Atari 2600 [NO-FOCUS]"
+              );
+          }
+      }
+      {
+          sms_overlay_update_perf(
+              cpu_host_hal_ticks_ms(),
+              (uint64_t)comp->frame_count,
+              cpu->total_cycles,
+              (uint64_t)CPU_SYSTEM_CLOCK_HZ,
+              &comp->overlay_last_ms,
+              &comp->overlay_last_frame_count,
+              &comp->overlay_last_cycle_count,
+              &comp->overlay_fps_x100,
+              &comp->overlay_cpu_hz,
+              &comp->overlay_cpu_pct_x10
+          );
+      }
+
+      {
+          int key_count = 0;
+          const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
+          if (ks != NULL && key_count > 0) {
+              uint8_t rows[3] = { 0xFFu, 0xFFu, 0xFFu };
+              cpu_component_apply_declared_keymap(
+                  cpu,
+                  "host_atari2600",
+                  ks,
+                  (size_t)key_count,
+                  rows,
+                  3u,
+                  comp->has_keyboard_focus
+              );
+              if (comp->joy2_connected == 0u) {
+                  rows[1] = 0xFFu;
+              }
+
+              comp->joy1 = 0u;
+              comp->joy2 = 0u;
+
+              if ((rows[0] & 0x01u) == 0u) comp->joy1 |= 0x01u; /* Up */
+              if ((rows[0] & 0x02u) == 0u) comp->joy1 |= 0x02u; /* Down */
+              if ((rows[0] & 0x04u) == 0u) comp->joy1 |= 0x04u; /* Left */
+              if ((rows[0] & 0x08u) == 0u) comp->joy1 |= 0x08u; /* Right */
+              if ((rows[0] & 0x10u) == 0u) comp->joy1 |= 0x10u; /* Fire */
+
+              if ((rows[1] & 0x01u) == 0u) comp->joy2 |= 0x01u;
+              if ((rows[1] & 0x02u) == 0u) comp->joy2 |= 0x02u;
+              if ((rows[1] & 0x04u) == 0u) comp->joy2 |= 0x04u;
+              if ((rows[1] & 0x08u) == 0u) comp->joy2 |= 0x08u;
+              if ((rows[1] & 0x10u) == 0u) comp->joy2 |= 0x10u;
+
+              comp->console_state = 0xFFu;
+              if ((rows[2] & 0x01u) == 0u) comp->console_state &= (uint8_t)~0x01u; /* Reset */
+              if ((rows[2] & 0x02u) == 0u) comp->console_state &= (uint8_t)~0x02u; /* Select */
+              if ((rows[2] & 0x08u) == 0u) comp->console_state &= (uint8_t)~0x08u; /* Color/BW */
+          }
+      }
+
+      if (
+          comp->audio_out_dev != 0u &&
+          comp->audio_out_ready != 0u &&
+          comp->audio_ring != NULL
+      ) {
+          uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
+          uint32_t device_samples = (comp->audio_device_samples > 0u) ? comp->audio_device_samples : 512u;
+          uint32_t low_watermark = device_samples * 3u;
+          uint32_t target_total = device_samples * 6u;
+          uint32_t max_total = device_samples * 12u;
+
+          if (queued_samples + comp->audio_ring_fill > max_total) {
+              uint32_t desired_ring_fill = (queued_samples < target_total) ? (target_total - queued_samples) : 0u;
+              while (comp->audio_ring_fill > desired_ring_fill) {
+                  comp->audio_ring_read_idx += 1u;
+                  if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+                  comp->audio_ring_fill -= 1u;
+              }
+          }
+          if (queued_samples < low_watermark) {
+              uint32_t want_samples = target_total - queued_samples;
+              uint32_t to_send = (comp->audio_ring_fill < want_samples) ? comp->audio_ring_fill : want_samples;
+              if (to_send > 0u) {
+                  uint32_t contiguous = comp->audio_ring_capacity - comp->audio_ring_read_idx;
+                  uint32_t first_chunk = (to_send < contiguous) ? to_send : contiguous;
+                  cpu_host_hal_audio_queue(comp->audio_out_dev, &comp->audio_ring[comp->audio_ring_read_idx], (uint32_t)first_chunk * sizeof(int16_t));
+                  comp->audio_ring_read_idx += first_chunk;
+                  if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+                  comp->audio_ring_fill -= first_chunk;
+                  if (first_chunk < to_send) {
+                      uint32_t second_chunk = to_send - first_chunk;
+                      cpu_host_hal_audio_queue(comp->audio_out_dev, &comp->audio_ring[comp->audio_ring_read_idx], (uint32_t)second_chunk * sizeof(int16_t));
+                      comp->audio_ring_read_idx += second_chunk;
+                      if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+                      comp->audio_ring_fill -= second_chunk;
+                  }
+              }
+          }
+      }
+    destroy: |
+      if (comp->audio_out_dev != 0u) {
+          cpu_host_hal_audio_close(comp->audio_out_dev);
+          comp->audio_out_dev = 0u;
+      }
+      if (comp->audio_ring != NULL) {
+          cpu_host_hal_free(comp->audio_ring);
+          comp->audio_ring = NULL;
+      }
+      if (comp->texture != NULL) {
+          cpu_host_hal_destroy_texture(comp->texture);
+          comp->texture = NULL;
+      }
+      if (comp->renderer != NULL) {
+          cpu_host_hal_destroy_renderer(comp->renderer);
+          comp->renderer = NULL;
+      }
+      if (comp->window != NULL) {
+          cpu_host_hal_destroy_window(comp->window);
+          comp->window = NULL;
+      }
+      if (comp->host_inited != 0u) {
+          cpu_host_hal_quit_subsystems();
+          cpu_host_hal_quit();
+          comp->host_inited = 0u;
+      }
+  callback_handlers:
+    read_joy1: |
+      return (uint64_t)comp->joy1;
+    read_joy2: |
+      return (uint64_t)comp->joy2;
+    read_console: |
+      return (uint64_t)comp->console_state;
+  handler_bodies:
+    video_frame: |
+      if (comp->host_inited == 0u || argc < 4) return;
+      void *renderer = comp->renderer;
+      void *texture = comp->texture;
+      uint32_t frame = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      uint32_t *pixels = (uint32_t *)(uintptr_t)args[1];
+      uint32_t w = (uint32_t)(args[2] & 0xFFFFFFFFu);
+      uint32_t h = (uint32_t)(args[3] & 0xFFFFFFFFu);
+      if (renderer == NULL || texture == NULL || pixels == NULL || w == 0u || h == 0u) return;
+      comp->frame_count = frame;
+      if (cpu->debug_overlay_enabled) {
+          sms_overlay_draw_perf(
+              pixels,
+              w,
+              h,
+              comp->overlay_fps_x100,
+              comp->overlay_cpu_hz,
+              comp->overlay_cpu_pct_x10
+          );
+      }
+      if (comp->texture_w != w || comp->texture_h != h) {
+          cpu_host_hal_destroy_texture(texture);
+          texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888, CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);
+          if (texture == NULL) return;
+          comp->texture = (void *)texture;
+          comp->texture_w = w;
+          comp->texture_h = h;
+      }
+      if (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
+      cpu_host_hal_render_set_draw_color(renderer, 0, 0, 0, 255);
+      cpu_host_hal_render_clear(renderer);
+      {
+          int ww = 0;
+          int wh = 0;
+          if (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
+          CPUHostRect dst;
+          int scaled_w = ww;
+          int scaled_h = (int)((((int64_t)ww) * 3) / 4);
+          if (scaled_h > wh) {
+              scaled_h = wh;
+              scaled_w = (int)((((int64_t)wh) * 4) / 3);
+          }
+          dst.w = (scaled_w > 0) ? scaled_w : ww;
+          dst.h = (scaled_h > 0) ? scaled_h : wh;
+          dst.x = (ww - dst.w) / 2;
+          dst.y = (wh - dst.h) / 2;
+          if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;
+      }
+      cpu_host_hal_render_present(renderer);
+    audio_pcm: |
+      if (
+          comp->audio_out_dev == 0u ||
+          comp->audio_out_ready == 0u ||
+          comp->audio_ring == NULL ||
+          comp->audio_ring_capacity == 0u ||
+          argc < 1
+      ) {
+          return;
+      }
+      {
+          uint8_t level = (uint8_t)(args[0] & 0xFFu);
+          int centered = ((int)level) - 128;
+          int32_t sample_in = centered * 128;
+          int32_t sample_hp =
+              sample_in -
+              comp->audio_hp_prev_in +
+              ((comp->audio_hp_prev_out * 32440) / 32768); /* R ~= 0.99 */
+          if (sample_hp < -32768) sample_hp = -32768;
+          if (sample_hp > 32767) sample_hp = 32767;
+          comp->audio_hp_prev_in = sample_in;
+          comp->audio_hp_prev_out = sample_hp;
+          int16_t sample = (int16_t)sample_hp;
+          if (comp->audio_ring_fill >= comp->audio_ring_capacity) {
+              comp->audio_ring_read_idx += 1u;
+              if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+              comp->audio_ring_fill -= 1u;
+          }
+          comp->audio_ring[comp->audio_ring_write_idx] = sample;
+          comp->audio_ring_write_idx += 1u;
+          if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
+          comp->audio_ring_fill += 1u;
+          comp->audio_samples += 1u;
+      }
+
+coding:
+  headers: ["pasm_overlay.h"]
+  include_paths: ["../include"]
+  linked_libraries: []
+  library_paths: []

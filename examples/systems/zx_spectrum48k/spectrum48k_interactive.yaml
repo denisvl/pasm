@@ -1,0 +1,184 @@
+metadata:
+  name: Z80Spectrum48KInteractiveSystem
+  version: "0.1"
+
+clock_hz: 3500000
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: ROM
+      start: 0x0000
+      size: 0x4000
+      read_only: true
+    - name: DISPLAY_BITMAP
+      start: 0x4000
+      size: 0x1800
+      read_write: true
+    - name: SCREEN_ATTRIBUTES
+      start: 0x5800
+      size: 0x0300
+      read_write: true
+    - name: PRINTER_BUFFER
+      start: 0x5B00
+      size: 0x0100
+      read_write: true
+    - name: SYSTEM_VARIABLES
+      start: 0x5C00
+      size: 0x00B6
+      read_write: true
+    - name: RAM_GENERAL
+      start: 0x5CB6
+      size: 0xA34A
+      read_write: true
+  rom_images:
+    - name: spectrum48_rom
+      file: ../../roms/zx_spectrum48k/48k.rom
+      target_region: ROM
+      offset: 0
+
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+
+components:
+  ics:
+    - ula0
+  devices:
+    - keyboard0
+    - video0
+    - speaker0
+    - mic0
+  hosts:
+    - host_zx48
+
+connections:
+  - from:
+      component: ula0
+      kind: callback
+      name: keyboard_read
+    to:
+      component: keyboard0
+      kind: callback
+      name: read_matrix
+
+  - from:
+      component: keyboard0
+      kind: callback
+      name: host_matrix
+    to:
+      component: host_zx48
+      kind: callback
+      name: keyboard_matrix
+
+  - from:
+      component: mic0
+      kind: callback
+      name: sample_input
+    to:
+      component: host_zx48
+      kind: callback
+      name: mic_sample
+
+  - from:
+      component: mic0
+      kind: signal
+      name: mic_level
+    to:
+      component: ula0
+      kind: handler
+      name: mic_input
+
+  - from:
+      component: ula0
+      kind: signal
+      name: border_changed
+    to:
+      component: video0
+      kind: handler
+      name: on_border_changed
+
+  - from:
+      component: ula0
+      kind: signal
+      name: frame_boundary
+    to:
+      component: video0
+      kind: handler
+      name: on_frame_boundary
+
+  - from:
+      component: ula0
+      kind: signal
+      name: frame_boundary
+    to:
+      component: host_zx48
+      kind: handler
+      name: frame_boundary
+
+  - from:
+      component: ula0
+      kind: signal
+      name: beeper_level
+    to:
+      component: speaker0
+      kind: handler
+      name: on_beeper_level
+
+  - from:
+      component: ula0
+      kind: signal
+      name: irq_edge
+    to:
+      component: host_zx48
+      kind: handler
+      name: irq_edge
+
+  - from:
+      component: video0
+      kind: signal
+      name: frame_ready
+    to:
+      component: host_zx48
+      kind: handler
+      name: video_frame
+
+  - from:
+      component: video0
+      kind: signal
+      name: border_present
+    to:
+      component: host_zx48
+      kind: handler
+      name: video_border
+
+  - from:
+      component: speaker0
+      kind: signal
+      name: pcm_sample
+    to:
+      component: host_zx48
+      kind: handler
+      name: audio_pcm
+
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+
+integrations:
+  profile: zx_spectrum_48k_interactive
+

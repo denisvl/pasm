@@ -102,6 +102,7 @@ typedef struct ComponentState_atari_io {
     uint8_t * ram_under_os_low;
     uint8_t * ram_under_os_high;
     uint8_t * selftest_rom;
+    uint8_t * ram_under_selftest;
 } ComponentState_atari_io;
 
 typedef struct ComponentState_video_sms {
@@ -115,8 +116,8 @@ typedef struct ComponentState_speaker_sms {
     uint64_t last_cycle;
 } ComponentState_speaker_sms;
 
-typedef struct ComponentState_host_atari800xl_sdl2 {
-    uint8_t sdl_inited;
+typedef struct ComponentState_host_atari800xl {
+    uint8_t host_inited;
     void * window;
     void * renderer;
     void * texture;
@@ -154,7 +155,7 @@ typedef struct ComponentState_host_atari800xl_sdl2 {
     uint32_t overlay_fps_x100;
     uint64_t overlay_cpu_hz;
     uint32_t overlay_cpu_pct_x10;
-} ComponentState_host_atari800xl_sdl2;
+} ComponentState_host_atari800xl;
 
 typedef struct ComponentState_atari_cart0 {
     uint8_t * rom_data;
@@ -223,7 +224,7 @@ struct CPUState {
     ComponentState_atari_io comp_atari_io;
     ComponentState_video_sms comp_video_sms;
     ComponentState_speaker_sms comp_speaker_sms;
-    ComponentState_host_atari800xl_sdl2 comp_host_atari800xl_sdl2;
+    ComponentState_host_atari800xl comp_host_atari800xl;
     ComponentState_atari_cart0 comp_atari_cart0;
 };
 

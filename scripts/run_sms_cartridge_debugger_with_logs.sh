@@ -11,7 +11,7 @@ set -euo pipefail
 #   MEMORY_SIZE=65536
 #   OUTPUT_DIR=generated/z80_sms_sdl
 #   EXTRA_CARGO_ARGS="--release"
-#   PASM_SDL_AUDIO=1
+#   PASM_HOST_AUDIO=1
 #   PASM_SMS_JOY2_CONNECTED=0|1  (default 0 for disconnected controller 2)
 #   PASM_SMS_BOOT_BIOS=1         (optional: force BIOS-visible boot even with cart loaded)
 #   RUN_SPEED=realtime|max
@@ -25,7 +25,7 @@ PROFILE="${1:-interactive}"
 START_PC="${START_PC:-0x0000}"
 MEMORY_SIZE="${MEMORY_SIZE:-65536}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
-PASM_SDL_AUDIO="${PASM_SDL_AUDIO:-1}"
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 PASM_SMS_JOY2_CONNECTED="${PASM_SMS_JOY2_CONNECTED:-0}"
 PASM_SMS_CROP_LEFT8="${PASM_SMS_CROP_LEFT8:-1}"
 PASM_SMS_DEBUG="${PASM_SMS_DEBUG:-0}"
@@ -50,13 +50,13 @@ SYSTEM_DIR="examples/systems"
 
 case "${PROFILE}" in
   default)
-    SYSTEM="examples/systems/sms/z80_sms_default.yaml"
+    SYSTEM="examples/systems/sms/sms_default.yaml"
     HOST="examples/hosts/sms/sms_host_stub.yaml"
     DEFAULT_OUTPUT="generated/z80_sms"
     ;;
   interactive)
-    SYSTEM="examples/systems/sms/z80_sms_interactive.yaml"
-    HOST="examples/hosts/sms/sms_host_sdl2_interactive.yaml"
+    SYSTEM="examples/systems/sms/sms_interactive.yaml"
+    HOST="examples/hosts/sms/sms_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/z80_sms_sdl"
     ;;
   *)
@@ -98,6 +98,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
+  --host-backend "${HOST_BACKEND:-sdl2}" \
   --cartridge-map "${CARTRIDGE_MAP}" \
   --cartridge-rom "${CARTRIDGE_ROM_GEN}" \
   --output "${OUTPUT_DIR}" 2>&1 | tee "${GEN_LOG}"
@@ -109,7 +110,7 @@ cmake --build "${BUILD_DIR}" 2>&1 | tee -a "${BUILD_LOG}"
 
 echo "[3/4] Building Rust debugger (linked backend)"
 echo "      log: ${RUN_LOG}"
-echo "      profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED} sdl_audio=${PASM_SDL_AUDIO} joy2_connected=${PASM_SMS_JOY2_CONNECTED} crop_left8=${PASM_SMS_CROP_LEFT8} sms_debug=${PASM_SMS_DEBUG}" | tee "${RUN_LOG}"
+echo "      profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED} host_audio=${PASM_HOST_AUDIO} joy2_connected=${PASM_SMS_JOY2_CONNECTED} crop_left8=${PASM_SMS_CROP_LEFT8} sms_debug=${PASM_SMS_DEBUG}" | tee "${RUN_LOG}"
 echo "      sms_boot_bios=${PASM_SMS_BOOT_BIOS:-0}" | tee -a "${RUN_LOG}"
 echo "      cartridge_map=${CARTRIDGE_MAP}" | tee -a "${RUN_LOG}"
 echo "      cartridge_rom_gen=${CARTRIDGE_ROM_GEN}" | tee -a "${RUN_LOG}"
@@ -139,7 +140,7 @@ echo "      binary: ${DBG_BIN}"
 
 if [[ "${RUNTIME_LOG_TO_CONSOLE}" == "1" ]]; then
   PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
-  PASM_SDL_AUDIO="${PASM_SDL_AUDIO}" \
+  PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
   PASM_SMS_JOY2_CONNECTED="${PASM_SMS_JOY2_CONNECTED}" \
   PASM_SMS_CROP_LEFT8="${PASM_SMS_CROP_LEFT8}" \
   PASM_SMS_DEBUG="${PASM_SMS_DEBUG}" \
@@ -153,7 +154,7 @@ if [[ "${RUNTIME_LOG_TO_CONSOLE}" == "1" ]]; then
 else
   # Keep TUI clean: send runtime stderr to log file and keep stdout attached to terminal.
   PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
-  PASM_SDL_AUDIO="${PASM_SDL_AUDIO}" \
+  PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
   PASM_SMS_JOY2_CONNECTED="${PASM_SMS_JOY2_CONNECTED}" \
   PASM_SMS_CROP_LEFT8="${PASM_SMS_CROP_LEFT8}" \
   PASM_SMS_DEBUG="${PASM_SMS_DEBUG}" \

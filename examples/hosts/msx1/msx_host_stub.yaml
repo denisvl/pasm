@@ -1,11 +1,9 @@
 metadata:
   id: host_msx
   type: host_adapter
-  model: msx_headless_stub
+  model: msx_hal_headless
   version: "1.0"
 
-backend:
-  target: stub
 
 state:
   - name: frame_count

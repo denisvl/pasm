@@ -48,14 +48,14 @@ set "IC_MAIN=examples/ics/coco1/coco1_peripherals.yaml"
 set "DEVICE_KB=examples/devices/coco1/coco_keyboard.yaml"
 set "DEVICE_VIDEO=examples/devices/coco1/coco_video.yaml"
 set "DEVICE_SPK=examples/devices/coco1/coco_speaker.yaml"
-set "SYSTEM_DIR=examples/systems"
+set "SYSTEM_DIR=examples/systems/coco1"
 
 if /I "%PROFILE%"=="default" (
-  set "SYSTEM=examples/systems/mc6809/mc6809_coco1_default.yaml"
+  set "SYSTEM=examples/systems/coco1/coco1_default.yaml"
   set "HOST=examples/hosts/coco1/coco_host_stub.yaml"
   set "DEFAULT_OUTPUT=generated/mc6809_coco1"
 ) else if /I "%PROFILE%"=="interactive" (
-  set "SYSTEM=examples/systems/mc6809/mc6809_coco1_interactive.yaml"
+  set "SYSTEM=examples/systems/coco1/coco1_interactive.yaml"
   set "HOST=examples/hosts/coco1/coco_host_sdl2_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/mc6809_coco1_sdl"
 ) else (

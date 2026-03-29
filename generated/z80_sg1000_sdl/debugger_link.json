@@ -29,6 +29,6 @@
   "cartridge": {
     "enabled": true,
     "id": "sg_cart0",
-    "default_rom_path": "/home/dvlop/projects/pasm/examples/roms/Hang-On II (Japan).sg"
+    "default_rom_path": "/home/dvlop/projects/pasm/examples/roms/sg1000/Hang-On II (Japan).sg"
   }
 }

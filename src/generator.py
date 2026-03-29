@@ -34,6 +34,7 @@ class EmulatorGenerator:
         host_paths: List[str] | None = None,
         cartridge_map_path: str | None = None,
         cartridge_rom_path: str | None = None,
+        host_backend_target: str | None = None,
     ):
         """Initialize generator with processor/system YAML paths."""
         if ic_paths is None:
@@ -51,6 +52,7 @@ class EmulatorGenerator:
             host_paths=host_paths,
             cartridge_path=cartridge_map_path,
             cartridge_rom_path=cartridge_rom_path,
+            host_backend_target=host_backend_target,
         )
         self.processor_path = Path(processor_path)
         self.system_path = Path(system_path)
@@ -368,6 +370,13 @@ int main(int argc, char *argv[]) {{
             elif isinstance(lib, str):
                 link_library_names.append(lib)
 
+        host_backend_target = str(self.isa_data.get("host_backend_target", "")).strip().lower()
+        # Keep debugger-link behavior aligned with codegen/build backends.
+        if host_backend_target == "sdl2" and "SDL2" not in link_library_names:
+            link_library_names.append("SDL2")
+        if host_backend_target == "glfw" and "glfw" not in link_library_names:
+            link_library_names.append("glfw")
+
         return {
             "schema_version": 1,
             "processor_name": metadata.get("name", self.cpu_name),
@@ -415,6 +424,7 @@ def generate(
     host_paths: List[str] | None = None,
     cartridge_map_path: str | None = None,
     cartridge_rom_path: str | None = None,
+    host_backend_target: str | None = None,
     dispatch_mode: str = "switch",
 ) -> None:
     """Convenience function to generate an emulator from processor+system YAML files."""
@@ -426,5 +436,6 @@ def generate(
         host_paths=host_paths,
         cartridge_map_path=cartridge_map_path,
         cartridge_rom_path=cartridge_rom_path,
+        host_backend_target=host_backend_target,
     )
     generator.generate(output_dir, dispatch_mode=dispatch_mode)

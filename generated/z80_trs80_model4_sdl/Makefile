@@ -3,7 +3,7 @@
 
 CC = gcc
 AR = ar
-CFLAGS = -Wall -Wextra -std=c11 -O2 -I"/home/dvlop/projects/pasm/examples/hosts/include"
+CFLAGS = -Wall -Wextra -std=c11 -O2 -I"/home/dvlop/projects/pasm/examples/ics/hosts/include" -I"/home/dvlop/projects/pasm/examples/hosts/include"
 LDFLAGS =  -lSDL2
 
 

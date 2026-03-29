@@ -1,11 +1,9 @@
 metadata:
   id: host_atari800xl
   type: host_adapter
-  model: atari800xl_headless_stub
+  model: atari800xl_hal_headless
   version: "1.0"
 
-backend:
-  target: stub
 
 state:
   - name: key_ascii

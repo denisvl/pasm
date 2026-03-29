@@ -26,8 +26,62 @@ add_executable(z80_test src/main.c)
 target_link_libraries(z80_test PRIVATE z80_emu)
 target_include_directories(z80_test PRIVATE include src)
 
+if(NOT DEFINED PASM_VCPKG_TRIPLET OR PASM_VCPKG_TRIPLET STREQUAL "")
+    if(DEFINED ENV{VCPKG_TARGET_TRIPLET} AND NOT "$ENV{VCPKG_TARGET_TRIPLET}" STREQUAL "")
+        set(PASM_VCPKG_TRIPLET "$ENV{VCPKG_TARGET_TRIPLET}")
+    elseif(WIN32)
+        set(PASM_VCPKG_TRIPLET "x64-windows")
+    elseif(APPLE)
+        set(PASM_VCPKG_TRIPLET "x64-osx")
+    else()
+        set(PASM_VCPKG_TRIPLET "x64-linux")
+    endif()
+endif()
+
+if(NOT TARGET SDL2::SDL2)
+    find_package(SDL2 CONFIG QUIET)
+endif()
+
+set(PASM_SDL2_LINK_TARGET SDL2)
+if(TARGET SDL2::SDL2)
+    set(PASM_SDL2_LINK_TARGET SDL2::SDL2)
+else()
+    set(PASM_VCPKG_ROOT_HINT "")
+    if(DEFINED ENV{VCPKG_ROOT} AND NOT "$ENV{VCPKG_ROOT}" STREQUAL "")
+        set(PASM_VCPKG_ROOT_HINT "$ENV{VCPKG_ROOT}")
+    elseif(EXISTS "D:/Development/vcpkg")
+        set(PASM_VCPKG_ROOT_HINT "D:/Development/vcpkg")
+    elseif(EXISTS "C:/vcpkg")
+        set(PASM_VCPKG_ROOT_HINT "C:/vcpkg")
+    endif()
+
+    if(NOT PASM_VCPKG_ROOT_HINT STREQUAL "")
+        set(PASM_VCPKG_BASE "${PASM_VCPKG_ROOT_HINT}/installed/${PASM_VCPKG_TRIPLET}")
+        find_path(PASM_SDL2_INCLUDE_DIR SDL2/SDL.h
+            HINTS "${PASM_VCPKG_BASE}/include"
+        )
+        if(PASM_SDL2_INCLUDE_DIR)
+            target_include_directories(z80_test PRIVATE "${PASM_SDL2_INCLUDE_DIR}")
+            target_include_directories(z80_emu PRIVATE "${PASM_SDL2_INCLUDE_DIR}")
+        endif()
+
+        find_library(PASM_SDL2_LIBRARY NAMES SDL2
+            HINTS "${PASM_VCPKG_BASE}/lib" "${PASM_VCPKG_BASE}/debug/lib"
+        )
+        if(PASM_SDL2_LIBRARY)
+            set(PASM_SDL2_LINK_TARGET "${PASM_SDL2_LIBRARY}")
+        endif()
+    endif()
+endif()
 
 
+
+target_link_libraries(z80_test PRIVATE
+    ${PASM_SDL2_LINK_TARGET}
+)
+target_link_libraries(z80_emu PRIVATE
+    ${PASM_SDL2_LINK_TARGET}
+)
 
 
 # Enable testing

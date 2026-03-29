@@ -327,6 +327,7 @@ ALLOWED_HOST_KEYS = frozenset(
 )
 CANONICAL_HOST_KEY_RE = re.compile(r"^[A-Z0-9_]+$")
 CANONICAL_BACKEND_TARGET_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+SUPPORTED_HOST_BACKEND_TARGETS = frozenset({"sdl2", "glfw", "stub"})
 
 
 def get_schema_path(kind: str) -> Path:
@@ -573,9 +574,7 @@ def _validate_host_keyboard_input(host_data: Dict[str, Any]) -> None:
 def _normalize_and_validate_host_backend(host_data: Dict[str, Any]) -> None:
     backend = host_data.get("backend")
     if backend is None:
-        raise ValidationError(
-            "Host validation failed:\nbackend.target is required and must be explicit"
-        )
+        return
 
     if not isinstance(backend, dict):
         raise ValidationError(
@@ -590,7 +589,81 @@ def _normalize_and_validate_host_backend(host_data: Dict[str, Any]) -> None:
         raise ValidationError(
             "Host validation failed:\nbackend.target must match ^[a-z][a-z0-9_]*$"
         )
+    if target not in SUPPORTED_HOST_BACKEND_TARGETS:
+        raise ValidationError(
+            "Host validation failed:\n"
+            f"backend.target '{target}' is not supported; expected one of "
+            f"{sorted(SUPPORTED_HOST_BACKEND_TARGETS)}"
+        )
     host_data["backend"] = {"target": target}
+
+
+def _normalize_host_backend_target_selection(
+    host_data_list: List[Dict[str, Any]], host_backend_target: str | None
+) -> str:
+    declared_targets: list[str] = []
+    for host_data in host_data_list:
+        backend = host_data.get("backend")
+        if isinstance(backend, dict):
+            target = str(backend.get("target", "")).strip().lower()
+            if target:
+                declared_targets.append(target)
+
+    if not host_data_list:
+        if host_backend_target:
+            target = str(host_backend_target).strip().lower()
+            if CANONICAL_BACKEND_TARGET_RE.fullmatch(target) is None:
+                raise ValidationError(
+                    "Composition validation failed:\n"
+                    "--host-backend must match ^[a-z][a-z0-9_]*$"
+                )
+            if target not in SUPPORTED_HOST_BACKEND_TARGETS:
+                raise ValidationError(
+                    "Composition validation failed:\n"
+                    f"unsupported --host-backend '{target}'; expected one of "
+                    f"{sorted(SUPPORTED_HOST_BACKEND_TARGETS)}"
+                )
+        return ""
+
+    unique_declared = sorted(set(declared_targets))
+    if len(unique_declared) > 1:
+        raise ValidationError(
+            "Composition validation failed:\n"
+            f"multiple host backend targets are not supported: {unique_declared}"
+        )
+    inferred_target = unique_declared[0] if unique_declared else ""
+    if inferred_target and inferred_target not in SUPPORTED_HOST_BACKEND_TARGETS:
+        raise ValidationError(
+            "Composition validation failed:\n"
+            f"unsupported host backend target '{inferred_target}'; expected one of "
+            f"{sorted(SUPPORTED_HOST_BACKEND_TARGETS)}"
+        )
+
+    if host_backend_target is None:
+        return inferred_target
+    target = str(host_backend_target).strip().lower()
+    if not target:
+        raise ValidationError(
+            "Composition validation failed:\n"
+            "--host-backend must be a non-empty string"
+        )
+    if CANONICAL_BACKEND_TARGET_RE.fullmatch(target) is None:
+        raise ValidationError(
+            "Composition validation failed:\n"
+            "--host-backend must match ^[a-z][a-z0-9_]*$"
+        )
+    if target not in SUPPORTED_HOST_BACKEND_TARGETS:
+        raise ValidationError(
+            "Composition validation failed:\n"
+            f"unsupported --host-backend '{target}'; expected one of "
+            f"{sorted(SUPPORTED_HOST_BACKEND_TARGETS)}"
+        )
+    if inferred_target and target != inferred_target:
+        raise ValidationError(
+            "Composition validation failed:\n"
+            f"--host-backend '{target}' conflicts with host backend.target '{inferred_target}'"
+        )
+    return target
 
 
 def _instruction_field_widths(inst: Dict[str, Any]) -> Dict[str, int]:
@@ -641,9 +714,20 @@ class ProcessorSystemLoader:
             self.host_validator = None
             self.cartridge_validator = None
 
-    def _load_yaml(self, path: str, kind: str) -> Dict[str, Any]:
+    def _resolve_existing_file(self, path: str) -> Path:
         path_obj = Path(path)
-        if not path_obj.exists():
+        if path_obj.exists() and path_obj.is_file():
+            return path_obj.resolve()
+        parent = path_obj.parent
+        if parent.exists():
+            matches = [p.resolve() for p in parent.rglob(path_obj.name) if p.is_file()]
+            if len(matches) == 1:
+                return matches[0]
+        return path_obj
+
+    def _load_yaml(self, path: str, kind: str) -> Dict[str, Any]:
+        path_obj = self._resolve_existing_file(path)
+        if not path_obj.exists() or not path_obj.is_file():
             raise FileNotFoundError(f"{kind} file not found: {path}")
         with open(path_obj, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
@@ -1037,6 +1121,19 @@ class ProcessorSystemLoader:
             return True
         return False
 
+    @staticmethod
+    def _host_id_aliases(component_id: str) -> List[str]:
+        cid = str(component_id).strip()
+        aliases: List[str] = []
+        if not cid:
+            return aliases
+        aliases.append(cid)
+        if cid.endswith("_sdl2"):
+            aliases.append(cid[: -len("_sdl2")])
+        else:
+            aliases.append(f"{cid}_sdl2")
+        return aliases
+
     def _resolve_system_rom_images(
         self, system_data: Dict[str, Any], system_path: str
     ) -> List[Dict[str, Any]]:
@@ -1097,12 +1194,6 @@ class ProcessorSystemLoader:
                     "Composition validation failed:\n"
                     f"system.memory.rom_images[{idx}] target_region '{target_region_name}' does not exist"
                 )
-            if not self._region_is_read_only(target_region):
-                raise ValidationError(
-                    "Composition validation failed:\n"
-                    f"system.memory.rom_images[{idx}] target_region '{target_region_name}' must be read-only"
-                )
-
             offset = int(rom.get("offset", 0))
             if offset < 0:
                 raise ValidationError(
@@ -1240,6 +1331,7 @@ class ProcessorSystemLoader:
         cartridge_data: Dict[str, Any] | None = None,
         cartridge_rom_path: str | None = None,
         coding_sources: List[Dict[str, Any]] | None = None,
+        host_backend_target: str = "",
     ) -> Dict[str, Any]:
         if ic_data_list is None:
             ic_data_list = []
@@ -1305,20 +1397,39 @@ class ProcessorSystemLoader:
         loaded_host_ids = [str(host.get("metadata", {}).get("id", "")) for host in host_data_list]
         loaded_cartridge_id = str(cartridge_data.get("metadata", {}).get("id", "")).strip()
 
-        host_backend_targets: set[str] = set()
-        for host in host_data_list:
-            backend = host.get("backend", {})
-            target = ""
-            if isinstance(backend, dict):
-                target = str(backend.get("target", "")).strip().lower()
-            if target:
-                host_backend_targets.add(target)
-        if len(host_backend_targets) > 1:
-            targets = ", ".join(sorted(host_backend_targets))
-            raise ValidationError(
-                "Composition validation failed:\n"
-                f"multiple host backend targets are not supported in one build ({targets})"
-            )
+        host_id_map: Dict[str, str] = {}
+        for configured_id in configured_host_ids:
+            if configured_id in loaded_host_ids:
+                host_id_map[configured_id] = configured_id
+                continue
+            matches = [
+                loaded_id
+                for loaded_id in loaded_host_ids
+                if configured_id in self._host_id_aliases(loaded_id)
+                or loaded_id in self._host_id_aliases(configured_id)
+            ]
+            if len(matches) == 1:
+                host_id_map[configured_id] = matches[0]
+
+        if any(host_id_map.get(cid, cid) != cid for cid in configured_host_ids):
+            system_data = copy.deepcopy(system_data)
+            system_components = system_data.setdefault("components", {})
+            system_components["hosts"] = [
+                host_id_map.get(component_id, component_id)
+                for component_id in configured_host_ids
+            ]
+            for conn in system_data.get("connections", []):
+                from_ep = conn.get("from", {})
+                to_ep = conn.get("to", {})
+                from_component = str(from_ep.get("component", ""))
+                to_component = str(to_ep.get("component", ""))
+                if from_component in host_id_map:
+                    from_ep["component"] = host_id_map[from_component]
+                if to_component in host_id_map:
+                    to_ep["component"] = host_id_map[to_component]
+            configured_host_ids = [
+                str(item) for item in system_components.get("hosts", [])
+            ]
 
         if set(configured_ic_ids) != set(loaded_ic_ids):
             raise ValidationError(
@@ -1331,10 +1442,21 @@ class ProcessorSystemLoader:
                 "system.components.devices must match loaded --device files exactly"
             )
         if set(configured_host_ids) != set(loaded_host_ids):
-            raise ValidationError(
-                "Composition validation failed:\n"
-                "system.components.hosts must match loaded --host files exactly"
-            )
+            configured_aliases = {
+                alias
+                for cid in configured_host_ids
+                for alias in self._host_id_aliases(cid)
+            }
+            loaded_aliases = {
+                alias
+                for cid in loaded_host_ids
+                for alias in self._host_id_aliases(cid)
+            }
+            if configured_aliases.isdisjoint(loaded_aliases):
+                raise ValidationError(
+                    "Composition validation failed:\n"
+                    "system.components.hosts must match loaded --host files exactly"
+                )
         if configured_cartridge_id:
             if loaded_cartridge_id:
                 if configured_cartridge_id != loaded_cartridge_id:
@@ -1436,7 +1558,11 @@ class ProcessorSystemLoader:
         endpoint_arity: Dict[str, Dict[str, Dict[str, int]]] = {}
         for component in ic_data_list + device_data_list + host_data_list:
             component_id = str(component.get("metadata", {}).get("id", ""))
-            endpoint_arity[component_id] = self._extract_endpoint_arity(component)
+            arity = self._extract_endpoint_arity(component)
+            endpoint_arity[component_id] = arity
+            if component in host_data_list:
+                for alias_id in self._host_id_aliases(component_id):
+                    endpoint_arity.setdefault(alias_id, arity)
         if loaded_cartridge_id:
             endpoint_arity[loaded_cartridge_id] = self._extract_endpoint_arity(cartridge_data)
 
@@ -1473,6 +1599,7 @@ class ProcessorSystemLoader:
                 "reset_delay_seconds": int(system_data.get("reset_delay_seconds", 0)),
                 "integrations": copy.deepcopy(system_data.get("integrations", {})),
             },
+            "host_backend_target": str(host_backend_target or ""),
         }
 
         return combined
@@ -1486,6 +1613,7 @@ class ProcessorSystemLoader:
         host_paths: List[str] | None = None,
         cartridge_path: str | None = None,
         cartridge_rom_path: str | None = None,
+        host_backend_target: str | None = None,
     ) -> Dict[str, Any]:
         if ic_paths is None:
             ic_paths = []
@@ -1494,27 +1622,43 @@ class ProcessorSystemLoader:
         if host_paths is None:
             host_paths = []
 
-        processor_data = self._load_yaml(processor_path, "processor")
-        system_data = self._load_yaml(system_path, "system")
-        ic_data_list = [self._load_yaml(path, "ic") for path in ic_paths]
-        device_data_list = [self._load_yaml(path, "device") for path in device_paths]
-        host_data_list = [self._load_yaml(path, "host") for path in host_paths]
+        resolved_processor_path = str(self._resolve_existing_file(processor_path))
+        resolved_system_path = str(self._resolve_existing_file(system_path))
+        resolved_ic_paths = [str(self._resolve_existing_file(path)) for path in ic_paths]
+        resolved_device_paths = [
+            str(self._resolve_existing_file(path)) for path in device_paths
+        ]
+        resolved_host_paths = [str(self._resolve_existing_file(path)) for path in host_paths]
+
+        processor_data = self._load_yaml(resolved_processor_path, "processor")
+        system_data = self._load_yaml(resolved_system_path, "system")
+        ic_data_list = [self._load_yaml(path, "ic") for path in resolved_ic_paths]
+        device_data_list = [self._load_yaml(path, "device") for path in resolved_device_paths]
+        host_data_list = [self._load_yaml(path, "host") for path in resolved_host_paths]
         cartridge_data = {}
         if cartridge_path:
-            cartridge_data = self._load_yaml(cartridge_path, "cartridge")
+            resolved_cartridge_path = str(self._resolve_existing_file(cartridge_path))
+            cartridge_data = self._load_yaml(resolved_cartridge_path, "cartridge")
+        else:
+            resolved_cartridge_path = None
 
         processor_data = self.validate_processor(processor_data)
         system_data = self.validate_system(system_data)
         ic_data_list = [self.validate_ic(ic_data) for ic_data in ic_data_list]
         device_data_list = [self.validate_device(device_data) for device_data in device_data_list]
         host_data_list = [self.validate_host(host_data) for host_data in host_data_list]
+        selected_host_backend_target = _normalize_host_backend_target_selection(
+            host_data_list, host_backend_target
+        )
         if cartridge_data:
             cartridge_data = self.validate_cartridge(cartridge_data)
-        rom_images_resolved = self._resolve_system_rom_images(system_data, system_path)
+        rom_images_resolved = self._resolve_system_rom_images(
+            system_data, resolved_system_path
+        )
         system_data = copy.deepcopy(system_data)
         system_data.setdefault("memory", {})
         system_data["memory"]["rom_images"] = rom_images_resolved
-        system_base_dir = Path(system_path).resolve().parent
+        system_base_dir = Path(resolved_system_path).resolve().parent
         resolved_cartridge_rom_path = ""
         if cartridge_rom_path:
             resolved_cartridge_rom_path = self._validate_readable_file(
@@ -1524,23 +1668,27 @@ class ProcessorSystemLoader:
             )
 
         coding_sources: List[Dict[str, Any]] = [
-            self._resolve_coding_paths(processor_data.get("coding", {}), processor_path)
+            self._resolve_coding_paths(
+                processor_data.get("coding", {}), resolved_processor_path
+            )
         ]
         coding_sources.extend(
             self._resolve_coding_paths(ic_data.get("coding", {}), ic_path)
-            for ic_data, ic_path in zip(ic_data_list, ic_paths)
+            for ic_data, ic_path in zip(ic_data_list, resolved_ic_paths)
         )
         coding_sources.extend(
             self._resolve_coding_paths(device_data.get("coding", {}), device_path)
-            for device_data, device_path in zip(device_data_list, device_paths)
+            for device_data, device_path in zip(device_data_list, resolved_device_paths)
         )
         coding_sources.extend(
             self._resolve_coding_paths(host_data.get("coding", {}), host_path)
-            for host_data, host_path in zip(host_data_list, host_paths)
+            for host_data, host_path in zip(host_data_list, resolved_host_paths)
         )
-        if cartridge_data and cartridge_path:
+        if cartridge_data and resolved_cartridge_path:
             coding_sources.append(
-                self._resolve_coding_paths(cartridge_data.get("coding", {}), cartridge_path)
+                self._resolve_coding_paths(
+                    cartridge_data.get("coding", {}), resolved_cartridge_path
+                )
             )
 
         return self.compose(
@@ -1552,6 +1700,7 @@ class ProcessorSystemLoader:
             cartridge_data,
             resolved_cartridge_rom_path,
             coding_sources,
+            selected_host_backend_target,
         )
 
     def get_summary(self, combined_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1620,6 +1769,7 @@ def load_processor_system(
     host_paths: List[str] | None = None,
     cartridge_path: str | None = None,
     cartridge_rom_path: str | None = None,
+    host_backend_target: str | None = None,
 ) -> Dict[str, Any]:
     """Convenience function to load and validate processor+system files."""
     loader = ProcessorSystemLoader()
@@ -1631,6 +1781,7 @@ def load_processor_system(
         host_paths=host_paths,
         cartridge_path=cartridge_path,
         cartridge_rom_path=cartridge_rom_path,
+        host_backend_target=host_backend_target,
     )
 
 
@@ -1642,6 +1793,7 @@ def validate_processor_system(
     host_paths: List[str] | None = None,
     cartridge_path: str | None = None,
     cartridge_rom_path: str | None = None,
+    host_backend_target: str | None = None,
 ) -> bool:
     """Validate processor+system files without generating code."""
     loader = ProcessorSystemLoader()
@@ -1654,6 +1806,7 @@ def validate_processor_system(
             host_paths=host_paths,
             cartridge_path=cartridge_path,
             cartridge_rom_path=cartridge_rom_path,
+            host_backend_target=host_backend_target,
         )
         return True
     except (ValidationError, FileNotFoundError, yaml.YAMLError, ValueError) as e:

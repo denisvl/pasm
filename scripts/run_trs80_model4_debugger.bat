@@ -43,11 +43,11 @@ set "DEVICE_SPK=examples/devices/trs80_model4/trs80_speaker.yaml"
 set "SYSTEM_DIR=examples/systems"
 
 if /I "%PROFILE%"=="default" (
-  set "SYSTEM=examples/systems/trs80_model4/z80_trs80_model4_default.yaml"
+  set "SYSTEM=examples/systems/trs80_model4/trs80_model4_default.yaml"
   set "HOST=examples/hosts/trs80_model4/trs80_host_stub.yaml"
   set "DEFAULT_OUTPUT=generated/z80_trs80_model4"
 ) else if /I "%PROFILE%"=="interactive" (
-  set "SYSTEM=examples/systems/trs80_model4/z80_trs80_model4_interactive.yaml"
+  set "SYSTEM=examples/systems/trs80_model4/trs80_model4_interactive.yaml"
   set "HOST=examples/hosts/trs80_model4/trs80_host_sdl2_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/z80_trs80_model4_sdl"
 ) else (

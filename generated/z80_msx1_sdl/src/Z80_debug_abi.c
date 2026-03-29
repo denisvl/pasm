@@ -171,6 +171,7 @@ static void dbg_history_record(CPUState *cpu, uint16_t addr) {
     PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, true);
     uint32_t raw;
     if (!slot) return;
+    if (cpu->halted) return;
     raw = dbg_read_u32(cpu, addr);
     slot->rows[slot->head].address = (uint64_t)addr;
     slot->rows[slot->head].raw = raw;
@@ -1026,7 +1027,7 @@ int z80_dbg_focus_host_window(CPUState *cpu) {
 #if defined(SDL_MAJOR_VERSION)
     int focused = 0;
     {
-        ComponentState_host_msx_sdl2 *comp = &cpu->comp_host_msx_sdl2;
+        ComponentState_host_msx *comp = &cpu->comp_host_msx;
         if (comp->window != NULL) {
             SDL_Window *wnd = (SDL_Window *)comp->window;
             SDL_ShowWindow(wnd);

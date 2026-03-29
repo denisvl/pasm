@@ -29,6 +29,6 @@
   "cartridge": {
     "enabled": true,
     "id": "sms_cart0",
-    "default_rom_path": "/home/dvlop/projects/pasm/examples/roms/Sonic The Hedgehog (USA, Europe).sms"
+    "default_rom_path": "/home/dvlop/projects/pasm/examples/roms/sms/Sonic The Hedgehog (USA, Europe).sms"
   }
 }

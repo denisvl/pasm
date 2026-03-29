@@ -40,7 +40,7 @@ set "IC_IO=examples/ics/apple2/apple2_io.yaml"
 set "DEVICE_KB=examples/devices/apple2/apple2_keyboard.yaml"
 set "DEVICE_VIDEO=examples/devices/apple2/apple2_video.yaml"
 set "DEVICE_SPK=examples/devices/apple2/apple2_speaker.yaml"
-set "HOST_INTERACTIVE=examples/hosts/apple2/apple2_host_sdl2_interactive.yaml"
+set "HOST_INTERACTIVE=examples/hosts/apple2/apple2_host_hal_interactive.yaml"
 
 if /I "%PROFILE%"=="default" (
   set "SYSTEM=examples/systems/apple2/apple2_default.yaml"

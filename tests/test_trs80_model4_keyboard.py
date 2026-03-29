@@ -14,9 +14,9 @@ BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _trs80_interactive_paths():
-    processor_path, _ = example_pair("z80", system="z80_trs80_model4_default.yaml")
+    processor_path, _ = example_pair("z80", system="trs80_model4_default.yaml")
     system_path = (
-        BASE_DIR / "examples" / "systems" / "trs80_model4" / "z80_trs80_model4_interactive.yaml"
+        BASE_DIR / "examples" / "systems" / "trs80_model4" / "trs80_model4_interactive.yaml"
     )
     ic_paths = [
         BASE_DIR / "examples" / "ics" / "trs80_model4" / "trs80_model4_peripherals.yaml",
@@ -27,7 +27,7 @@ def _trs80_interactive_paths():
         BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_speaker.yaml",
     ]
     host_paths = [
-        BASE_DIR / "examples" / "hosts" / "trs80_model4" / "trs80_host_sdl2_interactive.yaml",
+        BASE_DIR / "examples" / "hosts" / "trs80_model4" / "trs80_host_hal_interactive.yaml",
     ]
     return processor_path, system_path, ic_paths, device_paths, host_paths
 
@@ -68,7 +68,7 @@ def test_trs80_interactive_host_bindings_cover_caps_and_punctuation():
         [str(path) for path in device_paths],
         [str(path) for path in host_paths],
     )
-    host = next(comp for comp in data["hosts"] if comp["metadata"]["id"] == "host_trs80_sdl2")
+    host = next(comp for comp in data["hosts"] if comp["metadata"]["id"] == "host_trs80")
     assert host["input"]["keyboard"]["focus_required"] is True
     bindings = host["input"]["keyboard"]["bindings"]
     binding_map = {b["host_key"]: {(p["row"], p["bit"]) for p in b["presses"]} for b in bindings}
@@ -94,9 +94,9 @@ def test_trs80_interactive_host_bindings_cover_caps_and_punctuation():
     reason="C compiler not available on PATH",
 )
 def test_trs80_keyboard_matrix_runtime_row_column_behavior(tmp_path):
-    processor_path, _ = example_pair("z80", system="z80_trs80_model4_default.yaml")
+    processor_path, _ = example_pair("z80", system="trs80_model4_default.yaml")
     system_path = (
-        BASE_DIR / "examples" / "systems" / "trs80_model4" / "z80_trs80_model4_default.yaml"
+        BASE_DIR / "examples" / "systems" / "trs80_model4" / "trs80_model4_default.yaml"
     )
     ic_paths = [
         BASE_DIR / "examples" / "ics" / "trs80_model4" / "trs80_model4_peripherals.yaml",

@@ -28,7 +28,7 @@ def _c64_interactive_paths():
         BASE_DIR / "examples" / "devices" / "c64_speaker.yaml",
     ]
     host_paths = [
-        BASE_DIR / "examples" / "hosts" / "c64_host_sdl2_interactive.yaml",
+        BASE_DIR / "examples" / "hosts" / "c64_host_hal_interactive.yaml",
     ]
     return processor_path, system_path, ic_paths, device_paths, host_paths
 
@@ -50,7 +50,7 @@ def test_c64_interactive_component_graph_validates():
         "video_c64",
         "speaker_c64",
     ]
-    assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_c64_sdl2"]
+    assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_c64"]
 
 
 def test_generate_c64_interactive_with_components():
@@ -76,4 +76,4 @@ def test_generate_c64_interactive_with_components():
     assert "mos6510_interrupt(cpu, 0u);" in impl
     assert "cpu_component_emit_signal(cpu, \"c64_io\", \"frame_ready\"" in impl
     assert "cpu_component_apply_declared_keymap(" in impl
-    assert "SDL_SCANCODE_LSHIFT" in impl
+    assert "CPU_HOST_SCANCODE(LSHIFT)" in impl

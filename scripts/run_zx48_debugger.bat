@@ -42,11 +42,11 @@ set "DEVICE_MIC=examples/devices/zx_spectrum48k/zx48_mic.yaml"
 set "SYSTEM_DIR=examples/systems"
 
 if /I "%PROFILE%"=="default" (
-  set "SYSTEM=examples/systems/zx_spectrum48k/z80_spectrum48k_default.yaml"
+  set "SYSTEM=examples/systems/zx_spectrum48k/spectrum48k_default.yaml"
   set "HOST=examples/hosts/zx_spectrum48k/zx48_host_sdl2.yaml"
   set "DEFAULT_OUTPUT=generated/z80_48k_sdl"
 ) else if /I "%PROFILE%"=="interactive" (
-  set "SYSTEM=examples/systems/zx_spectrum48k/z80_spectrum48k_interactive.yaml"
+  set "SYSTEM=examples/systems/zx_spectrum48k/spectrum48k_interactive.yaml"
   set "HOST=examples/hosts/zx_spectrum48k/zx48_host_sdl2_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/z80_48k_sdl_interactive"
 ) else (

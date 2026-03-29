@@ -164,6 +164,7 @@ static void dbg_history_record(CPUState *cpu, uint16_t addr) {
     PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, true);
     uint32_t raw;
     if (!slot) return;
+    if (cpu->halted) return;
     raw = dbg_read_u32(cpu, addr);
     slot->rows[slot->head].address = (uint64_t)addr;
     slot->rows[slot->head].raw = raw;

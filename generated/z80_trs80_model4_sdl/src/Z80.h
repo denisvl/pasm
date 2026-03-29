@@ -104,8 +104,8 @@ typedef struct ComponentState_speaker_trs80 {
     uint64_t last_cycle;
 } ComponentState_speaker_trs80;
 
-typedef struct ComponentState_host_trs80_sdl2 {
-    uint8_t sdl_inited;
+typedef struct ComponentState_host_trs80 {
+    uint8_t host_inited;
     void * window;
     void * renderer;
     void * texture;
@@ -143,7 +143,7 @@ typedef struct ComponentState_host_trs80_sdl2 {
     uint8_t row5;
     uint8_t row6;
     uint8_t row7;
-} ComponentState_host_trs80_sdl2;
+} ComponentState_host_trs80;
 
 
 /* ===== CPU State ===== */
@@ -226,7 +226,7 @@ struct CPUState {
     ComponentState_keyboard_trs80 comp_keyboard_trs80;
     ComponentState_video_trs80 comp_video_trs80;
     ComponentState_speaker_trs80 comp_speaker_trs80;
-    ComponentState_host_trs80_sdl2 comp_host_trs80_sdl2;
+    ComponentState_host_trs80 comp_host_trs80;
 };
 
 /* ===== Constants ===== */

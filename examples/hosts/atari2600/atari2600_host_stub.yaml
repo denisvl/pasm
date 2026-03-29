@@ -1,11 +1,9 @@
 metadata:
   id: host_atari2600
   type: host_adapter
-  model: atari2600_headless_stub
+  model: atari2600_hal_headless
   version: "1.0"
 
-backend:
-  target: stub
 
 state:
   - name: joy1

@@ -1,11 +1,9 @@
 metadata:
   id: host_cpc
   type: host_adapter
-  model: amstrad_cpc_headless_stub
+  model: amstrad_cpc_hal_headless
   version: "1.0"
 
-backend:
-  target: stub
 
 state:
   - name: frame_count

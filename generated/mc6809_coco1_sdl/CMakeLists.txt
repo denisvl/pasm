@@ -75,9 +75,13 @@ else()
 endif()
 
 target_include_directories(mc6809_test PRIVATE
+    "/home/dvlop/projects/pasm/examples/ics/hosts/include"
+    "/home/dvlop/projects/pasm/examples/devices/hosts/include"
     "/home/dvlop/projects/pasm/examples/hosts/include"
 )
 target_include_directories(mc6809_emu PRIVATE
+    "/home/dvlop/projects/pasm/examples/ics/hosts/include"
+    "/home/dvlop/projects/pasm/examples/devices/hosts/include"
     "/home/dvlop/projects/pasm/examples/hosts/include"
 )
 

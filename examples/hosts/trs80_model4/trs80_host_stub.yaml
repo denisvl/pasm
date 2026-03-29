@@ -1,11 +1,9 @@
 metadata:
   id: host_trs80
   type: host_adapter
-  model: trs80_headless_stub
+  model: trs80_hal_headless
   version: "1.0"
 
-backend:
-  target: stub
 
 state:
   - name: frame_count

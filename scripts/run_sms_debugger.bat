@@ -53,11 +53,11 @@ set "DEVICE_SPK=examples/devices/sms/sms_speaker.yaml"
 set "SYSTEM_DIR=examples/systems"
 
 if /I "%PROFILE%"=="default" (
-  set "SYSTEM=examples/systems/sms/z80_sms_default.yaml"
+  set "SYSTEM=examples/systems/sms/sms_default.yaml"
   set "HOST=examples/hosts/sms/sms_host_stub.yaml"
   set "DEFAULT_OUTPUT=generated/z80_sms"
 ) else if /I "%PROFILE%"=="interactive" (
-  set "SYSTEM=examples/systems/sms/z80_sms_interactive.yaml"
+  set "SYSTEM=examples/systems/sms/sms_interactive.yaml"
   set "HOST=examples/hosts/sms/sms_host_sdl2_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/z80_sms_sdl"
 ) else (

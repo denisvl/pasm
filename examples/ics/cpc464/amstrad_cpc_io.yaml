@@ -333,6 +333,22 @@ behavior:
       comp->crtc_display = 0u;
       comp->display_active = 0u;
       comp->crtc_char_accum = 0u;
+      /* Mirror loaded system ROM bytes into fixed CPC ROM banks.
+         System ROM loader places bytes in cpu->memory before reset. */
+      if (comp->lower_rom != NULL && cpu->memory_size >= 0x4000u) {
+          memcpy(comp->lower_rom, &cpu->memory[0x0000u], 0x4000u);
+      }
+      if (comp->upper_rom != NULL && cpu->memory_size >= 0x10000u) {
+          memcpy(comp->upper_rom, &cpu->memory[0xC000u], 0x4000u);
+      }
+      /* Keep RAM-under-ROM separate from ROM image storage.
+         Video fetches from cpu->memory and must see writable RAM, not ROM bytes. */
+      if (cpu->memory_size >= 0x4000u) {
+          memset(&cpu->memory[0x0000u], 0, 0x4000u);
+      }
+      if (cpu->memory_size >= 0x10000u) {
+          memset(&cpu->memory[0xC000u], 0, 0x4000u);
+      }
     destroy: |
       if (comp->lower_rom != NULL) {
           free(comp->lower_rom);

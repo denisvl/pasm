@@ -28,7 +28,7 @@ def test_simple8_loads_and_validates():
 
 
 def test_system_reset_delay_seconds_is_loaded():
-    processor_path, system_path = example_pair("z80", "z80_trs80_model4_interactive.yaml")
+    processor_path, system_path = example_pair("z80", "trs80_model4_interactive.yaml")
     data = yaml_loader.load_processor_system(
         str(processor_path),
         str(system_path),
@@ -52,7 +52,7 @@ def test_system_reset_delay_seconds_is_loaded():
                 / "examples"
                 / "hosts"
                 / "trs80_model4"
-                / "trs80_host_sdl2_interactive.yaml"
+                / "trs80_host_hal_interactive.yaml"
             )
         ],
     )
@@ -581,8 +581,7 @@ def test_processor_display_operands_table_requires_non_empty_table(tmp_path):
 
 def _base_host_with_keyboard_input():
     return {
-        "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
-        "backend": {"target": "sdl2"},
+        "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test"},
         "state": [],
         "interfaces": {"callbacks": [], "handlers": [], "signals": []},
         "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
@@ -606,11 +605,12 @@ def _base_host_with_keyboard_input():
     }
 
 
-def _write_host_yaml(path: pathlib.Path, host_id: str, backend_target: str) -> pathlib.Path:
+def _write_host_yaml(
+    path: pathlib.Path, host_id: str, backend_target: str | None = None
+) -> pathlib.Path:
     host_path = path / f"{host_id}.yaml"
     host_data = {
         "metadata": {"id": host_id, "type": "host_adapter", "model": f"{host_id}_model"},
-        "backend": {"target": backend_target},
         "state": [],
         "interfaces": {"callbacks": [], "handlers": [], "signals": []},
         "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
@@ -621,6 +621,8 @@ def _write_host_yaml(path: pathlib.Path, host_id: str, backend_target: str) -> p
             "library_paths": [],
         },
     }
+    if backend_target is not None:
+        host_data["backend"] = {"target": backend_target}
     host_path.write_text(yaml.safe_dump(host_data, sort_keys=False), encoding="utf-8")
     return host_path
 
@@ -728,12 +730,12 @@ def test_host_keyboard_input_validation_rejects_out_of_range_press():
         loader.validate_host(host_data)
 
 
-def test_host_backend_requires_explicit_target():
+def test_host_backend_allows_omitted_target():
     loader = yaml_loader.ProcessorSystemLoader()
     host_data = _base_host_with_keyboard_input()
     host_data.pop("backend", None)
-    with pytest.raises(Exception, match="backend.target is required"):
-        loader.validate_host(host_data)
+    validated = loader.validate_host(host_data)
+    assert "backend" not in validated
 
 
 def test_host_backend_accepts_explicit_target():
@@ -752,11 +754,11 @@ def test_host_backend_rejects_invalid_target_format():
         loader.validate_host(host_data)
 
 
-def test_compose_rejects_mixed_host_backend_targets(tmp_path):
+def test_compose_requires_explicit_host_backend_selection(tmp_path):
     processor_path, _ = example_pair("z80")
     system_path = _write_host_system_yaml(tmp_path, ["host_sdl", "host_stub"])
-    host_sdl = _write_host_yaml(tmp_path, "host_sdl", "sdl2")
-    host_stub = _write_host_yaml(tmp_path, "host_stub", "stub")
+    host_sdl = _write_host_yaml(tmp_path, "host_sdl", backend_target="sdl2")
+    host_stub = _write_host_yaml(tmp_path, "host_stub", backend_target="stub")
 
     with pytest.raises(Exception, match="multiple host backend targets"):
         yaml_loader.load_processor_system(
@@ -769,26 +771,28 @@ def test_compose_rejects_mixed_host_backend_targets(tmp_path):
 def test_compose_accepts_single_host_backend_target(tmp_path):
     processor_path, _ = example_pair("z80")
     system_path = _write_host_system_yaml(tmp_path, ["host_a", "host_b"])
-    host_a = _write_host_yaml(tmp_path, "host_a", "sdl2")
-    host_b = _write_host_yaml(tmp_path, "host_b", "sdl2")
+    host_a = _write_host_yaml(tmp_path, "host_a")
+    host_b = _write_host_yaml(tmp_path, "host_b")
 
     loaded = yaml_loader.load_processor_system(
         str(processor_path),
         str(system_path),
         host_paths=[str(host_a), str(host_b)],
+        host_backend_target="sdl2",
     )
     assert len(loaded["hosts"]) == 2
+    assert loaded["host_backend_target"] == "sdl2"
 
 
 def test_compose_does_not_infer_backend_target_from_host_model_name(tmp_path):
     processor_path, _ = example_pair("z80")
     system_path = _write_host_system_yaml(tmp_path, ["host_model_sdl2"])
-    host_model_sdl2 = _write_host_yaml_without_backend(tmp_path, "host_model_sdl2", "test_host_sdl2")
+    host_model_sdl2 = _write_host_yaml_without_backend(tmp_path, "host_model_sdl2", "test_host_hal")
 
-    with pytest.raises(Exception, match="backend.target is required"):
-        yaml_loader.load_processor_system(
-            str(processor_path),
-            str(system_path),
-            host_paths=[str(host_model_sdl2)],
-        )
+    loaded = yaml_loader.load_processor_system(
+        str(processor_path),
+        str(system_path),
+        host_paths=[str(host_model_sdl2)],
+    )
+    assert loaded["host_backend_target"] == ""
 

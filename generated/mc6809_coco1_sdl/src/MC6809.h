@@ -132,8 +132,8 @@ typedef struct ComponentState_speaker_coco {
     uint64_t last_cycle;
 } ComponentState_speaker_coco;
 
-typedef struct ComponentState_host_coco_sdl2 {
-    uint8_t sdl_inited;
+typedef struct ComponentState_host_coco {
+    uint8_t host_inited;
     void * window;
     void * renderer;
     void * texture;
@@ -180,7 +180,12 @@ typedef struct ComponentState_host_coco_sdl2 {
     uint8_t joy1_connected;
     uint8_t joy2_connected;
     uint8_t active_joy_port;
-} ComponentState_host_coco_sdl2;
+} ComponentState_host_coco;
+
+typedef struct ComponentState_coco_cart0 {
+    uint8_t * rom_data;
+    uint32_t rom_size;
+} ComponentState_coco_cart0;
 
 
 /* ===== CPU State ===== */
@@ -249,7 +254,8 @@ struct CPUState {
     ComponentState_keyboard_coco comp_keyboard_coco;
     ComponentState_video_coco comp_video_coco;
     ComponentState_speaker_coco comp_speaker_coco;
-    ComponentState_host_coco_sdl2 comp_host_coco_sdl2;
+    ComponentState_host_coco comp_host_coco;
+    ComponentState_coco_cart0 comp_coco_cart0;
 };
 
 /* ===== Constants ===== */
@@ -267,7 +273,7 @@ struct CPUState {
 #define CPU_IC_COUNT 1
 #define CPU_DEVICE_COUNT 3
 #define CPU_HOST_COUNT 1
-#define CPU_CARTRIDGE_COUNT 0
+#define CPU_CARTRIDGE_COUNT 1
 
 /* ===== Register Enum ===== */
 typedef enum {

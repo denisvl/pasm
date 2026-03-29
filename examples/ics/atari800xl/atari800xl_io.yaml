@@ -127,6 +127,9 @@ state:
   - name: selftest_rom
     type: uint8_t *
     initial: "NULL"
+  - name: ram_under_selftest
+    type: uint8_t *
+    initial: "NULL"
 
 interfaces:
   callbacks:
@@ -189,6 +192,9 @@ behavior:
           /* Self-test bytes are expected to be provided by system ROM loading
              (CLI/runtime), not by direct file I/O from this component. */
       }
+      if (comp->ram_under_selftest == NULL) {
+          comp->ram_under_selftest = (uint8_t *)calloc(0x0800u, sizeof(uint8_t));
+      }
     reset: |
       comp->pia_ora = 0xFFu;
       comp->pia_orb = 0xFFu;
@@ -244,6 +250,15 @@ behavior:
               comp->ram_under_os_high[i] = ((uint64_t)a < cpu->memory_size) ? cpu->memory[a] : 0u;
           }
       }
+      if (comp->selftest_rom != NULL) {
+          for (uint16_t i = 0u; i < 0x0800u; ++i) {
+              uint16_t a = (uint16_t)(0x5000u + i);
+              comp->selftest_rom[i] = ((uint64_t)a < cpu->memory_size) ? cpu->memory[a] : 0u;
+          }
+      }
+      if (comp->ram_under_selftest != NULL) {
+          memset(comp->ram_under_selftest, 0, 0x0800u);
+      }
       if (cpu->memory_size >= 0x02FDu) {
           cpu->memory[0x02FCu] = 0xFFu; /* CH */
       }
@@ -282,10 +297,17 @@ behavior:
           free(comp->selftest_rom);
           comp->selftest_rom = NULL;
       }
+      if (comp->ram_under_selftest != NULL) {
+          free(comp->ram_under_selftest);
+          comp->ram_under_selftest = NULL;
+      }
     mem_read_pre: |
       if (addr >= 0x5000u && addr < 0x5800u) {
           if ((comp->portb & 0x80u) == 0u && comp->selftest_rom != NULL) {
               return comp->selftest_rom[(uint16_t)(addr - 0x5000u)];
+          }
+          if ((comp->portb & 0x80u) != 0u && comp->ram_under_selftest != NULL) {
+              return comp->ram_under_selftest[(uint16_t)(addr - 0x5000u)];
           }
       }
       if (addr >= 0xA000u && addr < 0xC000u) {
@@ -421,8 +443,8 @@ behavior:
       }
     mem_write_pre: |
       if (addr == 0x02FCu) {
-          /* OS CH shadow: keep POKEY keycode in sync until software clears it. */
-          comp->keyboard_atascii = value;
+          /* OS CH shadow (keyboard code), not ATASCII. */
+          comp->keyboard_code = value;
           if (value == 0xFFu) {
               comp->keyboard_sticky = 0u;
           }
@@ -431,6 +453,10 @@ behavior:
           if ((comp->portb & 0x80u) == 0u) {
               return;
           }
+          if (comp->ram_under_selftest != NULL) {
+              comp->ram_under_selftest[(uint16_t)(addr - 0x5000u)] = value;
+          }
+          return;
       }
       if (addr >= 0xA000u && addr < 0xC000u) {
       #if CPU_CARTRIDGE_COUNT > 0
@@ -624,6 +650,13 @@ behavior:
               comp->pokey_serout_done_latch = 1u;
               /* Assert serial output complete (bit 3, active-low). */
               comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x08u);
+              /* Keep SEROR signaling aligned with XL OS polling/IRQ paths:
+                 when output fully completes, also assert bit 4 if enabled. */
+              if ((comp->pokey_irqen & 0x10u) != 0u) {
+                  comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x10u);
+                  cpu->interrupt_vector = 0x00u;
+                  cpu->interrupt_pending = true;
+              }
               if ((comp->pokey_irqen & 0x08u) != 0u) {
                   cpu->interrupt_vector = 0x00u;
                   cpu->interrupt_pending = true;
@@ -724,7 +757,7 @@ behavior:
                   cpu->interrupt_pending = true;
               }
               if (cpu->memory_size > 0x02FCu) {
-                  cpu->memory[0x02FCu] = comp->keyboard_atascii; /* CH shadow for OS/BASIC polling paths */
+                  cpu->memory[0x02FCu] = comp->keyboard_code; /* CH shadow for OS/BASIC polling paths */
               }
               }
           }
@@ -760,7 +793,7 @@ behavior:
           static const uint32_t atari_hues[16] = {
               0x00C8C8C8u, 0x00D0A050u, 0x00D08040u, 0x00C86040u,
               0x00B05070u, 0x008850A0u, 0x006060C0u, 0x004080D0u,
-              0x0030A0D0u, 0x0030B090u, 0x0040B050u, 0x0070B040u,
+              0x003070D0u, 0x002050D0u, 0x003050C0u, 0x005060B0u,
               0x00A0A840u, 0x00C09040u, 0x00D07850u, 0x00D0B0A0u
           };
           uint8_t colpf0_raw = (cpu->memory_size > 0xD016u) ? cpu->memory[0xD016u] : 0x44u;
@@ -774,7 +807,7 @@ behavior:
               uint8_t c = col_raw[ci];
               uint32_t base = atari_hues[(c >> 4u) & 0x0Fu];
               uint32_t lum = (uint32_t)(c & 0x0Fu);
-              uint32_t gain = 16u + (lum * 16u);
+              uint32_t gain = 32u + (lum * 15u);
               uint8_t r = (uint8_t)((((base >> 16u) & 0xFFu) * gain) >> 8u);
               uint8_t g = (uint8_t)((((base >> 8u) & 0xFFu) * gain) >> 8u);
               uint8_t b = (uint8_t)(((base & 0xFFu) * gain) >> 8u);
@@ -792,6 +825,15 @@ behavior:
           uint8_t vscroll = (uint8_t)(comp->antic_vscrol & 0x0Fu);
 
           dl_ptr = (uint16_t)((uint16_t)comp->antic_dlistl | ((uint16_t)comp->antic_dlisth << 8u));
+          if (cpu->memory_size > 0x0231u) {
+              /* OS keeps the active ANTIC display list in SDLST shadow.
+                 Prefer it when present so rendering follows BASIC/OS setup
+                 even before direct DLIST register writes are observed. */
+              uint16_t sdlst = (uint16_t)cpu->memory[0x0230u] | ((uint16_t)cpu->memory[0x0231u] << 8u);
+              if (sdlst != 0u && (uint64_t)sdlst < cpu->memory_size) {
+                  dl_ptr = sdlst;
+              }
+          }
           if (comp->antic_chbase != 0u) {
               char_base = (uint16_t)((uint16_t)(comp->antic_chbase & 0xFEu) << 8u);
           }
@@ -812,15 +854,16 @@ behavior:
           }
 
           for (uint32_t i = 0u; i < 320u * 192u; ++i) {
-              framebuf[i] = bg;
+              framebuf[i] = pf2;
           }
 
           if ((uint64_t)dl_ptr < cpu->memory_size) {
-              uint32_t y = 0u;
+              const int32_t top_crop = 24;
+              int32_t y = -top_crop;
               uint32_t safety = 0u;
               uint16_t scan_addr = 0u;
 
-              while (y < 192u && safety < 2048u) {
+              while (y < 192 && safety < 2048u) {
                   uint8_t ir;
                   uint8_t mode;
                   uint32_t bytes_per_row = 0u;
@@ -850,8 +893,8 @@ behavior:
 
                   if (mode == 0x00u) {
                       uint32_t blank_lines = (uint32_t)(((ir >> 4u) & 0x07u) + 1u);
-                      y += blank_lines;
-                      if (y > 192u) y = 192u;
+                      y += (int32_t)blank_lines;
+                      if (y > 192) y = 192;
                       continue;
                   }
 
@@ -885,7 +928,7 @@ behavior:
                       uint8_t inverse_enable = (uint8_t)((chact & 0x02u) != 0u);
                       uint8_t blank_enable = (uint8_t)((chact & 0x01u) != 0u);
                       uint8_t mode_23 = (uint8_t)(mode == 0x02u || mode == 0x03u);
-                      for (uint32_t py = 0u; py < line_height && y < 192u; ++py) {
+                      for (uint32_t py = 0u; py < line_height && y < 192; ++py) {
                           uint8_t glyph_row = (uint8_t)((py < 8u) ? py : 7u);
                           if (reflect != 0u) {
                               glyph_row = (uint8_t)(7u - glyph_row);
@@ -899,11 +942,15 @@ behavior:
                                   (uint8_t)(mode_23 != 0u && inverse_char != 0u && blank_enable != 0u);
                               uint8_t inverse_draw =
                                   (uint8_t)(mode_23 != 0u && inverse_char != 0u && inverse_enable != 0u);
-                              uint32_t cell_bg = bg;
-                              uint32_t cell_fg = fg;
+                              /* ANTIC text modes map through playfield colors rather
+                                 than raw COLBK/COLPF2 pairing used by bitmap modes.
+                                 Use PF2 as cell background and PF1 as glyph foreground
+                                 for a closer BASIC text palette. */
+                              uint32_t cell_bg = pf2;
+                              uint32_t cell_fg = pf1;
                               if (inverse_draw != 0u) {
-                                  cell_bg = fg;
-                                  cell_fg = bg;
+                                  cell_bg = pf1;
+                                  cell_fg = pf2;
                               }
                               uint32_t x0 = col * 8u * (uint32_t)(40u / text_cols);
                               uint16_t caddr = (uint16_t)(char_base + (uint16_t)(code * 8u + glyph_row));
@@ -917,8 +964,8 @@ behavior:
                                   for (uint32_t xs = 0u; xs < x_scale; ++xs) {
                                       uint32_t px = x0 + gx * x_scale + xs + hscroll;
                                       if (px < 320u) {
-                                          uint32_t py_out = y + vscroll;
-                                          if (py_out < 192u) {
+                                          int32_t py_out = y + (int32_t)vscroll;
+                                          if (py_out >= 0 && py_out < 192) {
                                               framebuf[py_out * 320u + px] = (on != 0u) ? cell_fg : cell_bg;
                                           }
                                       }
@@ -938,8 +985,8 @@ behavior:
                       uint32_t x_scale = (logical_width > 0u) ? (320u / logical_width) : 1u;
                       if (x_scale == 0u) x_scale = 1u;
 
-                      for (uint32_t py = 0u; py < line_height && y < 192u; ++py) {
-                          uint32_t py_out = y + vscroll;
+                      for (uint32_t py = 0u; py < line_height && y < 192; ++py) {
+                          int32_t py_out = y + (int32_t)vscroll;
                           for (uint32_t bx = 0u; bx < bytes_per_row; ++bx) {
                               uint16_t saddr = (uint16_t)(scan_addr + (uint16_t)bx);
                               uint8_t bits = ((uint64_t)saddr < cpu->memory_size) ? cpu->memory[saddr] : 0u;
@@ -950,7 +997,7 @@ behavior:
                                       uint32_t color = (pix != 0u) ? pf2 : bg;
                                       for (uint32_t xs = 0u; xs < x_scale; ++xs) {
                                           uint32_t px = px0 + xs;
-                                          if (px < 320u && py_out < 192u) {
+                                          if (px < 320u && py_out >= 0 && py_out < 192) {
                                               framebuf[py_out * 320u + px] = color;
                                           }
                                       }
@@ -965,7 +1012,7 @@ behavior:
                                       else if (pix == 3u) color = pf3;
                                       for (uint32_t xs = 0u; xs < x_scale; ++xs) {
                                           uint32_t px = px0 + xs;
-                                          if (px < 320u && py_out < 192u) {
+                                          if (px < 320u && py_out >= 0 && py_out < 192) {
                                               framebuf[py_out * 320u + px] = color;
                                           }
                                       }

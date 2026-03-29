@@ -191,7 +191,7 @@ def test_build_system_uses_backend_target_for_sdl2_linkage():
     isa = _base_isa("BackendTarget8")
     isa["hosts"] = [
         {
-            "metadata": {"id": "host0", "type": "host_adapter", "model": "test_host_sdl2"},
+            "metadata": {"id": "host0", "type": "host_adapter", "model": "test_host_hal"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
@@ -325,7 +325,7 @@ def test_build_system_rejects_mixed_backend_targets():
     isa = _base_isa("BackendMixed8")
     isa["hosts"] = [
         {
-            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test_host_sdl2"},
+            "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test_host_hal"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
@@ -371,7 +371,7 @@ def test_cpu_codegen_rejects_mixed_backend_targets():
     data = _base_isa("CpuBackendMixed8")
     data["hosts"] = [
         {
-            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test_host_sdl2"},
+            "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test_host_hal"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
@@ -435,7 +435,7 @@ def test_cpu_codegen_auto_includes_sdl_header_for_sdl2_backend():
     data = _base_isa("CpuBackendSdl2Includes8")
     data["hosts"] = [
         {
-            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test_host_sdl2"},
+            "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test_host_hal"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
@@ -471,7 +471,7 @@ def test_cpu_codegen_does_not_infer_backend_from_host_model_name():
     data = _base_isa("CpuBackendNoModelInference8")
     data["hosts"] = [
         {
-            "metadata": {"id": "host_model_sdl2", "type": "host_adapter", "model": "test_host_sdl2"},
+            "metadata": {"id": "host_model_sdl2", "type": "host_adapter", "model": "test_host_hal"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
             "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
@@ -790,6 +790,39 @@ def test_generator_emits_debugger_link_manifest(tmp_path):
     assert manifest["headers"]["debug_abi"] == "src/DbgLink8_debug_abi.h"
     assert "link" in manifest
     assert isinstance(manifest["link"]["library_names"], list)
+
+
+def test_debugger_link_manifest_includes_backend_target_libraries(tmp_path):
+    isa = _base_isa("DbgLinkHal8")
+    isa["instructions"][0]["timing_profile"] = {"total_tstates": 1, "bus_events": []}
+    processor_path, system_path = write_pair_from_legacy(
+        tmp_path,
+        "dbg_link_hal8",
+        isa,
+        system_overrides={"components": {"ics": [], "devices": [], "hosts": ["host_hal"]}},
+    )
+    host_yaml = tmp_path / "host_hal.yaml"
+    host_data = {
+        "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test_host_hal"},
+        "backend": {"target": "sdl2"},
+        "state": [],
+        "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+        "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+        "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+    }
+    host_yaml.write_text(yaml.safe_dump(host_data, sort_keys=False), encoding="utf-8")
+
+    outdir = tmp_path / "dbg_link_hal8_out"
+    gen_mod.generate(
+        str(processor_path),
+        str(system_path),
+        str(outdir),
+        host_paths=[str(host_yaml)],
+    )
+
+    manifest_path = outdir / "debugger_link.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert "SDL2" in manifest["link"]["library_names"]
 
 
 @pytest.mark.skipif(
@@ -1690,7 +1723,7 @@ def test_interactive_host_uses_declarative_keyboard_map_generation():
     data = _base_isa("HostKeyMap8")
     data["hosts"] = [
         {
-            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
@@ -1718,8 +1751,8 @@ def test_interactive_host_uses_declarative_keyboard_map_generation():
     assert "if (map->focus_required && has_focus == 0u) return;" in code
     assert "cpu_component_host_key_is_pressed(" in code
     assert "#if CPU_HOST_HAS_SCANCODE_MAP" in code
-    assert "{ \"BACKSPACE\", component_host_sdl2_keyboard_presses_" in code
-    assert "{ \"LEFT\", component_host_sdl2_keyboard_presses_" in code
+    assert "{ \"BACKSPACE\", component_host_hal_keyboard_presses_" in code
+    assert "{ \"LEFT\", component_host_hal_keyboard_presses_" in code
     assert "CPU_HOST_SCANCODE(BACKSPACE)" in code
     assert "CPU_HOST_SCANCODE(LEFT)" in code
     assert "ks[SDL_SCANCODE_A]" not in code
@@ -1729,7 +1762,7 @@ def test_interactive_host_canonical_keys_map_to_sdl_scancodes_in_codegen():
     data = _base_isa("CanonicalHostKey8")
     data["hosts"] = [
         {
-            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
@@ -1749,7 +1782,7 @@ def test_interactive_host_canonical_keys_map_to_sdl_scancodes_in_codegen():
         }
     ]
     code = generate_cpu_impl(data, "Z80")
-    assert "{ \"BACKSPACE\", component_host_sdl2_keyboard_presses_" in code
+    assert "{ \"BACKSPACE\", component_host_hal_keyboard_presses_" in code
     assert "#if CPU_HOST_HAS_SCANCODE_MAP" in code
     assert "CPU_HOST_SCANCODE(BACKSPACE)" in code
 
@@ -1788,7 +1821,7 @@ def test_runtime_hal_helpers_emit_sdl2_impl_for_sdl2_backend():
     data = _base_isa("HostHalSdl2")
     data["hosts"] = [
         {
-            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
@@ -1997,7 +2030,7 @@ def test_runtime_hal_frame_audio_helpers_emit_sdl2_impl():
     data = _base_isa("HostHalFrameAudioSdl2")
     data["hosts"] = [
         {
-            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
@@ -2134,7 +2167,7 @@ def test_runtime_hal_lifecycle_helpers_emit_sdl2_impl():
     data = _base_isa("HostHalLifecycleSdl2")
     data["hosts"] = [
         {
-            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
@@ -2231,7 +2264,7 @@ def test_runtime_hal_init_create_helpers_emit_sdl2_impl():
     data = _base_isa("HostHalInitSdl2")
     data["hosts"] = [
         {
-            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
@@ -2335,7 +2368,7 @@ def test_runtime_hal_render_helpers_emit_sdl2_impl():
     data = _base_isa("HostHalRenderSdl2")
     data["hosts"] = [
         {
-            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
@@ -2472,7 +2505,7 @@ def test_runtime_hal_input_misc_helpers_emit_sdl2_impl():
     data = _base_isa("HostHalInputMiscSdl2")
     data["hosts"] = [
         {
-            "metadata": {"id": "host_sdl2", "type": "host_adapter", "model": "test"},
+            "metadata": {"id": "host_hal", "type": "host_adapter", "model": "test"},
             "backend": {"target": "sdl2"},
             "state": [],
             "interfaces": {"callbacks": [], "handlers": [], "signals": []},
