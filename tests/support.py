@@ -56,6 +56,20 @@ def _split_legacy_isa(isa: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
         processor["ports"] = copy.deepcopy(isa.get("ports"))
     if "interrupts" in isa:
         processor["interrupts"] = copy.deepcopy(isa.get("interrupts"))
+    metadata = processor.setdefault("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+        processor["metadata"] = metadata
+    metadata.setdefault(
+        "codegen",
+        {
+            "architecture_id": "unknown",
+            "numeric_style": "c_hex",
+            "flags_dump_style": "raw",
+            "decode_quirks": {"mc6809_indexed_postbyte_length": False},
+            "display_kinds_enabled": [],
+        },
+    )
 
     memory = isa.get("memory", {})
     system = {

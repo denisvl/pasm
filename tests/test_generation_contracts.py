@@ -27,6 +27,13 @@ def _base_isa(name: str) -> dict:
             "bits": 8,
             "address_bits": 16,
             "endian": "little",
+            "codegen": {
+                "architecture_id": "unknown",
+                "numeric_style": "c_hex",
+                "flags_dump_style": "raw",
+                "decode_quirks": {"mc6809_indexed_postbyte_length": False},
+                "display_kinds_enabled": [],
+            },
         },
         "registers": [
             {"name": "R0", "type": "general", "bits": 8},
@@ -1133,6 +1140,7 @@ def test_disassembler_supports_display_templates_with_operand_tables():
 
 def test_disassembler_supports_mc6809_stack_mask_display_formatter():
     isa = _base_isa("Display6809Mask")
+    isa["metadata"]["codegen"]["display_kinds_enabled"] = ["mc6809_pshs_mask"]
     isa["instructions"] = [
         {
             "name": "PSHS",
@@ -1158,6 +1166,8 @@ def test_disassembler_supports_mc6809_stack_mask_display_formatter():
 
 def test_disassembler_infers_mos6502_immediate_and_zero_page_templates():
     isa = _base_isa("MOS6502Display8")
+    isa["metadata"]["codegen"]["architecture_id"] = "mos6502"
+    isa["metadata"]["codegen"]["numeric_style"] = "asm_dollar"
     isa["instructions"] = [
         {
             "name": "LDA_IMM",

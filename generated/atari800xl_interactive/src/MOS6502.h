@@ -87,6 +87,25 @@ typedef struct ComponentState_atari_io {
     uint32_t random_lfsr;
     uint8_t pokey_audf1;
     uint8_t pokey_audc1;
+    uint8_t pokey_audf2;
+    uint8_t pokey_audc2;
+    uint8_t pokey_audf3;
+    uint8_t pokey_audc3;
+    uint8_t pokey_audf4;
+    uint8_t pokey_audc4;
+    uint8_t pokey_audctl;
+    uint8_t pokey_poly4;
+    uint8_t pokey_poly5;
+    uint16_t pokey_poly9;
+    uint32_t pokey_poly17;
+    uint32_t pokey_div1;
+    uint32_t pokey_div2;
+    uint32_t pokey_div3;
+    uint32_t pokey_div4;
+    uint8_t pokey_out1;
+    uint8_t pokey_out2;
+    uint8_t pokey_out3;
+    uint8_t pokey_out4;
     uint8_t pokey_serout;
     uint8_t pokey_irqen;
     uint8_t pokey_irqst;
@@ -98,6 +117,7 @@ typedef struct ComponentState_atari_io {
     uint64_t pokey_serout_need_cycle;
     uint8_t pokey_serout_need_fired;
     uint8_t speaker_level;
+    uint64_t pokey_audio_tick_cycle;
     uint8_t * ram_under_basic;
     uint8_t * ram_under_os_low;
     uint8_t * ram_under_os_high;
@@ -129,6 +149,8 @@ typedef struct ComponentState_host_atari800xl {
     uint32_t frame_count;
     uint32_t audio_samples;
     int16_t audio_level;
+    int32_t audio_hp_prev_in;
+    int32_t audio_hp_prev_out;
     uint64_t audio_last_cycle;
     uint64_t audio_sample_cursor;
     uint32_t audio_rate;
@@ -156,11 +178,6 @@ typedef struct ComponentState_host_atari800xl {
     uint64_t overlay_cpu_hz;
     uint32_t overlay_cpu_pct_x10;
 } ComponentState_host_atari800xl;
-
-typedef struct ComponentState_atari_cart0 {
-    uint8_t * rom_data;
-    uint32_t rom_size;
-} ComponentState_atari_cart0;
 
 
 /* ===== CPU State ===== */
@@ -225,7 +242,6 @@ struct CPUState {
     ComponentState_video_sms comp_video_sms;
     ComponentState_speaker_sms comp_speaker_sms;
     ComponentState_host_atari800xl comp_host_atari800xl;
-    ComponentState_atari_cart0 comp_atari_cart0;
 };
 
 /* ===== Constants ===== */
@@ -233,17 +249,17 @@ struct CPUState {
 #define CPU_ERROR_INVALID_OPCODE 1
 #define CPU_ERROR_INVALID_MEMORY 2
 #define CPU_ERROR_HALT 3
-#define CPU_SYSTEM_NAME "Atari800XLCartridgeInteractiveSystem"
+#define CPU_SYSTEM_NAME "Atari800XLInteractiveSystem"
 #define CPU_SYSTEM_VERSION "0.1"
 #define CPU_SYSTEM_CLOCK_HZ 1789773ULL
 #define CPU_AUDIO_SAMPLE_RATE 44100ULL
 #define CPU_AUDIO_CHANNELS 1
 #define CPU_AUDIO_FORMAT "s16le"
-/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"atari800xl_cartridge_interactive\"} */
+/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"atari800xl_interactive\"} */
 #define CPU_IC_COUNT 1
 #define CPU_DEVICE_COUNT 2
 #define CPU_HOST_COUNT 1
-#define CPU_CARTRIDGE_COUNT 1
+#define CPU_CARTRIDGE_COUNT 0
 
 /* ===== Register Enum ===== */
 typedef enum {

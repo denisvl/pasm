@@ -52,6 +52,20 @@ DISPLAY_RENDER_KINDS = {
     "mc6809_pulu_mask",
 }
 TABLE_RENDER_KINDS = {"table", "cc_table"}
+GENERIC_DISPLAY_RENDER_KINDS = {
+    "table",
+    "cc_table",
+    "hex8",
+    "hex16",
+    "hex32",
+    "hex8_plain",
+    "hex16_plain",
+    "hex8_asm",
+    "hex16_asm",
+    "signed8",
+    "signed16",
+    "unsigned",
+}
 BASE_DECODED_FIELD_WIDTHS = {
     "r": 8,
     "rs": 8,
@@ -68,6 +82,18 @@ BASE_DECODED_FIELD_WIDTHS = {
     "pc": 16,
     "raw": 32,
 }
+
+
+def _processor_codegen(processor_data: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = processor_data.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise ValidationError("Processor validation failed:\nmetadata must be an object")
+    codegen = metadata.get("codegen")
+    if not isinstance(codegen, dict):
+        raise ValidationError(
+            "Processor validation failed:\nmetadata.codegen must be an object"
+        )
+    return codegen
 
 ALLOWED_SDL_SCANCODES = {
     "SDL_SCANCODE_0",
@@ -1009,6 +1035,22 @@ class ProcessorSystemLoader:
         return cartridge_data
 
     def _validate_instruction_display_specs(self, processor_data: Dict[str, Any]) -> None:
+        codegen = _processor_codegen(processor_data)
+        enabled_raw = codegen.get("display_kinds_enabled")
+        if not isinstance(enabled_raw, list):
+            raise ValidationError(
+                "Processor validation failed:\n"
+                "metadata.codegen.display_kinds_enabled must be an array"
+            )
+        enabled_kinds = {str(kind).strip() for kind in enabled_raw}
+        for kind in enabled_kinds:
+            if kind not in DISPLAY_RENDER_KINDS:
+                raise ValidationError(
+                    "Processor validation failed:\n"
+                    f"metadata.codegen.display_kinds_enabled contains unsupported kind '{kind}'"
+                )
+        allowed_kinds = set(GENERIC_DISPLAY_RENDER_KINDS) | enabled_kinds
+
         for idx, inst in enumerate(processor_data.get("instructions", [])):
             name = str(inst.get("name", f"INST_{idx}"))
             fields = _instruction_field_widths(inst)
@@ -1042,6 +1084,12 @@ class ProcessorSystemLoader:
                         "Processor validation failed:\n"
                         f"instructions -> {idx} ({name}): "
                         f"display_operands.{field_name}.kind '{kind}' is not supported"
+                    )
+                if kind not in allowed_kinds:
+                    raise ValidationError(
+                        "Processor validation failed:\n"
+                        f"instructions -> {idx} ({name}): "
+                        f"display_operands.{field_name}.kind '{kind}' is not enabled by metadata.codegen.display_kinds_enabled"
                     )
                 if kind in TABLE_RENDER_KINDS:
                     table = spec.get("table")
@@ -1082,6 +1130,12 @@ class ProcessorSystemLoader:
                         "Processor validation failed:\n"
                         f"instructions -> {idx} ({name}): "
                         f"display_template formatter '{formatter}' is not supported"
+                    )
+                if formatter and formatter not in allowed_kinds:
+                    raise ValidationError(
+                        "Processor validation failed:\n"
+                        f"instructions -> {idx} ({name}): "
+                        f"display_template formatter '{formatter}' is not enabled by metadata.codegen.display_kinds_enabled"
                     )
 
     def validate_processor(self, processor_data: Dict[str, Any]) -> Dict[str, Any]:

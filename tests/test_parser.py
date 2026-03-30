@@ -27,6 +27,37 @@ def test_simple8_loads_and_validates():
     assert any(inst["name"] == "HALT" for inst in data["instructions"])
 
 
+def test_processor_requires_metadata_codegen():
+    processor_path, _ = example_pair("minimal8")
+    processor_data = yaml.safe_load(processor_path.read_text(encoding="utf-8"))
+    processor_data["metadata"].pop("codegen", None)
+    loader = yaml_loader.ProcessorSystemLoader()
+    with pytest.raises(Exception, match="metadata.*codegen|Processor validation failed"):
+        loader.validate_processor(processor_data)
+
+
+def test_processor_rejects_invalid_codegen_numeric_style():
+    processor_path, _ = example_pair("minimal8")
+    processor_data = yaml.safe_load(processor_path.read_text(encoding="utf-8"))
+    processor_data["metadata"]["codegen"]["numeric_style"] = "bad_style"
+    loader = yaml_loader.ProcessorSystemLoader()
+    with pytest.raises(Exception, match="numeric_style|Processor validation failed"):
+        loader.validate_processor(processor_data)
+
+
+def test_processor_rejects_formatter_not_enabled_by_codegen():
+    processor_path, _ = example_pair("minimal8")
+    processor_data = yaml.safe_load(processor_path.read_text(encoding="utf-8"))
+    processor_data["metadata"]["codegen"]["display_kinds_enabled"] = []
+    processor_data["instructions"][0]["display_template"] = "NOP {imm:mc6809_idx}"
+    processor_data["instructions"][0]["encoding"]["fields"] = [
+        {"name": "imm", "position": [15, 8], "type": "immediate"}
+    ]
+    loader = yaml_loader.ProcessorSystemLoader()
+    with pytest.raises(Exception, match="not enabled|display_kinds_enabled"):
+        loader.validate_processor(processor_data)
+
+
 def test_system_reset_delay_seconds_is_loaded():
     processor_path, system_path = example_pair("z80", "trs80_model4_interactive.yaml")
     data = yaml_loader.load_processor_system(
@@ -532,6 +563,7 @@ def test_processor_display_template_validation_accepts_known_fields(tmp_path):
 
 def test_processor_display_template_accepts_mc6809_stack_mask_formatter(tmp_path):
     def _transform(data):
+        data["metadata"]["codegen"]["display_kinds_enabled"] = ["mc6809_pshs_mask"]
         data["instructions"][0]["encoding"]["length"] = 2
         data["instructions"][0]["encoding"]["fields"] = [
             {"name": "mask", "position": [15, 8], "type": "immediate"}

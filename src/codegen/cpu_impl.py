@@ -30,6 +30,27 @@ SUPPORTED_DISPLAY_KINDS = {
     "mc6809_pulu_mask",
 }
 TABLE_DISPLAY_KINDS = {"table", "cc_table"}
+GENERIC_DISPLAY_KINDS = {
+    "table",
+    "cc_table",
+    "hex8",
+    "hex16",
+    "hex32",
+    "hex8_plain",
+    "hex16_plain",
+    "hex8_asm",
+    "hex16_asm",
+    "signed8",
+    "signed16",
+    "unsigned",
+}
+MC6809_SPECIAL_DISPLAY_KINDS = {
+    "mc6809_idx",
+    "mc6809_pshs_mask",
+    "mc6809_puls_mask",
+    "mc6809_pshu_mask",
+    "mc6809_pulu_mask",
+}
 BASE_DECODED_FIELD_WIDTHS = {
     "r": 8,
     "rs": 8,
@@ -47,6 +68,48 @@ BASE_DECODED_FIELD_WIDTHS = {
     "raw": 32,
 }
 CANONICAL_HOST_KEY_RE = re.compile(r"^[A-Z0-9_]+$")
+
+
+def _require_codegen_config(isa_data: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = isa_data.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise ValueError("ISA metadata must be an object")
+    codegen = metadata.get("codegen")
+    if not isinstance(codegen, dict):
+        raise ValueError("ISA metadata.codegen must be an object")
+    return codegen
+
+
+def _codegen_numeric_style(isa_data: Dict[str, Any]) -> str:
+    style = str(_require_codegen_config(isa_data).get("numeric_style", "")).strip()
+    if style not in {"c_hex", "asm_dollar", "z80_h"}:
+        raise ValueError(
+            "metadata.codegen.numeric_style must be one of: c_hex, asm_dollar, z80_h"
+        )
+    return style
+
+
+def _codegen_flags_dump_style(isa_data: Dict[str, Any]) -> str:
+    style = str(_require_codegen_config(isa_data).get("flags_dump_style", "")).strip()
+    if style not in {"raw", "z80_compact"}:
+        raise ValueError(
+            "metadata.codegen.flags_dump_style must be one of: raw, z80_compact"
+        )
+    return style
+
+
+def _codegen_enabled_display_kinds(isa_data: Dict[str, Any]) -> Set[str]:
+    raw = _require_codegen_config(isa_data).get("display_kinds_enabled")
+    if not isinstance(raw, list):
+        raise ValueError("metadata.codegen.display_kinds_enabled must be an array")
+    kinds = {str(kind).strip() for kind in raw}
+    invalid = sorted(kind for kind in kinds if kind not in SUPPORTED_DISPLAY_KINDS)
+    if invalid:
+        raise ValueError(
+            "metadata.codegen.display_kinds_enabled contains unsupported kinds: "
+            + ", ".join(invalid)
+        )
+    return kinds | GENERIC_DISPLAY_KINDS
 
 
 def _single_host_backend_target(isa_data: Dict[str, Any]) -> str:
@@ -174,25 +237,20 @@ def generate_cpu_impl(
 
 
 def _generate_debug_flags_expr(isa_data: Dict[str, Any]) -> str:
-    """Generate expression used by dump_registers() when printing flags.
-
-    Most CPUs print the native flag register byte. Z80 tests expect a compact
-    mask with only S,Z,H,P,N,C packed into bits 0..5.
-    """
-    flags = isa_data.get("flags", [])
-    names = {str(f.get("name", "")).strip().upper() for f in flags}
-    z80_like = {"S", "Z", "F5", "H", "F3", "P", "N", "C"}.issubset(names)
-    if not z80_like:
+    """Generate expression used by dump_registers() when printing flags."""
+    style = _codegen_flags_dump_style(isa_data)
+    if style == "raw":
         return "cpu->flags.raw"
-
-    return (
+    if style == "z80_compact":
+        return (
         "(uint8_t)((((cpu->flags.raw >> 7) & 1u) << 0) | "
         "(((cpu->flags.raw >> 6) & 1u) << 1) | "
         "(((cpu->flags.raw >> 4) & 1u) << 2) | "
         "(((cpu->flags.raw >> 2) & 1u) << 3) | "
         "(((cpu->flags.raw >> 1) & 1u) << 4) | "
         "(((cpu->flags.raw >> 0) & 1u) << 5))"
-    )
+        )
+    raise ValueError(f"Unsupported metadata.codegen.flags_dump_style: {style}")
 
 
 def _generate_word_access_impl(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
@@ -386,6 +444,7 @@ def _append_instruction_template_render(
     lines: List[str],
     inst: Dict[str, Any],
     numeric_style: str = "c_hex",
+    allowed_kinds: Optional[Set[str]] = None,
     indent: str = "                    ",
 ) -> None:
     inst_name = str(inst.get("name", "UNKNOWN"))
@@ -414,6 +473,10 @@ def _append_instruction_template_render(
         kind, mask, table = _resolve_display_operand_spec(
             inst, field_name, formatter, field_widths
         )
+        if allowed_kinds is not None and kind not in allowed_kinds:
+            raise ValueError(
+                f"Instruction '{inst_name}': formatter '{kind}' is not enabled by metadata.codegen.display_kinds_enabled."
+            )
         op_name = f"op_{idx}"
         operand_names.append(op_name)
         buf_name = f"op_buf_{idx}"
@@ -612,6 +675,36 @@ def _infer_display_template(
         _replace_regex(r"\bb\b", "{bit:unsigned}")
 
     return template if changed else None
+
+
+def _instruction_render_kinds(
+    inst: Dict[str, Any], allowed_kinds: Set[str]
+) -> Set[str]:
+    kinds: Set[str] = set()
+    template = inst.get("display_template")
+    if not isinstance(template, str) or not template:
+        return kinds
+    inst_name = str(inst.get("name", "UNKNOWN"))
+    field_widths = _instruction_field_widths(inst)
+    _, tokens = _parse_display_template(template, inst_name)
+    for field_name, formatter in tokens:
+        kind, _, _ = _resolve_display_operand_spec(inst, field_name, formatter, field_widths)
+        if kind not in allowed_kinds:
+            raise ValueError(
+                f"Instruction '{inst_name}': formatter '{kind}' is not enabled by metadata.codegen.display_kinds_enabled."
+            )
+        kinds.add(kind)
+    for field_name, spec in (inst.get("display_operands", {}) or {}).items():
+        if not isinstance(spec, dict):
+            raise ValueError(
+                f"Instruction '{inst_name}': display_operands.{field_name} must be an object."
+            )
+        kind = str(spec.get("kind", "unsigned")).strip()
+        if kind and kind not in allowed_kinds:
+            raise ValueError(
+                f"Instruction '{inst_name}': display_operands.{field_name}.kind '{kind}' is not enabled by metadata.codegen.display_kinds_enabled."
+            )
+    return kinds
 
 
 def _hook_enabled(hooks: Dict[str, Any], hook_name: str) -> bool:
@@ -4065,15 +4158,8 @@ def _generate_disassembler(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     """Generate trace/disassembly helpers with mnemonic lookup."""
     lines: List[str] = []
     instructions = isa_data.get("instructions", [])
-    isa_name = str(isa_data.get("metadata", {}).get("name", "")).lower()
-    if "6809" in isa_name:
-        numeric_style = "asm_dollar"
-    elif "6502" in isa_name or "6510" in isa_name or "6509" in isa_name:
-        numeric_style = "asm_dollar"
-    elif "z80" in isa_name:
-        numeric_style = "z80_h"
-    else:
-        numeric_style = "c_hex"
+    numeric_style = _codegen_numeric_style(isa_data)
+    allowed_display_kinds = _codegen_enabled_display_kinds(isa_data)
     explicit_prefixes = sorted(
         {
             int(inst.get("encoding", {}).get("prefix"))
@@ -4081,163 +4167,173 @@ def _generate_disassembler(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
             if "prefix" in inst.get("encoding", {}) and int(inst.get("encoding", {}).get("prefix")) != 0
         }
     )
+    used_display_kinds: Set[str] = set()
+    for inst in instructions:
+        render_inst = inst
+        inferred_template = _infer_display_template(inst, immediate_style=numeric_style)
+        if inferred_template:
+            render_inst = dict(inst)
+            render_inst["display_template"] = inferred_template
+        used_display_kinds |= _instruction_render_kinds(render_inst, allowed_display_kinds)
+    needs_mc6809_helpers = bool(used_display_kinds & MC6809_SPECIAL_DISPLAY_KINDS)
 
     # Group by category to keep generated branch structure compact.
     categories: Dict[str, List[Dict[str, Any]]] = {}
     for inst in instructions:
         categories.setdefault(inst.get("category", "misc"), []).append(inst)
 
-    lines.append("static void dbg_mc6809_format_signed8_hex(int8_t value, char *out, size_t out_sz) {")
-    lines.append("    if (value < 0) {")
-    lines.append("        uint8_t mag = (uint8_t)(-(int)value);")
-    lines.append('        (void)snprintf(out, out_sz, "-$%02X", (unsigned int)mag);')
-    lines.append("    } else {")
-    lines.append('        (void)snprintf(out, out_sz, "$%02X", (unsigned int)((uint8_t)value));')
-    lines.append("    }")
-    lines.append("}")
-    lines.append("")
-    lines.append("static void dbg_mc6809_format_signed16_hex(int16_t value, char *out, size_t out_sz) {")
-    lines.append("    if (value < 0) {")
-    lines.append("        uint16_t mag = (uint16_t)(-(int32_t)value);")
-    lines.append('        (void)snprintf(out, out_sz, "-$%04X", (unsigned int)mag);')
-    lines.append("    } else {")
-    lines.append('        (void)snprintf(out, out_sz, "$%04X", (unsigned int)((uint16_t)value));')
-    lines.append("    }")
-    lines.append("}")
-    lines.append("")
-    lines.append("static void dbg_mc6809_format_stack_mask(uint8_t mask, const char *bit6_name, uint8_t pull_order, char *out, size_t out_sz) {")
-    lines.append('    static const char *base_names[8] = {"CC", "A", "B", "DP", "X", "Y", NULL, "PC"};')
-    lines.append("    static const uint8_t order_push[8] = {7u, 6u, 5u, 4u, 3u, 2u, 1u, 0u};")
-    lines.append("    static const uint8_t order_pull[8] = {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u};")
-    lines.append("    size_t used = 0u;")
-    lines.append("    uint8_t wrote = 0u;")
-    lines.append("    if (out_sz == 0u) {")
-    lines.append("        return;")
-    lines.append("    }")
-    lines.append("    out[0] = '\\0';")
-    lines.append("    for (uint8_t i = 0u; i < 8u; ++i) {")
-    lines.append("        uint8_t bit = (pull_order != 0u) ? order_pull[i] : order_push[i];")
-    lines.append("        if ((mask & (uint8_t)(1u << bit)) == 0u) {")
-    lines.append("            continue;")
-    lines.append("        }")
-    lines.append("        const char *name = (bit == 6u) ? bit6_name : base_names[bit];")
-    lines.append("        if (name == NULL || name[0] == '\\0') {")
-    lines.append("            continue;")
-    lines.append("        }")
-    lines.append(
-        '        int n = snprintf(out + used, out_sz - used, (wrote != 0u) ? ",%s" : "%s", name);'
-    )
-    lines.append("        if (n < 0) {")
-    lines.append("            break;")
-    lines.append("        }")
-    lines.append("        if ((size_t)n >= (out_sz - used)) {")
-    lines.append("            out[out_sz - 1u] = '\\0';")
-    lines.append("            wrote = 1u;")
-    lines.append("            break;")
-    lines.append("        }")
-    lines.append("        used += (size_t)n;")
-    lines.append("        wrote = 1u;")
-    lines.append("    }")
-    lines.append("    if (wrote == 0u) {")
-    lines.append('        (void)snprintf(out, out_sz, "$%02X", (unsigned int)mask);')
-    lines.append("    }")
-    lines.append("}")
-    lines.append("")
-    lines.append("static void dbg_mc6809_format_indexed(uint8_t pb, uint16_t pc, uint32_t raw, uint8_t prefix, char *out, size_t out_sz) {")
-    lines.append('    static const char *regs[4] = {"X", "Y", "U", "S"};')
-    lines.append("    uint8_t rr = (uint8_t)((pb >> 5) & 0x03u);")
-    lines.append("    const char *r = regs[rr];")
-    lines.append("    uint8_t op_len = (uint8_t)((prefix != 0u) ? 2u : 1u);")
-    lines.append("    uint16_t pc_after_pb = (uint16_t)(pc + (uint16_t)op_len + 1u);")
-    lines.append("    uint8_t extra1 = 0u;")
-    lines.append("    uint8_t extra2 = 0u;")
-    lines.append("    uint8_t have_extra1 = 0u;")
-    lines.append("    uint8_t have_extra2 = 0u;")
-    lines.append("    char off_buf[24];")
-    lines.append("")
-    lines.append("    if (prefix == 0u) {")
-    lines.append("        extra1 = (uint8_t)((raw >> 16) & 0xFFu);")
-    lines.append("        extra2 = (uint8_t)((raw >> 24) & 0xFFu);")
-    lines.append("        have_extra1 = 1u;")
-    lines.append("        have_extra2 = 1u;")
-    lines.append("    } else {")
-    lines.append("        extra1 = (uint8_t)((raw >> 24) & 0xFFu);")
-    lines.append("        have_extra1 = 1u;")
-    lines.append("    }")
-    lines.append("")
-    lines.append("    if ((pb & 0x80u) == 0u) {")
-    lines.append("        int8_t off5 = (int8_t)(pb & 0x1Fu);")
-    lines.append("        if ((off5 & 0x10) != 0) off5 = (int8_t)(off5 | (int8_t)0xE0);")
-    lines.append('        (void)snprintf(out, out_sz, "%d,%s", (int)off5, r);')
-    lines.append("        return;")
-    lines.append("    }")
-    lines.append("    {")
-    lines.append("        uint8_t mode = (uint8_t)(pb & 0x1Fu);")
-    lines.append("        uint8_t indirect = (uint8_t)((mode & 0x10u) != 0u);")
-    lines.append("        uint8_t m = mode;")
-    lines.append("        if (indirect != 0u) m = (uint8_t)(mode & 0x0Fu);")
-    lines.append("        switch (m) {")
-    lines.append("            case 0x00u: (void)snprintf(out, out_sz, (indirect ? \"[,%s+]\" : \",%s+\"), r); return;")
-    lines.append("            case 0x01u: (void)snprintf(out, out_sz, (indirect ? \"[,%s++]\" : \",%s++\"), r); return;")
-    lines.append("            case 0x02u: (void)snprintf(out, out_sz, (indirect ? \"[,-%s]\" : \",-%s\"), r); return;")
-    lines.append("            case 0x03u: (void)snprintf(out, out_sz, (indirect ? \"[,--%s]\" : \",--%s\"), r); return;")
-    lines.append("            case 0x04u: (void)snprintf(out, out_sz, (indirect ? \"[,%s]\" : \",%s\"), r); return;")
-    lines.append("            case 0x05u: (void)snprintf(out, out_sz, (indirect ? \"[B,%s]\" : \"B,%s\"), r); return;")
-    lines.append("            case 0x06u: (void)snprintf(out, out_sz, (indirect ? \"[A,%s]\" : \"A,%s\"), r); return;")
-    lines.append("            case 0x08u:")
-    lines.append("                if (have_extra1 != 0u) {")
-    lines.append("                    dbg_mc6809_format_signed8_hex((int8_t)extra1, off_buf, sizeof(off_buf));")
-    lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[%s,%s]" : "%s,%s"), off_buf, r);')
-    lines.append("                } else {")
-    lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[n,%s]" : "n,%s"), r);')
-    lines.append("                }")
-    lines.append("                return;")
-    lines.append("            case 0x09u:")
-    lines.append("                if (have_extra1 != 0u && have_extra2 != 0u) {")
-    lines.append("                    int16_t off16 = (int16_t)((uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2));")
-    lines.append("                    dbg_mc6809_format_signed16_hex(off16, off_buf, sizeof(off_buf));")
-    lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[%s,%s]" : "%s,%s"), off_buf, r);')
-    lines.append("                } else {")
-    lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[nn,%s]" : "nn,%s"), r);')
-    lines.append("                }")
-    lines.append("                return;")
-    lines.append("            case 0x0Bu: (void)snprintf(out, out_sz, (indirect ? \"[D,%s]\" : \"D,%s\"), r); return;")
-    lines.append("            case 0x0Cu:")
-    lines.append("                if (have_extra1 != 0u) {")
-    lines.append("                    int8_t off8 = (int8_t)extra1;")
-    lines.append("                    uint16_t abs = (uint16_t)(pc_after_pb + (int16_t)off8);")
-    lines.append("                    dbg_mc6809_format_signed8_hex(off8, off_buf, sizeof(off_buf));")
-    lines.append("                    (void)abs;")
-    lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[%s,PCR]" : "%s,PCR"), off_buf);')
-    lines.append("                } else {")
-    lines.append('                    (void)snprintf(out, out_sz, "%s", (indirect ? "[n,PCR]" : "n,PCR"));')
-    lines.append("                }")
-    lines.append("                return;")
-    lines.append("            case 0x0Du:")
-    lines.append("                if (have_extra1 != 0u && have_extra2 != 0u) {")
-    lines.append("                    int16_t off16 = (int16_t)((uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2));")
-    lines.append("                    uint16_t abs = (uint16_t)(pc_after_pb + 2u + off16);")
-    lines.append("                    dbg_mc6809_format_signed16_hex(off16, off_buf, sizeof(off_buf));")
-    lines.append("                    (void)abs;")
-    lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[%s,PCR]" : "%s,PCR"), off_buf);')
-    lines.append("                } else {")
-    lines.append('                    (void)snprintf(out, out_sz, "%s", (indirect ? "[nn,PCR]" : "nn,PCR"));')
-    lines.append("                }")
-    lines.append("                return;")
-    lines.append("            case 0x0Fu:")
-    lines.append("                if (have_extra1 != 0u && have_extra2 != 0u) {")
-    lines.append("                    uint16_t ea = (uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2);")
-    lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[$%04X]" : "$%04X"), (unsigned int)ea);')
-    lines.append("                } else {")
-    lines.append('                    (void)snprintf(out, out_sz, "%s", (indirect ? "[nn]" : "nn"));')
-    lines.append("                }")
-    lines.append("                return;")
-    lines.append("            default: break;")
-    lines.append("        }")
-    lines.append("    }")
-    lines.append('    (void)snprintf(out, out_sz, "[idx $%02X]", (unsigned int)pb);')
-    lines.append("}")
-    lines.append("")
+    if needs_mc6809_helpers:
+        lines.append("static void dbg_mc6809_format_signed8_hex(int8_t value, char *out, size_t out_sz) {")
+        lines.append("    if (value < 0) {")
+        lines.append("        uint8_t mag = (uint8_t)(-(int)value);")
+        lines.append('        (void)snprintf(out, out_sz, "-$%02X", (unsigned int)mag);')
+        lines.append("    } else {")
+        lines.append('        (void)snprintf(out, out_sz, "$%02X", (unsigned int)((uint8_t)value));')
+        lines.append("    }")
+        lines.append("}")
+        lines.append("")
+        lines.append("static void dbg_mc6809_format_signed16_hex(int16_t value, char *out, size_t out_sz) {")
+        lines.append("    if (value < 0) {")
+        lines.append("        uint16_t mag = (uint16_t)(-(int32_t)value);")
+        lines.append('        (void)snprintf(out, out_sz, "-$%04X", (unsigned int)mag);')
+        lines.append("    } else {")
+        lines.append('        (void)snprintf(out, out_sz, "$%04X", (unsigned int)((uint16_t)value));')
+        lines.append("    }")
+        lines.append("}")
+        lines.append("")
+        lines.append("static void dbg_mc6809_format_stack_mask(uint8_t mask, const char *bit6_name, uint8_t pull_order, char *out, size_t out_sz) {")
+        lines.append('    static const char *base_names[8] = {"CC", "A", "B", "DP", "X", "Y", NULL, "PC"};')
+        lines.append("    static const uint8_t order_push[8] = {7u, 6u, 5u, 4u, 3u, 2u, 1u, 0u};")
+        lines.append("    static const uint8_t order_pull[8] = {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u};")
+        lines.append("    size_t used = 0u;")
+        lines.append("    uint8_t wrote = 0u;")
+        lines.append("    if (out_sz == 0u) {")
+        lines.append("        return;")
+        lines.append("    }")
+        lines.append("    out[0] = '\\0';")
+        lines.append("    for (uint8_t i = 0u; i < 8u; ++i) {")
+        lines.append("        uint8_t bit = (pull_order != 0u) ? order_pull[i] : order_push[i];")
+        lines.append("        if ((mask & (uint8_t)(1u << bit)) == 0u) {")
+        lines.append("            continue;")
+        lines.append("        }")
+        lines.append("        const char *name = (bit == 6u) ? bit6_name : base_names[bit];")
+        lines.append("        if (name == NULL || name[0] == '\\0') {")
+        lines.append("            continue;")
+        lines.append("        }")
+        lines.append(
+            '        int n = snprintf(out + used, out_sz - used, (wrote != 0u) ? ",%s" : "%s", name);'
+        )
+        lines.append("        if (n < 0) {")
+        lines.append("            break;")
+        lines.append("        }")
+        lines.append("        if ((size_t)n >= (out_sz - used)) {")
+        lines.append("            out[out_sz - 1u] = '\\0';")
+        lines.append("            wrote = 1u;")
+        lines.append("            break;")
+        lines.append("        }")
+        lines.append("        used += (size_t)n;")
+        lines.append("        wrote = 1u;")
+        lines.append("    }")
+        lines.append("    if (wrote == 0u) {")
+        lines.append('        (void)snprintf(out, out_sz, "$%02X", (unsigned int)mask);')
+        lines.append("    }")
+        lines.append("}")
+        lines.append("")
+        lines.append("static void dbg_mc6809_format_indexed(uint8_t pb, uint16_t pc, uint32_t raw, uint8_t prefix, char *out, size_t out_sz) {")
+        lines.append('    static const char *regs[4] = {"X", "Y", "U", "S"};')
+        lines.append("    uint8_t rr = (uint8_t)((pb >> 5) & 0x03u);")
+        lines.append("    const char *r = regs[rr];")
+        lines.append("    uint8_t op_len = (uint8_t)((prefix != 0u) ? 2u : 1u);")
+        lines.append("    uint16_t pc_after_pb = (uint16_t)(pc + (uint16_t)op_len + 1u);")
+        lines.append("    uint8_t extra1 = 0u;")
+        lines.append("    uint8_t extra2 = 0u;")
+        lines.append("    uint8_t have_extra1 = 0u;")
+        lines.append("    uint8_t have_extra2 = 0u;")
+        lines.append("    char off_buf[24];")
+        lines.append("")
+        lines.append("    if (prefix == 0u) {")
+        lines.append("        extra1 = (uint8_t)((raw >> 16) & 0xFFu);")
+        lines.append("        extra2 = (uint8_t)((raw >> 24) & 0xFFu);")
+        lines.append("        have_extra1 = 1u;")
+        lines.append("        have_extra2 = 1u;")
+        lines.append("    } else {")
+        lines.append("        extra1 = (uint8_t)((raw >> 24) & 0xFFu);")
+        lines.append("        have_extra1 = 1u;")
+        lines.append("    }")
+        lines.append("")
+        lines.append("    if ((pb & 0x80u) == 0u) {")
+        lines.append("        int8_t off5 = (int8_t)(pb & 0x1Fu);")
+        lines.append("        if ((off5 & 0x10) != 0) off5 = (int8_t)(off5 | (int8_t)0xE0);")
+        lines.append('        (void)snprintf(out, out_sz, "%d,%s", (int)off5, r);')
+        lines.append("        return;")
+        lines.append("    }")
+        lines.append("    {")
+        lines.append("        uint8_t mode = (uint8_t)(pb & 0x1Fu);")
+        lines.append("        uint8_t indirect = (uint8_t)((mode & 0x10u) != 0u);")
+        lines.append("        uint8_t m = mode;")
+        lines.append("        if (indirect != 0u) m = (uint8_t)(mode & 0x0Fu);")
+        lines.append("        switch (m) {")
+        lines.append("            case 0x00u: (void)snprintf(out, out_sz, (indirect ? \"[,%s+]\" : \",%s+\"), r); return;")
+        lines.append("            case 0x01u: (void)snprintf(out, out_sz, (indirect ? \"[,%s++]\" : \",%s++\"), r); return;")
+        lines.append("            case 0x02u: (void)snprintf(out, out_sz, (indirect ? \"[,-%s]\" : \",-%s\"), r); return;")
+        lines.append("            case 0x03u: (void)snprintf(out, out_sz, (indirect ? \"[,--%s]\" : \",--%s\"), r); return;")
+        lines.append("            case 0x04u: (void)snprintf(out, out_sz, (indirect ? \"[,%s]\" : \",%s\"), r); return;")
+        lines.append("            case 0x05u: (void)snprintf(out, out_sz, (indirect ? \"[B,%s]\" : \"B,%s\"), r); return;")
+        lines.append("            case 0x06u: (void)snprintf(out, out_sz, (indirect ? \"[A,%s]\" : \"A,%s\"), r); return;")
+        lines.append("            case 0x08u:")
+        lines.append("                if (have_extra1 != 0u) {")
+        lines.append("                    dbg_mc6809_format_signed8_hex((int8_t)extra1, off_buf, sizeof(off_buf));")
+        lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[%s,%s]" : "%s,%s"), off_buf, r);')
+        lines.append("                } else {")
+        lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[n,%s]" : "n,%s"), r);')
+        lines.append("                }")
+        lines.append("                return;")
+        lines.append("            case 0x09u:")
+        lines.append("                if (have_extra1 != 0u && have_extra2 != 0u) {")
+        lines.append("                    int16_t off16 = (int16_t)((uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2));")
+        lines.append("                    dbg_mc6809_format_signed16_hex(off16, off_buf, sizeof(off_buf));")
+        lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[%s,%s]" : "%s,%s"), off_buf, r);')
+        lines.append("                } else {")
+        lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[nn,%s]" : "nn,%s"), r);')
+        lines.append("                }")
+        lines.append("                return;")
+        lines.append("            case 0x0Bu: (void)snprintf(out, out_sz, (indirect ? \"[D,%s]\" : \"D,%s\"), r); return;")
+        lines.append("            case 0x0Cu:")
+        lines.append("                if (have_extra1 != 0u) {")
+        lines.append("                    int8_t off8 = (int8_t)extra1;")
+        lines.append("                    uint16_t abs = (uint16_t)(pc_after_pb + (int16_t)off8);")
+        lines.append("                    dbg_mc6809_format_signed8_hex(off8, off_buf, sizeof(off_buf));")
+        lines.append("                    (void)abs;")
+        lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[%s,PCR]" : "%s,PCR"), off_buf);')
+        lines.append("                } else {")
+        lines.append('                    (void)snprintf(out, out_sz, "%s", (indirect ? "[n,PCR]" : "n,PCR"));')
+        lines.append("                }")
+        lines.append("                return;")
+        lines.append("            case 0x0Du:")
+        lines.append("                if (have_extra1 != 0u && have_extra2 != 0u) {")
+        lines.append("                    int16_t off16 = (int16_t)((uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2));")
+        lines.append("                    uint16_t abs = (uint16_t)(pc_after_pb + 2u + off16);")
+        lines.append("                    dbg_mc6809_format_signed16_hex(off16, off_buf, sizeof(off_buf));")
+        lines.append("                    (void)abs;")
+        lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[%s,PCR]" : "%s,PCR"), off_buf);')
+        lines.append("                } else {")
+        lines.append('                    (void)snprintf(out, out_sz, "%s", (indirect ? "[nn,PCR]" : "nn,PCR"));')
+        lines.append("                }")
+        lines.append("                return;")
+        lines.append("            case 0x0Fu:")
+        lines.append("                if (have_extra1 != 0u && have_extra2 != 0u) {")
+        lines.append("                    uint16_t ea = (uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2);")
+        lines.append('                    (void)snprintf(out, out_sz, (indirect ? "[$%04X]" : "$%04X"), (unsigned int)ea);')
+        lines.append("                } else {")
+        lines.append('                    (void)snprintf(out, out_sz, "%s", (indirect ? "[nn]" : "nn"));')
+        lines.append("                }")
+        lines.append("                return;")
+        lines.append("            default: break;")
+        lines.append("        }")
+        lines.append("    }")
+        lines.append('    (void)snprintf(out, out_sz, "[idx $%02X]", (unsigned int)pb);')
+        lines.append("}")
+        lines.append("")
     lines.append(
         f"char *{cpu_prefix}_disassemble_instruction(uint16_t pc, uint32_t raw) {{"
     )
@@ -4272,7 +4368,11 @@ def _generate_disassembler(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
             lines.append(f"                if ({_dispatch_condition(inst)}) {{")
             if render_inst.get("display_template"):
                 _append_instruction_template_render(
-                    lines, render_inst, numeric_style=numeric_style, indent="                    "
+                    lines,
+                    render_inst,
+                    numeric_style=numeric_style,
+                    allowed_kinds=allowed_display_kinds,
+                    indent="                    ",
                 )
             else:
                 display = _escape_c_string(inst.get("display", name))

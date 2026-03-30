@@ -27,8 +27,8 @@
   },
   "memory_default_size": 65536,
   "cartridge": {
-    "enabled": true,
-    "id": "coco_cart0",
-    "default_rom_path": "/home/dvlop/projects/pasm/examples/roms/coco1/Downland V1.1 (1983) (26-3046) (Tandy) [a1].ccc"
+    "enabled": false,
+    "id": "",
+    "default_rom_path": ""
   }
 }

@@ -5,6 +5,18 @@ metadata:
   address_bits: 16
   endian: big
   undefined_opcode_policy: nop
+  codegen:
+    architecture_id: mc6809
+    numeric_style: asm_dollar
+    flags_dump_style: raw
+    decode_quirks:
+      mc6809_indexed_postbyte_length: true
+    display_kinds_enabled:
+    - mc6809_idx
+    - mc6809_pshs_mask
+    - mc6809_puls_mask
+    - mc6809_pshu_mask
+    - mc6809_pulu_mask
 registers:
 - name: A
   display_name: A

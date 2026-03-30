@@ -911,7 +911,15 @@ static void component_host_atari800xl_handler_audio_pcm(CPUState *cpu, const uin
     uint64_t sample_rate = (comp->audio_rate > 0u) ? (uint64_t)comp->audio_rate : ((CPU_AUDIO_SAMPLE_RATE > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u);
     uint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? CPU_SYSTEM_CLOCK_HZ : 1u;
     uint64_t target_sample_index = (cycle * sample_rate) / clock_hz;
-    int16_t next_level = (level_u != 0u) ? 9000 : -9000;
+    int32_t sample_in = ((int32_t)((int16_t)(int)level_u - 128)) << 8;
+    int32_t sample_hp = sample_in - comp->audio_hp_prev_in + ((comp->audio_hp_prev_out * 32440) / 32768);
+    int16_t next_level;
+    int16_t prev_level = comp->audio_level;
+    if (sample_hp < -32768) sample_hp = -32768;
+    if (sample_hp > 32767) sample_hp = 32767;
+    next_level = (int16_t)sample_hp;
+    comp->audio_hp_prev_in = sample_in;
+    comp->audio_hp_prev_out = sample_hp;
 
     if (comp->audio_last_cycle == 0u && comp->audio_sample_cursor == 0u && comp->audio_samples == 0u) {
         comp->audio_last_cycle = cycle;
@@ -921,7 +929,7 @@ static void component_host_atari800xl_handler_audio_pcm(CPUState *cpu, const uin
     }
 
     if (target_sample_index < comp->audio_sample_cursor) {
-        comp->audio_sample_cursor = target_sample_index;
+        target_sample_index = comp->audio_sample_cursor;
     }
     {
         uint64_t samples_to_emit = target_sample_index - comp->audio_sample_cursor;
@@ -933,7 +941,7 @@ static void component_host_atari800xl_handler_audio_pcm(CPUState *cpu, const uin
                     if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
                     comp->audio_ring_fill -= 1u;
                 }
-                comp->audio_ring[comp->audio_ring_write_idx] = comp->audio_level;
+                comp->audio_ring[comp->audio_ring_write_idx] = prev_level;
                 comp->audio_ring_write_idx += 1u;
                 if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
                 comp->audio_ring_fill += 1u;
@@ -943,8 +951,19 @@ static void component_host_atari800xl_handler_audio_pcm(CPUState *cpu, const uin
             samples_to_emit -= n;
         }
     }
+    if (comp->audio_ring_fill >= comp->audio_ring_capacity) {
+        comp->audio_ring_read_idx += 1u;
+        if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+        comp->audio_ring_fill -= 1u;
+    }
+    comp->audio_ring[comp->audio_ring_write_idx] = next_level;
+    comp->audio_ring_write_idx += 1u;
+    if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
+    comp->audio_ring_fill += 1u;
+
     comp->audio_last_cycle = cycle;
     comp->audio_level = next_level;
+    if (target_sample_index >= comp->audio_sample_cursor) comp->audio_sample_cursor = target_sample_index + 1u;
 }
 
 static void cpu_component_dispatch_handler(
@@ -1051,6 +1070,167 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             if ((((uint8_t)(~comp->pokey_irqst)) & comp->pokey_irqen) != 0u) {
                 cpu->interrupt_vector = 0x00u;
                 cpu->interrupt_pending = true;
+            }
+        }
+        {
+            /* POKEY audio core:
+               - AUDCTL clocking/join/filter controls
+               - AUDC distortion (poly4/poly5/poly9/poly17), pure tone, volume-only
+               - fixed-cadence mixer output */
+            const uint64_t sample_step_cycles = 57u; /* ~31.4kHz at 1.79MHz */
+            if (comp->pokey_audio_tick_cycle == 0u) {
+                comp->pokey_audio_tick_cycle = cpu->total_cycles;
+            }
+            while ((cpu->total_cycles - comp->pokey_audio_tick_cycle) >= sample_step_cycles) {
+                uint8_t audctl = comp->pokey_audctl;
+                uint32_t base = ((audctl & 0x01u) != 0u) ? 114u : 28u;
+                uint32_t p1 = (uint32_t)(comp->pokey_audf1 + 1u) * (((audctl & 0x40u) != 0u) ? 1u : base);
+                uint32_t p2 = (uint32_t)(comp->pokey_audf2 + 1u) * base;
+                uint32_t p3 = (uint32_t)(comp->pokey_audf3 + 1u) * (((audctl & 0x20u) != 0u) ? 1u : base);
+                uint32_t p4 = (uint32_t)(comp->pokey_audf4 + 1u) * base;
+                uint8_t join12 = (uint8_t)((audctl & 0x10u) != 0u);
+                uint8_t join34 = (uint8_t)((audctl & 0x08u) != 0u);
+                if (join12 != 0u) {
+                    p1 = (uint32_t)(((uint32_t)comp->pokey_audf2 << 8) | (uint32_t)comp->pokey_audf1) + 1u;
+                    if ((audctl & 0x40u) == 0u) p1 *= base;
+                    p2 = 0u;
+                }
+                if (join34 != 0u) {
+                    p3 = (uint32_t)(((uint32_t)comp->pokey_audf4 << 8) | (uint32_t)comp->pokey_audf3) + 1u;
+                    if ((audctl & 0x20u) == 0u) p3 *= base;
+                    p4 = 0u;
+                }
+                if (p1 == 0u) p1 = 1u;
+                if (p2 == 0u && join12 == 0u) p2 = 1u;
+                if (p3 == 0u) p3 = 1u;
+                if (p4 == 0u && join34 == 0u) p4 = 1u;
+
+                for (uint64_t i = 0u; i < sample_step_cycles; ++i) {
+                    uint8_t e1 = 0u, e2 = 0u, e3 = 0u, e4 = 0u;
+                    comp->pokey_div1 += 1u;
+                    if (comp->pokey_div1 >= p1) { comp->pokey_div1 = 0u; e1 = 1u; }
+                    if (join12 == 0u) {
+                        comp->pokey_div2 += 1u;
+                        if (comp->pokey_div2 >= p2) { comp->pokey_div2 = 0u; e2 = 1u; }
+                    }
+                    comp->pokey_div3 += 1u;
+                    if (comp->pokey_div3 >= p3) { comp->pokey_div3 = 0u; e3 = 1u; }
+                    if (join34 == 0u) {
+                        comp->pokey_div4 += 1u;
+                        if (comp->pokey_div4 >= p4) { comp->pokey_div4 = 0u; e4 = 1u; }
+                    }
+
+                    if ((e1 | e2 | e3 | e4) != 0u) {
+                        uint8_t fb4 = (uint8_t)(((comp->pokey_poly4 >> 0) ^ (comp->pokey_poly4 >> 1)) & 1u);
+                        uint8_t fb5 = (uint8_t)(((comp->pokey_poly5 >> 0) ^ (comp->pokey_poly5 >> 2)) & 1u);
+                        uint16_t fb9 = (uint16_t)(((comp->pokey_poly9 >> 0) ^ (comp->pokey_poly9 >> 5)) & 1u);
+                        uint32_t fb17 = (uint32_t)(((comp->pokey_poly17 >> 0) ^ (comp->pokey_poly17 >> 5)) & 1u);
+                        comp->pokey_poly4 = (uint8_t)(((comp->pokey_poly4 >> 1) | (uint8_t)(fb4 << 3)) & 0x0Fu);
+                        comp->pokey_poly5 = (uint8_t)(((comp->pokey_poly5 >> 1) | (uint8_t)(fb5 << 4)) & 0x1Fu);
+                        comp->pokey_poly9 = (uint16_t)(((comp->pokey_poly9 >> 1) | (uint16_t)(fb9 << 8)) & 0x01FFu);
+                        comp->pokey_poly17 = (uint32_t)(((comp->pokey_poly17 >> 1) | (fb17 << 16)) & 0x0001FFFFu);
+                    }
+
+                    if (e1 != 0u) {
+                        uint8_t audc = comp->pokey_audc1;
+                        uint8_t toggle = 0u;
+                        if ((audc & 0x10u) == 0u) {
+                            if (((audc & 0x80u) != 0u) || ((comp->pokey_poly5 & 1u) != 0u)) {
+                                if ((audc & 0x20u) != 0u) {
+                                    toggle = 1u;
+                                } else if ((audc & 0x40u) != 0u) {
+                                    uint8_t bit4 = (uint8_t)(comp->pokey_poly4 & 1u);
+                                    toggle = (uint8_t)(bit4 == (uint8_t)(comp->pokey_out1 == 0u));
+                                } else {
+                                    uint8_t nbit = (uint8_t)(((audctl & 0x80u) != 0u) ? (comp->pokey_poly9 & 1u) : (comp->pokey_poly17 & 1u));
+                                    toggle = (uint8_t)(nbit == (uint8_t)(comp->pokey_out1 == 0u));
+                                }
+                            }
+                        }
+                        if (toggle != 0u) comp->pokey_out1 ^= 1u;
+                    }
+                    if (e2 != 0u) {
+                        uint8_t audc = comp->pokey_audc2;
+                        uint8_t toggle = 0u;
+                        if ((audc & 0x10u) == 0u) {
+                            if (((audc & 0x80u) != 0u) || ((comp->pokey_poly5 & 1u) != 0u)) {
+                                if ((audc & 0x20u) != 0u) {
+                                    toggle = 1u;
+                                } else if ((audc & 0x40u) != 0u) {
+                                    uint8_t bit4 = (uint8_t)(comp->pokey_poly4 & 1u);
+                                    toggle = (uint8_t)(bit4 == (uint8_t)(comp->pokey_out2 == 0u));
+                                } else {
+                                    uint8_t nbit = (uint8_t)(((audctl & 0x80u) != 0u) ? (comp->pokey_poly9 & 1u) : (comp->pokey_poly17 & 1u));
+                                    toggle = (uint8_t)(nbit == (uint8_t)(comp->pokey_out2 == 0u));
+                                }
+                            }
+                        }
+                        if (toggle != 0u) comp->pokey_out2 ^= 1u;
+                    }
+                    if (e3 != 0u) {
+                        uint8_t audc = comp->pokey_audc3;
+                        uint8_t toggle = 0u;
+                        if ((audc & 0x10u) == 0u) {
+                            if (((audc & 0x80u) != 0u) || ((comp->pokey_poly5 & 1u) != 0u)) {
+                                if ((audc & 0x20u) != 0u) {
+                                    toggle = 1u;
+                                } else if ((audc & 0x40u) != 0u) {
+                                    uint8_t bit4 = (uint8_t)(comp->pokey_poly4 & 1u);
+                                    toggle = (uint8_t)(bit4 == (uint8_t)(comp->pokey_out3 == 0u));
+                                } else {
+                                    uint8_t nbit = (uint8_t)(((audctl & 0x80u) != 0u) ? (comp->pokey_poly9 & 1u) : (comp->pokey_poly17 & 1u));
+                                    toggle = (uint8_t)(nbit == (uint8_t)(comp->pokey_out3 == 0u));
+                                }
+                            }
+                        }
+                        if (toggle != 0u) comp->pokey_out3 ^= 1u;
+                    }
+                    if (e4 != 0u) {
+                        uint8_t audc = comp->pokey_audc4;
+                        uint8_t toggle = 0u;
+                        if ((audc & 0x10u) == 0u) {
+                            if (((audc & 0x80u) != 0u) || ((comp->pokey_poly5 & 1u) != 0u)) {
+                                if ((audc & 0x20u) != 0u) {
+                                    toggle = 1u;
+                                } else if ((audc & 0x40u) != 0u) {
+                                    uint8_t bit4 = (uint8_t)(comp->pokey_poly4 & 1u);
+                                    toggle = (uint8_t)(bit4 == (uint8_t)(comp->pokey_out4 == 0u));
+                                } else {
+                                    uint8_t nbit = (uint8_t)(((audctl & 0x80u) != 0u) ? (comp->pokey_poly9 & 1u) : (comp->pokey_poly17 & 1u));
+                                    toggle = (uint8_t)(nbit == (uint8_t)(comp->pokey_out4 == 0u));
+                                }
+                            }
+                        }
+                        if (toggle != 0u) comp->pokey_out4 ^= 1u;
+                    }
+
+                    if ((audctl & 0x04u) != 0u && e3 != 0u && comp->pokey_out1 != 0u) comp->pokey_out1 = 0u;
+                    if ((audctl & 0x02u) != 0u && e4 != 0u && comp->pokey_out2 != 0u) comp->pokey_out2 = 0u;
+                }
+
+                {
+                    int mix = 0;
+                    uint8_t v1 = (uint8_t)(comp->pokey_audc1 & 0x0Fu);
+                    uint8_t v2 = (uint8_t)(comp->pokey_audc2 & 0x0Fu);
+                    uint8_t v3 = (uint8_t)(comp->pokey_audc3 & 0x0Fu);
+                    uint8_t v4 = (uint8_t)(comp->pokey_audc4 & 0x0Fu);
+                    if ((comp->pokey_audc1 & 0x10u) != 0u) mix += (int)v1; else mix += (comp->pokey_out1 != 0u) ? (int)v1 : -(int)v1;
+                    if ((comp->pokey_audc2 & 0x10u) != 0u) mix += (int)v2; else mix += (comp->pokey_out2 != 0u) ? (int)v2 : -(int)v2;
+                    if ((comp->pokey_audc3 & 0x10u) != 0u) mix += (int)v3; else mix += (comp->pokey_out3 != 0u) ? (int)v3 : -(int)v3;
+                    if ((comp->pokey_audc4 & 0x10u) != 0u) mix += (int)v4; else mix += (comp->pokey_out4 != 0u) ? (int)v4 : -(int)v4;
+                    {
+                        int level = 128 + (mix * 2);
+                        uint64_t ts = comp->pokey_audio_tick_cycle + sample_step_cycles;
+                        if (level < 0) level = 0;
+                        if (level > 255) level = 255;
+                        comp->speaker_level = (uint8_t)level;
+                        {
+                            uint64_t sig_args[2] = { (uint64_t)comp->speaker_level, ts };
+                            cpu_component_emit_signal(cpu, "atari_io", "audio_level", sig_args, 2);
+                        }
+                    }
+                }
+                comp->pokey_audio_tick_cycle += sample_step_cycles;
             }
         }
         {
@@ -6164,6 +6344,25 @@ CPUState *mos6502_create(size_t memory_size) {
     cpu->comp_atari_io.random_lfsr = 0xACE1u;
     cpu->comp_atari_io.pokey_audf1 = 0;
     cpu->comp_atari_io.pokey_audc1 = 0;
+    cpu->comp_atari_io.pokey_audf2 = 0;
+    cpu->comp_atari_io.pokey_audc2 = 0;
+    cpu->comp_atari_io.pokey_audf3 = 0;
+    cpu->comp_atari_io.pokey_audc3 = 0;
+    cpu->comp_atari_io.pokey_audf4 = 0;
+    cpu->comp_atari_io.pokey_audc4 = 0;
+    cpu->comp_atari_io.pokey_audctl = 0;
+    cpu->comp_atari_io.pokey_poly4 = 0x0Fu;
+    cpu->comp_atari_io.pokey_poly5 = 0x1Fu;
+    cpu->comp_atari_io.pokey_poly9 = 0x01FFu;
+    cpu->comp_atari_io.pokey_poly17 = 0x0001FFFFu;
+    cpu->comp_atari_io.pokey_div1 = 0u;
+    cpu->comp_atari_io.pokey_div2 = 0u;
+    cpu->comp_atari_io.pokey_div3 = 0u;
+    cpu->comp_atari_io.pokey_div4 = 0u;
+    cpu->comp_atari_io.pokey_out1 = 0u;
+    cpu->comp_atari_io.pokey_out2 = 0u;
+    cpu->comp_atari_io.pokey_out3 = 0u;
+    cpu->comp_atari_io.pokey_out4 = 0u;
     cpu->comp_atari_io.pokey_serout = 0;
     cpu->comp_atari_io.pokey_irqen = 0;
     cpu->comp_atari_io.pokey_irqst = 0xF7;
@@ -6174,7 +6373,8 @@ CPUState *mos6502_create(size_t memory_size) {
     cpu->comp_atari_io.pokey_serout_done_latch = 0;
     cpu->comp_atari_io.pokey_serout_need_cycle = 0;
     cpu->comp_atari_io.pokey_serout_need_fired = 0;
-    cpu->comp_atari_io.speaker_level = 0;
+    cpu->comp_atari_io.speaker_level = 128;
+    cpu->comp_atari_io.pokey_audio_tick_cycle = 0;
     cpu->comp_atari_io.ram_under_basic = NULL;
     cpu->comp_atari_io.ram_under_os_low = NULL;
     cpu->comp_atari_io.ram_under_os_high = NULL;
@@ -6218,6 +6418,8 @@ CPUState *mos6502_create(size_t memory_size) {
     cpu->comp_host_atari800xl.frame_count = 0;
     cpu->comp_host_atari800xl.audio_samples = 0;
     cpu->comp_host_atari800xl.audio_level = 0;
+    cpu->comp_host_atari800xl.audio_hp_prev_in = 0;
+    cpu->comp_host_atari800xl.audio_hp_prev_out = 0;
     cpu->comp_host_atari800xl.audio_last_cycle = 0;
     cpu->comp_host_atari800xl.audio_sample_cursor = 0;
     cpu->comp_host_atari800xl.audio_rate = 0;
@@ -6329,8 +6531,6 @@ CPUState *mos6502_create(size_t memory_size) {
             comp->host_inited = 1u;
         } while (0);
     }
-    cpu->comp_atari_cart0.rom_data = NULL;
-    cpu->comp_atari_cart0.rom_size = 0;
     
     mos6502_reset(cpu);
     return cpu;
@@ -6400,15 +6600,6 @@ void mos6502_destroy(CPUState *cpu) {
                 comp->host_inited = 0u;
             }
         }
-        {
-            ComponentState_atari_cart0 *comp = &cpu->comp_atari_cart0;
-            cpu->active_component_id = "atari_cart0";
-            if (comp->rom_data != NULL) {
-                free(comp->rom_data);
-                comp->rom_data = NULL;
-            }
-            comp->rom_size = 0u;
-        }
         free(cpu->memory);
         free(cpu->port_memory);
         free(cpu);
@@ -6455,6 +6646,25 @@ void mos6502_reset(CPUState *cpu) {
     cpu->comp_atari_io.random_lfsr = 0xACE1u;
     cpu->comp_atari_io.pokey_audf1 = 0;
     cpu->comp_atari_io.pokey_audc1 = 0;
+    cpu->comp_atari_io.pokey_audf2 = 0;
+    cpu->comp_atari_io.pokey_audc2 = 0;
+    cpu->comp_atari_io.pokey_audf3 = 0;
+    cpu->comp_atari_io.pokey_audc3 = 0;
+    cpu->comp_atari_io.pokey_audf4 = 0;
+    cpu->comp_atari_io.pokey_audc4 = 0;
+    cpu->comp_atari_io.pokey_audctl = 0;
+    cpu->comp_atari_io.pokey_poly4 = 0x0Fu;
+    cpu->comp_atari_io.pokey_poly5 = 0x1Fu;
+    cpu->comp_atari_io.pokey_poly9 = 0x01FFu;
+    cpu->comp_atari_io.pokey_poly17 = 0x0001FFFFu;
+    cpu->comp_atari_io.pokey_div1 = 0u;
+    cpu->comp_atari_io.pokey_div2 = 0u;
+    cpu->comp_atari_io.pokey_div3 = 0u;
+    cpu->comp_atari_io.pokey_div4 = 0u;
+    cpu->comp_atari_io.pokey_out1 = 0u;
+    cpu->comp_atari_io.pokey_out2 = 0u;
+    cpu->comp_atari_io.pokey_out3 = 0u;
+    cpu->comp_atari_io.pokey_out4 = 0u;
     cpu->comp_atari_io.pokey_serout = 0;
     cpu->comp_atari_io.pokey_irqen = 0;
     cpu->comp_atari_io.pokey_irqst = 0xF7;
@@ -6465,7 +6675,8 @@ void mos6502_reset(CPUState *cpu) {
     cpu->comp_atari_io.pokey_serout_done_latch = 0;
     cpu->comp_atari_io.pokey_serout_need_cycle = 0;
     cpu->comp_atari_io.pokey_serout_need_fired = 0;
-    cpu->comp_atari_io.speaker_level = 0;
+    cpu->comp_atari_io.speaker_level = 128;
+    cpu->comp_atari_io.pokey_audio_tick_cycle = 0;
     {
         ComponentState_atari_io *comp = &cpu->comp_atari_io;
         cpu->active_component_id = "atari_io";
@@ -6494,6 +6705,25 @@ void mos6502_reset(CPUState *cpu) {
         comp->random_lfsr = 0xACE1u;
         comp->pokey_audf1 = 0u;
         comp->pokey_audc1 = 0u;
+        comp->pokey_audf2 = 0u;
+        comp->pokey_audc2 = 0u;
+        comp->pokey_audf3 = 0u;
+        comp->pokey_audc3 = 0u;
+        comp->pokey_audf4 = 0u;
+        comp->pokey_audc4 = 0u;
+        comp->pokey_audctl = 0u;
+        comp->pokey_poly4 = 0x0Fu;
+        comp->pokey_poly5 = 0x1Fu;
+        comp->pokey_poly9 = 0x01FFu;
+        comp->pokey_poly17 = 0x0001FFFFu;
+        comp->pokey_div1 = 0u;
+        comp->pokey_div2 = 0u;
+        comp->pokey_div3 = 0u;
+        comp->pokey_div4 = 0u;
+        comp->pokey_out1 = 0u;
+        comp->pokey_out2 = 0u;
+        comp->pokey_out3 = 0u;
+        comp->pokey_out4 = 0u;
         comp->pokey_serout = 0u;
         comp->pokey_irqen = 0u;
         comp->pokey_irqst = 0xF7u;
@@ -6504,7 +6734,8 @@ void mos6502_reset(CPUState *cpu) {
         comp->pokey_serout_done_latch = 0u;
         comp->pokey_serout_need_cycle = 0u;
         comp->pokey_serout_need_fired = 0u;
-        comp->speaker_level = 0u;
+        comp->speaker_level = 128u;
+        comp->pokey_audio_tick_cycle = 0u;
         if (comp->ram_under_basic != NULL) {
             for (uint16_t i = 0u; i < 0x2000u; ++i) {
                 uint16_t a = (uint16_t)(0xA000u + i);
@@ -6565,6 +6796,8 @@ void mos6502_reset(CPUState *cpu) {
         comp->frame_count = 0u;
         comp->audio_samples = 0u;
         comp->audio_level = 0;
+        comp->audio_hp_prev_in = 0;
+        comp->audio_hp_prev_out = 0;
         comp->audio_last_cycle = 0u;
         comp->audio_sample_cursor = 0u;
         comp->audio_ring_read_idx = 0u;
@@ -6648,6 +6881,7 @@ static const SystemRomImage g_system_rom_images[] = {
     { "atari800xl_os_low", "../../roms/atari800xl/ATARIXL_C000.ROM", 0xC000u, 4096u },
     { "atari800xl_os_high", "../../roms/atari800xl/ATARIXL_D800.ROM", 0xD800u, 10240u },
     { "atari800xl_selftest", "../../roms/atari800xl/ATARIXL_SELFTEST.ROM", 0x5000u, 2048u },
+    { "atari800xl_basic", "../../roms/atari800xl/BASIC_C.ROM", 0xA000u, 8192u },
 };
 
 static bool cpu_path_is_absolute(const char *path) {
@@ -6711,38 +6945,9 @@ int mos6502_load_system_roms(CPUState *cpu, const char *system_base_dir) {
 }
 
 int mos6502_load_cartridge_rom(CPUState *cpu, const char *path) {
-    FILE *f;
-    long file_size;
-    uint8_t *buf;
-    ComponentState_atari_cart0 *comp;
-    size_t read_len;
-
-    if (!cpu || !path || !path[0]) return -1;
-    comp = &cpu->comp_atari_cart0;
-    f = fopen(path, "rb");
-    if (!f) return -1;
-    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
-    file_size = ftell(f);
-    if (file_size < 0) { fclose(f); return -1; }
-    if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
-    buf = (uint8_t *)malloc((size_t)file_size);
-    if (!buf) { fclose(f); return -1; }
-    read_len = fread(buf, 1, (size_t)file_size, f);
-    fclose(f);
-    if (read_len != (size_t)file_size) { free(buf); return -1; }
-    if (comp->rom_data != NULL) {
-        free(comp->rom_data);
-        comp->rom_data = NULL;
-    }
-    comp->rom_data = buf;
-    comp->rom_size = (uint32_t)file_size;
-    snprintf(
-        cpu->loaded_rom_debug,
-        sizeof(cpu->loaded_rom_debug),
-        "name=atari_cart0 path=%s",
-        path
-    );
-    return 0;
+    (void)cpu;
+    (void)path;
+    return -1;
 }
 
 
@@ -6891,22 +7096,6 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
             }
         }
     }
-    {
-        ComponentState_atari_cart0 *comp = &cpu->comp_atari_cart0;
-        cpu->active_component_id = "atari_cart0";
-        if (addr >= 0xA000u && addr < 0xC000u) {
-            if (comp->rom_data == NULL || comp->rom_size == 0u) {
-                return 0xFFu;
-            }
-            {
-                uint32_t off = (uint32_t)(addr - 0xA000u);
-                if (off < comp->rom_size) {
-                    return comp->rom_data[off];
-                }
-            }
-            return 0xFFu;
-        }
-    }
     if (addr >= cpu->memory_size) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return 0xFF;
@@ -7004,13 +7193,47 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
             }
             if (addr == 0xD201u) {
                 comp->pokey_audc1 = value;
-                /* Simplified audio proxy: use channel volume nibble as level. */
-                {
-                    uint8_t vol = (uint8_t)(value & 0x0Fu);
-                    comp->speaker_level = (uint8_t)(vol << 4);
-                    uint64_t sig_args[2] = { (uint64_t)comp->speaker_level, cpu->total_cycles };
-                    cpu_component_emit_signal(cpu, "atari_io", "audio_level", sig_args, 2);
-                }
+                /* Channel control updates are consumed by the audio proxy in step_post. */
+                return;
+            }
+            if (addr == 0xD202u) {
+                comp->pokey_audf2 = value;
+                return;
+            }
+            if (addr == 0xD203u) {
+                comp->pokey_audc2 = value;
+                return;
+            }
+            if (addr == 0xD204u) {
+                comp->pokey_audf3 = value;
+                return;
+            }
+            if (addr == 0xD205u) {
+                comp->pokey_audc3 = value;
+                return;
+            }
+            if (addr == 0xD206u) {
+                comp->pokey_audf4 = value;
+                return;
+            }
+            if (addr == 0xD207u) {
+                comp->pokey_audc4 = value;
+                return;
+            }
+            if (addr == 0xD208u) {
+                comp->pokey_audctl = value;
+                return;
+            }
+            if (addr == 0xD209u) {
+                /* STIMER: restart audio divider counters and clear output phases. */
+                comp->pokey_div1 = 0u;
+                comp->pokey_div2 = 0u;
+                comp->pokey_div3 = 0u;
+                comp->pokey_div4 = 0u;
+                comp->pokey_out1 = 0u;
+                comp->pokey_out2 = 0u;
+                comp->pokey_out3 = 0u;
+                comp->pokey_out4 = 0u;
                 return;
             }
             if (addr == 0xD20Du) {
@@ -7101,19 +7324,11 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
             }
         }
     }
-    {
-        ComponentState_atari_cart0 *comp = &cpu->comp_atari_cart0;
-        cpu->active_component_id = "atari_cart0";
-        if (addr >= 0xA000u && addr < 0xC000u) {
-            /* Atari 8K cart (no mapper): writes are ignored. */
-            return;
-        }
-    }
     if (addr >= cpu->memory_size) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
     }
-    /* Ignore writes to read-only region: CART_8K */
+    /* Ignore writes to read-only region: ROM_BASIC */
     if (addr >= 0xA000u && addr < 0xC000u) {
         return;
     }
@@ -7229,155 +7444,6 @@ void mos6502_list_breakpoints(CPUState *cpu) {
 void mos6502_trace_enable(CPUState *cpu, bool enable) {
     cpu->tracing_enabled = enable;
 }
-static void dbg_mc6809_format_signed8_hex(int8_t value, char *out, size_t out_sz) {
-    if (value < 0) {
-        uint8_t mag = (uint8_t)(-(int)value);
-        (void)snprintf(out, out_sz, "-$%02X", (unsigned int)mag);
-    } else {
-        (void)snprintf(out, out_sz, "$%02X", (unsigned int)((uint8_t)value));
-    }
-}
-
-static void dbg_mc6809_format_signed16_hex(int16_t value, char *out, size_t out_sz) {
-    if (value < 0) {
-        uint16_t mag = (uint16_t)(-(int32_t)value);
-        (void)snprintf(out, out_sz, "-$%04X", (unsigned int)mag);
-    } else {
-        (void)snprintf(out, out_sz, "$%04X", (unsigned int)((uint16_t)value));
-    }
-}
-
-static void dbg_mc6809_format_stack_mask(uint8_t mask, const char *bit6_name, uint8_t pull_order, char *out, size_t out_sz) {
-    static const char *base_names[8] = {"CC", "A", "B", "DP", "X", "Y", NULL, "PC"};
-    static const uint8_t order_push[8] = {7u, 6u, 5u, 4u, 3u, 2u, 1u, 0u};
-    static const uint8_t order_pull[8] = {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u};
-    size_t used = 0u;
-    uint8_t wrote = 0u;
-    if (out_sz == 0u) {
-        return;
-    }
-    out[0] = '\0';
-    for (uint8_t i = 0u; i < 8u; ++i) {
-        uint8_t bit = (pull_order != 0u) ? order_pull[i] : order_push[i];
-        if ((mask & (uint8_t)(1u << bit)) == 0u) {
-            continue;
-        }
-        const char *name = (bit == 6u) ? bit6_name : base_names[bit];
-        if (name == NULL || name[0] == '\0') {
-            continue;
-        }
-        int n = snprintf(out + used, out_sz - used, (wrote != 0u) ? ",%s" : "%s", name);
-        if (n < 0) {
-            break;
-        }
-        if ((size_t)n >= (out_sz - used)) {
-            out[out_sz - 1u] = '\0';
-            wrote = 1u;
-            break;
-        }
-        used += (size_t)n;
-        wrote = 1u;
-    }
-    if (wrote == 0u) {
-        (void)snprintf(out, out_sz, "$%02X", (unsigned int)mask);
-    }
-}
-
-static void dbg_mc6809_format_indexed(uint8_t pb, uint16_t pc, uint32_t raw, uint8_t prefix, char *out, size_t out_sz) {
-    static const char *regs[4] = {"X", "Y", "U", "S"};
-    uint8_t rr = (uint8_t)((pb >> 5) & 0x03u);
-    const char *r = regs[rr];
-    uint8_t op_len = (uint8_t)((prefix != 0u) ? 2u : 1u);
-    uint16_t pc_after_pb = (uint16_t)(pc + (uint16_t)op_len + 1u);
-    uint8_t extra1 = 0u;
-    uint8_t extra2 = 0u;
-    uint8_t have_extra1 = 0u;
-    uint8_t have_extra2 = 0u;
-    char off_buf[24];
-
-    if (prefix == 0u) {
-        extra1 = (uint8_t)((raw >> 16) & 0xFFu);
-        extra2 = (uint8_t)((raw >> 24) & 0xFFu);
-        have_extra1 = 1u;
-        have_extra2 = 1u;
-    } else {
-        extra1 = (uint8_t)((raw >> 24) & 0xFFu);
-        have_extra1 = 1u;
-    }
-
-    if ((pb & 0x80u) == 0u) {
-        int8_t off5 = (int8_t)(pb & 0x1Fu);
-        if ((off5 & 0x10) != 0) off5 = (int8_t)(off5 | (int8_t)0xE0);
-        (void)snprintf(out, out_sz, "%d,%s", (int)off5, r);
-        return;
-    }
-    {
-        uint8_t mode = (uint8_t)(pb & 0x1Fu);
-        uint8_t indirect = (uint8_t)((mode & 0x10u) != 0u);
-        uint8_t m = mode;
-        if (indirect != 0u) m = (uint8_t)(mode & 0x0Fu);
-        switch (m) {
-            case 0x00u: (void)snprintf(out, out_sz, (indirect ? "[,%s+]" : ",%s+"), r); return;
-            case 0x01u: (void)snprintf(out, out_sz, (indirect ? "[,%s++]" : ",%s++"), r); return;
-            case 0x02u: (void)snprintf(out, out_sz, (indirect ? "[,-%s]" : ",-%s"), r); return;
-            case 0x03u: (void)snprintf(out, out_sz, (indirect ? "[,--%s]" : ",--%s"), r); return;
-            case 0x04u: (void)snprintf(out, out_sz, (indirect ? "[,%s]" : ",%s"), r); return;
-            case 0x05u: (void)snprintf(out, out_sz, (indirect ? "[B,%s]" : "B,%s"), r); return;
-            case 0x06u: (void)snprintf(out, out_sz, (indirect ? "[A,%s]" : "A,%s"), r); return;
-            case 0x08u:
-                if (have_extra1 != 0u) {
-                    dbg_mc6809_format_signed8_hex((int8_t)extra1, off_buf, sizeof(off_buf));
-                    (void)snprintf(out, out_sz, (indirect ? "[%s,%s]" : "%s,%s"), off_buf, r);
-                } else {
-                    (void)snprintf(out, out_sz, (indirect ? "[n,%s]" : "n,%s"), r);
-                }
-                return;
-            case 0x09u:
-                if (have_extra1 != 0u && have_extra2 != 0u) {
-                    int16_t off16 = (int16_t)((uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2));
-                    dbg_mc6809_format_signed16_hex(off16, off_buf, sizeof(off_buf));
-                    (void)snprintf(out, out_sz, (indirect ? "[%s,%s]" : "%s,%s"), off_buf, r);
-                } else {
-                    (void)snprintf(out, out_sz, (indirect ? "[nn,%s]" : "nn,%s"), r);
-                }
-                return;
-            case 0x0Bu: (void)snprintf(out, out_sz, (indirect ? "[D,%s]" : "D,%s"), r); return;
-            case 0x0Cu:
-                if (have_extra1 != 0u) {
-                    int8_t off8 = (int8_t)extra1;
-                    uint16_t abs = (uint16_t)(pc_after_pb + (int16_t)off8);
-                    dbg_mc6809_format_signed8_hex(off8, off_buf, sizeof(off_buf));
-                    (void)abs;
-                    (void)snprintf(out, out_sz, (indirect ? "[%s,PCR]" : "%s,PCR"), off_buf);
-                } else {
-                    (void)snprintf(out, out_sz, "%s", (indirect ? "[n,PCR]" : "n,PCR"));
-                }
-                return;
-            case 0x0Du:
-                if (have_extra1 != 0u && have_extra2 != 0u) {
-                    int16_t off16 = (int16_t)((uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2));
-                    uint16_t abs = (uint16_t)(pc_after_pb + 2u + off16);
-                    dbg_mc6809_format_signed16_hex(off16, off_buf, sizeof(off_buf));
-                    (void)abs;
-                    (void)snprintf(out, out_sz, (indirect ? "[%s,PCR]" : "%s,PCR"), off_buf);
-                } else {
-                    (void)snprintf(out, out_sz, "%s", (indirect ? "[nn,PCR]" : "nn,PCR"));
-                }
-                return;
-            case 0x0Fu:
-                if (have_extra1 != 0u && have_extra2 != 0u) {
-                    uint16_t ea = (uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2);
-                    (void)snprintf(out, out_sz, (indirect ? "[$%04X]" : "$%04X"), (unsigned int)ea);
-                } else {
-                    (void)snprintf(out, out_sz, "%s", (indirect ? "[nn]" : "nn"));
-                }
-                return;
-            default: break;
-        }
-    }
-    (void)snprintf(out, out_sz, "[idx $%02X]", (unsigned int)pb);
-}
-
 char *mos6502_disassemble_instruction(uint16_t pc, uint32_t raw) {
     static char buf[160];
     char rendered[160];

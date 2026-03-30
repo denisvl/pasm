@@ -82,6 +82,63 @@ state:
   - name: pokey_audc1
     type: uint8_t
     initial: "0"
+  - name: pokey_audf2
+    type: uint8_t
+    initial: "0"
+  - name: pokey_audc2
+    type: uint8_t
+    initial: "0"
+  - name: pokey_audf3
+    type: uint8_t
+    initial: "0"
+  - name: pokey_audc3
+    type: uint8_t
+    initial: "0"
+  - name: pokey_audf4
+    type: uint8_t
+    initial: "0"
+  - name: pokey_audc4
+    type: uint8_t
+    initial: "0"
+  - name: pokey_audctl
+    type: uint8_t
+    initial: "0"
+  - name: pokey_poly4
+    type: uint8_t
+    initial: "0x0Fu"
+  - name: pokey_poly5
+    type: uint8_t
+    initial: "0x1Fu"
+  - name: pokey_poly9
+    type: uint16_t
+    initial: "0x01FFu"
+  - name: pokey_poly17
+    type: uint32_t
+    initial: "0x0001FFFFu"
+  - name: pokey_div1
+    type: uint32_t
+    initial: "0u"
+  - name: pokey_div2
+    type: uint32_t
+    initial: "0u"
+  - name: pokey_div3
+    type: uint32_t
+    initial: "0u"
+  - name: pokey_div4
+    type: uint32_t
+    initial: "0u"
+  - name: pokey_out1
+    type: uint8_t
+    initial: "0u"
+  - name: pokey_out2
+    type: uint8_t
+    initial: "0u"
+  - name: pokey_out3
+    type: uint8_t
+    initial: "0u"
+  - name: pokey_out4
+    type: uint8_t
+    initial: "0u"
   - name: pokey_serout
     type: uint8_t
     initial: "0"
@@ -114,6 +171,9 @@ state:
     initial: "0"
   - name: speaker_level
     type: uint8_t
+    initial: "128"
+  - name: pokey_audio_tick_cycle
+    type: uint64_t
     initial: "0"
   - name: ram_under_basic
     type: uint8_t *
@@ -221,6 +281,25 @@ behavior:
       comp->random_lfsr = 0xACE1u;
       comp->pokey_audf1 = 0u;
       comp->pokey_audc1 = 0u;
+      comp->pokey_audf2 = 0u;
+      comp->pokey_audc2 = 0u;
+      comp->pokey_audf3 = 0u;
+      comp->pokey_audc3 = 0u;
+      comp->pokey_audf4 = 0u;
+      comp->pokey_audc4 = 0u;
+      comp->pokey_audctl = 0u;
+      comp->pokey_poly4 = 0x0Fu;
+      comp->pokey_poly5 = 0x1Fu;
+      comp->pokey_poly9 = 0x01FFu;
+      comp->pokey_poly17 = 0x0001FFFFu;
+      comp->pokey_div1 = 0u;
+      comp->pokey_div2 = 0u;
+      comp->pokey_div3 = 0u;
+      comp->pokey_div4 = 0u;
+      comp->pokey_out1 = 0u;
+      comp->pokey_out2 = 0u;
+      comp->pokey_out3 = 0u;
+      comp->pokey_out4 = 0u;
       comp->pokey_serout = 0u;
       comp->pokey_irqen = 0u;
       comp->pokey_irqst = 0xF7u;
@@ -231,7 +310,8 @@ behavior:
       comp->pokey_serout_done_latch = 0u;
       comp->pokey_serout_need_cycle = 0u;
       comp->pokey_serout_need_fired = 0u;
-      comp->speaker_level = 0u;
+      comp->speaker_level = 128u;
+      comp->pokey_audio_tick_cycle = 0u;
       if (comp->ram_under_basic != NULL) {
           for (uint16_t i = 0u; i < 0x2000u; ++i) {
               uint16_t a = (uint16_t)(0xA000u + i);
@@ -528,13 +608,47 @@ behavior:
           }
           if (addr == 0xD201u) {
               comp->pokey_audc1 = value;
-              /* Simplified audio proxy: use channel volume nibble as level. */
-              {
-                  uint8_t vol = (uint8_t)(value & 0x0Fu);
-                  comp->speaker_level = (uint8_t)(vol << 4);
-                  uint64_t sig_args[2] = { (uint64_t)comp->speaker_level, cpu->total_cycles };
-                  cpu_component_emit_signal(cpu, "atari_io", "audio_level", sig_args, 2);
-              }
+              /* Channel control updates are consumed by the audio proxy in step_post. */
+              return;
+          }
+          if (addr == 0xD202u) {
+              comp->pokey_audf2 = value;
+              return;
+          }
+          if (addr == 0xD203u) {
+              comp->pokey_audc2 = value;
+              return;
+          }
+          if (addr == 0xD204u) {
+              comp->pokey_audf3 = value;
+              return;
+          }
+          if (addr == 0xD205u) {
+              comp->pokey_audc3 = value;
+              return;
+          }
+          if (addr == 0xD206u) {
+              comp->pokey_audf4 = value;
+              return;
+          }
+          if (addr == 0xD207u) {
+              comp->pokey_audc4 = value;
+              return;
+          }
+          if (addr == 0xD208u) {
+              comp->pokey_audctl = value;
+              return;
+          }
+          if (addr == 0xD209u) {
+              /* STIMER: restart audio divider counters and clear output phases. */
+              comp->pokey_div1 = 0u;
+              comp->pokey_div2 = 0u;
+              comp->pokey_div3 = 0u;
+              comp->pokey_div4 = 0u;
+              comp->pokey_out1 = 0u;
+              comp->pokey_out2 = 0u;
+              comp->pokey_out3 = 0u;
+              comp->pokey_out4 = 0u;
               return;
           }
           if (addr == 0xD20Du) {
@@ -665,6 +779,167 @@ behavior:
           if ((((uint8_t)(~comp->pokey_irqst)) & comp->pokey_irqen) != 0u) {
               cpu->interrupt_vector = 0x00u;
               cpu->interrupt_pending = true;
+          }
+      }
+      {
+          /* POKEY audio core:
+             - AUDCTL clocking/join/filter controls
+             - AUDC distortion (poly4/poly5/poly9/poly17), pure tone, volume-only
+             - fixed-cadence mixer output */
+          const uint64_t sample_step_cycles = 57u; /* ~31.4kHz at 1.79MHz */
+          if (comp->pokey_audio_tick_cycle == 0u) {
+              comp->pokey_audio_tick_cycle = cpu->total_cycles;
+          }
+          while ((cpu->total_cycles - comp->pokey_audio_tick_cycle) >= sample_step_cycles) {
+              uint8_t audctl = comp->pokey_audctl;
+              uint32_t base = ((audctl & 0x01u) != 0u) ? 114u : 28u;
+              uint32_t p1 = (uint32_t)(comp->pokey_audf1 + 1u) * (((audctl & 0x40u) != 0u) ? 1u : base);
+              uint32_t p2 = (uint32_t)(comp->pokey_audf2 + 1u) * base;
+              uint32_t p3 = (uint32_t)(comp->pokey_audf3 + 1u) * (((audctl & 0x20u) != 0u) ? 1u : base);
+              uint32_t p4 = (uint32_t)(comp->pokey_audf4 + 1u) * base;
+              uint8_t join12 = (uint8_t)((audctl & 0x10u) != 0u);
+              uint8_t join34 = (uint8_t)((audctl & 0x08u) != 0u);
+              if (join12 != 0u) {
+                  p1 = (uint32_t)(((uint32_t)comp->pokey_audf2 << 8) | (uint32_t)comp->pokey_audf1) + 1u;
+                  if ((audctl & 0x40u) == 0u) p1 *= base;
+                  p2 = 0u;
+              }
+              if (join34 != 0u) {
+                  p3 = (uint32_t)(((uint32_t)comp->pokey_audf4 << 8) | (uint32_t)comp->pokey_audf3) + 1u;
+                  if ((audctl & 0x20u) == 0u) p3 *= base;
+                  p4 = 0u;
+              }
+              if (p1 == 0u) p1 = 1u;
+              if (p2 == 0u && join12 == 0u) p2 = 1u;
+              if (p3 == 0u) p3 = 1u;
+              if (p4 == 0u && join34 == 0u) p4 = 1u;
+
+              for (uint64_t i = 0u; i < sample_step_cycles; ++i) {
+                  uint8_t e1 = 0u, e2 = 0u, e3 = 0u, e4 = 0u;
+                  comp->pokey_div1 += 1u;
+                  if (comp->pokey_div1 >= p1) { comp->pokey_div1 = 0u; e1 = 1u; }
+                  if (join12 == 0u) {
+                      comp->pokey_div2 += 1u;
+                      if (comp->pokey_div2 >= p2) { comp->pokey_div2 = 0u; e2 = 1u; }
+                  }
+                  comp->pokey_div3 += 1u;
+                  if (comp->pokey_div3 >= p3) { comp->pokey_div3 = 0u; e3 = 1u; }
+                  if (join34 == 0u) {
+                      comp->pokey_div4 += 1u;
+                      if (comp->pokey_div4 >= p4) { comp->pokey_div4 = 0u; e4 = 1u; }
+                  }
+
+                  if ((e1 | e2 | e3 | e4) != 0u) {
+                      uint8_t fb4 = (uint8_t)(((comp->pokey_poly4 >> 0) ^ (comp->pokey_poly4 >> 1)) & 1u);
+                      uint8_t fb5 = (uint8_t)(((comp->pokey_poly5 >> 0) ^ (comp->pokey_poly5 >> 2)) & 1u);
+                      uint16_t fb9 = (uint16_t)(((comp->pokey_poly9 >> 0) ^ (comp->pokey_poly9 >> 5)) & 1u);
+                      uint32_t fb17 = (uint32_t)(((comp->pokey_poly17 >> 0) ^ (comp->pokey_poly17 >> 5)) & 1u);
+                      comp->pokey_poly4 = (uint8_t)(((comp->pokey_poly4 >> 1) | (uint8_t)(fb4 << 3)) & 0x0Fu);
+                      comp->pokey_poly5 = (uint8_t)(((comp->pokey_poly5 >> 1) | (uint8_t)(fb5 << 4)) & 0x1Fu);
+                      comp->pokey_poly9 = (uint16_t)(((comp->pokey_poly9 >> 1) | (uint16_t)(fb9 << 8)) & 0x01FFu);
+                      comp->pokey_poly17 = (uint32_t)(((comp->pokey_poly17 >> 1) | (fb17 << 16)) & 0x0001FFFFu);
+                  }
+
+                  if (e1 != 0u) {
+                      uint8_t audc = comp->pokey_audc1;
+                      uint8_t toggle = 0u;
+                      if ((audc & 0x10u) == 0u) {
+                          if (((audc & 0x80u) != 0u) || ((comp->pokey_poly5 & 1u) != 0u)) {
+                              if ((audc & 0x20u) != 0u) {
+                                  toggle = 1u;
+                              } else if ((audc & 0x40u) != 0u) {
+                                  uint8_t bit4 = (uint8_t)(comp->pokey_poly4 & 1u);
+                                  toggle = (uint8_t)(bit4 == (uint8_t)(comp->pokey_out1 == 0u));
+                              } else {
+                                  uint8_t nbit = (uint8_t)(((audctl & 0x80u) != 0u) ? (comp->pokey_poly9 & 1u) : (comp->pokey_poly17 & 1u));
+                                  toggle = (uint8_t)(nbit == (uint8_t)(comp->pokey_out1 == 0u));
+                              }
+                          }
+                      }
+                      if (toggle != 0u) comp->pokey_out1 ^= 1u;
+                  }
+                  if (e2 != 0u) {
+                      uint8_t audc = comp->pokey_audc2;
+                      uint8_t toggle = 0u;
+                      if ((audc & 0x10u) == 0u) {
+                          if (((audc & 0x80u) != 0u) || ((comp->pokey_poly5 & 1u) != 0u)) {
+                              if ((audc & 0x20u) != 0u) {
+                                  toggle = 1u;
+                              } else if ((audc & 0x40u) != 0u) {
+                                  uint8_t bit4 = (uint8_t)(comp->pokey_poly4 & 1u);
+                                  toggle = (uint8_t)(bit4 == (uint8_t)(comp->pokey_out2 == 0u));
+                              } else {
+                                  uint8_t nbit = (uint8_t)(((audctl & 0x80u) != 0u) ? (comp->pokey_poly9 & 1u) : (comp->pokey_poly17 & 1u));
+                                  toggle = (uint8_t)(nbit == (uint8_t)(comp->pokey_out2 == 0u));
+                              }
+                          }
+                      }
+                      if (toggle != 0u) comp->pokey_out2 ^= 1u;
+                  }
+                  if (e3 != 0u) {
+                      uint8_t audc = comp->pokey_audc3;
+                      uint8_t toggle = 0u;
+                      if ((audc & 0x10u) == 0u) {
+                          if (((audc & 0x80u) != 0u) || ((comp->pokey_poly5 & 1u) != 0u)) {
+                              if ((audc & 0x20u) != 0u) {
+                                  toggle = 1u;
+                              } else if ((audc & 0x40u) != 0u) {
+                                  uint8_t bit4 = (uint8_t)(comp->pokey_poly4 & 1u);
+                                  toggle = (uint8_t)(bit4 == (uint8_t)(comp->pokey_out3 == 0u));
+                              } else {
+                                  uint8_t nbit = (uint8_t)(((audctl & 0x80u) != 0u) ? (comp->pokey_poly9 & 1u) : (comp->pokey_poly17 & 1u));
+                                  toggle = (uint8_t)(nbit == (uint8_t)(comp->pokey_out3 == 0u));
+                              }
+                          }
+                      }
+                      if (toggle != 0u) comp->pokey_out3 ^= 1u;
+                  }
+                  if (e4 != 0u) {
+                      uint8_t audc = comp->pokey_audc4;
+                      uint8_t toggle = 0u;
+                      if ((audc & 0x10u) == 0u) {
+                          if (((audc & 0x80u) != 0u) || ((comp->pokey_poly5 & 1u) != 0u)) {
+                              if ((audc & 0x20u) != 0u) {
+                                  toggle = 1u;
+                              } else if ((audc & 0x40u) != 0u) {
+                                  uint8_t bit4 = (uint8_t)(comp->pokey_poly4 & 1u);
+                                  toggle = (uint8_t)(bit4 == (uint8_t)(comp->pokey_out4 == 0u));
+                              } else {
+                                  uint8_t nbit = (uint8_t)(((audctl & 0x80u) != 0u) ? (comp->pokey_poly9 & 1u) : (comp->pokey_poly17 & 1u));
+                                  toggle = (uint8_t)(nbit == (uint8_t)(comp->pokey_out4 == 0u));
+                              }
+                          }
+                      }
+                      if (toggle != 0u) comp->pokey_out4 ^= 1u;
+                  }
+
+                  if ((audctl & 0x04u) != 0u && e3 != 0u && comp->pokey_out1 != 0u) comp->pokey_out1 = 0u;
+                  if ((audctl & 0x02u) != 0u && e4 != 0u && comp->pokey_out2 != 0u) comp->pokey_out2 = 0u;
+              }
+
+              {
+                  int mix = 0;
+                  uint8_t v1 = (uint8_t)(comp->pokey_audc1 & 0x0Fu);
+                  uint8_t v2 = (uint8_t)(comp->pokey_audc2 & 0x0Fu);
+                  uint8_t v3 = (uint8_t)(comp->pokey_audc3 & 0x0Fu);
+                  uint8_t v4 = (uint8_t)(comp->pokey_audc4 & 0x0Fu);
+                  if ((comp->pokey_audc1 & 0x10u) != 0u) mix += (int)v1; else mix += (comp->pokey_out1 != 0u) ? (int)v1 : -(int)v1;
+                  if ((comp->pokey_audc2 & 0x10u) != 0u) mix += (int)v2; else mix += (comp->pokey_out2 != 0u) ? (int)v2 : -(int)v2;
+                  if ((comp->pokey_audc3 & 0x10u) != 0u) mix += (int)v3; else mix += (comp->pokey_out3 != 0u) ? (int)v3 : -(int)v3;
+                  if ((comp->pokey_audc4 & 0x10u) != 0u) mix += (int)v4; else mix += (comp->pokey_out4 != 0u) ? (int)v4 : -(int)v4;
+                  {
+                      int level = 128 + (mix * 2);
+                      uint64_t ts = comp->pokey_audio_tick_cycle + sample_step_cycles;
+                      if (level < 0) level = 0;
+                      if (level > 255) level = 255;
+                      comp->speaker_level = (uint8_t)level;
+                      {
+                          uint64_t sig_args[2] = { (uint64_t)comp->speaker_level, ts };
+                          cpu_component_emit_signal(cpu, "atari_io", "audio_level", sig_args, 2);
+                      }
+                  }
+              }
+              comp->pokey_audio_tick_cycle += sample_step_cycles;
           }
       }
       {

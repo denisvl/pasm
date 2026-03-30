@@ -26,8 +26,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 14;
-                    inst.length = 4;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* LD_SP_IX */
@@ -63,8 +63,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* LD_IX_NN_IND */
@@ -73,8 +73,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* PUSH_IX */
@@ -137,8 +137,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_A_IXD */
@@ -147,8 +147,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* HALT_DD */
@@ -184,9 +184,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.r = (raw >> 3) & 0x7;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_IXD_R */
@@ -195,9 +195,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.r = (raw >> 0) & 0x7;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_R_IXHIXL_DD */
@@ -206,9 +206,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.rd = (raw >> 3) & 0x7;
                     inst.rs = (raw >> 0) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* LD_IXD_N */
@@ -217,9 +217,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
                     inst.n = (raw >> 16) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* INC_IXH */
@@ -246,8 +246,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 11;
-                    inst.length = 3;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* INC_IXL */
@@ -274,8 +274,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 11;
-                    inst.length = 3;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* ADD_A_IXD */
@@ -284,8 +284,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* ADC_A_IXD */
@@ -294,8 +294,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* SUB_IXD */
@@ -304,8 +304,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* SBC_A_IXD */
@@ -314,8 +314,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* AND_IXD */
@@ -324,8 +324,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* XOR_IXD */
@@ -334,8 +334,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* OR_IXD */
@@ -344,8 +344,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* CP_IXD */
@@ -354,8 +354,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* ALU_A_IXHIXL_DD */
@@ -364,9 +364,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.alu = (raw >> 3) & 0x7;
                     inst.r = (raw >> 0) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* INC_IXD */
@@ -375,8 +375,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* DEC_IXD */
@@ -385,8 +385,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* JP_IX */
@@ -413,8 +413,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RRC_IXD */
@@ -423,8 +423,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RL_IXD */
@@ -433,8 +433,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RR_IXD */
@@ -443,8 +443,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SLA_IXD */
@@ -453,8 +453,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SLL_IXD */
@@ -463,8 +463,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SRA_IXD */
@@ -473,8 +473,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SRL_IXD */
@@ -483,8 +483,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_0_IXD */
@@ -493,8 +493,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_0_IXD */
@@ -503,8 +503,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_0_IXD */
@@ -513,8 +513,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_1_IXD */
@@ -523,8 +523,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_1_IXD */
@@ -533,8 +533,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_1_IXD */
@@ -543,8 +543,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_2_IXD */
@@ -553,8 +553,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_2_IXD */
@@ -563,8 +563,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_2_IXD */
@@ -573,8 +573,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_3_IXD */
@@ -583,8 +583,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_3_IXD */
@@ -593,8 +593,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_3_IXD */
@@ -603,8 +603,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_4_IXD */
@@ -613,8 +613,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_4_IXD */
@@ -623,8 +623,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_4_IXD */
@@ -633,8 +633,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_5_IXD */
@@ -643,8 +643,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_5_IXD */
@@ -653,8 +653,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_5_IXD */
@@ -663,8 +663,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_6_IXD */
@@ -673,8 +673,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_6_IXD */
@@ -683,8 +683,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_6_IXD */
@@ -693,8 +693,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_7_IXD */
@@ -703,8 +703,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_7_IXD */
@@ -713,8 +713,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_7_IXD */
@@ -723,8 +723,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* ROT_SHIFT_IXD_R */
@@ -733,10 +733,10 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
                     inst.op = (raw >> 19) & 0x7;
                     inst.r = (raw >> 16) & 0x7;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_IXD_R */
@@ -745,10 +745,10 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
                     inst.bit = (raw >> 19) & 0x7;
                     inst.r = (raw >> 16) & 0x7;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_IXD_R */
@@ -757,10 +757,10 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
                     inst.bit = (raw >> 19) & 0x7;
                     inst.r = (raw >> 16) & 0x7;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_IXD_R */
@@ -769,10 +769,10 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
                     inst.bit = (raw >> 19) & 0x7;
                     inst.r = (raw >> 16) & 0x7;
+                    inst.length = 4;
                     return inst;
                 }
                 break;
@@ -784,8 +784,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 14;
-                    inst.length = 4;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* LD_SP_IY */
@@ -821,8 +821,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* LD_IY_NN_IND */
@@ -831,8 +831,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* PUSH_IY */
@@ -895,8 +895,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_A_IYD */
@@ -905,8 +905,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* HALT_FD */
@@ -942,9 +942,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.r = (raw >> 3) & 0x7;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_IYD_R */
@@ -953,9 +953,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.r = (raw >> 0) & 0x7;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_R_IYHIYL_FD */
@@ -964,9 +964,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.rd = (raw >> 3) & 0x7;
                     inst.rs = (raw >> 0) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* LD_IYD_N */
@@ -975,9 +975,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
                     inst.n = (raw >> 16) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* INC_IYH */
@@ -1004,8 +1004,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 11;
-                    inst.length = 3;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* INC_IYL */
@@ -1032,8 +1032,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 11;
-                    inst.length = 3;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* ADD_A_IYD */
@@ -1042,8 +1042,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* ADC_A_IYD */
@@ -1052,8 +1052,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* SUB_IYD */
@@ -1062,8 +1062,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* SBC_A_IYD */
@@ -1072,8 +1072,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* AND_IYD */
@@ -1082,8 +1082,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* XOR_IYD */
@@ -1092,8 +1092,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* OR_IYD */
@@ -1102,8 +1102,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* CP_IYD */
@@ -1112,8 +1112,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 19;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* ALU_A_IYHIYL_FD */
@@ -1122,9 +1122,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.alu = (raw >> 3) & 0x7;
                     inst.r = (raw >> 0) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* INC_IYD */
@@ -1133,8 +1133,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* DEC_IYD */
@@ -1143,8 +1143,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 3;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* JP_IY */
@@ -1171,8 +1171,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RRC_IYD */
@@ -1181,8 +1181,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RL_IYD */
@@ -1191,8 +1191,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RR_IYD */
@@ -1201,8 +1201,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SLA_IYD */
@@ -1211,8 +1211,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SLL_IYD */
@@ -1221,8 +1221,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SRA_IYD */
@@ -1231,8 +1231,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SRL_IYD */
@@ -1241,8 +1241,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_0_IYD */
@@ -1251,8 +1251,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_0_IYD */
@@ -1261,8 +1261,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_0_IYD */
@@ -1271,8 +1271,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_1_IYD */
@@ -1281,8 +1281,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_1_IYD */
@@ -1291,8 +1291,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_1_IYD */
@@ -1301,8 +1301,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_2_IYD */
@@ -1311,8 +1311,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_2_IYD */
@@ -1321,8 +1321,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_2_IYD */
@@ -1331,8 +1331,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_3_IYD */
@@ -1341,8 +1341,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_3_IYD */
@@ -1351,8 +1351,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_3_IYD */
@@ -1361,8 +1361,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_4_IYD */
@@ -1371,8 +1371,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_4_IYD */
@@ -1381,8 +1381,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_4_IYD */
@@ -1391,8 +1391,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_5_IYD */
@@ -1401,8 +1401,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_5_IYD */
@@ -1411,8 +1411,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_5_IYD */
@@ -1421,8 +1421,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_6_IYD */
@@ -1431,8 +1431,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_6_IYD */
@@ -1441,8 +1441,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_6_IYD */
@@ -1451,8 +1451,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_7_IYD */
@@ -1461,8 +1461,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_7_IYD */
@@ -1471,8 +1471,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_7_IYD */
@@ -1481,8 +1481,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* ROT_SHIFT_IYD_R */
@@ -1491,10 +1491,10 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
                     inst.op = (raw >> 19) & 0x7;
                     inst.r = (raw >> 16) & 0x7;
+                    inst.length = 4;
                     return inst;
                 }
                 /* BIT_IYD_R */
@@ -1503,10 +1503,10 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
                     inst.bit = (raw >> 19) & 0x7;
                     inst.r = (raw >> 16) & 0x7;
+                    inst.length = 4;
                     return inst;
                 }
                 /* SET_IYD_R */
@@ -1515,10 +1515,10 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
                     inst.bit = (raw >> 19) & 0x7;
                     inst.r = (raw >> 16) & 0x7;
+                    inst.length = 4;
                     return inst;
                 }
                 /* RES_IYD_R */
@@ -1527,10 +1527,10 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 23;
-                    inst.length = 4;
                     inst.disp = (raw >> 8) & 0xFF;
                     inst.bit = (raw >> 19) & 0x7;
                     inst.r = (raw >> 16) & 0x7;
+                    inst.length = 4;
                     return inst;
                 }
                 break;
@@ -1555,8 +1555,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* LD_B_N */
@@ -1565,8 +1565,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* LD_C_N */
@@ -1575,8 +1575,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* LD_D_N */
@@ -1585,8 +1585,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* LD_E_N */
@@ -1595,8 +1595,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* LD_H_N */
@@ -1605,8 +1605,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* LD_L_N */
@@ -1615,8 +1615,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* LD_SP_NN */
@@ -1625,8 +1625,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_SP_HL */
@@ -1644,8 +1644,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_DE_NN */
@@ -1654,8 +1654,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* INC_SS */
@@ -1664,8 +1664,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 6;
-                    inst.length = 1;
                     inst.ss = (raw >> 4) & 0x3;
+                    inst.length = 1;
                     return inst;
                 }
                 /* DEC_SS */
@@ -1674,8 +1674,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 6;
-                    inst.length = 1;
                     inst.ss = (raw >> 4) & 0x3;
+                    inst.length = 1;
                     return inst;
                 }
                 /* LD_HL_NN */
@@ -1684,8 +1684,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_NN_A */
@@ -1694,8 +1694,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 13;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_BCI_A */
@@ -1722,8 +1722,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 13;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_A_BCI */
@@ -1750,8 +1750,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* LD_NN_HL */
@@ -1760,8 +1760,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 16;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_HL_NN_IND */
@@ -1770,8 +1770,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 16;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* LD_NN_BC_ED */
@@ -1780,8 +1780,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 16) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* LD_NN_DE_ED */
@@ -1790,8 +1790,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 16) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* LD_NN_HL_ED */
@@ -1800,8 +1800,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 16) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* LD_NN_SP_ED */
@@ -1810,8 +1810,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 16) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* LD_BC_NN_IND_ED */
@@ -1820,8 +1820,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 16) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* LD_DE_NN_IND_ED */
@@ -1830,8 +1830,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 16) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* LD_HL_NN_IND_ED */
@@ -1840,8 +1840,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 16) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* LD_SP_NN_IND_ED */
@@ -1850,8 +1850,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 20;
-                    inst.length = 4;
                     inst.addr = (raw >> 16) & 0xFFFF;
+                    inst.length = 4;
                     return inst;
                 }
                 /* PUSH_BC */
@@ -1932,8 +1932,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* SUB_A_N */
@@ -1942,8 +1942,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* ADC_A_N */
@@ -1952,8 +1952,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* SBC_A_N */
@@ -1962,8 +1962,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* AND_A_N */
@@ -1972,8 +1972,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* XOR_A_N */
@@ -1982,8 +1982,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* OR_A_N */
@@ -1992,8 +1992,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* CP_A_N */
@@ -2002,8 +2002,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 7;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* ADD_HL_BC */
@@ -2219,9 +2219,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 4;
-                    inst.length = 1;
                     inst.rd = (raw >> 3) & 0x7;
                     inst.rs = (raw >> 0) & 0x7;
+                    inst.length = 1;
                     return inst;
                 }
                 /* ADD_A_R */
@@ -2230,8 +2230,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 4;
-                    inst.length = 1;
                     inst.r = (raw >> 0) & 0x7;
+                    inst.length = 1;
                     return inst;
                 }
                 /* JP_NN */
@@ -2240,8 +2240,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* JP_Z_NN */
@@ -2250,8 +2250,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* JP_NZ_NN */
@@ -2260,8 +2260,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* JP_NC_NN */
@@ -2270,8 +2270,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* JP_C_NN */
@@ -2280,8 +2280,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* JP_PO_NN */
@@ -2290,8 +2290,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* JP_PE_NN */
@@ -2300,8 +2300,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* JP_P_NN */
@@ -2310,8 +2310,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* JP_M_NN */
@@ -2320,8 +2320,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 10;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* JP_HLI */
@@ -2375,8 +2375,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 4;
-                    inst.length = 1;
                     inst.r = (raw >> 0) & 0x7;
+                    inst.length = 1;
                     return inst;
                 }
                 /* OR_A_R */
@@ -2385,8 +2385,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 4;
-                    inst.length = 1;
                     inst.r = (raw >> 0) & 0x7;
+                    inst.length = 1;
                     return inst;
                 }
                 /* XOR_A_R */
@@ -2395,8 +2395,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 4;
-                    inst.length = 1;
                     inst.r = (raw >> 0) & 0x7;
+                    inst.length = 1;
                     return inst;
                 }
                 /* RLC_A */
@@ -2576,8 +2576,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 11;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* OUT_N_A */
@@ -2586,8 +2586,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 11;
-                    inst.length = 2;
                     inst.n = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* IN_R_C */
@@ -2596,8 +2596,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 12;
-                    inst.length = 2;
                     inst.r = (raw >> 11) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* OUT_C_R */
@@ -2606,8 +2606,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_DATA_TRANSFER;
                     inst.pc = pc;
                     inst.cycles = 12;
-                    inst.length = 2;
                     inst.r = (raw >> 11) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* LD_I_A */
@@ -2715,8 +2715,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 12;
-                    inst.length = 2;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* EX_DE_HL */
@@ -2743,8 +2743,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_LOGIC;
                     inst.pc = pc;
                     inst.cycles = 4;
-                    inst.length = 1;
                     inst.r = (raw >> 0) & 0x7;
+                    inst.length = 1;
                     return inst;
                 }
                 /* CALL_NN */
@@ -2753,8 +2753,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 17;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* CALL_Z_NN */
@@ -2763,8 +2763,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 17;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* CALL_NZ_NN */
@@ -2773,8 +2773,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 17;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* CALL_C_NN */
@@ -2783,8 +2783,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 17;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* CALL_NC_NN */
@@ -2793,8 +2793,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 17;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* CALL_PO_NN */
@@ -2803,8 +2803,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 17;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* CALL_PE_NN */
@@ -2813,8 +2813,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 17;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* CALL_P_NN */
@@ -2823,8 +2823,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 17;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* CALL_M_NN */
@@ -2833,8 +2833,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 17;
-                    inst.length = 3;
                     inst.addr = (raw >> 8) & 0xFFFF;
+                    inst.length = 3;
                     return inst;
                 }
                 /* RET */
@@ -3014,8 +3014,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 4;
-                    inst.length = 1;
                     inst.r = (raw >> 0) & 0x7;
+                    inst.length = 1;
                     return inst;
                 }
                 /* ADC_A_R */
@@ -3024,8 +3024,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 4;
-                    inst.length = 1;
                     inst.r = (raw >> 0) & 0x7;
+                    inst.length = 1;
                     return inst;
                 }
                 /* SBC_A_R */
@@ -3034,8 +3034,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 4;
-                    inst.length = 1;
                     inst.r = (raw >> 0) & 0x7;
+                    inst.length = 1;
                     return inst;
                 }
                 /* INC_R */
@@ -3044,8 +3044,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 4;
-                    inst.length = 1;
                     inst.r = (raw >> 3) & 0x7;
+                    inst.length = 1;
                     return inst;
                 }
                 /* DEC_R */
@@ -3054,8 +3054,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ARITHMETIC;
                     inst.pc = pc;
                     inst.cycles = 4;
-                    inst.length = 1;
                     inst.r = (raw >> 3) & 0x7;
+                    inst.length = 1;
                     return inst;
                 }
                 /* CPI */
@@ -3208,8 +3208,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.r = (raw >> 8) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* RRC_R */
@@ -3218,8 +3218,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.r = (raw >> 8) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* RL_R */
@@ -3228,8 +3228,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.r = (raw >> 8) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* RR_R */
@@ -3238,8 +3238,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.r = (raw >> 8) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* SLA_R */
@@ -3248,8 +3248,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.r = (raw >> 8) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* SLL_R */
@@ -3258,8 +3258,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.r = (raw >> 8) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* SRA_R */
@@ -3268,8 +3268,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.r = (raw >> 8) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* SRL_R */
@@ -3278,8 +3278,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_ROTATE;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.r = (raw >> 8) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* SET_0_A */
@@ -3576,9 +3576,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.bit = (raw >> 11) & 0x7;
                     inst.r = (raw >> 8) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* SET_R */
@@ -3587,9 +3587,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.bit = (raw >> 11) & 0x7;
                     inst.r = (raw >> 8) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* RES_R */
@@ -3598,9 +3598,9 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_BIT;
                     inst.pc = pc;
                     inst.cycles = 8;
-                    inst.length = 2;
                     inst.bit = (raw >> 11) & 0x7;
                     inst.r = (raw >> 8) & 0x7;
+                    inst.length = 2;
                     return inst;
                 }
                 /* JR_NZ_D */
@@ -3609,8 +3609,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 12;
-                    inst.length = 2;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* JR_NC_D */
@@ -3619,8 +3619,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 12;
-                    inst.length = 2;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* JR_Z_D */
@@ -3629,8 +3629,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 12;
-                    inst.length = 2;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* JR_C_D */
@@ -3639,8 +3639,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 12;
-                    inst.length = 2;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* DJNZ_D */
@@ -3649,8 +3649,8 @@ DecodedInstruction z80_decode(uint32_t raw, uint8_t prefix, uint16_t pc) {
                     inst.category = CAT_CONTROL;
                     inst.pc = pc;
                     inst.cycles = 13;
-                    inst.length = 2;
                     inst.disp = (raw >> 8) & 0xFF;
+                    inst.length = 2;
                     return inst;
                 }
                 /* INI */

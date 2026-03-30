@@ -269,6 +269,89 @@ behavior:
                       }
                   }
               }
+              {
+                  /* TMS9918A sprite layer (MAME-style scanline logic). */
+                  uint16_t sat_base = (uint16_t)((((uint16_t)(comp->reg5 & 0x7Fu)) << 7) & 0x3FFFu);
+                  uint16_t spt_base = (uint16_t)((((uint16_t)(comp->reg6 & 0x07u)) << 11) & 0x3FFFu);
+                  uint8_t sprite_size = (uint8_t)(((comp->reg1 & 0x02u) != 0u) ? 16u : 8u);
+                  uint8_t sprite_mag = (uint8_t)((comp->reg1 & 0x01u) != 0u);
+                  uint8_t sprite_height = (uint8_t)(sprite_size * (uint8_t)(sprite_mag + 1u));
+                  uint8_t status_c = (uint8_t)(comp->status & 0x20u);
+                  uint8_t fifth_index = 31u;
+                  uint8_t fifth_encountered = 0u;
+
+                  /* Sprites are enabled only when display is on and text-mode bit is clear. */
+                  if ((comp->reg1 & 0x50u) == 0x40u) {
+                      for (uint16_t y = 0u; y < 192u; ++y) {
+                          uint8_t spr_drawn[32u + 256u + 32u];
+                          uint8_t num_sprites = 0u;
+                          memset(spr_drawn, 0, sizeof(spr_drawn));
+
+                          for (uint8_t i = 0u; i < 32u; ++i) {
+                              uint16_t a = (uint16_t)(sat_base + (uint16_t)(i * 4u));
+                              int16_t spr_y = (int16_t)vram[(uint16_t)(a & 0x3FFFu)];
+                              if (spr_y == 208) break;
+                              fifth_index = i;
+                              if (spr_y > 0xE0) spr_y -= 256;
+                              spr_y += 1;
+                              if ((int16_t)y < spr_y || (int16_t)y >= (int16_t)(spr_y + (int16_t)sprite_height)) continue;
+
+                              {
+                                  int16_t spr_x = (int16_t)vram[(uint16_t)((a + 1u) & 0x3FFFu)];
+                                  uint8_t spr_code = vram[(uint16_t)((a + 2u) & 0x3FFFu)];
+                                  uint8_t spr_col_attr = vram[(uint16_t)((a + 3u) & 0x3FFFu)];
+                                  uint16_t pat_addr = (uint16_t)(
+                                      spt_base + (uint16_t)(((sprite_size == 16u) ? (spr_code & (uint8_t)~0x03u) : spr_code) * 8u)
+                                  );
+                                  uint8_t row = (uint8_t)((uint16_t)y - (uint16_t)spr_y);
+                                  uint8_t spr_col;
+
+                                  num_sprites += 1u;
+                                  if (num_sprites == 5u) {
+                                      fifth_encountered = 1u;
+                                      break;
+                                  }
+
+                                  if (sprite_mag != 0u) {
+                                      pat_addr = (uint16_t)(pat_addr + (uint16_t)((row & 0x1Fu) >> 1));
+                                  } else {
+                                      pat_addr = (uint16_t)(pat_addr + (uint16_t)(row & 0x0Fu));
+                                  }
+
+                                  if ((spr_col_attr & 0x80u) != 0u) spr_x -= 32;
+                                  spr_col = (uint8_t)(spr_col_attr & 0x0Fu);
+
+                                  for (uint8_t s = 0u; s < sprite_size; s = (uint8_t)(s + 8u)) {
+                                      uint8_t pattern = vram[(uint16_t)((pat_addr + (uint16_t)(s * 2u)) & 0x3FFFu)];
+                                      for (uint8_t bit = 0u; bit < 8u; ++bit, pattern = (uint8_t)(pattern << 1)) {
+                                          int16_t col_idx = (int16_t)(spr_x + (int16_t)((sprite_mag != 0u) ? (bit * 2u) : bit) + 32);
+                                          uint8_t repeat = (uint8_t)(sprite_mag != 0u ? 2u : 1u);
+                                          for (uint8_t z = 0u; z < repeat; ++z, ++col_idx) {
+                                              if ((pattern & 0x80u) == 0u) continue;
+                                              if (col_idx < 32 || col_idx >= (32 + 256)) continue;
+                                              if (spr_drawn[(uint16_t)col_idx] != 0u) status_c = 0x20u;
+                                              spr_drawn[(uint16_t)col_idx] |= 0x01u;
+                                              if ((spr_col != 0u) && ((spr_drawn[(uint16_t)col_idx] & 0x02u) == 0u)) {
+                                                  uint16_t x = (uint16_t)(col_idx - 32);
+                                                  uint32_t idx = (uint32_t)y * 256u + (uint32_t)x;
+                                                  spr_drawn[(uint16_t)col_idx] |= 0x02u;
+                                                  framebuf[idx] = msx_palette[spr_col & 0x0Fu];
+                                              }
+                                          }
+                                      }
+                                      spr_x = (int16_t)(spr_x + (int16_t)((sprite_mag != 0u) ? 16 : 8));
+                                  }
+                              }
+                          }
+                      }
+                      comp->status = (uint8_t)((comp->status & 0x80u) | status_c | (fifth_index & 0x1Fu));
+                      if ((fifth_encountered != 0u) && ((comp->status & 0x80u) == 0u)) {
+                          comp->status = (uint8_t)(comp->status | 0x40u);
+                      }
+                  } else {
+                      comp->status = (uint8_t)((comp->status & 0xA0u) | 31u);
+                  }
+              }
               comp->render_dirty = 0u;
           }
           {

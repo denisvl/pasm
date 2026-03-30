@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
     uint64_t max_cycles = 0;
     const char *system_dir = NULL;
     const char *rom_file = NULL;
-    const char *cart_rom_file = "/home/dvlop/projects/pasm/examples/roms/sms/Sonic The Hedgehog (USA, Europe).sms";
+    const char *cart_rom_file = "/home/dvlop/projects/pasm/examples/roms/sms/sega.rom";
     uint16_t load_addr = 0;
     const char *test_name = NULL;
     

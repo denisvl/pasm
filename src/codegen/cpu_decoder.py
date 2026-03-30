@@ -5,6 +5,23 @@ from typing import Dict, List, Any
 from .templates import get_template
 
 
+def _decode_quirk_mc6809_indexed_postbyte_length(isa_data: Dict[str, Any]) -> bool:
+    metadata = isa_data.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise ValueError("ISA metadata must be an object")
+    codegen = metadata.get("codegen")
+    if not isinstance(codegen, dict):
+        raise ValueError("ISA metadata.codegen must be an object")
+    quirks = codegen.get("decode_quirks")
+    if not isinstance(quirks, dict):
+        raise ValueError("metadata.codegen.decode_quirks must be an object")
+    if "mc6809_indexed_postbyte_length" not in quirks:
+        raise ValueError(
+            "metadata.codegen.decode_quirks.mc6809_indexed_postbyte_length is required"
+        )
+    return bool(quirks.get("mc6809_indexed_postbyte_length"))
+
+
 def generate_decoder(isa_data: Dict[str, Any], cpu_name: str) -> tuple:
     """Generate decoder header and implementation."""
 
@@ -110,8 +127,9 @@ def _generate_decode_logic(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     lines = []
 
     instructions = isa_data.get("instructions", [])
-    isa_name = str(isa_data.get("metadata", {}).get("name", "")).lower()
-    is_mc6809 = "6809" in isa_name
+    has_mc6809_postbyte_len_quirk = _decode_quirk_mc6809_indexed_postbyte_length(
+        isa_data
+    )
     is_big_endian = str(isa_data.get("metadata", {}).get("endian", "little")).lower() == "big"
 
     # Track prefixes used (non-zero only)
@@ -146,7 +164,13 @@ def _generate_decode_logic(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
 
             # Decode prefixed instructions
             for inst in by_prefix.get(prefix, []):
-                _add_decode_case(lines, inst, prefix, is_mc6809, is_big_endian)
+                _add_decode_case(
+                    lines,
+                    inst,
+                    prefix,
+                    has_mc6809_postbyte_len_quirk,
+                    is_big_endian,
+                )
 
             lines.append("                break;")
             lines.append("            }")
@@ -159,7 +183,13 @@ def _generate_decode_logic(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     # Decode non-prefixed instructions only when no prefix was consumed.
     lines.append("    if (prefix == 0) {")
     for inst in by_prefix.get(0, []):
-        _add_decode_case(lines, inst, 0, is_mc6809, is_big_endian)
+        _add_decode_case(
+            lines,
+            inst,
+            0,
+            has_mc6809_postbyte_len_quirk,
+            is_big_endian,
+        )
     lines.append("    }")
 
     # Default case
@@ -193,7 +223,11 @@ def _generate_decode_logic(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
 
 
 def _add_decode_case(
-    lines: List[str], inst: Dict[str, Any], prefix: int, is_mc6809: bool, is_big_endian: bool
+    lines: List[str],
+    inst: Dict[str, Any],
+    prefix: int,
+    has_mc6809_postbyte_len_quirk: bool,
+    is_big_endian: bool,
 ):
     """Add a decode case for an instruction."""
     name = inst.get("name", "UNKNOWN")
@@ -280,7 +314,7 @@ def _add_decode_case(
             )
 
     has_postbyte = any(str(field.get("name", "")) == "postbyte" for field in fields)
-    if is_mc6809 and has_postbyte:
+    if has_mc6809_postbyte_len_quirk and has_postbyte:
         lines.append("                    {")
         lines.append("                        uint8_t pb_len = (uint8_t)((raw >> 8) & 0xFFu);")
         lines.append("                        uint8_t idx_extra = 0u;")

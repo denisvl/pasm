@@ -182,11 +182,6 @@ typedef struct ComponentState_host_coco {
     uint8_t active_joy_port;
 } ComponentState_host_coco;
 
-typedef struct ComponentState_coco_cart0 {
-    uint8_t * rom_data;
-    uint32_t rom_size;
-} ComponentState_coco_cart0;
-
 
 /* ===== CPU State ===== */
 struct CPUState {
@@ -255,7 +250,6 @@ struct CPUState {
     ComponentState_video_coco comp_video_coco;
     ComponentState_speaker_coco comp_speaker_coco;
     ComponentState_host_coco comp_host_coco;
-    ComponentState_coco_cart0 comp_coco_cart0;
 };
 
 /* ===== Constants ===== */
@@ -273,7 +267,7 @@ struct CPUState {
 #define CPU_IC_COUNT 1
 #define CPU_DEVICE_COUNT 3
 #define CPU_HOST_COUNT 1
-#define CPU_CARTRIDGE_COUNT 1
+#define CPU_CARTRIDGE_COUNT 0
 
 /* ===== Register Enum ===== */
 typedef enum {

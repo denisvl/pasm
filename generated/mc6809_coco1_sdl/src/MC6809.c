@@ -15220,8 +15220,6 @@ CPUState *mc6809_create(size_t memory_size) {
             comp->host_inited = 1u;
         } while (0);
     }
-    cpu->comp_coco_cart0.rom_data = NULL;
-    cpu->comp_coco_cart0.rom_size = 0;
     
     mc6809_reset(cpu);
     return cpu;
@@ -15276,15 +15274,6 @@ void mc6809_destroy(CPUState *cpu) {
                 cpu_host_hal_quit();
                 comp->host_inited = 0u;
             }
-        }
-        {
-            ComponentState_coco_cart0 *comp = &cpu->comp_coco_cart0;
-            cpu->active_component_id = "coco_cart0";
-            if (comp->rom_data != NULL) {
-                free(comp->rom_data);
-                comp->rom_data = NULL;
-            }
-            comp->rom_size = 0u;
         }
         free(cpu->memory);
         free(cpu->port_memory);
@@ -15567,38 +15556,9 @@ int mc6809_load_system_roms(CPUState *cpu, const char *system_base_dir) {
 }
 
 int mc6809_load_cartridge_rom(CPUState *cpu, const char *path) {
-    FILE *f;
-    long file_size;
-    uint8_t *buf;
-    ComponentState_coco_cart0 *comp;
-    size_t read_len;
-
-    if (!cpu || !path || !path[0]) return -1;
-    comp = &cpu->comp_coco_cart0;
-    f = fopen(path, "rb");
-    if (!f) return -1;
-    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
-    file_size = ftell(f);
-    if (file_size < 0) { fclose(f); return -1; }
-    if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
-    buf = (uint8_t *)malloc((size_t)file_size);
-    if (!buf) { fclose(f); return -1; }
-    read_len = fread(buf, 1, (size_t)file_size, f);
-    fclose(f);
-    if (read_len != (size_t)file_size) { free(buf); return -1; }
-    if (comp->rom_data != NULL) {
-        free(comp->rom_data);
-        comp->rom_data = NULL;
-    }
-    comp->rom_data = buf;
-    comp->rom_size = (uint32_t)file_size;
-    snprintf(
-        cpu->loaded_rom_debug,
-        sizeof(cpu->loaded_rom_debug),
-        "name=coco_cart0 path=%s",
-        path
-    );
-    return 0;
+    (void)cpu;
+    (void)path;
+    return -1;
 }
 
 
@@ -15774,15 +15734,6 @@ uint8_t mc6809_read_byte(CPUState *cpu, uint16_t addr) {
                     return comp->sam_rom_e000[(uint16_t)(addr - 0xE000u)];
                 }
             }
-        }
-    }
-    {
-        ComponentState_coco_cart0 *comp = &cpu->comp_coco_cart0;
-        cpu->active_component_id = "coco_cart0";
-        if (addr >= 0xC000u && addr < 0xE000u && comp->rom_data != NULL && comp->rom_size > 0u) {
-            uint32_t off = (uint32_t)(addr - 0xC000u);
-            if (off < comp->rom_size) return comp->rom_data[off];
-            return 0xFFu;
         }
     }
     if (addr >= cpu->memory_size) {
@@ -15961,13 +15912,6 @@ void mc6809_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
             return;
         }
         if (addr >= 0xFF00u) {
-            return;
-        }
-    }
-    {
-        ComponentState_coco_cart0 *comp = &cpu->comp_coco_cart0;
-        cpu->active_component_id = "coco_cart0";
-        if (addr >= 0xC000u && addr < 0xE000u && comp->rom_data != NULL && comp->rom_size > 0u) {
             return;
         }
     }

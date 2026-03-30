@@ -45,6 +45,12 @@ state:
   - name: audio_level
     type: int16_t
     initial: "0"
+  - name: audio_hp_prev_in
+    type: int32_t
+    initial: "0"
+  - name: audio_hp_prev_out
+    type: int32_t
+    initial: "0"
   - name: audio_last_cycle
     type: uint64_t
     initial: "0"
@@ -411,6 +417,8 @@ behavior:
       comp->irq_edges = 0u;
       comp->audio_samples = 0u;
       comp->audio_level = 0;
+      comp->audio_hp_prev_in = 0;
+      comp->audio_hp_prev_out = 0;
       comp->audio_last_cycle = 0u;
       comp->audio_sample_cursor = 0u;
       comp->audio_ring_read_idx = 0u;
@@ -738,14 +746,20 @@ behavior:
       }
     audio_pcm: |
       if (comp->audio_out_dev == 0u || comp->audio_out_ready == 0u || comp->audio_ring == NULL || comp->audio_ring_capacity == 0u || argc < 1) return;
-      uint8_t mix_u = (uint8_t)(args[0] & 0xFFu); /* PSG mix encoded as 0..30, silence at 15 */
+      uint8_t level_u = (uint8_t)(args[0] & 0xFFu);
       uint64_t cycle = (argc > 1) ? (uint64_t)args[1] : cpu->total_cycles;
       uint64_t sample_rate = (comp->audio_rate > 0u) ? (uint64_t)comp->audio_rate : ((CPU_AUDIO_SAMPLE_RATE > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u);
       uint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? CPU_SYSTEM_CLOCK_HZ : 1u;
       uint64_t target_sample_index = (cycle * sample_rate) / clock_hz;
-      int centered = ((int)mix_u) - 15;
-      if (centered > -2 && centered < 2) centered = 0;
-      int16_t next_level = (int16_t)(centered * 900);
+      int32_t sample_in = ((int32_t)((int16_t)(int)level_u - 128)) << 8;
+      int32_t sample_hp = sample_in - comp->audio_hp_prev_in + ((comp->audio_hp_prev_out * 32440) / 32768);
+      int16_t next_level;
+      int16_t prev_level = comp->audio_level;
+      if (sample_hp < -32768) sample_hp = -32768;
+      if (sample_hp > 32767) sample_hp = 32767;
+      next_level = (int16_t)sample_hp;
+      comp->audio_hp_prev_in = sample_in;
+      comp->audio_hp_prev_out = sample_hp;
 
       if (comp->audio_last_cycle == 0u && comp->audio_sample_cursor == 0u && comp->audio_samples == 0u) {
           comp->audio_last_cycle = cycle;
@@ -755,7 +769,7 @@ behavior:
       }
 
       if (target_sample_index < comp->audio_sample_cursor) {
-          comp->audio_sample_cursor = target_sample_index;
+          target_sample_index = comp->audio_sample_cursor;
       }
       {
           uint64_t samples_to_emit = target_sample_index - comp->audio_sample_cursor;
@@ -767,7 +781,7 @@ behavior:
                       if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
                       comp->audio_ring_fill -= 1u;
                   }
-                  comp->audio_ring[comp->audio_ring_write_idx] = comp->audio_level;
+                  comp->audio_ring[comp->audio_ring_write_idx] = prev_level;
                   comp->audio_ring_write_idx += 1u;
                   if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
                   comp->audio_ring_fill += 1u;
@@ -777,9 +791,19 @@ behavior:
               samples_to_emit -= n;
           }
       }
+      if (comp->audio_ring_fill >= comp->audio_ring_capacity) {
+          comp->audio_ring_read_idx += 1u;
+          if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+          comp->audio_ring_fill -= 1u;
+      }
+      comp->audio_ring[comp->audio_ring_write_idx] = next_level;
+      comp->audio_ring_write_idx += 1u;
+      if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
+      comp->audio_ring_fill += 1u;
 
       comp->audio_last_cycle = cycle;
       comp->audio_level = next_level;
+      if (target_sample_index >= comp->audio_sample_cursor) comp->audio_sample_cursor = target_sample_index + 1u;
 
 coding:
   headers: ["pasm_overlay.h"]

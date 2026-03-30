@@ -117,6 +117,18 @@ typedef struct ComponentState_psg0 {
     uint8_t tone_out_a;
     uint8_t tone_out_b;
     uint8_t tone_out_c;
+    uint8_t psg_subtick;
+    uint8_t noise_ctr;
+    uint32_t noise_lfsr;
+    uint8_t noise_out;
+    uint16_t env_ctr;
+    int8_t env_volume;
+    int8_t env_direction;
+    uint8_t env_attack;
+    uint8_t env_continue;
+    uint8_t env_alternate;
+    uint8_t env_hold;
+    uint8_t env_holding;
     uint8_t last_mix;
     uint8_t last_emitted_mix;
     uint64_t emit_accum;
@@ -152,6 +164,8 @@ typedef struct ComponentState_host_msx {
     uint32_t irq_edges;
     uint32_t audio_samples;
     int16_t audio_level;
+    int32_t audio_hp_prev_in;
+    int32_t audio_hp_prev_out;
     uint64_t audio_last_cycle;
     uint64_t audio_sample_cursor;
     uint32_t audio_rate;
@@ -182,6 +196,15 @@ typedef struct ComponentState_host_msx {
     uint8_t row10;
     uint8_t joy_buttons_profile;
 } ComponentState_host_msx;
+
+typedef struct ComponentState_msx_cart0 {
+    uint8_t * rom_data;
+    uint32_t rom_size;
+    uint8_t slot_id;
+    uint8_t bank_6000;
+    uint8_t bank_8000;
+    uint8_t bank_a000;
+} ComponentState_msx_cart0;
 
 
 /* ===== CPU State ===== */
@@ -267,6 +290,7 @@ struct CPUState {
     ComponentState_video_msx comp_video_msx;
     ComponentState_speaker_msx comp_speaker_msx;
     ComponentState_host_msx comp_host_msx;
+    ComponentState_msx_cart0 comp_msx_cart0;
 };
 
 /* ===== Constants ===== */
@@ -280,11 +304,11 @@ struct CPUState {
 #define CPU_AUDIO_SAMPLE_RATE 44100ULL
 #define CPU_AUDIO_CHANNELS 1
 #define CPU_AUDIO_FORMAT "s16le"
-/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"msx1_interactive\"} */
+/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"msx1_cartridge_interactive\"} */
 #define CPU_IC_COUNT 3
 #define CPU_DEVICE_COUNT 3
 #define CPU_HOST_COUNT 1
-#define CPU_CARTRIDGE_COUNT 0
+#define CPU_CARTRIDGE_COUNT 1
 
 /* ===== Register Enum ===== */
 typedef enum {

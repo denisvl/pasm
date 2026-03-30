@@ -29,22 +29,25 @@ def _escape_c_string(value: str) -> str:
 
 
 def _architecture_const(isa_data: Dict[str, Any]) -> str:
-    name = str(isa_data.get("metadata", {}).get("name", "")).lower()
-    if "z80" in name:
-        return "PASM_ARCH_Z80"
-    if "6809" in name:
-        return "PASM_ARCH_MC6809"
-    if "6502" in name and "6510" not in name:
-        return "PASM_ARCH_MOS6502"
-    if "6509" in name:
-        return "PASM_ARCH_MOS6502"
-    if "6510" in name:
-        return "PASM_ARCH_MOS6510"
-    if "68000" in name or "m68k" in name:
-        return "PASM_ARCH_MOTOROLA68000"
-    if "2a03" in name:
-        return "PASM_ARCH_RICOH2A03"
-    return "PASM_ARCH_UNKNOWN"
+    metadata = isa_data.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise ValueError("ISA metadata must be an object")
+    codegen = metadata.get("codegen")
+    if not isinstance(codegen, dict):
+        raise ValueError("ISA metadata.codegen must be an object")
+    arch_id = str(codegen.get("architecture_id", "")).strip()
+    mapping = {
+        "z80": "PASM_ARCH_Z80",
+        "mos6502": "PASM_ARCH_MOS6502",
+        "mos6510": "PASM_ARCH_MOS6510",
+        "mc6809": "PASM_ARCH_MC6809",
+        "m68000": "PASM_ARCH_MOTOROLA68000",
+        "ricoh2a03": "PASM_ARCH_RICOH2A03",
+        "unknown": "PASM_ARCH_UNKNOWN",
+    }
+    if arch_id not in mapping:
+        raise ValueError(f"Unsupported metadata.codegen.architecture_id: {arch_id}")
+    return mapping[arch_id]
 
 
 def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, str]:

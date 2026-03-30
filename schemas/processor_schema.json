@@ -18,7 +18,8 @@
         "name",
         "bits",
         "address_bits",
-        "endian"
+        "endian",
+        "codegen"
       ],
       "additionalProperties": false,
       "properties": {
@@ -58,6 +59,84 @@
           ],
           "description": "Behavior for undefined opcode patterns",
           "default": "trap"
+        },
+        "codegen": {
+          "type": "object",
+          "required": [
+            "architecture_id",
+            "numeric_style",
+            "flags_dump_style",
+            "decode_quirks",
+            "display_kinds_enabled"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "architecture_id": {
+              "type": "string",
+              "enum": [
+                "z80",
+                "mos6502",
+                "mos6510",
+                "mc6809",
+                "m68000",
+                "ricoh2a03",
+                "unknown"
+              ]
+            },
+            "numeric_style": {
+              "type": "string",
+              "enum": [
+                "c_hex",
+                "asm_dollar",
+                "z80_h"
+              ]
+            },
+            "flags_dump_style": {
+              "type": "string",
+              "enum": [
+                "raw",
+                "z80_compact"
+              ]
+            },
+            "decode_quirks": {
+              "type": "object",
+              "required": [
+                "mc6809_indexed_postbyte_length"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "mc6809_indexed_postbyte_length": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "display_kinds_enabled": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "table",
+                  "cc_table",
+                  "hex8",
+                  "hex16",
+                  "hex32",
+                  "hex8_plain",
+                  "hex16_plain",
+                  "hex8_asm",
+                  "hex16_asm",
+                  "signed8",
+                  "signed16",
+                  "unsigned",
+                  "mc6809_idx",
+                  "mc6809_pshs_mask",
+                  "mc6809_puls_mask",
+                  "mc6809_pshu_mask",
+                  "mc6809_pulu_mask"
+                ]
+              },
+              "uniqueItems": true
+            }
+          }
         }
       }
     },
@@ -255,9 +334,18 @@
                     "hex8",
                     "hex16",
                     "hex32",
+                    "hex8_plain",
+                    "hex16_plain",
+                    "hex8_asm",
+                    "hex16_asm",
                     "signed8",
                     "signed16",
-                    "unsigned"
+                    "unsigned",
+                    "mc6809_idx",
+                    "mc6809_pshs_mask",
+                    "mc6809_puls_mask",
+                    "mc6809_pshu_mask",
+                    "mc6809_pulu_mask"
                   ]
                 },
                 "table": {

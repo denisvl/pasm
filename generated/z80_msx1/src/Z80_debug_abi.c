@@ -9,6 +9,7 @@
 #include <string.h>
 #include "Z80_debug_abi.h"
 
+
 static void dbg_copy(char *dst, size_t cap, const char *src) {
     if (!dst || cap == 0) return;
     if (!src) {
@@ -22,9 +23,9 @@ static void dbg_copy(char *dst, size_t cap, const char *src) {
 static uint8_t dbg_mode(CPUState *cpu) {
     if (!cpu) return PASM_DBG_ERROR;
     if (cpu->error_code == CPU_ERROR_INVALID_OPCODE) return PASM_DBG_ERROR;
-    if (cpu->error_code == CPU_ERROR_HALT) return PASM_DBG_EXITED;
-    if (cpu->halted) return PASM_DBG_EXITED;
     if (cpu->running) return PASM_DBG_RUNNING;
+    if (cpu->error_code == CPU_ERROR_HALT) return PASM_DBG_PAUSED;
+    if (cpu->halted) return PASM_DBG_PAUSED;
     return PASM_DBG_PAUSED;
 }
 
@@ -57,8 +58,8 @@ static void dbg_restore_suppressed_breakpoint(CPUState *cpu, uint16_t addr) {
 static uint32_t dbg_read_u32(CPUState *cpu, uint16_t addr) {
     uint32_t raw = 0u;
     for (size_t i = 0; i < 4u; i++) {
-        uint64_t a = (uint64_t)addr + i;
-        uint8_t v = (a < cpu->memory_size) ? cpu->memory[a] : 0u;
+        uint16_t fetch_addr = (uint16_t)(addr + (uint16_t)i);
+        uint8_t v = z80_read_byte(cpu, fetch_addr);
         raw |= ((uint32_t)v) << (8u * (uint32_t)i);
     }
     return raw;
@@ -114,12 +115,105 @@ static void dbg_fill_disasm_row(CPUState *cpu, PASMDebugDisasmRow *row, uint16_t
     row->changed_since_last_step = 0u;
 }
 
+#define DBG_HISTORY_CAP 100u
+#define DBG_HISTORY_SLOTS 8u
+
+typedef struct {
+    uint8_t used;
+    CPUState *cpu;
+    uint32_t head;
+    uint32_t count;
+    struct {
+        uint64_t address;
+        uint32_t raw;
+    } rows[DBG_HISTORY_CAP];
+} PASMDebugHistoryStore;
+
+static PASMDebugHistoryStore g_dbg_history_slots[DBG_HISTORY_SLOTS];
+
+static PASMDebugHistoryStore *dbg_history_get_slot(CPUState *cpu, bool create) {
+    uint32_t i;
+    PASMDebugHistoryStore *first_free = NULL;
+    for (i = 0u; i < DBG_HISTORY_SLOTS; i++) {
+        PASMDebugHistoryStore *slot = &g_dbg_history_slots[i];
+        if (slot->used != 0u && slot->cpu == cpu) {
+            return slot;
+        }
+        if (first_free == NULL && slot->used == 0u) {
+            first_free = slot;
+        }
+    }
+    if (!create) return NULL;
+    if (first_free == NULL) {
+        first_free = &g_dbg_history_slots[0];
+    }
+    memset(first_free, 0, sizeof(*first_free));
+    first_free->used = 1u;
+    first_free->cpu = cpu;
+    return first_free;
+}
+
+static void dbg_history_clear(CPUState *cpu) {
+    PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, false);
+    if (!slot) return;
+    slot->head = 0u;
+    slot->count = 0u;
+}
+
+static void dbg_history_record(CPUState *cpu, uint16_t addr) {
+    PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, true);
+    uint32_t raw;
+    if (!slot) return;
+    if (cpu->halted) return;
+    raw = dbg_read_u32(cpu, addr);
+    slot->rows[slot->head].address = (uint64_t)addr;
+    slot->rows[slot->head].raw = raw;
+    slot->head = (slot->head + 1u) % DBG_HISTORY_CAP;
+    if (slot->count < DBG_HISTORY_CAP) {
+        slot->count += 1u;
+    }
+}
+
+static void dbg_fill_history_row(CPUState *cpu, PASMDebugHistoryRow *row, uint64_t address, uint32_t raw) {
+    uint8_t len;
+    size_t pos = 0u;
+    if (!row) return;
+    memset(row, 0, sizeof(*row));
+    row->address = address;
+    len = dbg_instruction_len(cpu, (uint16_t)(address & 0xFFFFu));
+    if (len == 0u) len = 1u;
+    if (len > 4u) len = 4u;
+    row->effect[0] = '\0';
+    for (uint8_t i = 0u; i < len && pos < sizeof(row->effect); i++) {
+        uint8_t byte_val = (uint8_t)((raw >> (8u * (uint32_t)i)) & 0xFFu);
+        int n = snprintf(
+            &row->effect[pos],
+            sizeof(row->effect) - pos,
+            (i + 1u < len) ? "%02X " : "%02X",
+            byte_val
+        );
+        if (n <= 0) break;
+        if ((size_t)n >= (sizeof(row->effect) - pos)) {
+            pos = sizeof(row->effect) - 1u;
+            break;
+        }
+        pos += (size_t)n;
+    }
+    dbg_copy(
+        row->instruction,
+        sizeof(row->instruction),
+        z80_disassemble_instruction((uint16_t)(address & 0xFFFFu), raw)
+    );
+}
+
 int z80_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {
+    PASMDebugHistoryStore *hist;
     if (!cpu || !out_counts) return -1;
+    hist = dbg_history_get_slot(cpu, false);
     memset(out_counts, 0, sizeof(*out_counts));
-    out_counts->disassembly_rows = 64u;
+    out_counts->disassembly_rows = 256u;
     out_counts->register_rows = 20u;
-    out_counts->flag_rows = 6u;
+    out_counts->flag_rows = 8u;
     out_counts->operand_rows = 0u;
     out_counts->stack_rows = 32u;
     out_counts->memory_rows = 16u;
@@ -127,7 +221,7 @@ int z80_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {
     out_counts->breakpoint_rows = (cpu->num_break_points > 0) ? (uint32_t)cpu->num_break_points : 0u;
     out_counts->watchpoint_rows = 0u;
     out_counts->thread_rows = 1u;
-    out_counts->history_rows = 0u;
+    out_counts->history_rows = hist ? hist->count : 0u;
     return 0;
 }
 
@@ -153,8 +247,6 @@ int z80_dbg_snapshot_fill(
     (void)call_cap;
     (void)wp_rows;
     (void)wp_cap;
-    (void)hist_rows;
-    (void)hist_cap;
     if (!cpu || !out_core) return -1;
 
     memset(out_core, 0, sizeof(*out_core));
@@ -174,28 +266,42 @@ int z80_dbg_snapshot_fill(
     out_core->iff1 = cpu->interrupts_enabled ? 1u : 0u;
     out_core->iff2 = cpu->interrupt_pending ? 1u : 0u;
 
-    switch (out_core->mode) {
-        case PASM_DBG_RUNNING:
-            dbg_copy(out_core->status_line, sizeof(out_core->status_line), "Running");
-            break;
-        case PASM_DBG_PAUSED:
-            dbg_copy(out_core->status_line, sizeof(out_core->status_line), "Paused");
-            break;
-        case PASM_DBG_EXITED:
-            dbg_copy(out_core->status_line, sizeof(out_core->status_line), "Exited");
-            break;
-        case PASM_DBG_ERROR:
-            dbg_copy(out_core->status_line, sizeof(out_core->status_line), "Error");
-            break;
-        default:
-            dbg_copy(out_core->status_line, sizeof(out_core->status_line), "Stepping");
-            break;
+    {
+        const char *mode_label = "Stepping";
+        switch (out_core->mode) {
+            case PASM_DBG_RUNNING:
+                mode_label = "Running";
+                break;
+            case PASM_DBG_PAUSED:
+                mode_label = "Paused";
+                break;
+            case PASM_DBG_EXITED:
+                mode_label = "Exited";
+                break;
+            case PASM_DBG_ERROR:
+                mode_label = "Error";
+                break;
+            default:
+                mode_label = "Stepping";
+                break;
+        }
+        if (cpu->loaded_rom_debug[0] != '\0') {
+            snprintf(
+                out_core->status_line,
+                sizeof(out_core->status_line),
+                "%s | ROM %s",
+                mode_label,
+                cpu->loaded_rom_debug
+            );
+        } else {
+            dbg_copy(out_core->status_line, sizeof(out_core->status_line), mode_label);
+        }
     }
 
     /* Disassembly window: instruction-aware stream around PC. */
     if (disasm_rows && disasm_cap > 0) {
-        size_t max_rows = (disasm_cap < 64u) ? disasm_cap : 64u;
-        uint16_t before_ring[32];
+        size_t max_rows = (disasm_cap < 256u) ? disasm_cap : 256u;
+        uint16_t before_ring[128];
         size_t before_count = 0u;
         size_t before_pos = 0u;
         size_t guard = 0u;
@@ -511,8 +617,22 @@ int z80_dbg_snapshot_fill(
         row++;
         if (row < flag_cap) {
             PASMDebugFlagRow *f = &flag_rows[row];
+            dbg_copy(f->name, sizeof(f->name), "F5");
+            f->value = cpu->flags.F5 ? 1u : 0u;
+            f->changed = 0u;
+        }
+        row++;
+        if (row < flag_cap) {
+            PASMDebugFlagRow *f = &flag_rows[row];
             dbg_copy(f->name, sizeof(f->name), "H");
             f->value = cpu->flags.H ? 1u : 0u;
+            f->changed = 0u;
+        }
+        row++;
+        if (row < flag_cap) {
+            PASMDebugFlagRow *f = &flag_rows[row];
+            dbg_copy(f->name, sizeof(f->name), "F3");
+            f->value = cpu->flags.F3 ? 1u : 0u;
             f->changed = 0u;
         }
         row++;
@@ -547,7 +667,7 @@ int z80_dbg_snapshot_fill(
         for (i = 0; i < stack_cap && i < 32u; i++) {
             PASMDebugStackRow *row = &stack_rows[i];
             memset(row, 0, sizeof(*row));
-            row->address = (uint64_t)((uint16_t)(cpu->sp + (uint16_t)i));
+            row->address = (uint64_t)((uint16_t)(cpu->sp + (uint16_t)(i * 2u)));
             row->value = (uint64_t)z80_read_word(cpu, (uint16_t)row->address);
             row->is_sp = (i == 0u) ? 1u : 0u;
             row->changed = 0u;
@@ -564,8 +684,8 @@ int z80_dbg_snapshot_fill(
             memset(row, 0, sizeof(*row));
             row->address = base + (i * 16u);
             for (b = 0; b < 16u; b++) {
-                uint64_t a = row->address + b;
-                uint8_t v = (a < cpu->memory_size) ? cpu->memory[a] : 0u;
+                uint16_t mem_addr = (uint16_t)((row->address + b) & 0xFFFFu);
+                uint8_t v = z80_read_byte(cpu, mem_addr);
                 if (pos + 4u < sizeof(row->hex_bytes)) {
                     int n = snprintf(&row->hex_bytes[pos], sizeof(row->hex_bytes) - pos, "%02X ", v);
                     if (n > 0) pos += (size_t)n;
@@ -611,6 +731,33 @@ int z80_dbg_snapshot_fill(
         }
     }
 
+    /* Execution history (oldest to newest). */
+    if (hist_rows && hist_cap > 0) {
+        PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, false);
+        size_t n = 0u;
+        size_t j = 0u;
+        if (slot && slot->count > 0u) {
+            uint32_t oldest =
+                (slot->head + DBG_HISTORY_CAP - slot->count) % DBG_HISTORY_CAP;
+            n = (slot->count < (uint32_t)hist_cap) ? (size_t)slot->count : hist_cap;
+            if ((size_t)slot->count > n) {
+                oldest = (oldest + (uint32_t)((size_t)slot->count - n)) % DBG_HISTORY_CAP;
+            }
+            for (j = 0; j < n; j++) {
+                uint32_t idx = (oldest + (uint32_t)j) % DBG_HISTORY_CAP;
+                dbg_fill_history_row(
+                    cpu,
+                    &hist_rows[j],
+                    slot->rows[idx].address,
+                    slot->rows[idx].raw
+                );
+            }
+        }
+        for (; j < hist_cap; j++) {
+            memset(&hist_rows[j], 0, sizeof(hist_rows[j]));
+        }
+    }
+
     return 0;
 }
 
@@ -630,6 +777,7 @@ int z80_dbg_run_slice(CPUState *cpu, uint32_t max_steps, uint8_t *out_mode) {
     had_suppressed_bp = dbg_suppress_breakpoint_at_pc_once(cpu, &suppressed_bp);
     for (i = 0u; i < max_steps; i++) {
         if (!cpu->running) break;
+        dbg_history_record(cpu, cpu->pc);
         rc = z80_step(cpu);
         if (had_suppressed_bp) {
             dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
@@ -659,6 +807,7 @@ int z80_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode
     while (cpu->running) {
         uint64_t before_step_cycles = cpu->total_cycles;
         if ((cpu->total_cycles - start_cycles) >= max_cycles) break;
+        dbg_history_record(cpu, cpu->pc);
         rc = z80_step(cpu);
         if (had_suppressed_bp) {
             dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
@@ -701,26 +850,88 @@ int z80_dbg_step_into(CPUState *cpu) {
 int z80_dbg_step_over(CPUState *cpu) {
     if (!cpu) return -1;
     bool was_running = cpu->running;
-    uint8_t mode = PASM_DBG_ERROR;
-    int rc;
-    cpu->running = true;
-    rc = z80_dbg_run_slice(cpu, 1u, &mode);
-    if (!was_running) {
-        cpu->running = false;
+    int rc = 0;
+    uint16_t suppressed_bp = 0u;
+    bool had_suppressed_bp = dbg_suppress_breakpoint_at_pc_once(cpu, &suppressed_bp);
+    uint16_t start_pc = cpu->pc;
+    uint32_t raw = dbg_read_u32(cpu, start_pc);
+    uint8_t len = dbg_instruction_len(cpu, start_pc);
+    uint16_t target_pc = (uint16_t)(start_pc + (uint16_t)len);
+    bool call_like = false;
+    {
+        uint8_t b0 = (uint8_t)(raw & 0xFFu);
+        uint8_t prefix = 0u;
+        uint32_t decode_raw = raw;
+        if (b0 == 0xDDu || b0 == 0xFDu) {
+            prefix = b0;
+            decode_raw = raw >> 8;
+        }
+        DecodedInstruction inst = z80_decode(decode_raw, prefix, start_pc);
+        if (inst.valid && prefix == 0u) {
+            uint8_t op = inst.opcode;
+            if (op == 0xCDu) call_like = true; /* CALL nn */
+            if ((op & 0xC7u) == 0xC4u) call_like = true; /* CALL cc,nn */
+            if ((op & 0xC7u) == 0xC7u) call_like = true; /* RST p */
+        }
     }
+
+    cpu->running = true;
+    if (!call_like) {
+        dbg_history_record(cpu, cpu->pc);
+        rc = z80_step(cpu);
+        if (had_suppressed_bp) {
+            dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+            had_suppressed_bp = false;
+        }
+    } else {
+        uint64_t start_cycles = cpu->total_cycles;
+        while (cpu->running) {
+            dbg_history_record(cpu, cpu->pc);
+            rc = z80_step(cpu);
+            if (had_suppressed_bp) {
+                dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+                had_suppressed_bp = false;
+            }
+            if (rc != 0) break;
+            if (cpu->pc == target_pc) break;
+            if (cpu->halted) break;
+            if (cpu->error_code != CPU_ERROR_NONE) break;
+            if ((cpu->total_cycles - start_cycles) > 10000000u) break;
+        }
+    }
+    if (had_suppressed_bp) {
+        dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+    }
+    if (!was_running) cpu->running = false;
     return rc;
 }
 
 int z80_dbg_step_out(CPUState *cpu) {
     if (!cpu) return -1;
     bool was_running = cpu->running;
-    uint8_t mode = PASM_DBG_ERROR;
-    int rc;
+    int rc = 0;
+    uint16_t suppressed_bp = 0u;
+    bool had_suppressed_bp = dbg_suppress_breakpoint_at_pc_once(cpu, &suppressed_bp);
+    uint16_t start_sp = cpu->sp;
+    uint64_t start_cycles = cpu->total_cycles;
     cpu->running = true;
-    rc = z80_dbg_run_slice(cpu, 1u, &mode);
-    if (!was_running) {
-        cpu->running = false;
+    while (cpu->running) {
+        dbg_history_record(cpu, cpu->pc);
+        rc = z80_step(cpu);
+        if (had_suppressed_bp) {
+            dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+            had_suppressed_bp = false;
+        }
+        if (rc != 0) break;
+        if (cpu->sp > start_sp) break;
+        if (cpu->halted) break;
+        if (cpu->error_code != CPU_ERROR_NONE) break;
+        if ((cpu->total_cycles - start_cycles) > 20000000u) break;
     }
+    if (had_suppressed_bp) {
+        dbg_restore_suppressed_breakpoint(cpu, suppressed_bp);
+    }
+    if (!was_running) cpu->running = false;
     return rc;
 }
 
@@ -752,11 +963,36 @@ int z80_dbg_jump_frame(CPUState *cpu, size_t frame_index) {
 int z80_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size) {
     size_t i;
     if (!cpu || !out) return -1;
-    if (address >= cpu->memory_size) return -1;
-    if (address + size > cpu->memory_size) return -1;
-    for (i = 0; i < size; i++) {
-        out[i] = cpu->memory[address + i];
+    if (cpu->memory_size == 0u) return -1;
+    if (size == 0u) return 0;
+    if (address >= cpu->memory_size) {
+        address %= cpu->memory_size;
     }
+    for (i = 0; i < size; i++) {
+        uint64_t linear = address + (uint64_t)i;
+        if (linear < address) {
+            linear %= cpu->memory_size;
+        }
+        linear %= cpu->memory_size;
+        uint16_t mem_addr = (uint16_t)(linear & 0xFFFFu);
+        out[i] = z80_read_byte(cpu, mem_addr);
+    }
+    return 0;
+}
+
+int z80_dbg_clear_memory(CPUState *cpu) {
+    if (!cpu || !cpu->memory) return -1;
+    memset(cpu->memory, 0, cpu->memory_size);
+    if (cpu->port_memory && cpu->port_size > 0u) {
+        memset(cpu->port_memory, 0, cpu->port_size);
+    }
+    cpu->loaded_rom_debug[0] = '\0';
+    return 0;
+}
+
+int z80_dbg_clear_history(CPUState *cpu) {
+    if (!cpu) return -1;
+    dbg_history_clear(cpu);
     return 0;
 }
 
@@ -767,16 +1003,35 @@ int z80_dbg_set_pc(CPUState *cpu, uint64_t address) {
     return 0;
 }
 
+int z80_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled) {
+    if (!cpu) return -1;
+    cpu->debug_overlay_enabled = (enabled != 0u);
+    return 0;
+}
+
+int z80_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled) {
+    if (!cpu || !out_enabled) return -1;
+    *out_enabled = cpu->debug_overlay_enabled ? 1u : 0u;
+    return 0;
+}
+
+int z80_dbg_focus_host_window(CPUState *cpu) {
+    (void)cpu;
+    return -1;
+}
+
 CPUState *pasm_dbg_create(size_t memory_size) {
     return z80_create(memory_size);
 }
 
 void pasm_dbg_destroy(CPUState *cpu) {
+    dbg_history_clear(cpu);
     z80_destroy(cpu);
 }
 
 void pasm_dbg_reset(CPUState *cpu) {
     z80_reset(cpu);
+    dbg_history_clear(cpu);
 }
 
 int pasm_dbg_load_rom(CPUState *cpu, const char *filename, uint16_t address) {
@@ -785,6 +1040,10 @@ int pasm_dbg_load_rom(CPUState *cpu, const char *filename, uint16_t address) {
 
 int pasm_dbg_load_system_roms(CPUState *cpu, const char *system_base_dir) {
     return z80_load_system_roms(cpu, system_base_dir);
+}
+
+int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path) {
+    return z80_load_cartridge_rom(cpu, path);
 }
 
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {
@@ -867,8 +1126,28 @@ int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t s
     return z80_dbg_read_memory(cpu, address, out, size);
 }
 
+int pasm_dbg_clear_memory(CPUState *cpu) {
+    return z80_dbg_clear_memory(cpu);
+}
+
+int pasm_dbg_clear_history(CPUState *cpu) {
+    return z80_dbg_clear_history(cpu);
+}
+
 int pasm_dbg_set_pc(CPUState *cpu, uint64_t address) {
     return z80_dbg_set_pc(cpu, address);
+}
+
+int pasm_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled) {
+    return z80_dbg_set_overlay_enabled(cpu, enabled);
+}
+
+int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled) {
+    return z80_dbg_get_overlay_enabled(cpu, out_enabled);
+}
+
+int pasm_dbg_focus_host_window(CPUState *cpu) {
+    return z80_dbg_focus_host_window(cpu);
 }
 
 const char *pasm_dbg_processor_name(void) {

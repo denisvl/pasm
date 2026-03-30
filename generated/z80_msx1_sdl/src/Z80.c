@@ -1235,14 +1235,20 @@ static void component_host_msx_handler_audio_pcm(CPUState *cpu, const uint64_t *
     ComponentState_host_msx *comp = &cpu->comp_host_msx;
     cpu->active_component_id = "host_msx";
     if (comp->audio_out_dev == 0u || comp->audio_out_ready == 0u || comp->audio_ring == NULL || comp->audio_ring_capacity == 0u || argc < 1) return;
-    uint8_t mix_u = (uint8_t)(args[0] & 0xFFu); /* PSG mix encoded as 0..30, silence at 15 */
+    uint8_t level_u = (uint8_t)(args[0] & 0xFFu);
     uint64_t cycle = (argc > 1) ? (uint64_t)args[1] : cpu->total_cycles;
     uint64_t sample_rate = (comp->audio_rate > 0u) ? (uint64_t)comp->audio_rate : ((CPU_AUDIO_SAMPLE_RATE > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u);
     uint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? CPU_SYSTEM_CLOCK_HZ : 1u;
     uint64_t target_sample_index = (cycle * sample_rate) / clock_hz;
-    int centered = ((int)mix_u) - 15;
-    if (centered > -2 && centered < 2) centered = 0;
-    int16_t next_level = (int16_t)(centered * 900);
+    int32_t sample_in = ((int32_t)((int16_t)(int)level_u - 128)) << 8;
+    int32_t sample_hp = sample_in - comp->audio_hp_prev_in + ((comp->audio_hp_prev_out * 32440) / 32768);
+    int16_t next_level;
+    int16_t prev_level = comp->audio_level;
+    if (sample_hp < -32768) sample_hp = -32768;
+    if (sample_hp > 32767) sample_hp = 32767;
+    next_level = (int16_t)sample_hp;
+    comp->audio_hp_prev_in = sample_in;
+    comp->audio_hp_prev_out = sample_hp;
 
     if (comp->audio_last_cycle == 0u && comp->audio_sample_cursor == 0u && comp->audio_samples == 0u) {
         comp->audio_last_cycle = cycle;
@@ -1252,7 +1258,7 @@ static void component_host_msx_handler_audio_pcm(CPUState *cpu, const uint64_t *
     }
 
     if (target_sample_index < comp->audio_sample_cursor) {
-        comp->audio_sample_cursor = target_sample_index;
+        target_sample_index = comp->audio_sample_cursor;
     }
     {
         uint64_t samples_to_emit = target_sample_index - comp->audio_sample_cursor;
@@ -1264,7 +1270,7 @@ static void component_host_msx_handler_audio_pcm(CPUState *cpu, const uint64_t *
                     if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
                     comp->audio_ring_fill -= 1u;
                 }
-                comp->audio_ring[comp->audio_ring_write_idx] = comp->audio_level;
+                comp->audio_ring[comp->audio_ring_write_idx] = prev_level;
                 comp->audio_ring_write_idx += 1u;
                 if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
                 comp->audio_ring_fill += 1u;
@@ -1274,9 +1280,19 @@ static void component_host_msx_handler_audio_pcm(CPUState *cpu, const uint64_t *
             samples_to_emit -= n;
         }
     }
+    if (comp->audio_ring_fill >= comp->audio_ring_capacity) {
+        comp->audio_ring_read_idx += 1u;
+        if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+        comp->audio_ring_fill -= 1u;
+    }
+    comp->audio_ring[comp->audio_ring_write_idx] = next_level;
+    comp->audio_ring_write_idx += 1u;
+    if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
+    comp->audio_ring_fill += 1u;
 
     comp->audio_last_cycle = cycle;
     comp->audio_level = next_level;
+    if (target_sample_index >= comp->audio_sample_cursor) comp->audio_sample_cursor = target_sample_index + 1u;
 }
 
 static void cpu_component_dispatch_handler(
@@ -1455,6 +1471,89 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                         }
                     }
                 }
+                {
+                    /* TMS9918A sprite layer (MAME-style scanline logic). */
+                    uint16_t sat_base = (uint16_t)((((uint16_t)(comp->reg5 & 0x7Fu)) << 7) & 0x3FFFu);
+                    uint16_t spt_base = (uint16_t)((((uint16_t)(comp->reg6 & 0x07u)) << 11) & 0x3FFFu);
+                    uint8_t sprite_size = (uint8_t)(((comp->reg1 & 0x02u) != 0u) ? 16u : 8u);
+                    uint8_t sprite_mag = (uint8_t)((comp->reg1 & 0x01u) != 0u);
+                    uint8_t sprite_height = (uint8_t)(sprite_size * (uint8_t)(sprite_mag + 1u));
+                    uint8_t status_c = (uint8_t)(comp->status & 0x20u);
+                    uint8_t fifth_index = 31u;
+                    uint8_t fifth_encountered = 0u;
+
+                    /* Sprites are enabled only when display is on and text-mode bit is clear. */
+                    if ((comp->reg1 & 0x50u) == 0x40u) {
+                        for (uint16_t y = 0u; y < 192u; ++y) {
+                            uint8_t spr_drawn[32u + 256u + 32u];
+                            uint8_t num_sprites = 0u;
+                            memset(spr_drawn, 0, sizeof(spr_drawn));
+
+                            for (uint8_t i = 0u; i < 32u; ++i) {
+                                uint16_t a = (uint16_t)(sat_base + (uint16_t)(i * 4u));
+                                int16_t spr_y = (int16_t)vram[(uint16_t)(a & 0x3FFFu)];
+                                if (spr_y == 208) break;
+                                fifth_index = i;
+                                if (spr_y > 0xE0) spr_y -= 256;
+                                spr_y += 1;
+                                if ((int16_t)y < spr_y || (int16_t)y >= (int16_t)(spr_y + (int16_t)sprite_height)) continue;
+
+                                {
+                                    int16_t spr_x = (int16_t)vram[(uint16_t)((a + 1u) & 0x3FFFu)];
+                                    uint8_t spr_code = vram[(uint16_t)((a + 2u) & 0x3FFFu)];
+                                    uint8_t spr_col_attr = vram[(uint16_t)((a + 3u) & 0x3FFFu)];
+                                    uint16_t pat_addr = (uint16_t)(
+                                        spt_base + (uint16_t)(((sprite_size == 16u) ? (spr_code & (uint8_t)~0x03u) : spr_code) * 8u)
+                                    );
+                                    uint8_t row = (uint8_t)((uint16_t)y - (uint16_t)spr_y);
+                                    uint8_t spr_col;
+
+                                    num_sprites += 1u;
+                                    if (num_sprites == 5u) {
+                                        fifth_encountered = 1u;
+                                        break;
+                                    }
+
+                                    if (sprite_mag != 0u) {
+                                        pat_addr = (uint16_t)(pat_addr + (uint16_t)((row & 0x1Fu) >> 1));
+                                    } else {
+                                        pat_addr = (uint16_t)(pat_addr + (uint16_t)(row & 0x0Fu));
+                                    }
+
+                                    if ((spr_col_attr & 0x80u) != 0u) spr_x -= 32;
+                                    spr_col = (uint8_t)(spr_col_attr & 0x0Fu);
+
+                                    for (uint8_t s = 0u; s < sprite_size; s = (uint8_t)(s + 8u)) {
+                                        uint8_t pattern = vram[(uint16_t)((pat_addr + (uint16_t)(s * 2u)) & 0x3FFFu)];
+                                        for (uint8_t bit = 0u; bit < 8u; ++bit, pattern = (uint8_t)(pattern << 1)) {
+                                            int16_t col_idx = (int16_t)(spr_x + (int16_t)((sprite_mag != 0u) ? (bit * 2u) : bit) + 32);
+                                            uint8_t repeat = (uint8_t)(sprite_mag != 0u ? 2u : 1u);
+                                            for (uint8_t z = 0u; z < repeat; ++z, ++col_idx) {
+                                                if ((pattern & 0x80u) == 0u) continue;
+                                                if (col_idx < 32 || col_idx >= (32 + 256)) continue;
+                                                if (spr_drawn[(uint16_t)col_idx] != 0u) status_c = 0x20u;
+                                                spr_drawn[(uint16_t)col_idx] |= 0x01u;
+                                                if ((spr_col != 0u) && ((spr_drawn[(uint16_t)col_idx] & 0x02u) == 0u)) {
+                                                    uint16_t x = (uint16_t)(col_idx - 32);
+                                                    uint32_t idx = (uint32_t)y * 256u + (uint32_t)x;
+                                                    spr_drawn[(uint16_t)col_idx] |= 0x02u;
+                                                    framebuf[idx] = msx_palette[spr_col & 0x0Fu];
+                                                }
+                                            }
+                                        }
+                                        spr_x = (int16_t)(spr_x + (int16_t)((sprite_mag != 0u) ? 16 : 8));
+                                    }
+                                }
+                            }
+                        }
+                        comp->status = (uint8_t)((comp->status & 0x80u) | status_c | (fifth_index & 0x1Fu));
+                        if ((fifth_encountered != 0u) && ((comp->status & 0x80u) == 0u)) {
+                            comp->status = (uint8_t)(comp->status | 0x40u);
+                        }
+                    } else {
+                        comp->status = (uint8_t)((comp->status & 0xA0u) | 31u);
+                    }
+                }
                 comp->render_dirty = 0u;
             }
             {
@@ -1482,57 +1581,113 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         if (comp->audio_enabled == 0u) {
             return;
         }
-        comp->audio_tick_accum += (uint64_t)inst->cycles;
-        while (comp->audio_tick_accum >= 64u) {
-            comp->audio_tick_accum -= 64u;
+        {
+            static const uint8_t ay_vol_table[16] = {
+                0u, 1u, 1u, 2u, 3u, 4u, 6u, 8u,
+                11u, 16u, 23u, 32u, 45u, 64u, 90u, 128u
+            };
+            comp->audio_tick_accum += (uint64_t)inst->cycles;
+            while (comp->audio_tick_accum >= 16u) {
+                comp->audio_tick_accum -= 16u; /* AY tone/noise base clock step: chip_clock/8 */
 
-            uint16_t pa = (uint16_t)((((uint16_t)(comp->reg1 & 0x0Fu)) << 8) | comp->reg0);
-            uint16_t pb = (uint16_t)((((uint16_t)(comp->reg3 & 0x0Fu)) << 8) | comp->reg2);
-            uint16_t pc = (uint16_t)((((uint16_t)(comp->reg5 & 0x0Fu)) << 8) | comp->reg4);
-            if (pa == 0u) pa = 1u;
-            if (pb == 0u) pb = 1u;
-            if (pc == 0u) pc = 1u;
+                uint16_t pa = (uint16_t)((((uint16_t)(comp->reg1 & 0x0Fu)) << 8) | comp->reg0);
+                uint16_t pb = (uint16_t)((((uint16_t)(comp->reg3 & 0x0Fu)) << 8) | comp->reg2);
+                uint16_t pc = (uint16_t)((((uint16_t)(comp->reg5 & 0x0Fu)) << 8) | comp->reg4);
+                if (pa == 0u) pa = 1u;
+                if (pb == 0u) pb = 1u;
+                if (pc == 0u) pc = 1u;
 
-            if (comp->tone_ctr_a == 0u) comp->tone_ctr_a = pa;
-            if (comp->tone_ctr_b == 0u) comp->tone_ctr_b = pb;
-            if (comp->tone_ctr_c == 0u) comp->tone_ctr_c = pc;
+                if (comp->tone_ctr_a == 0u) comp->tone_ctr_a = pa;
+                if (comp->tone_ctr_b == 0u) comp->tone_ctr_b = pb;
+                if (comp->tone_ctr_c == 0u) comp->tone_ctr_c = pc;
 
-            if (--comp->tone_ctr_a == 0u) {
-                comp->tone_ctr_a = pa;
-                comp->tone_out_a ^= 1u;
+                if (--comp->tone_ctr_a == 0u) { comp->tone_ctr_a = pa; comp->tone_out_a ^= 1u; }
+                if (--comp->tone_ctr_b == 0u) { comp->tone_ctr_b = pb; comp->tone_out_b ^= 1u; }
+                if (--comp->tone_ctr_c == 0u) { comp->tone_ctr_c = pc; comp->tone_out_c ^= 1u; }
+
+                /* Noise/envelope run at half the tone-step rate (chip_clock/16). */
+                comp->psg_subtick ^= 1u;
+                if (comp->psg_subtick == 0u) {
+                    uint8_t np = (uint8_t)(comp->reg6 & 0x1Fu);
+                    if (np == 0u) np = 1u;
+                    if (comp->noise_ctr == 0u) comp->noise_ctr = np;
+                    if (--comp->noise_ctr == 0u) {
+                        uint32_t r = comp->noise_lfsr;
+                        r = (r >> 1) ^ ((r & 1u) << 13) ^ ((r & 1u) << 16);
+                        r &= 0x1FFFFu;
+                        if (r == 0u) r = 0x1FFFFu;
+                        comp->noise_lfsr = r;
+                        comp->noise_out = (uint8_t)(r & 1u);
+                        comp->noise_ctr = np;
+                    }
+
+                    {
+                        uint16_t ep = (uint16_t)(((uint16_t)comp->reg12 << 8) | comp->reg11);
+                        if (ep == 0u) ep = 1u;
+                        if (comp->env_ctr == 0u) comp->env_ctr = ep;
+                        if (--comp->env_ctr == 0u) {
+                            comp->env_ctr = ep;
+                            if (comp->env_holding == 0u) {
+                                int16_t v = (int16_t)comp->env_volume + (int16_t)comp->env_direction;
+                                if (v < 0 || v > 15) {
+                                    if (comp->env_continue == 0u) {
+                                        comp->env_volume = 0;
+                                        comp->env_holding = 1u;
+                                    } else {
+                                        if (comp->env_alternate != 0u) {
+                                            comp->env_attack ^= 1u;
+                                        }
+                                        comp->env_direction = (comp->env_attack != 0u) ? 1 : -1;
+                                        if (comp->env_hold != 0u) {
+                                            comp->env_volume = (comp->env_attack != 0u) ? 15 : 0;
+                                            comp->env_holding = 1u;
+                                        } else {
+                                            comp->env_volume = (comp->env_attack != 0u) ? 0 : 15;
+                                        }
+                                    }
+                                } else {
+                                    comp->env_volume = (int8_t)v;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                {
+                    uint8_t mixer = comp->reg7;
+                    uint8_t tone_a = ((mixer & 0x01u) == 0u) ? comp->tone_out_a : 1u;
+                    uint8_t tone_b = ((mixer & 0x02u) == 0u) ? comp->tone_out_b : 1u;
+                    uint8_t tone_c = ((mixer & 0x04u) == 0u) ? comp->tone_out_c : 1u;
+                    uint8_t noise_a = ((mixer & 0x08u) == 0u) ? comp->noise_out : 1u;
+                    uint8_t noise_b = ((mixer & 0x10u) == 0u) ? comp->noise_out : 1u;
+                    uint8_t noise_c = ((mixer & 0x20u) == 0u) ? comp->noise_out : 1u;
+
+                    uint8_t ena = (uint8_t)(comp->reg8 & 0x10u);
+                    uint8_t enb = (uint8_t)(comp->reg9 & 0x10u);
+                    uint8_t enc = (uint8_t)(comp->reg10 & 0x10u);
+                    uint8_t va = (ena != 0u) ? (uint8_t)comp->env_volume : (uint8_t)(comp->reg8 & 0x0Fu);
+                    uint8_t vb = (enb != 0u) ? (uint8_t)comp->env_volume : (uint8_t)(comp->reg9 & 0x0Fu);
+                    uint8_t vc = (enc != 0u) ? (uint8_t)comp->env_volume : (uint8_t)(comp->reg10 & 0x0Fu);
+                    if (va > 15u) va = 15u;
+                    if (vb > 15u) vb = 15u;
+                    if (vc > 15u) vc = 15u;
+
+                    uint16_t out_a = ((tone_a & noise_a) != 0u) ? (uint16_t)ay_vol_table[va] : 0u;
+                    uint16_t out_b = ((tone_b & noise_b) != 0u) ? (uint16_t)ay_vol_table[vb] : 0u;
+                    uint16_t out_c = ((tone_c & noise_c) != 0u) ? (uint16_t)ay_vol_table[vc] : 0u;
+                    uint16_t sum = (uint16_t)(out_a + out_b + out_c); /* 0..384 */
+                    comp->last_mix = (uint8_t)((sum * 255u) / 384u);
+                }
             }
-            if (--comp->tone_ctr_b == 0u) {
-                comp->tone_ctr_b = pb;
-                comp->tone_out_b ^= 1u;
-            }
-            if (--comp->tone_ctr_c == 0u) {
-                comp->tone_ctr_c = pc;
-                comp->tone_out_c ^= 1u;
-            }
-
-            uint8_t mixer = comp->reg7;
-            uint8_t va = (uint8_t)(comp->reg8 & 0x0Fu);
-            uint8_t vb = (uint8_t)(comp->reg9 & 0x0Fu);
-            uint8_t vc = (uint8_t)(comp->reg10 & 0x0Fu);
-
-            uint8_t tone_a_on = ((mixer & 0x01u) == 0u) ? comp->tone_out_a : 1u;
-            uint8_t tone_b_on = ((mixer & 0x02u) == 0u) ? comp->tone_out_b : 1u;
-            uint8_t tone_c_on = ((mixer & 0x04u) == 0u) ? comp->tone_out_c : 1u;
-
-            int16_t sa = (va == 0u) ? 0 : (tone_a_on ? (int16_t)va : (int16_t)(-((int16_t)va)));
-            int16_t sb = (vb == 0u) ? 0 : (tone_b_on ? (int16_t)vb : (int16_t)(-((int16_t)vb)));
-            int16_t sc = (vc == 0u) ? 0 : (tone_c_on ? (int16_t)vc : (int16_t)(-((int16_t)vc)));
-            int16_t mix = (int16_t)((sa + sb + sc) / 3);
-            comp->last_mix = (uint8_t)(mix + 15); /* 0..30 with silence midpoint at 15 */
         }
 
         comp->emit_accum += (uint64_t)inst->cycles;
         {
-            uint64_t emit_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 4096u) : 874u;
+            uint64_t emit_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 44100u) : 81u;
             if (emit_period == 0u) emit_period = 1u;
             while (comp->emit_accum >= emit_period) {
                 comp->emit_accum -= emit_period;
-                if (comp->last_mix != comp->last_emitted_mix || comp->emit_keepalive >= 15u) {
+                if (comp->last_mix != comp->last_emitted_mix || comp->emit_keepalive >= 7u) {
                     uint64_t sig_args[2] = { (uint64_t)comp->last_mix, cpu->total_cycles };
                     cpu_component_emit_signal(cpu, "psg0", "audio_level", sig_args, 2);
                     comp->last_emitted_mix = comp->last_mix;
@@ -9029,6 +9184,18 @@ CPUState *z80_create(size_t memory_size) {
     cpu->comp_psg0.tone_out_a = 1;
     cpu->comp_psg0.tone_out_b = 1;
     cpu->comp_psg0.tone_out_c = 1;
+    cpu->comp_psg0.psg_subtick = 0;
+    cpu->comp_psg0.noise_ctr = 1;
+    cpu->comp_psg0.noise_lfsr = 0x1FFFFu;
+    cpu->comp_psg0.noise_out = 1;
+    cpu->comp_psg0.env_ctr = 1;
+    cpu->comp_psg0.env_volume = 0;
+    cpu->comp_psg0.env_direction = 1;
+    cpu->comp_psg0.env_attack = 0;
+    cpu->comp_psg0.env_continue = 0;
+    cpu->comp_psg0.env_alternate = 0;
+    cpu->comp_psg0.env_hold = 0;
+    cpu->comp_psg0.env_holding = 0;
     cpu->comp_psg0.last_mix = 255;
     cpu->comp_psg0.last_emitted_mix = 255;
     cpu->comp_psg0.emit_accum = 0;
@@ -9037,7 +9204,7 @@ CPUState *z80_create(size_t memory_size) {
         ComponentState_psg0 *comp = &cpu->comp_psg0;
         cpu->active_component_id = "psg0";
         {
-            const char *audio_env = getenv("PASM_SDL_AUDIO");
+            const char *audio_env = getenv("PASM_HOST_AUDIO");
             comp->audio_enabled = (audio_env != NULL && audio_env[0] == '1') ? 1u : 0u;
         }
     }
@@ -9060,6 +9227,8 @@ CPUState *z80_create(size_t memory_size) {
     cpu->comp_host_msx.irq_edges = 0;
     cpu->comp_host_msx.audio_samples = 0;
     cpu->comp_host_msx.audio_level = 0;
+    cpu->comp_host_msx.audio_hp_prev_in = 0;
+    cpu->comp_host_msx.audio_hp_prev_out = 0;
     cpu->comp_host_msx.audio_last_cycle = 0;
     cpu->comp_host_msx.audio_sample_cursor = 0;
     cpu->comp_host_msx.audio_rate = 0;
@@ -9168,6 +9337,32 @@ CPUState *z80_create(size_t memory_size) {
             comp->host_inited = 1u;
         } while (0);
     }
+    cpu->comp_msx_cart0.rom_data = NULL;
+    cpu->comp_msx_cart0.rom_size = 0;
+    cpu->comp_msx_cart0.slot_id = 1;
+    cpu->comp_msx_cart0.bank_6000 = 1;
+    cpu->comp_msx_cart0.bank_8000 = 2;
+    cpu->comp_msx_cart0.bank_a000 = 3;
+    {
+        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
+        cpu->active_component_id = "msx_cart0";
+        {
+            const char *slot_env = getenv("PASM_MSX_CART_SLOT");
+            if (slot_env != NULL && slot_env[0] != '\0') {
+                int v = atoi(slot_env);
+                if (v >= 0 && v <= 3) {
+                    comp->slot_id = (uint8_t)v;
+                } else {
+                    comp->slot_id = 1u;
+                }
+            } else {
+                comp->slot_id = 1u;
+            }
+        }
+        comp->bank_6000 = 1u;
+        comp->bank_8000 = 2u;
+        comp->bank_a000 = 3u;
+    }
     
     z80_reset(cpu);
     return cpu;
@@ -9217,6 +9412,15 @@ void z80_destroy(CPUState *cpu) {
                 cpu_host_hal_quit();
                 comp->host_inited = 0u;
             }
+        }
+        {
+            ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
+            cpu->active_component_id = "msx_cart0";
+            if (comp->rom_data != NULL) {
+                free(comp->rom_data);
+                comp->rom_data = NULL;
+            }
+            comp->rom_size = 0u;
         }
         free(cpu->memory);
         free(cpu->port_memory);
@@ -9296,6 +9500,18 @@ void z80_reset(CPUState *cpu) {
     cpu->comp_psg0.tone_out_a = 1;
     cpu->comp_psg0.tone_out_b = 1;
     cpu->comp_psg0.tone_out_c = 1;
+    cpu->comp_psg0.psg_subtick = 0;
+    cpu->comp_psg0.noise_ctr = 1;
+    cpu->comp_psg0.noise_lfsr = 0x1FFFFu;
+    cpu->comp_psg0.noise_out = 1;
+    cpu->comp_psg0.env_ctr = 1;
+    cpu->comp_psg0.env_volume = 0;
+    cpu->comp_psg0.env_direction = 1;
+    cpu->comp_psg0.env_attack = 0;
+    cpu->comp_psg0.env_continue = 0;
+    cpu->comp_psg0.env_alternate = 0;
+    cpu->comp_psg0.env_hold = 0;
+    cpu->comp_psg0.env_holding = 0;
     cpu->comp_psg0.last_mix = 255;
     cpu->comp_psg0.last_emitted_mix = 255;
     cpu->comp_psg0.emit_accum = 0;
@@ -9304,12 +9520,31 @@ void z80_reset(CPUState *cpu) {
         ComponentState_psg0 *comp = &cpu->comp_psg0;
         cpu->active_component_id = "psg0";
         {
-            const char *audio_env = getenv("PASM_SDL_AUDIO");
+            const char *audio_env = getenv("PASM_HOST_AUDIO");
             comp->audio_enabled = (audio_env != NULL && audio_env[0] == '1') ? 1u : 0u;
         }
+        comp->audio_tick_accum = 0u;
+        comp->tone_ctr_a = 1u;
+        comp->tone_ctr_b = 1u;
+        comp->tone_ctr_c = 1u;
+        comp->tone_out_a = 1u;
+        comp->tone_out_b = 1u;
+        comp->tone_out_c = 1u;
+        comp->psg_subtick = 0u;
+        comp->noise_ctr = 1u;
+        comp->noise_lfsr = 0x1FFFFu;
+        comp->noise_out = 1u;
+        comp->env_ctr = 1u;
+        comp->env_volume = 0;
+        comp->env_direction = 1;
+        comp->env_attack = 0u;
+        comp->env_continue = 0u;
+        comp->env_alternate = 0u;
+        comp->env_hold = 0u;
+        comp->env_holding = 0u;
         comp->emit_accum = 0u;
         comp->emit_keepalive = 0u;
-        comp->last_mix = 15u;
+        comp->last_mix = 128u;
         comp->last_emitted_mix = 255u;
     }
     cpu->comp_keyboard_msx.last_row = 0;
@@ -9336,6 +9571,8 @@ void z80_reset(CPUState *cpu) {
         comp->irq_edges = 0u;
         comp->audio_samples = 0u;
         comp->audio_level = 0;
+        comp->audio_hp_prev_in = 0;
+        comp->audio_hp_prev_out = 0;
         comp->audio_last_cycle = 0u;
         comp->audio_sample_cursor = 0u;
         comp->audio_ring_read_idx = 0u;
@@ -9355,6 +9592,26 @@ void z80_reset(CPUState *cpu) {
         if (comp->audio_out_dev != 0u) {
             cpu_host_hal_audio_clear(comp->audio_out_dev);
         }
+    }
+    cpu->comp_msx_cart0.slot_id = 1;
+    cpu->comp_msx_cart0.bank_6000 = 1;
+    cpu->comp_msx_cart0.bank_8000 = 2;
+    cpu->comp_msx_cart0.bank_a000 = 3;
+    {
+        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
+        cpu->active_component_id = "msx_cart0";
+        {
+            const char *slot_env = getenv("PASM_MSX_CART_SLOT");
+            if (slot_env != NULL && slot_env[0] != '\0') {
+                int v = atoi(slot_env);
+                if (v >= 0 && v <= 3) {
+                    comp->slot_id = (uint8_t)v;
+                }
+            }
+        }
+        comp->bank_6000 = 1u;
+        comp->bank_8000 = 2u;
+        comp->bank_a000 = 3u;
     }
     cpu->running = true;
     cpu->halted = false;
@@ -9471,15 +9728,85 @@ int z80_load_system_roms(CPUState *cpu, const char *system_base_dir) {
 }
 
 int z80_load_cartridge_rom(CPUState *cpu, const char *path) {
-    (void)cpu;
-    (void)path;
-    return -1;
+    FILE *f;
+    long file_size;
+    uint8_t *buf;
+    ComponentState_msx_cart0 *comp;
+    size_t read_len;
+
+    if (!cpu || !path || !path[0]) return -1;
+    comp = &cpu->comp_msx_cart0;
+    f = fopen(path, "rb");
+    if (!f) return -1;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    file_size = ftell(f);
+    if (file_size < 0) { fclose(f); return -1; }
+    if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+    buf = (uint8_t *)malloc((size_t)file_size);
+    if (!buf) { fclose(f); return -1; }
+    read_len = fread(buf, 1, (size_t)file_size, f);
+    fclose(f);
+    if (read_len != (size_t)file_size) { free(buf); return -1; }
+    if (comp->rom_data != NULL) {
+        free(comp->rom_data);
+        comp->rom_data = NULL;
+    }
+    comp->rom_data = buf;
+    comp->rom_size = (uint32_t)file_size;
+    snprintf(
+        cpu->loaded_rom_debug,
+        sizeof(cpu->loaded_rom_debug),
+        "name=msx_cart0 path=%s",
+        path
+    );
+    return 0;
 }
 
 
 /* ===== Memory Access ===== */
 uint8_t z80_read_byte(CPUState *cpu, uint16_t addr) {
+    {
+        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
+        cpu->active_component_id = "msx_cart0";
+        if (comp->rom_data != NULL && comp->rom_size > 0u) {
+            uint8_t slotreg = cpu->comp_ppi0.slot_select;
+            uint8_t page = (uint8_t)(addr >> 14);
+            uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+            if (page_slot == (uint8_t)(comp->slot_id & 0x03u)) {
+                uint32_t bank_size = 0x2000u;
+                uint32_t bank_count = comp->rom_size / bank_size;
+                if (bank_count == 0u) return 0xFFu;
 
+                if (addr >= 0x4000u && addr < 0x6000u) {
+                    uint32_t off = (uint32_t)(addr - 0x4000u);
+                    uint32_t bank_off = off;
+                    if (bank_off < comp->rom_size) return comp->rom_data[bank_off];
+                    return 0xFFu;
+                }
+
+                if (addr >= 0x6000u && addr < 0x8000u) {
+                    uint32_t bank = (uint32_t)(comp->bank_6000 % bank_count);
+                    uint32_t off = bank * bank_size + (uint32_t)(addr - 0x6000u);
+                    if (off < comp->rom_size) return comp->rom_data[off];
+                    return 0xFFu;
+                }
+
+                if (addr >= 0x8000u && addr < 0xA000u) {
+                    uint32_t bank = (uint32_t)(comp->bank_8000 % bank_count);
+                    uint32_t off = bank * bank_size + (uint32_t)(addr - 0x8000u);
+                    if (off < comp->rom_size) return comp->rom_data[off];
+                    return 0xFFu;
+                }
+
+                if (addr >= 0xA000u && addr < 0xC000u) {
+                    uint32_t bank = (uint32_t)(comp->bank_a000 % bank_count);
+                    uint32_t off = bank * bank_size + (uint32_t)(addr - 0xA000u);
+                    if (off < comp->rom_size) return comp->rom_data[off];
+                    return 0xFFu;
+                }
+            }
+        }
+    }
     if (addr >= cpu->memory_size) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return 0xFF;
@@ -9488,7 +9815,30 @@ uint8_t z80_read_byte(CPUState *cpu, uint16_t addr) {
 }
 
 void z80_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
+    {
+        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
+        cpu->active_component_id = "msx_cart0";
+        if (comp->rom_data == NULL || comp->rom_size == 0u) return;
+        {
+            uint8_t slotreg = cpu->comp_ppi0.slot_select;
+            uint8_t page = (uint8_t)(addr >> 14);
+            uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+            if (page_slot != (uint8_t)(comp->slot_id & 0x03u)) return;
+        }
 
+        if (addr >= 0x6000u && addr < 0x8000u) {
+            comp->bank_6000 = value;
+            return;
+        }
+        if (addr >= 0x8000u && addr < 0xA000u) {
+            comp->bank_8000 = value;
+            return;
+        }
+        if (addr >= 0xA000u && addr < 0xC000u) {
+            comp->bank_a000 = value;
+            return;
+        }
+    }
     if (addr >= cpu->memory_size) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
@@ -9695,7 +10045,22 @@ void z80_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
                 case 10u: comp->reg10 = v; comp->level_c = (uint8_t)(v & 0x0Fu); break;
                 case 11u: comp->reg11 = v; break;
                 case 12u: comp->reg12 = v; break;
-                case 13u: comp->reg13 = v; break;
+                case 13u: {
+                    comp->reg13 = v;
+                    comp->env_continue = (uint8_t)((v >> 3) & 1u);
+                    comp->env_attack = (uint8_t)((v >> 2) & 1u);
+                    comp->env_alternate = (uint8_t)((v >> 1) & 1u);
+                    comp->env_hold = (uint8_t)(v & 1u);
+                    if (comp->env_continue == 0u) {
+                        comp->env_hold = 1u;
+                        comp->env_alternate = 0u;
+                    }
+                    comp->env_holding = 0u;
+                    comp->env_volume = (comp->env_attack != 0u) ? 0 : 15;
+                    comp->env_direction = (comp->env_attack != 0u) ? 1 : -1;
+                    comp->env_ctr = 1u;
+                    break;
+                }
                 case 14u: comp->reg14 = v; break;
                 case 15u: comp->reg15 = v; break;
                 default: break;
@@ -9779,155 +10144,6 @@ void z80_list_breakpoints(CPUState *cpu) {
 void z80_trace_enable(CPUState *cpu, bool enable) {
     cpu->tracing_enabled = enable;
 }
-static void dbg_mc6809_format_signed8_hex(int8_t value, char *out, size_t out_sz) {
-    if (value < 0) {
-        uint8_t mag = (uint8_t)(-(int)value);
-        (void)snprintf(out, out_sz, "-$%02X", (unsigned int)mag);
-    } else {
-        (void)snprintf(out, out_sz, "$%02X", (unsigned int)((uint8_t)value));
-    }
-}
-
-static void dbg_mc6809_format_signed16_hex(int16_t value, char *out, size_t out_sz) {
-    if (value < 0) {
-        uint16_t mag = (uint16_t)(-(int32_t)value);
-        (void)snprintf(out, out_sz, "-$%04X", (unsigned int)mag);
-    } else {
-        (void)snprintf(out, out_sz, "$%04X", (unsigned int)((uint16_t)value));
-    }
-}
-
-static void dbg_mc6809_format_stack_mask(uint8_t mask, const char *bit6_name, uint8_t pull_order, char *out, size_t out_sz) {
-    static const char *base_names[8] = {"CC", "A", "B", "DP", "X", "Y", NULL, "PC"};
-    static const uint8_t order_push[8] = {7u, 6u, 5u, 4u, 3u, 2u, 1u, 0u};
-    static const uint8_t order_pull[8] = {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u};
-    size_t used = 0u;
-    uint8_t wrote = 0u;
-    if (out_sz == 0u) {
-        return;
-    }
-    out[0] = '\0';
-    for (uint8_t i = 0u; i < 8u; ++i) {
-        uint8_t bit = (pull_order != 0u) ? order_pull[i] : order_push[i];
-        if ((mask & (uint8_t)(1u << bit)) == 0u) {
-            continue;
-        }
-        const char *name = (bit == 6u) ? bit6_name : base_names[bit];
-        if (name == NULL || name[0] == '\0') {
-            continue;
-        }
-        int n = snprintf(out + used, out_sz - used, (wrote != 0u) ? ",%s" : "%s", name);
-        if (n < 0) {
-            break;
-        }
-        if ((size_t)n >= (out_sz - used)) {
-            out[out_sz - 1u] = '\0';
-            wrote = 1u;
-            break;
-        }
-        used += (size_t)n;
-        wrote = 1u;
-    }
-    if (wrote == 0u) {
-        (void)snprintf(out, out_sz, "$%02X", (unsigned int)mask);
-    }
-}
-
-static void dbg_mc6809_format_indexed(uint8_t pb, uint16_t pc, uint32_t raw, uint8_t prefix, char *out, size_t out_sz) {
-    static const char *regs[4] = {"X", "Y", "U", "S"};
-    uint8_t rr = (uint8_t)((pb >> 5) & 0x03u);
-    const char *r = regs[rr];
-    uint8_t op_len = (uint8_t)((prefix != 0u) ? 2u : 1u);
-    uint16_t pc_after_pb = (uint16_t)(pc + (uint16_t)op_len + 1u);
-    uint8_t extra1 = 0u;
-    uint8_t extra2 = 0u;
-    uint8_t have_extra1 = 0u;
-    uint8_t have_extra2 = 0u;
-    char off_buf[24];
-
-    if (prefix == 0u) {
-        extra1 = (uint8_t)((raw >> 16) & 0xFFu);
-        extra2 = (uint8_t)((raw >> 24) & 0xFFu);
-        have_extra1 = 1u;
-        have_extra2 = 1u;
-    } else {
-        extra1 = (uint8_t)((raw >> 24) & 0xFFu);
-        have_extra1 = 1u;
-    }
-
-    if ((pb & 0x80u) == 0u) {
-        int8_t off5 = (int8_t)(pb & 0x1Fu);
-        if ((off5 & 0x10) != 0) off5 = (int8_t)(off5 | (int8_t)0xE0);
-        (void)snprintf(out, out_sz, "%d,%s", (int)off5, r);
-        return;
-    }
-    {
-        uint8_t mode = (uint8_t)(pb & 0x1Fu);
-        uint8_t indirect = (uint8_t)((mode & 0x10u) != 0u);
-        uint8_t m = mode;
-        if (indirect != 0u) m = (uint8_t)(mode & 0x0Fu);
-        switch (m) {
-            case 0x00u: (void)snprintf(out, out_sz, (indirect ? "[,%s+]" : ",%s+"), r); return;
-            case 0x01u: (void)snprintf(out, out_sz, (indirect ? "[,%s++]" : ",%s++"), r); return;
-            case 0x02u: (void)snprintf(out, out_sz, (indirect ? "[,-%s]" : ",-%s"), r); return;
-            case 0x03u: (void)snprintf(out, out_sz, (indirect ? "[,--%s]" : ",--%s"), r); return;
-            case 0x04u: (void)snprintf(out, out_sz, (indirect ? "[,%s]" : ",%s"), r); return;
-            case 0x05u: (void)snprintf(out, out_sz, (indirect ? "[B,%s]" : "B,%s"), r); return;
-            case 0x06u: (void)snprintf(out, out_sz, (indirect ? "[A,%s]" : "A,%s"), r); return;
-            case 0x08u:
-                if (have_extra1 != 0u) {
-                    dbg_mc6809_format_signed8_hex((int8_t)extra1, off_buf, sizeof(off_buf));
-                    (void)snprintf(out, out_sz, (indirect ? "[%s,%s]" : "%s,%s"), off_buf, r);
-                } else {
-                    (void)snprintf(out, out_sz, (indirect ? "[n,%s]" : "n,%s"), r);
-                }
-                return;
-            case 0x09u:
-                if (have_extra1 != 0u && have_extra2 != 0u) {
-                    int16_t off16 = (int16_t)((uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2));
-                    dbg_mc6809_format_signed16_hex(off16, off_buf, sizeof(off_buf));
-                    (void)snprintf(out, out_sz, (indirect ? "[%s,%s]" : "%s,%s"), off_buf, r);
-                } else {
-                    (void)snprintf(out, out_sz, (indirect ? "[nn,%s]" : "nn,%s"), r);
-                }
-                return;
-            case 0x0Bu: (void)snprintf(out, out_sz, (indirect ? "[D,%s]" : "D,%s"), r); return;
-            case 0x0Cu:
-                if (have_extra1 != 0u) {
-                    int8_t off8 = (int8_t)extra1;
-                    uint16_t abs = (uint16_t)(pc_after_pb + (int16_t)off8);
-                    dbg_mc6809_format_signed8_hex(off8, off_buf, sizeof(off_buf));
-                    (void)abs;
-                    (void)snprintf(out, out_sz, (indirect ? "[%s,PCR]" : "%s,PCR"), off_buf);
-                } else {
-                    (void)snprintf(out, out_sz, "%s", (indirect ? "[n,PCR]" : "n,PCR"));
-                }
-                return;
-            case 0x0Du:
-                if (have_extra1 != 0u && have_extra2 != 0u) {
-                    int16_t off16 = (int16_t)((uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2));
-                    uint16_t abs = (uint16_t)(pc_after_pb + 2u + off16);
-                    dbg_mc6809_format_signed16_hex(off16, off_buf, sizeof(off_buf));
-                    (void)abs;
-                    (void)snprintf(out, out_sz, (indirect ? "[%s,PCR]" : "%s,PCR"), off_buf);
-                } else {
-                    (void)snprintf(out, out_sz, "%s", (indirect ? "[nn,PCR]" : "nn,PCR"));
-                }
-                return;
-            case 0x0Fu:
-                if (have_extra1 != 0u && have_extra2 != 0u) {
-                    uint16_t ea = (uint16_t)(((uint16_t)extra1 << 8) | (uint16_t)extra2);
-                    (void)snprintf(out, out_sz, (indirect ? "[$%04X]" : "$%04X"), (unsigned int)ea);
-                } else {
-                    (void)snprintf(out, out_sz, "%s", (indirect ? "[nn]" : "nn"));
-                }
-                return;
-            default: break;
-        }
-    }
-    (void)snprintf(out, out_sz, "[idx $%02X]", (unsigned int)pb);
-}
-
 char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
     static char buf[160];
     char rendered[160];

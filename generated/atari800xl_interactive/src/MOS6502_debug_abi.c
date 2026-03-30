@@ -986,7 +986,7 @@ const char *pasm_dbg_processor_name(void) {
 }
 
 const char *pasm_dbg_system_name(void) {
-    return "Atari800XLCartridgeInteractiveSystem";
+    return "Atari800XLInteractiveSystem";
 }
 
 uint8_t pasm_dbg_architecture(void) {

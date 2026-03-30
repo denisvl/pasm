@@ -5,6 +5,13 @@ metadata:
   address_bits: 16
   endian: little
   undefined_opcode_policy: trap
+  codegen:
+    architecture_id: unknown
+    numeric_style: c_hex
+    flags_dump_style: raw
+    decode_quirks:
+      mc6809_indexed_postbyte_length: false
+    display_kinds_enabled: []
 registers:
 - name: R0
   display_name: R0

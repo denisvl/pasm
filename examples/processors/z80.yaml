@@ -5,6 +5,13 @@ metadata:
   address_bits: 16
   endian: little
   undefined_opcode_policy: trap
+  codegen:
+    architecture_id: z80
+    numeric_style: z80_h
+    flags_dump_style: z80_compact
+    decode_quirks:
+      mc6809_indexed_postbyte_length: false
+    display_kinds_enabled: []
 registers:
 - name: A
   display_name: A

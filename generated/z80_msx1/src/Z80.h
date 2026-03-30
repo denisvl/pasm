@@ -69,20 +69,70 @@ typedef struct ComponentState_vdp0 {
     uint8_t control_phase;
     uint8_t read_buffer;
     uint8_t render_dirty;
+    uint8_t reg0;
+    uint8_t reg1;
+    uint8_t reg2;
+    uint8_t reg3;
+    uint8_t reg4;
+    uint8_t reg5;
+    uint8_t reg6;
+    uint8_t reg7;
+    uint8_t status;
+    uint8_t * vram;
 } ComponentState_vdp0;
 
 typedef struct ComponentState_ppi0 {
     uint8_t slot_select;
     uint8_t keyboard_row;
+    uint8_t port_c;
     uint8_t control_reg;
 } ComponentState_ppi0;
 
 typedef struct ComponentState_psg0 {
+    uint8_t audio_enabled;
     uint8_t selected_reg;
+    uint8_t reg0;
+    uint8_t reg1;
+    uint8_t reg2;
+    uint8_t reg3;
+    uint8_t reg4;
+    uint8_t reg5;
+    uint8_t reg6;
+    uint8_t reg7;
+    uint8_t reg8;
+    uint8_t reg9;
+    uint8_t reg10;
+    uint8_t reg11;
+    uint8_t reg12;
+    uint8_t reg13;
+    uint8_t reg14;
+    uint8_t reg15;
     uint8_t level_a;
     uint8_t level_b;
     uint8_t level_c;
     uint64_t audio_tick_accum;
+    uint16_t tone_ctr_a;
+    uint16_t tone_ctr_b;
+    uint16_t tone_ctr_c;
+    uint8_t tone_out_a;
+    uint8_t tone_out_b;
+    uint8_t tone_out_c;
+    uint8_t psg_subtick;
+    uint8_t noise_ctr;
+    uint32_t noise_lfsr;
+    uint8_t noise_out;
+    uint16_t env_ctr;
+    int8_t env_volume;
+    int8_t env_direction;
+    uint8_t env_attack;
+    uint8_t env_continue;
+    uint8_t env_alternate;
+    uint8_t env_hold;
+    uint8_t env_holding;
+    uint8_t last_mix;
+    uint8_t last_emitted_mix;
+    uint64_t emit_accum;
+    uint8_t emit_keepalive;
 } ComponentState_psg0;
 
 typedef struct ComponentState_keyboard_msx {
@@ -107,6 +157,15 @@ typedef struct ComponentState_host_msx {
     uint8_t keyboard_default;
 } ComponentState_host_msx;
 
+typedef struct ComponentState_msx_cart0 {
+    uint8_t * rom_data;
+    uint32_t rom_size;
+    uint8_t slot_id;
+    uint8_t bank_6000;
+    uint8_t bank_8000;
+    uint8_t bank_a000;
+} ComponentState_msx_cart0;
+
 
 /* ===== CPU State ===== */
 struct CPUState {
@@ -120,27 +179,27 @@ struct CPUState {
     uint16_t sp;
     union {
         struct {
-            unsigned int S : 1;
-            unsigned int Z : 1;
-            unsigned int H : 1;
-            unsigned int P : 1;
-            unsigned int N : 1;
             unsigned int C : 1;
-            unsigned int _reserved_6 : 1;
-            unsigned int _reserved_7 : 1;
+            unsigned int N : 1;
+            unsigned int P : 1;
+            unsigned int F3 : 1;
+            unsigned int H : 1;
+            unsigned int F5 : 1;
+            unsigned int Z : 1;
+            unsigned int S : 1;
         };
         uint8_t raw;
     } flags;
     union {
         struct {
-            unsigned int S : 1;
-            unsigned int Z : 1;
-            unsigned int H : 1;
-            unsigned int P : 1;
-            unsigned int N : 1;
             unsigned int C : 1;
-            unsigned int _reserved_6 : 1;
-            unsigned int _reserved_7 : 1;
+            unsigned int N : 1;
+            unsigned int P : 1;
+            unsigned int F3 : 1;
+            unsigned int H : 1;
+            unsigned int F5 : 1;
+            unsigned int Z : 1;
+            unsigned int S : 1;
         };
         uint8_t raw;
     } flags_prime;
@@ -172,8 +231,11 @@ struct CPUState {
     
     /* Debug state */
     bool tracing_enabled;
+    bool debug_overlay_enabled;
+    bool reset_delay_pending;
     uint16_t break_points[16];
     int num_break_points;
+    char loaded_rom_debug[1024];
     
     /* Hooks */
     CPUHook hooks[HOOK_COUNT];
@@ -188,6 +250,7 @@ struct CPUState {
     ComponentState_video_msx comp_video_msx;
     ComponentState_speaker_msx comp_speaker_msx;
     ComponentState_host_msx comp_host_msx;
+    ComponentState_msx_cart0 comp_msx_cart0;
 };
 
 /* ===== Constants ===== */
@@ -201,10 +264,11 @@ struct CPUState {
 #define CPU_AUDIO_SAMPLE_RATE 44100ULL
 #define CPU_AUDIO_CHANNELS 1
 #define CPU_AUDIO_FORMAT "s16le"
-/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"msx1_default\"} */
+/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"msx1_cartridge_default\"} */
 #define CPU_IC_COUNT 3
 #define CPU_DEVICE_COUNT 3
 #define CPU_HOST_COUNT 1
+#define CPU_CARTRIDGE_COUNT 1
 
 /* ===== Register Enum ===== */
 typedef enum {
@@ -233,12 +297,14 @@ typedef enum {
 /* ===== Flag Bits ===== */
 /* Flag bit positions */
 typedef enum {
-    FLAG_S = (1u << 0),
-    FLAG_Z = (1u << 1),
-    FLAG_H = (1u << 2),
-    FLAG_P = (1u << 3),
-    FLAG_N = (1u << 4),
-    FLAG_C = (1u << 5),
+    FLAG_S = (1u << 7),
+    FLAG_Z = (1u << 6),
+    FLAG_F5 = (1u << 5),
+    FLAG_H = (1u << 4),
+    FLAG_F3 = (1u << 3),
+    FLAG_P = (1u << 2),
+    FLAG_N = (1u << 1),
+    FLAG_C = (1u << 0),
 } FlagBits;
 
 /* ===== CPU Lifecycle ===== */
@@ -247,6 +313,7 @@ void z80_destroy(CPUState *cpu);
 void z80_reset(CPUState *cpu);
 int z80_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int z80_load_system_roms(CPUState *cpu, const char *system_base_dir);
+int z80_load_cartridge_rom(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int z80_step(CPUState *cpu);

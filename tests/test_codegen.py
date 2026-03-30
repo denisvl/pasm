@@ -1,3 +1,6 @@
+import pathlib
+import re
+
 from src import generator as gen_mod
 from tests.support import example_pair
 
@@ -63,4 +66,15 @@ def test_generate_trs80_model4_embeds_reset_delay(tmp_path):
 
     cpu_impl = (outdir / "src" / "Z80.c").read_text(encoding="utf-8")
     assert "cpu_sleep_seconds(5u);" in cpu_impl
+
+
+def test_codegen_has_no_cpu_name_substring_heuristics():
+    codegen_dir = pathlib.Path("src/codegen")
+    pattern = re.compile(r'if\s+["\'](?:6809|6502|6510|6509|z80|68000|m68k|2a03)["\']\s+in\s+\w+')
+    offenders = []
+    for py_file in sorted(codegen_dir.glob("*.py")):
+        text = py_file.read_text(encoding="utf-8")
+        for match in pattern.finditer(text):
+            offenders.append(f"{py_file}:{match.start()}")
+    assert offenders == []
 

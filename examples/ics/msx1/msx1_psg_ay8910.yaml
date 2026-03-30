@@ -91,6 +91,42 @@ state:
   - name: tone_out_c
     type: uint8_t
     initial: "1"
+  - name: psg_subtick
+    type: uint8_t
+    initial: "0"
+  - name: noise_ctr
+    type: uint8_t
+    initial: "1"
+  - name: noise_lfsr
+    type: uint32_t
+    initial: "0x1FFFFu"
+  - name: noise_out
+    type: uint8_t
+    initial: "1"
+  - name: env_ctr
+    type: uint16_t
+    initial: "1"
+  - name: env_volume
+    type: int8_t
+    initial: "0"
+  - name: env_direction
+    type: int8_t
+    initial: "1"
+  - name: env_attack
+    type: uint8_t
+    initial: "0"
+  - name: env_continue
+    type: uint8_t
+    initial: "0"
+  - name: env_alternate
+    type: uint8_t
+    initial: "0"
+  - name: env_hold
+    type: uint8_t
+    initial: "0"
+  - name: env_holding
+    type: uint8_t
+    initial: "0"
   - name: last_mix
     type: uint8_t
     initial: "255"
@@ -132,17 +168,36 @@ behavior:
   snippets:
     init: |
       {
-          const char *audio_env = getenv("PASM_SDL_AUDIO");
+          const char *audio_env = getenv("PASM_HOST_AUDIO");
           comp->audio_enabled = (audio_env != NULL && audio_env[0] == '1') ? 1u : 0u;
       }
     reset: |
       {
-          const char *audio_env = getenv("PASM_SDL_AUDIO");
+          const char *audio_env = getenv("PASM_HOST_AUDIO");
           comp->audio_enabled = (audio_env != NULL && audio_env[0] == '1') ? 1u : 0u;
       }
+      comp->audio_tick_accum = 0u;
+      comp->tone_ctr_a = 1u;
+      comp->tone_ctr_b = 1u;
+      comp->tone_ctr_c = 1u;
+      comp->tone_out_a = 1u;
+      comp->tone_out_b = 1u;
+      comp->tone_out_c = 1u;
+      comp->psg_subtick = 0u;
+      comp->noise_ctr = 1u;
+      comp->noise_lfsr = 0x1FFFFu;
+      comp->noise_out = 1u;
+      comp->env_ctr = 1u;
+      comp->env_volume = 0;
+      comp->env_direction = 1;
+      comp->env_attack = 0u;
+      comp->env_continue = 0u;
+      comp->env_alternate = 0u;
+      comp->env_hold = 0u;
+      comp->env_holding = 0u;
       comp->emit_accum = 0u;
       comp->emit_keepalive = 0u;
-      comp->last_mix = 15u;
+      comp->last_mix = 128u;
       comp->last_emitted_mix = 255u;
     port_read_post: |
       uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
@@ -194,7 +249,22 @@ behavior:
               case 10u: comp->reg10 = v; comp->level_c = (uint8_t)(v & 0x0Fu); break;
               case 11u: comp->reg11 = v; break;
               case 12u: comp->reg12 = v; break;
-              case 13u: comp->reg13 = v; break;
+              case 13u: {
+                  comp->reg13 = v;
+                  comp->env_continue = (uint8_t)((v >> 3) & 1u);
+                  comp->env_attack = (uint8_t)((v >> 2) & 1u);
+                  comp->env_alternate = (uint8_t)((v >> 1) & 1u);
+                  comp->env_hold = (uint8_t)(v & 1u);
+                  if (comp->env_continue == 0u) {
+                      comp->env_hold = 1u;
+                      comp->env_alternate = 0u;
+                  }
+                  comp->env_holding = 0u;
+                  comp->env_volume = (comp->env_attack != 0u) ? 0 : 15;
+                  comp->env_direction = (comp->env_attack != 0u) ? 1 : -1;
+                  comp->env_ctr = 1u;
+                  break;
+              }
               case 14u: comp->reg14 = v; break;
               case 15u: comp->reg15 = v; break;
               default: break;
@@ -204,57 +274,113 @@ behavior:
       if (comp->audio_enabled == 0u) {
           return;
       }
-      comp->audio_tick_accum += (uint64_t)inst->cycles;
-      while (comp->audio_tick_accum >= 64u) {
-          comp->audio_tick_accum -= 64u;
+      {
+          static const uint8_t ay_vol_table[16] = {
+              0u, 1u, 1u, 2u, 3u, 4u, 6u, 8u,
+              11u, 16u, 23u, 32u, 45u, 64u, 90u, 128u
+          };
+          comp->audio_tick_accum += (uint64_t)inst->cycles;
+          while (comp->audio_tick_accum >= 16u) {
+              comp->audio_tick_accum -= 16u; /* AY tone/noise base clock step: chip_clock/8 */
 
-          uint16_t pa = (uint16_t)((((uint16_t)(comp->reg1 & 0x0Fu)) << 8) | comp->reg0);
-          uint16_t pb = (uint16_t)((((uint16_t)(comp->reg3 & 0x0Fu)) << 8) | comp->reg2);
-          uint16_t pc = (uint16_t)((((uint16_t)(comp->reg5 & 0x0Fu)) << 8) | comp->reg4);
-          if (pa == 0u) pa = 1u;
-          if (pb == 0u) pb = 1u;
-          if (pc == 0u) pc = 1u;
+              uint16_t pa = (uint16_t)((((uint16_t)(comp->reg1 & 0x0Fu)) << 8) | comp->reg0);
+              uint16_t pb = (uint16_t)((((uint16_t)(comp->reg3 & 0x0Fu)) << 8) | comp->reg2);
+              uint16_t pc = (uint16_t)((((uint16_t)(comp->reg5 & 0x0Fu)) << 8) | comp->reg4);
+              if (pa == 0u) pa = 1u;
+              if (pb == 0u) pb = 1u;
+              if (pc == 0u) pc = 1u;
 
-          if (comp->tone_ctr_a == 0u) comp->tone_ctr_a = pa;
-          if (comp->tone_ctr_b == 0u) comp->tone_ctr_b = pb;
-          if (comp->tone_ctr_c == 0u) comp->tone_ctr_c = pc;
+              if (comp->tone_ctr_a == 0u) comp->tone_ctr_a = pa;
+              if (comp->tone_ctr_b == 0u) comp->tone_ctr_b = pb;
+              if (comp->tone_ctr_c == 0u) comp->tone_ctr_c = pc;
 
-          if (--comp->tone_ctr_a == 0u) {
-              comp->tone_ctr_a = pa;
-              comp->tone_out_a ^= 1u;
+              if (--comp->tone_ctr_a == 0u) { comp->tone_ctr_a = pa; comp->tone_out_a ^= 1u; }
+              if (--comp->tone_ctr_b == 0u) { comp->tone_ctr_b = pb; comp->tone_out_b ^= 1u; }
+              if (--comp->tone_ctr_c == 0u) { comp->tone_ctr_c = pc; comp->tone_out_c ^= 1u; }
+
+              /* Noise/envelope run at half the tone-step rate (chip_clock/16). */
+              comp->psg_subtick ^= 1u;
+              if (comp->psg_subtick == 0u) {
+                  uint8_t np = (uint8_t)(comp->reg6 & 0x1Fu);
+                  if (np == 0u) np = 1u;
+                  if (comp->noise_ctr == 0u) comp->noise_ctr = np;
+                  if (--comp->noise_ctr == 0u) {
+                      uint32_t r = comp->noise_lfsr;
+                      r = (r >> 1) ^ ((r & 1u) << 13) ^ ((r & 1u) << 16);
+                      r &= 0x1FFFFu;
+                      if (r == 0u) r = 0x1FFFFu;
+                      comp->noise_lfsr = r;
+                      comp->noise_out = (uint8_t)(r & 1u);
+                      comp->noise_ctr = np;
+                  }
+
+                  {
+                      uint16_t ep = (uint16_t)(((uint16_t)comp->reg12 << 8) | comp->reg11);
+                      if (ep == 0u) ep = 1u;
+                      if (comp->env_ctr == 0u) comp->env_ctr = ep;
+                      if (--comp->env_ctr == 0u) {
+                          comp->env_ctr = ep;
+                          if (comp->env_holding == 0u) {
+                              int16_t v = (int16_t)comp->env_volume + (int16_t)comp->env_direction;
+                              if (v < 0 || v > 15) {
+                                  if (comp->env_continue == 0u) {
+                                      comp->env_volume = 0;
+                                      comp->env_holding = 1u;
+                                  } else {
+                                      if (comp->env_alternate != 0u) {
+                                          comp->env_attack ^= 1u;
+                                      }
+                                      comp->env_direction = (comp->env_attack != 0u) ? 1 : -1;
+                                      if (comp->env_hold != 0u) {
+                                          comp->env_volume = (comp->env_attack != 0u) ? 15 : 0;
+                                          comp->env_holding = 1u;
+                                      } else {
+                                          comp->env_volume = (comp->env_attack != 0u) ? 0 : 15;
+                                      }
+                                  }
+                              } else {
+                                  comp->env_volume = (int8_t)v;
+                              }
+                          }
+                      }
+                  }
+              }
+
+              {
+                  uint8_t mixer = comp->reg7;
+                  uint8_t tone_a = ((mixer & 0x01u) == 0u) ? comp->tone_out_a : 1u;
+                  uint8_t tone_b = ((mixer & 0x02u) == 0u) ? comp->tone_out_b : 1u;
+                  uint8_t tone_c = ((mixer & 0x04u) == 0u) ? comp->tone_out_c : 1u;
+                  uint8_t noise_a = ((mixer & 0x08u) == 0u) ? comp->noise_out : 1u;
+                  uint8_t noise_b = ((mixer & 0x10u) == 0u) ? comp->noise_out : 1u;
+                  uint8_t noise_c = ((mixer & 0x20u) == 0u) ? comp->noise_out : 1u;
+
+                  uint8_t ena = (uint8_t)(comp->reg8 & 0x10u);
+                  uint8_t enb = (uint8_t)(comp->reg9 & 0x10u);
+                  uint8_t enc = (uint8_t)(comp->reg10 & 0x10u);
+                  uint8_t va = (ena != 0u) ? (uint8_t)comp->env_volume : (uint8_t)(comp->reg8 & 0x0Fu);
+                  uint8_t vb = (enb != 0u) ? (uint8_t)comp->env_volume : (uint8_t)(comp->reg9 & 0x0Fu);
+                  uint8_t vc = (enc != 0u) ? (uint8_t)comp->env_volume : (uint8_t)(comp->reg10 & 0x0Fu);
+                  if (va > 15u) va = 15u;
+                  if (vb > 15u) vb = 15u;
+                  if (vc > 15u) vc = 15u;
+
+                  uint16_t out_a = ((tone_a & noise_a) != 0u) ? (uint16_t)ay_vol_table[va] : 0u;
+                  uint16_t out_b = ((tone_b & noise_b) != 0u) ? (uint16_t)ay_vol_table[vb] : 0u;
+                  uint16_t out_c = ((tone_c & noise_c) != 0u) ? (uint16_t)ay_vol_table[vc] : 0u;
+                  uint16_t sum = (uint16_t)(out_a + out_b + out_c); /* 0..384 */
+                  comp->last_mix = (uint8_t)((sum * 255u) / 384u);
+              }
           }
-          if (--comp->tone_ctr_b == 0u) {
-              comp->tone_ctr_b = pb;
-              comp->tone_out_b ^= 1u;
-          }
-          if (--comp->tone_ctr_c == 0u) {
-              comp->tone_ctr_c = pc;
-              comp->tone_out_c ^= 1u;
-          }
-
-          uint8_t mixer = comp->reg7;
-          uint8_t va = (uint8_t)(comp->reg8 & 0x0Fu);
-          uint8_t vb = (uint8_t)(comp->reg9 & 0x0Fu);
-          uint8_t vc = (uint8_t)(comp->reg10 & 0x0Fu);
-
-          uint8_t tone_a_on = ((mixer & 0x01u) == 0u) ? comp->tone_out_a : 1u;
-          uint8_t tone_b_on = ((mixer & 0x02u) == 0u) ? comp->tone_out_b : 1u;
-          uint8_t tone_c_on = ((mixer & 0x04u) == 0u) ? comp->tone_out_c : 1u;
-
-          int16_t sa = (va == 0u) ? 0 : (tone_a_on ? (int16_t)va : (int16_t)(-((int16_t)va)));
-          int16_t sb = (vb == 0u) ? 0 : (tone_b_on ? (int16_t)vb : (int16_t)(-((int16_t)vb)));
-          int16_t sc = (vc == 0u) ? 0 : (tone_c_on ? (int16_t)vc : (int16_t)(-((int16_t)vc)));
-          int16_t mix = (int16_t)((sa + sb + sc) / 3);
-          comp->last_mix = (uint8_t)(mix + 15); /* 0..30 with silence midpoint at 15 */
       }
 
       comp->emit_accum += (uint64_t)inst->cycles;
       {
-          uint64_t emit_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 4096u) : 874u;
+          uint64_t emit_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 44100u) : 81u;
           if (emit_period == 0u) emit_period = 1u;
           while (comp->emit_accum >= emit_period) {
               comp->emit_accum -= emit_period;
-              if (comp->last_mix != comp->last_emitted_mix || comp->emit_keepalive >= 15u) {
+              if (comp->last_mix != comp->last_emitted_mix || comp->emit_keepalive >= 7u) {
                   uint64_t sig_args[2] = { (uint64_t)comp->last_mix, cpu->total_cycles };
                   cpu_component_emit_signal(cpu, "psg0", "audio_level", sig_args, 2);
                   comp->last_emitted_mix = comp->last_mix;

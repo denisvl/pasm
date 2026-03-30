@@ -12,7 +12,7 @@
 #include "MOS6502.h"
 
 #define PASM_DBG_PROCESSOR_NAME "MOS6502"
-#define PASM_DBG_SYSTEM_NAME "Atari800XLCartridgeInteractiveSystem"
+#define PASM_DBG_SYSTEM_NAME "Atari800XLInteractiveSystem"
 
 #ifdef __cplusplus
 extern "C" {

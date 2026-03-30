@@ -11,7 +11,12 @@
 #include <string.h>
 #include "Z80.h"
 #include "Z80_decoder.h"
-
+#include <SDL2/SDL.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 /* ===== Private Helper Functions ===== */
 static uint8_t z80_get_r8(CPUState *cpu, uint8_t idx) {
@@ -27,6 +32,48 @@ static bool cpu_parity(uint8_t val) {
     val ^= val >> 2;
     val ^= val >> 1;
     return (val & 1) == 0;
+}
+
+static void cpu_sleep_seconds(uint32_t seconds) {
+    if (seconds == 0u) return;
+#if defined(_WIN32)
+    Sleep((DWORD)(seconds * 1000u));
+#else
+    unsigned int remaining = (unsigned int)seconds;
+    while (remaining != 0u) remaining = sleep(remaining);
+#endif
+}
+
+static FILE *cpu_irq_trace_file(void) {
+    static int initialized = -1;
+    static FILE *fp = NULL;
+    if (initialized < 0) {
+        const char *env = getenv("PASM_IRQ_TRACE");
+        initialized = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+        if (initialized != 0) {
+            const char *path = getenv("PASM_IRQ_TRACE_FILE");
+            if (path == NULL || path[0] == '\0') path = "pasm_irq_trace.log";
+            fp = fopen(path, "a");
+            if (fp == NULL) initialized = 0;
+        }
+    }
+    return (initialized != 0) ? fp : NULL;
+}
+
+static void cpu_irq_trace(CPUState *cpu, const char *phase, uint8_t vector, uint16_t vector_addr) {
+    FILE *fp = cpu_irq_trace_file();
+    if (fp == NULL || cpu == NULL) return;
+    fprintf(fp, "irq %s cyc=%llu pc=%04X sp=%04X vec=%02X vaddr=%04X pend=%u en=%u flags=%02X\n",
+            (phase != NULL) ? phase : "?",
+            (unsigned long long)cpu->total_cycles,
+            (unsigned int)(cpu->pc & 0xFFFFu),
+            (unsigned int)(cpu->sp & 0xFFFFu),
+            (unsigned int)vector,
+            (unsigned int)(vector_addr & 0xFFFFu),
+            (unsigned int)(cpu->interrupt_pending ? 1u : 0u),
+            (unsigned int)(cpu->interrupts_enabled ? 1u : 0u),
+            (unsigned int)cpu->flags.raw);
+    fflush(fp);
 }
 
 static bool cpu_check_condition(CPUState *cpu, uint8_t cc) {
@@ -49,6 +96,7 @@ static bool cpu_check_breakpoints(CPUState *cpu) {
     }
     return false;
 }
+
 typedef struct {
     const char *from_component;
     const char *from_kind;
@@ -80,7 +128,7 @@ typedef struct {
 } ComponentKeyboardPress;
 
 typedef struct {
-    int host_key;
+    const char *host_key;
     const ComponentKeyboardPress *presses;
     uint8_t press_count;
 } ComponentKeyboardBinding;
@@ -92,7 +140,430 @@ typedef struct {
     size_t binding_count;
 } ComponentKeyboardMap;
 
+static int32_t cpu_host_hal_key_from_scancode(int scancode);
+
+typedef SDL_Event CPUHostEvent;
+typedef SDL_Rect CPUHostRect;
+typedef SDL_AudioSpec CPUHostAudioSpec;
+#define CPU_HOST_EVENT_QUIT SDL_QUIT
+#define CPU_HOST_EVENT_KEYDOWN SDL_KEYDOWN
+#define CPU_HOST_EVENT_KEYUP SDL_KEYUP
+#define CPU_HOST_INIT_VIDEO SDL_INIT_VIDEO
+#define CPU_HOST_INIT_AUDIO SDL_INIT_AUDIO
+#define CPU_HOST_INIT_EVENTS SDL_INIT_EVENTS
+#define CPU_HOST_WINDOWPOS_CENTERED SDL_WINDOWPOS_CENTERED
+#define CPU_HOST_WINDOW_RESIZABLE SDL_WINDOW_RESIZABLE
+#define CPU_HOST_RENDERER_ACCELERATED SDL_RENDERER_ACCELERATED
+#define CPU_HOST_PIXELFORMAT_ARGB8888 SDL_PIXELFORMAT_ARGB8888
+#define CPU_HOST_TEXTUREACCESS_STREAMING SDL_TEXTUREACCESS_STREAMING
+#define CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE SDL_AUDIO_ALLOW_FREQUENCY_CHANGE
+#define CPU_HOST_AUDIO_FORMAT_S16 AUDIO_S16SYS
+#define CPU_HOST_SCANCODE(name) SDL_SCANCODE_##name
+#define CPU_HOST_HAS_SCANCODE_MAP 1
+#define CPU_HOST_KEYCODE_QUOTE ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(APOSTROPHE)))
+#define CPU_HOST_KEYCODE_SEMICOLON ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(SEMICOLON)))
+#define CPU_HOST_MOD_CTRL KMOD_CTRL
+#define CPU_HOST_MOD_SHIFT KMOD_SHIFT
+#define CPU_HOST_MOD_LCTRL KMOD_LCTRL
+#define cpu_host_hal_log(...) SDL_Log(__VA_ARGS__)
+#define cpu_host_hal_last_error() SDL_GetError()
+static void cpu_host_audio_spec_zero(CPUHostAudioSpec *spec) {
+    if (!spec) return;
+    SDL_zero(*spec);
+}
+
+static uint8_t cpu_host_hal_sdl_inited = 0u;
+static uint32_t cpu_host_hal_sdl_subsystems = 0u;
+static SDL_Window *cpu_host_hal_sdl_primary_window = NULL;
+
+static void cpu_host_hal_pump_events(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_PumpEvents();
+}
+
+static uint32_t cpu_host_hal_ticks_ms(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    return SDL_GetTicks();
+}
+
+static uint8_t cpu_host_hal_window_has_focus(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return 0u;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return 0u;
+    return (SDL_GetKeyboardFocus() == (SDL_Window *)window) ? 1u : 0u;
+}
+
+static void cpu_host_hal_render_present(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_RenderPresent((SDL_Renderer *)renderer);
+}
+
+static int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return -1;
+    if (dev == 0u || !data || len_bytes == 0u) return -1;
+    return SDL_QueueAudio(dev, data, len_bytes);
+}
+
+static uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u) return 0u;
+    return SDL_GetQueuedAudioSize(dev);
+}
+
+static void cpu_host_hal_audio_clear(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_ClearQueuedAudio(dev);
+}
+
+static int cpu_host_hal_renderer_output_size(void *renderer, int *out_w, int *out_h) {
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer || !out_w || !out_h) return -1;
+    if (SDL_GetRendererOutputSize((SDL_Renderer *)renderer, out_w, out_h) != 0) return -1;
+    if (*out_w <= 0 || *out_h <= 0) return -1;
+    return 0;
+}
+
+static int cpu_host_hal_update_texture(void *texture, const CPUHostRect *rect, const void *pixels, int pitch) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!texture || !pixels) return -1;
+    return SDL_UpdateTexture((SDL_Texture *)texture, (const SDL_Rect *)rect, pixels, pitch);
+}
+
+static void cpu_host_hal_render_set_draw_color(void *renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_SetRenderDrawColor((SDL_Renderer *)renderer, r, g, b, a);
+}
+
+static int cpu_host_hal_render_clear(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer) return -1;
+    return SDL_RenderClear((SDL_Renderer *)renderer);
+}
+
+static int cpu_host_hal_render_copy(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!renderer || !texture) return -1;
+    return SDL_RenderCopy(
+        (SDL_Renderer *)renderer,
+        (SDL_Texture *)texture,
+        (const SDL_Rect *)src_rect,
+        (const SDL_Rect *)dst_rect
+    );
+}
+
+static int cpu_host_hal_poll_event(CPUHostEvent *event) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;
+    if (!event) return 0;
+    return SDL_PollEvent((SDL_Event *)event);
+}
+
+static uint32_t cpu_host_hal_event_type(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    return event->type;
+}
+
+static int32_t cpu_host_hal_event_scancode(const CPUHostEvent *event) {
+    if (!event) return 0;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0;
+    return (int32_t)event->key.keysym.scancode;
+}
+
+static uint8_t cpu_host_hal_event_key_repeat(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;
+    return (uint8_t)event->key.repeat;
+}
+
+static uint32_t cpu_host_hal_event_mod_state(const CPUHostEvent *event) {
+    if (!event) return 0u;
+    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;
+    return (uint32_t)event->key.keysym.mod;
+}
+
+static void cpu_host_hal_set_window_title(void *window, const char *title) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window || !title) return;
+    SDL_SetWindowTitle((SDL_Window *)window, title);
+}
+
+static void cpu_host_hal_destroy_texture(void *texture) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!texture) return;
+    SDL_DestroyTexture((SDL_Texture *)texture);
+}
+
+static void cpu_host_hal_destroy_renderer(void *renderer) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!renderer) return;
+    SDL_DestroyRenderer((SDL_Renderer *)renderer);
+}
+
+static void cpu_host_hal_destroy_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) return;
+    if (cpu_host_hal_sdl_primary_window == (SDL_Window *)window) {
+        cpu_host_hal_sdl_primary_window = NULL;
+    }
+    SDL_DestroyWindow((SDL_Window *)window);
+}
+
+static void cpu_host_hal_audio_close(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_CloseAudioDevice(dev);
+}
+
+static void cpu_host_hal_quit_subsystems(void) {
+    uint32_t to_quit = cpu_host_hal_sdl_subsystems & (CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS);
+    if (to_quit != 0u) SDL_QuitSubSystem(to_quit);
+    cpu_host_hal_sdl_subsystems &= ~to_quit;
+    cpu_host_hal_sdl_primary_window = NULL;
+}
+
+static void cpu_host_hal_quit(void) {
+    SDL_Quit();
+    cpu_host_hal_sdl_subsystems = 0u;
+    cpu_host_hal_sdl_inited = 0u;
+    cpu_host_hal_sdl_primary_window = NULL;
+}
+
+static int cpu_host_hal_init(uint32_t flags) {
+    if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;
+    if (cpu_host_hal_sdl_inited == 0u) {
+        if (SDL_Init(flags) != 0) return -1;
+        cpu_host_hal_sdl_inited = 1u;
+        cpu_host_hal_sdl_subsystems |= flags;
+        return 0;
+    }
+    if (flags != 0u) {
+        if (SDL_InitSubSystem(flags) != 0) return -1;
+        cpu_host_hal_sdl_subsystems |= flags;
+    }
+    return 0;
+}
+
+static void *cpu_host_hal_create_window(const char *title, int x, int y, int w, int h, uint32_t flags) {
+    SDL_Window *window;
+    const char *win_title = (title && title[0] != '\0') ? title : "PASM";
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if ((flags & ~CPU_HOST_WINDOW_RESIZABLE) != 0u) return NULL;
+    if (w <= 0) w = 640;
+    if (h <= 0) h = 480;
+    window = SDL_CreateWindow(win_title, x, y, w, h, flags);
+    if (window != NULL && cpu_host_hal_sdl_primary_window == NULL) {
+        cpu_host_hal_sdl_primary_window = window;
+    }
+    return (void *)window;
+}
+
+static void *cpu_host_hal_create_renderer(void *window, int index, uint32_t flags) {
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return NULL;
+    if ((flags & ~CPU_HOST_RENDERER_ACCELERATED) != 0u) return NULL;
+    return (void *)SDL_CreateRenderer((SDL_Window *)window, index, flags);
+}
+
+static void *cpu_host_hal_create_texture(void *renderer, uint32_t format, int access, int w, int h) {
+    if (cpu_host_hal_sdl_inited == 0u) return NULL;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return NULL;
+    if (!renderer) return NULL;
+    return (void *)SDL_CreateTexture((SDL_Renderer *)renderer, format, access, w, h);
+}
+
+static uint32_t cpu_host_hal_audio_open(const char *device, int iscapture, const CPUHostAudioSpec *want, CPUHostAudioSpec *have, int allowed_changes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (iscapture != 0) return 0u;
+    if (!want) return 0u;
+    if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;
+    return SDL_OpenAudioDevice(
+        device,
+        iscapture,
+        (const SDL_AudioSpec *)want,
+        (SDL_AudioSpec *)have,
+        allowed_changes
+    );
+}
+
+static void cpu_host_hal_audio_pause(uint32_t dev, int pause_on) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_PauseAudioDevice(dev, pause_on);
+}
+
+static void *cpu_host_hal_alloc(size_t size_bytes) {
+    return SDL_malloc(size_bytes);
+}
+
+static void cpu_host_hal_free(void *ptr) {
+    if (!ptr) return;
+    SDL_free(ptr);
+}
+
+static void cpu_host_hal_memset(void *dst, int value, size_t size_bytes) {
+    if (!dst || size_bytes == 0u) return;
+    SDL_memset(dst, value, size_bytes);
+}
+
+static const char *cpu_host_hal_getenv(const char *name) {
+    if (!name) return NULL;
+    return SDL_getenv(name);
+}
+
+static const uint8_t *cpu_host_hal_keyboard_state(int *key_count) {
+    static const uint8_t empty_state[1] = {0u};
+    const uint8_t *state;
+    if (cpu_host_hal_sdl_inited == 0u) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    state = SDL_GetKeyboardState(key_count);
+    if (!state) {
+        if (key_count) *key_count = 0;
+        return empty_state;
+    }
+    return state;
+}
+
+static int32_t cpu_host_hal_key_from_scancode(int scancode) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;
+    return (int32_t)SDL_GetKeyFromScancode((SDL_Scancode)scancode);
+}
+
+static void cpu_host_hal_start_text_input(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_StartTextInput();
+}
+
+static void cpu_host_hal_stop_text_input(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
+    SDL_StopTextInput();
+}
+
+static void cpu_host_hal_raise_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return;
+    SDL_RaiseWindow((SDL_Window *)window);
+}
+
+static void cpu_host_hal_show_window(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return;
+    SDL_ShowWindow((SDL_Window *)window);
+}
+
+static int cpu_host_hal_set_window_input_focus(void *window) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window) return -1;
+    return SDL_SetWindowInputFocus((SDL_Window *)window);
+}
+
+static int cpu_host_hal_set_texture_blend_none(void *texture) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!texture) return -1;
+    return SDL_SetTextureBlendMode((SDL_Texture *)texture, SDL_BLENDMODE_NONE);
+}
+
+static int cpu_host_hal_init_subsystem(uint32_t flags) {
+    if ((flags & ~(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)) != 0u) return -1;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if (flags != 0u && SDL_InitSubSystem(flags) != 0) return -1;
+    cpu_host_hal_sdl_subsystems |= flags;
+    return 0;
+}
+
+static uint32_t cpu_host_hal_audio_dequeue(uint32_t dev, void *data, uint32_t len_bytes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u || !data || len_bytes == 0u) return 0u;
+    return SDL_DequeueAudio(dev, data, len_bytes);
+}
+
+static int cpu_host_hal_get_window_size(void *window, int *out_w, int *out_h) {
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;
+    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;
+    if (!window || !out_w || !out_h) return -1;
+    SDL_GetWindowSize((SDL_Window *)window, out_w, out_h);
+    if (*out_w <= 0 || *out_h <= 0) return -1;
+    return 0;
+}
+
+static const char *cpu_host_hal_scancode_name(int32_t scancode) {
+    if (cpu_host_hal_sdl_inited == 0u) return "UNKNOWN";
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return "UNKNOWN";
+    const char *name = SDL_GetScancodeName((SDL_Scancode)scancode);
+    if (!name || name[0] == '\0') return "UNKNOWN";
+    return name;
+}
+
+static uint32_t cpu_host_hal_get_mod_state(void) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0u;
+    return (uint32_t)SDL_GetModState();
+}
+
+static const char *cpu_host_hal_key_name(int32_t keycode) {
+    if (cpu_host_hal_sdl_inited == 0u) return "UNKNOWN";
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return "UNKNOWN";
+    const char *name = SDL_GetKeyName((SDL_Keycode)keycode);
+    if (!name || name[0] == '\0') return "UNKNOWN";
+    return name;
+}
+
 static const ComponentKeyboardMap g_component_keyboard_maps[] = { { "", 0u, NULL, 0u } };
+static uint8_t cpu_component_host_key_is_pressed_noop(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {
+    (void)host_key;
+    (void)host_keys;
+    (void)host_key_count;
+    return 0u;
+}
+static uint8_t cpu_component_host_key_is_pressed(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {
+    return cpu_component_host_key_is_pressed_noop(host_key, host_keys, host_key_count);
+}
 static const ComponentKeyboardMap *cpu_component_find_keyboard_map(const char *component_id) {
     size_t map_count = sizeof(g_component_keyboard_maps) / sizeof(g_component_keyboard_maps[0]);
     for (size_t i = 0; i < map_count; i++) {
@@ -118,8 +589,7 @@ static void cpu_component_apply_declared_keymap(
     if (map->focus_required && has_focus == 0u) return;
     for (size_t bind_idx = 0; bind_idx < map->binding_count; bind_idx++) {
         const ComponentKeyboardBinding *binding = &map->bindings[bind_idx];
-        if (binding->host_key < 0 || (size_t)binding->host_key >= host_key_count) continue;
-        if (host_keys[binding->host_key] == 0u) continue;
+        if (!cpu_component_host_key_is_pressed(binding->host_key, host_keys, host_key_count)) continue;
         for (size_t press_idx = 0; press_idx < binding->press_count; press_idx++) {
             const ComponentKeyboardPress *press = &binding->presses[press_idx];
             if ((size_t)press->row >= row_count || press->bit >= 8u) continue;
@@ -131,6 +601,7 @@ static void cpu_component_apply_declared_keymap(
 static const ComponentConnection g_component_connections[] = {
     { "ppi0", "callback", "keyboard_read_row", "keyboard_msx", "callback", "read_row" },
     { "keyboard_msx", "callback", "host_matrix", "host_msx", "callback", "keyboard_matrix" },
+    { "psg0", "callback", "joy_read", "host_msx", "callback", "joystick_state" },
     { "vdp0", "signal", "frame_ready", "video_msx", "handler", "on_frame_ready" },
     { "video_msx", "signal", "frame_present", "host_msx", "handler", "video_frame" },
     { "vdp0", "signal", "irq_edge", "host_msx", "handler", "irq_edge" },
@@ -141,6 +612,14 @@ static uint64_t component_ppi0_callback_keyboard_read_row(CPUState *cpu, const u
     (void)argc;
     ComponentState_ppi0 *comp = &cpu->comp_ppi0;
     cpu->active_component_id = "ppi0";
+    uint64_t __result = 0;
+    return __result;
+}
+
+static uint64_t component_psg0_callback_joy_read(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_psg0 *comp = &cpu->comp_psg0;
+    cpu->active_component_id = "psg0";
     uint64_t __result = 0;
     return __result;
 }
@@ -176,6 +655,17 @@ static uint64_t component_host_msx_callback_keyboard_matrix(CPUState *cpu, const
     return __result;
 }
 
+static uint64_t component_host_msx_callback_joystick_state(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_host_msx *comp = &cpu->comp_host_msx;
+    cpu->active_component_id = "host_msx";
+    uint64_t __result = 0;
+    (void)args;
+    (void)argc;
+    return 0xFFu;
+    return __result;
+}
+
 static uint64_t cpu_component_dispatch_callback(
     CPUState *cpu,
     const char *component_id,
@@ -184,9 +674,11 @@ static uint64_t cpu_component_dispatch_callback(
     uint8_t argc
 ) {
     if (strcmp(component_id, "ppi0") == 0 && strcmp(callback_name, "keyboard_read_row") == 0) return component_ppi0_callback_keyboard_read_row(cpu, args, argc);
+    if (strcmp(component_id, "psg0") == 0 && strcmp(callback_name, "joy_read") == 0) return component_psg0_callback_joy_read(cpu, args, argc);
     if (strcmp(component_id, "keyboard_msx") == 0 && strcmp(callback_name, "read_row") == 0) return component_keyboard_msx_callback_read_row(cpu, args, argc);
     if (strcmp(component_id, "keyboard_msx") == 0 && strcmp(callback_name, "host_matrix") == 0) return component_keyboard_msx_callback_host_matrix(cpu, args, argc);
     if (strcmp(component_id, "host_msx") == 0 && strcmp(callback_name, "keyboard_matrix") == 0) return component_host_msx_callback_keyboard_matrix(cpu, args, argc);
+    if (strcmp(component_id, "host_msx") == 0 && strcmp(callback_name, "joystick_state") == 0) return component_host_msx_callback_joystick_state(cpu, args, argc);
     return 0;
 }
 
@@ -297,23 +789,198 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
     {
         ComponentState_vdp0 *comp = &cpu->comp_vdp0;
         cpu->active_component_id = "vdp0";
-        static uint8_t vram[16384];
+        uint8_t *vram = comp->vram;
+        if (vram == NULL) return;
         static uint32_t framebuf[256u * 192u];
+        static const uint32_t msx_palette[16] = {
+            0xFF000000u, 0xFF000000u, 0xFF21C842u, 0xFF5EDC78u,
+            0xFF5455EDu, 0xFF7D76FCu, 0xFFD4524Du, 0xFF42EBF5u,
+            0xFFFC5554u, 0xFFFF7978u, 0xFFD4C154u, 0xFFE6CE80u,
+            0xFF21B03Bu, 0xFFC95BBAu, 0xFFCCCCCCu, 0xFFFFFFFFu
+        };
         const uint64_t frame_tstates = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 59659u;
         const uint64_t frame_period = (frame_tstates > 0u) ? frame_tstates : 59659u;
         comp->tstate_accum += (uint64_t)inst->cycles;
         while (comp->tstate_accum >= frame_period) {
             comp->tstate_accum -= frame_period;
             comp->frame_counter += 1u;
+            comp->status = (uint8_t)(comp->status | 0x80u);
             if (comp->render_dirty != 0u) {
-                for (uint32_t y = 0; y < 192u; y++) {
-                    uint32_t row_off = y * 32u;
-                    for (uint32_t xb = 0; xb < 32u; xb++) {
-                        uint8_t bits = vram[(row_off + xb) & 0x3FFFu];
-                        for (uint32_t b = 0; b < 8u; b++) {
-                            uint8_t on = (uint8_t)((bits & (0x80u >> b)) != 0u);
-                            framebuf[y * 256u + xb * 8u + b] = on ? 0xFFFFFFFFu : 0xFF000000u;
+                uint16_t name_base = (uint16_t)(((uint16_t)(comp->reg2 & 0x0Fu) << 10) & 0x3FFFu);
+                uint16_t color_base = (uint16_t)(((uint16_t)comp->reg3 << 6) & 0x3FFFu);
+                uint16_t patt_base = (uint16_t)(((uint16_t)(comp->reg4 & 0x07u) << 11) & 0x3FFFu);
+                uint8_t display_on = (uint8_t)((comp->reg1 & 0x40u) != 0u);
+                uint8_t mode_m1 = (uint8_t)((comp->reg1 >> 4) & 0x01u);
+                uint8_t mode_m2 = (uint8_t)((comp->reg1 >> 3) & 0x01u);
+                uint8_t mode_m3 = (uint8_t)((comp->reg0 >> 1) & 0x01u);
+                uint8_t is_text_mode = (uint8_t)((mode_m1 != 0u) && (mode_m2 == 0u) && (mode_m3 == 0u));
+                uint8_t is_graphics2_mode = (uint8_t)((mode_m1 == 0u) && (mode_m2 == 0u) && (mode_m3 != 0u));
+                uint8_t fallback_fg = (uint8_t)((comp->reg7 >> 4) & 0x0Fu);
+                uint8_t fallback_bg = (uint8_t)(comp->reg7 & 0x0Fu);
+                if (fallback_fg == 0u) fallback_fg = 15u;
+                if (is_graphics2_mode != 0u) {
+                    /*
+                     * TMS9918A Graphics II (SCREEN 2):
+                     * - Pattern base uses only R4 bit 2 (0x0000 or 0x2000)
+                     * - Color   base uses only R3 bit 7 (0x0000 or 0x2000)
+                     * Lower bits are ignored in this mode.
+                     */
+                    patt_base = (uint16_t)(((uint16_t)(comp->reg4 & 0x04u)) << 11);
+                    color_base = (uint16_t)(((uint16_t)(comp->reg3 & 0x80u)) << 6);
+                }
+                for (uint32_t i = 0u; i < (256u * 192u); i++) {
+                    framebuf[i] = msx_palette[fallback_bg & 0x0Fu];
+                }
+                if (is_text_mode != 0u) {
+                    for (uint16_t row = 0u; row < 24u; row++) {
+                        for (uint16_t col = 0u; col < 40u; col++) {
+                            uint16_t name_addr = (uint16_t)(name_base + row * 40u + col);
+                            uint8_t ch = vram[(uint16_t)(name_addr & 0x3FFFu)];
+                            uint16_t patt_addr = (uint16_t)(patt_base + ((uint16_t)ch << 3));
+                            for (uint8_t py = 0u; py < 8u; py++) {
+                                uint32_t y = (uint32_t)row * 8u + (uint32_t)py;
+                                if (y >= 192u) continue;
+                                uint8_t patt = display_on ? vram[(uint16_t)((patt_addr + py) & 0x3FFFu)] : 0u;
+                                uint32_t x0 = 8u + (uint32_t)col * 6u;
+                                for (uint8_t px = 0u; px < 6u; px++) {
+                                    uint32_t x = x0 + (uint32_t)px;
+                                    if (x >= 256u) continue;
+                                    uint8_t on = (uint8_t)((patt & (uint8_t)(0x80u >> px)) != 0u);
+                                    framebuf[y * 256u + x] = on
+                                        ? msx_palette[fallback_fg & 0x0Fu]
+                                        : msx_palette[fallback_bg & 0x0Fu];
+                                }
+                            }
                         }
+                    }
+                } else if (is_graphics2_mode != 0u) {
+                    for (uint32_t y = 0u; y < 192u; y++) {
+                        uint16_t tile_row = (uint16_t)(y >> 3);
+                        uint8_t line_in_tile = (uint8_t)(y & 0x07u);
+                        uint16_t section = (uint16_t)((y >> 6) & 0x03u);
+                        for (uint16_t tile_col = 0u; tile_col < 32u; tile_col++) {
+                            uint16_t name_addr = (uint16_t)(name_base + (tile_row * 32u) + tile_col);
+                            uint8_t ch = vram[(uint16_t)(name_addr & 0x3FFFu)];
+                            uint16_t patt_addr = (uint16_t)(patt_base + (section * 0x800u) + ((uint16_t)ch << 3) + (uint16_t)line_in_tile);
+                            uint16_t col_addr = (uint16_t)(color_base + (section * 0x800u) + ((uint16_t)ch << 3) + (uint16_t)line_in_tile);
+                            uint8_t patt = display_on ? vram[(uint16_t)(patt_addr & 0x3FFFu)] : 0u;
+                            uint8_t color = vram[(uint16_t)(col_addr & 0x3FFFu)];
+                            uint8_t fg = (uint8_t)((color >> 4) & 0x0Fu);
+                            uint8_t bg = (uint8_t)(color & 0x0Fu);
+                            if (fg == 0u) fg = fallback_bg;
+                            if (bg == 0u) bg = fallback_bg;
+                            for (uint8_t bit = 0u; bit < 8u; bit++) {
+                                uint32_t x = (uint32_t)(tile_col * 8u + bit);
+                                uint8_t on = (uint8_t)((patt & (uint8_t)(0x80u >> bit)) != 0u);
+                                uint8_t idx = on ? fg : bg;
+                                framebuf[y * 256u + x] = msx_palette[(uint8_t)(idx & 0x0Fu)];
+                            }
+                        }
+                    }
+                } else {
+                    for (uint32_t y = 0u; y < 192u; y++) {
+                        uint16_t tile_row = (uint16_t)(y >> 3);
+                        uint8_t line_in_tile = (uint8_t)(y & 0x07u);
+                        for (uint16_t tile_col = 0u; tile_col < 32u; tile_col++) {
+                            uint16_t name_addr = (uint16_t)(name_base + (tile_row * 32u) + tile_col);
+                            uint8_t ch = vram[(uint16_t)(name_addr & 0x3FFFu)];
+                            uint16_t patt_addr = (uint16_t)(patt_base + ((uint16_t)ch << 3) + (uint16_t)line_in_tile);
+                            uint8_t patt = display_on ? vram[(uint16_t)(patt_addr & 0x3FFFu)] : 0u;
+                            uint8_t color = vram[(uint16_t)((color_base + (uint16_t)(ch >> 3)) & 0x3FFFu)];
+                            uint8_t fg = (uint8_t)((color >> 4) & 0x0Fu);
+                            uint8_t bg = (uint8_t)(color & 0x0Fu);
+                            if (fg == 0u) fg = fallback_bg;
+                            if (bg == 0u) bg = fallback_bg;
+                            for (uint8_t bit = 0u; bit < 8u; bit++) {
+                                uint32_t x = (uint32_t)(tile_col * 8u + bit);
+                                uint8_t on = (uint8_t)((patt & (uint8_t)(0x80u >> bit)) != 0u);
+                                uint8_t idx = on ? fg : bg;
+                                framebuf[y * 256u + x] = msx_palette[(uint8_t)(idx & 0x0Fu)];
+                            }
+                        }
+                    }
+                }
+                {
+                    /* TMS9918A sprite layer (MAME-style scanline logic). */
+                    uint16_t sat_base = (uint16_t)((((uint16_t)(comp->reg5 & 0x7Fu)) << 7) & 0x3FFFu);
+                    uint16_t spt_base = (uint16_t)((((uint16_t)(comp->reg6 & 0x07u)) << 11) & 0x3FFFu);
+                    uint8_t sprite_size = (uint8_t)(((comp->reg1 & 0x02u) != 0u) ? 16u : 8u);
+                    uint8_t sprite_mag = (uint8_t)((comp->reg1 & 0x01u) != 0u);
+                    uint8_t sprite_height = (uint8_t)(sprite_size * (uint8_t)(sprite_mag + 1u));
+                    uint8_t status_c = (uint8_t)(comp->status & 0x20u);
+                    uint8_t fifth_index = 31u;
+                    uint8_t fifth_encountered = 0u;
+
+                    /* Sprites are enabled only when display is on and text-mode bit is clear. */
+                    if ((comp->reg1 & 0x50u) == 0x40u) {
+                        for (uint16_t y = 0u; y < 192u; ++y) {
+                            uint8_t spr_drawn[32u + 256u + 32u];
+                            uint8_t num_sprites = 0u;
+                            memset(spr_drawn, 0, sizeof(spr_drawn));
+
+                            for (uint8_t i = 0u; i < 32u; ++i) {
+                                uint16_t a = (uint16_t)(sat_base + (uint16_t)(i * 4u));
+                                int16_t spr_y = (int16_t)vram[(uint16_t)(a & 0x3FFFu)];
+                                if (spr_y == 208) break;
+                                fifth_index = i;
+                                if (spr_y > 0xE0) spr_y -= 256;
+                                spr_y += 1;
+                                if ((int16_t)y < spr_y || (int16_t)y >= (int16_t)(spr_y + (int16_t)sprite_height)) continue;
+
+                                {
+                                    int16_t spr_x = (int16_t)vram[(uint16_t)((a + 1u) & 0x3FFFu)];
+                                    uint8_t spr_code = vram[(uint16_t)((a + 2u) & 0x3FFFu)];
+                                    uint8_t spr_col_attr = vram[(uint16_t)((a + 3u) & 0x3FFFu)];
+                                    uint16_t pat_addr = (uint16_t)(
+                                        spt_base + (uint16_t)(((sprite_size == 16u) ? (spr_code & (uint8_t)~0x03u) : spr_code) * 8u)
+                                    );
+                                    uint8_t row = (uint8_t)((uint16_t)y - (uint16_t)spr_y);
+                                    uint8_t spr_col;
+
+                                    num_sprites += 1u;
+                                    if (num_sprites == 5u) {
+                                        fifth_encountered = 1u;
+                                        break;
+                                    }
+
+                                    if (sprite_mag != 0u) {
+                                        pat_addr = (uint16_t)(pat_addr + (uint16_t)((row & 0x1Fu) >> 1));
+                                    } else {
+                                        pat_addr = (uint16_t)(pat_addr + (uint16_t)(row & 0x0Fu));
+                                    }
+
+                                    if ((spr_col_attr & 0x80u) != 0u) spr_x -= 32;
+                                    spr_col = (uint8_t)(spr_col_attr & 0x0Fu);
+
+                                    for (uint8_t s = 0u; s < sprite_size; s = (uint8_t)(s + 8u)) {
+                                        uint8_t pattern = vram[(uint16_t)((pat_addr + (uint16_t)(s * 2u)) & 0x3FFFu)];
+                                        for (uint8_t bit = 0u; bit < 8u; ++bit, pattern = (uint8_t)(pattern << 1)) {
+                                            int16_t col_idx = (int16_t)(spr_x + (int16_t)((sprite_mag != 0u) ? (bit * 2u) : bit) + 32);
+                                            uint8_t repeat = (uint8_t)(sprite_mag != 0u ? 2u : 1u);
+                                            for (uint8_t z = 0u; z < repeat; ++z, ++col_idx) {
+                                                if ((pattern & 0x80u) == 0u) continue;
+                                                if (col_idx < 32 || col_idx >= (32 + 256)) continue;
+                                                if (spr_drawn[(uint16_t)col_idx] != 0u) status_c = 0x20u;
+                                                spr_drawn[(uint16_t)col_idx] |= 0x01u;
+                                                if ((spr_col != 0u) && ((spr_drawn[(uint16_t)col_idx] & 0x02u) == 0u)) {
+                                                    uint16_t x = (uint16_t)(col_idx - 32);
+                                                    uint32_t idx = (uint32_t)y * 256u + (uint32_t)x;
+                                                    spr_drawn[(uint16_t)col_idx] |= 0x02u;
+                                                    framebuf[idx] = msx_palette[spr_col & 0x0Fu];
+                                                }
+                                            }
+                                        }
+                                        spr_x = (int16_t)(spr_x + (int16_t)((sprite_mag != 0u) ? 16 : 8));
+                                    }
+                                }
+                            }
+                        }
+                        comp->status = (uint8_t)((comp->status & 0x80u) | status_c | (fifth_index & 0x1Fu));
+                        if ((fifth_encountered != 0u) && ((comp->status & 0x80u) == 0u)) {
+                            comp->status = (uint8_t)(comp->status | 0x40u);
+                        }
+                    } else {
+                        comp->status = (uint8_t)((comp->status & 0xA0u) | 31u);
                     }
                 }
                 comp->render_dirty = 0u;
@@ -327,7 +994,9 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                 };
                 cpu_component_emit_signal(cpu, "vdp0", "frame_ready", frame_args, 4);
             }
-            {
+            if ((comp->reg1 & 0x20u) != 0u) {
+                cpu->interrupt_vector = 0xFFu;
+                cpu->interrupt_pending = true;
                 uint64_t irq_up[1] = { 1u };
                 uint64_t irq_down[1] = { 0u };
                 cpu_component_emit_signal(cpu, "vdp0", "irq_edge", irq_up, 1);
@@ -338,13 +1007,123 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
     {
         ComponentState_psg0 *comp = &cpu->comp_psg0;
         cpu->active_component_id = "psg0";
-        comp->audio_tick_accum += (uint64_t)inst->cycles;
-        while (comp->audio_tick_accum >= 128u) {
-            comp->audio_tick_accum -= 128u;
-            {
-                uint8_t avg = (uint8_t)((comp->level_a + comp->level_b + comp->level_c) / 3u);
-                uint64_t sig_args[2] = { (uint64_t)avg, cpu->total_cycles };
-                cpu_component_emit_signal(cpu, "psg0", "audio_level", sig_args, 2);
+        if (comp->audio_enabled == 0u) {
+            return;
+        }
+        {
+            static const uint8_t ay_vol_table[16] = {
+                0u, 1u, 1u, 2u, 3u, 4u, 6u, 8u,
+                11u, 16u, 23u, 32u, 45u, 64u, 90u, 128u
+            };
+            comp->audio_tick_accum += (uint64_t)inst->cycles;
+            while (comp->audio_tick_accum >= 16u) {
+                comp->audio_tick_accum -= 16u; /* AY tone/noise base clock step: chip_clock/8 */
+
+                uint16_t pa = (uint16_t)((((uint16_t)(comp->reg1 & 0x0Fu)) << 8) | comp->reg0);
+                uint16_t pb = (uint16_t)((((uint16_t)(comp->reg3 & 0x0Fu)) << 8) | comp->reg2);
+                uint16_t pc = (uint16_t)((((uint16_t)(comp->reg5 & 0x0Fu)) << 8) | comp->reg4);
+                if (pa == 0u) pa = 1u;
+                if (pb == 0u) pb = 1u;
+                if (pc == 0u) pc = 1u;
+
+                if (comp->tone_ctr_a == 0u) comp->tone_ctr_a = pa;
+                if (comp->tone_ctr_b == 0u) comp->tone_ctr_b = pb;
+                if (comp->tone_ctr_c == 0u) comp->tone_ctr_c = pc;
+
+                if (--comp->tone_ctr_a == 0u) { comp->tone_ctr_a = pa; comp->tone_out_a ^= 1u; }
+                if (--comp->tone_ctr_b == 0u) { comp->tone_ctr_b = pb; comp->tone_out_b ^= 1u; }
+                if (--comp->tone_ctr_c == 0u) { comp->tone_ctr_c = pc; comp->tone_out_c ^= 1u; }
+
+                /* Noise/envelope run at half the tone-step rate (chip_clock/16). */
+                comp->psg_subtick ^= 1u;
+                if (comp->psg_subtick == 0u) {
+                    uint8_t np = (uint8_t)(comp->reg6 & 0x1Fu);
+                    if (np == 0u) np = 1u;
+                    if (comp->noise_ctr == 0u) comp->noise_ctr = np;
+                    if (--comp->noise_ctr == 0u) {
+                        uint32_t r = comp->noise_lfsr;
+                        r = (r >> 1) ^ ((r & 1u) << 13) ^ ((r & 1u) << 16);
+                        r &= 0x1FFFFu;
+                        if (r == 0u) r = 0x1FFFFu;
+                        comp->noise_lfsr = r;
+                        comp->noise_out = (uint8_t)(r & 1u);
+                        comp->noise_ctr = np;
+                    }
+
+                    {
+                        uint16_t ep = (uint16_t)(((uint16_t)comp->reg12 << 8) | comp->reg11);
+                        if (ep == 0u) ep = 1u;
+                        if (comp->env_ctr == 0u) comp->env_ctr = ep;
+                        if (--comp->env_ctr == 0u) {
+                            comp->env_ctr = ep;
+                            if (comp->env_holding == 0u) {
+                                int16_t v = (int16_t)comp->env_volume + (int16_t)comp->env_direction;
+                                if (v < 0 || v > 15) {
+                                    if (comp->env_continue == 0u) {
+                                        comp->env_volume = 0;
+                                        comp->env_holding = 1u;
+                                    } else {
+                                        if (comp->env_alternate != 0u) {
+                                            comp->env_attack ^= 1u;
+                                        }
+                                        comp->env_direction = (comp->env_attack != 0u) ? 1 : -1;
+                                        if (comp->env_hold != 0u) {
+                                            comp->env_volume = (comp->env_attack != 0u) ? 15 : 0;
+                                            comp->env_holding = 1u;
+                                        } else {
+                                            comp->env_volume = (comp->env_attack != 0u) ? 0 : 15;
+                                        }
+                                    }
+                                } else {
+                                    comp->env_volume = (int8_t)v;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                {
+                    uint8_t mixer = comp->reg7;
+                    uint8_t tone_a = ((mixer & 0x01u) == 0u) ? comp->tone_out_a : 1u;
+                    uint8_t tone_b = ((mixer & 0x02u) == 0u) ? comp->tone_out_b : 1u;
+                    uint8_t tone_c = ((mixer & 0x04u) == 0u) ? comp->tone_out_c : 1u;
+                    uint8_t noise_a = ((mixer & 0x08u) == 0u) ? comp->noise_out : 1u;
+                    uint8_t noise_b = ((mixer & 0x10u) == 0u) ? comp->noise_out : 1u;
+                    uint8_t noise_c = ((mixer & 0x20u) == 0u) ? comp->noise_out : 1u;
+
+                    uint8_t ena = (uint8_t)(comp->reg8 & 0x10u);
+                    uint8_t enb = (uint8_t)(comp->reg9 & 0x10u);
+                    uint8_t enc = (uint8_t)(comp->reg10 & 0x10u);
+                    uint8_t va = (ena != 0u) ? (uint8_t)comp->env_volume : (uint8_t)(comp->reg8 & 0x0Fu);
+                    uint8_t vb = (enb != 0u) ? (uint8_t)comp->env_volume : (uint8_t)(comp->reg9 & 0x0Fu);
+                    uint8_t vc = (enc != 0u) ? (uint8_t)comp->env_volume : (uint8_t)(comp->reg10 & 0x0Fu);
+                    if (va > 15u) va = 15u;
+                    if (vb > 15u) vb = 15u;
+                    if (vc > 15u) vc = 15u;
+
+                    uint16_t out_a = ((tone_a & noise_a) != 0u) ? (uint16_t)ay_vol_table[va] : 0u;
+                    uint16_t out_b = ((tone_b & noise_b) != 0u) ? (uint16_t)ay_vol_table[vb] : 0u;
+                    uint16_t out_c = ((tone_c & noise_c) != 0u) ? (uint16_t)ay_vol_table[vc] : 0u;
+                    uint16_t sum = (uint16_t)(out_a + out_b + out_c); /* 0..384 */
+                    comp->last_mix = (uint8_t)((sum * 255u) / 384u);
+                }
+            }
+        }
+
+        comp->emit_accum += (uint64_t)inst->cycles;
+        {
+            uint64_t emit_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 44100u) : 81u;
+            if (emit_period == 0u) emit_period = 1u;
+            while (comp->emit_accum >= emit_period) {
+                comp->emit_accum -= emit_period;
+                if (comp->last_mix != comp->last_emitted_mix || comp->emit_keepalive >= 7u) {
+                    uint64_t sig_args[2] = { (uint64_t)comp->last_mix, cpu->total_cycles };
+                    cpu_component_emit_signal(cpu, "psg0", "audio_level", sig_args, 2);
+                    comp->last_emitted_mix = comp->last_mix;
+                    comp->emit_keepalive = 0u;
+                } else {
+                    comp->emit_keepalive += 1u;
+                }
             }
         }
     }
@@ -742,6 +1521,9 @@ static void inst_ADD_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SUB_A_N - arithmetic */
@@ -757,6 +1539,7 @@ static void inst_SUB_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* ADC_A_N - arithmetic */
@@ -773,6 +1556,8 @@ static void inst_ADC_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SBC_A_N - arithmetic */
@@ -790,6 +1575,8 @@ static void inst_SBC_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* AND_A_N - logic */
@@ -801,6 +1588,7 @@ static void inst_AND_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* XOR_A_N - logic */
@@ -812,6 +1600,7 @@ static void inst_XOR_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* OR_A_N - logic */
@@ -823,6 +1612,7 @@ static void inst_OR_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* CP_A_N - logic */
@@ -836,6 +1626,7 @@ static void inst_CP_A_N(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ inst->n) & (a ^ result8) & 0x80) != 0);
     cpu->flags.C = ((result > 0xFF));
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (inst->n & 0x28u));
 }
 
 /* ADD_HL_BC - arithmetic */
@@ -850,6 +1641,7 @@ static void inst_ADD_HL_BC(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (bc & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(hl >> 8) & 0x28u));
 }
 
 /* ADD_HL_DE - arithmetic */
@@ -864,6 +1656,7 @@ static void inst_ADD_HL_DE(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (de & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(hl >> 8) & 0x28u));
 }
 
 /* ADD_HL_HL - arithmetic */
@@ -877,6 +1670,7 @@ static void inst_ADD_HL_HL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (lhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(hl >> 8) & 0x28u));
 }
 
 /* ADD_HL_SP - arithmetic */
@@ -891,6 +1685,7 @@ static void inst_ADD_HL_SP(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(hl >> 8) & 0x28u));
 }
 
 /* ADD_IX_BC - arithmetic */
@@ -902,6 +1697,7 @@ static void inst_ADD_IX_BC(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->ix >> 8) & 0x28u));
 }
 
 /* ADD_IX_DE - arithmetic */
@@ -913,6 +1709,7 @@ static void inst_ADD_IX_DE(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->ix >> 8) & 0x28u));
 }
 
 /* ADD_IX_IX - arithmetic */
@@ -923,6 +1720,7 @@ static void inst_ADD_IX_IX(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (lhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->ix >> 8) & 0x28u));
 }
 
 /* ADD_IX_SP - arithmetic */
@@ -934,6 +1732,7 @@ static void inst_ADD_IX_SP(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->ix >> 8) & 0x28u));
 }
 
 /* ADD_IY_BC - arithmetic */
@@ -945,6 +1744,7 @@ static void inst_ADD_IY_BC(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->iy >> 8) & 0x28u));
 }
 
 /* ADD_IY_DE - arithmetic */
@@ -956,6 +1756,7 @@ static void inst_ADD_IY_DE(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->iy >> 8) & 0x28u));
 }
 
 /* ADD_IY_IY - arithmetic */
@@ -966,6 +1767,7 @@ static void inst_ADD_IY_IY(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (lhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->iy >> 8) & 0x28u));
 }
 
 /* ADD_IY_SP - arithmetic */
@@ -977,6 +1779,7 @@ static void inst_ADD_IY_SP(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((lhs & 0x0FFF) + (rhs & 0x0FFF)) > 0x0FFF);
     cpu->flags.C = (result > 0xFFFF);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(cpu->iy >> 8) & 0x28u));
 }
 
 /* SCF - logic */
@@ -984,6 +1787,7 @@ static void inst_SCF(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (true);
     cpu->flags.N = (false);
     cpu->flags.H = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* CCF - logic */
@@ -992,6 +1796,7 @@ static void inst_CCF(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (!old_carry);
     cpu->flags.N = (false);
     cpu->flags.H = (old_carry);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* CPL - logic */
@@ -999,39 +1804,32 @@ static void inst_CPL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->registers[REG_A] = (uint8_t)(~cpu->registers[REG_A]);
     cpu->flags.N = (true);
     cpu->flags.H = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* DAA - logic */
 static void inst_DAA(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t a = cpu->registers[REG_A];
-    uint8_t old_a = a;
-    uint8_t adjust = 0;
-    bool carry = cpu->flags.C;
-    bool subtract = cpu->flags.N;
-    if (!subtract) {
-    if (cpu->flags.H || ((a & 0x0F) > 9)) {
-    adjust |= 0x06;
+    uint8_t correction = 0;
+    if (((a & 0x0Fu) > 0x09u) || cpu->flags.H) {
+    correction = (uint8_t)(correction + 0x06u);
     }
-    if (carry || (a > 0x99)) {
-    adjust |= 0x60;
-    carry = true;
+    if ((a > 0x99u) || cpu->flags.C) {
+    correction = (uint8_t)(correction + 0x60u);
+    cpu->flags.C = (true);
     }
-    a = (uint8_t)(a + adjust);
+    if (cpu->flags.N) {
+    cpu->flags.H = (cpu->flags.H && ((a & 0x0Fu) < 0x06u));
+    a = (uint8_t)(a - correction);
     } else {
-    if (cpu->flags.H) {
-    adjust |= 0x06;
-    }
-    if (carry) {
-    adjust |= 0x60;
-    }
-    a = (uint8_t)(a - adjust);
+    cpu->flags.H = ((a & 0x0Fu) > 0x09u);
+    a = (uint8_t)(a + correction);
     }
     cpu->registers[REG_A] = a;
-    cpu->flags.C = (carry);
-    cpu->flags.Z = (a == 0);
-    cpu->flags.S = ((a & 0x80) != 0);
-    cpu->flags.H = (((old_a ^ a) & 0x10) != 0);
+    cpu->flags.S = ((a & 0x80u) != 0u);
+    cpu->flags.Z = (a == 0u);
     cpu->flags.P = (cpu_parity(a));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (a & 0x28u));
 }
 
 /* NEG - arithmetic */
@@ -1045,6 +1843,7 @@ static void inst_NEG(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((a & 0x0F) != 0);
     cpu->flags.P = (a == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result & 0x28u));
 }
 
 /* RRD - rotate */
@@ -1064,6 +1863,7 @@ static void inst_RRD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(new_a));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (new_a & 0x28u));
 }
 
 /* RLD - rotate */
@@ -1083,6 +1883,7 @@ static void inst_RLD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(new_a));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (new_a & 0x28u));
 }
 
 /* INC_HLI - arithmetic */
@@ -1096,6 +1897,7 @@ static void inst_INC_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_HLI - arithmetic */
@@ -1109,6 +1911,7 @@ static void inst_DEC_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* ADC_HL_BC - arithmetic */
@@ -1126,6 +1929,7 @@ static void inst_ADC_HL_BC(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* ADC_HL_DE - arithmetic */
@@ -1143,6 +1947,7 @@ static void inst_ADC_HL_DE(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* ADC_HL_HL - arithmetic */
@@ -1160,6 +1965,7 @@ static void inst_ADC_HL_HL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* ADC_HL_SP - arithmetic */
@@ -1177,42 +1983,45 @@ static void inst_ADC_HL_SP(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* SBC_HL_BC - arithmetic */
 static void inst_SBC_HL_BC(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
     uint16_t bc = (uint16_t)((cpu->registers[REG_B] << 8) | cpu->registers[REG_C]);
-    uint16_t carry = cpu->flags.C ? 1u : 0u;
-    uint16_t subtrahend = (uint16_t)(bc + carry);
-    uint32_t result = (uint32_t)hl - (uint32_t)subtrahend;
+    uint32_t carry = cpu->flags.C ? 1u : 0u;
+    uint32_t full_subtrahend = (uint32_t)bc + carry;
+    uint32_t result = (uint32_t)hl - full_subtrahend;
     uint16_t out = (uint16_t)(result & 0xFFFF);
     cpu->registers[REG_H] = (uint8_t)(out >> 8);
     cpu->registers[REG_L] = (uint8_t)(out & 0xFF);
-    cpu->flags.C = (hl < subtrahend);
+    cpu->flags.C = ((uint32_t)hl < full_subtrahend);
     cpu->flags.H = (((hl ^ bc ^ out) & 0x1000u) != 0);
     cpu->flags.P = ((((hl ^ bc) & (hl ^ out)) & 0x8000u) != 0);
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* SBC_HL_DE - arithmetic */
 static void inst_SBC_HL_DE(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
     uint16_t de = (uint16_t)((cpu->registers[REG_D] << 8) | cpu->registers[REG_E]);
-    uint16_t carry = cpu->flags.C ? 1u : 0u;
-    uint16_t subtrahend = (uint16_t)(de + carry);
-    uint32_t result = (uint32_t)hl - (uint32_t)subtrahend;
+    uint32_t carry = cpu->flags.C ? 1u : 0u;
+    uint32_t full_subtrahend = (uint32_t)de + carry;
+    uint32_t result = (uint32_t)hl - full_subtrahend;
     uint16_t out = (uint16_t)(result & 0xFFFF);
     cpu->registers[REG_H] = (uint8_t)(out >> 8);
     cpu->registers[REG_L] = (uint8_t)(out & 0xFF);
-    cpu->flags.C = (hl < subtrahend);
+    cpu->flags.C = ((uint32_t)hl < full_subtrahend);
     cpu->flags.H = (((hl ^ de ^ out) & 0x1000u) != 0);
     cpu->flags.P = ((((hl ^ de) & (hl ^ out)) & 0x8000u) != 0);
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* SBC_HL_HL - arithmetic */
@@ -1220,36 +2029,38 @@ static void inst_SBC_HL_HL(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
     uint16_t lhs = hl;
     uint16_t rhs = hl;
-    uint16_t carry = cpu->flags.C ? 1u : 0u;
-    uint16_t subtrahend = (uint16_t)(rhs + carry);
-    uint32_t result = (uint32_t)lhs - (uint32_t)subtrahend;
+    uint32_t carry = cpu->flags.C ? 1u : 0u;
+    uint32_t full_subtrahend = (uint32_t)rhs + carry;
+    uint32_t result = (uint32_t)lhs - full_subtrahend;
     uint16_t out = (uint16_t)(result & 0xFFFF);
     cpu->registers[REG_H] = (uint8_t)(out >> 8);
     cpu->registers[REG_L] = (uint8_t)(out & 0xFF);
-    cpu->flags.C = (lhs < subtrahend);
+    cpu->flags.C = ((uint32_t)lhs < full_subtrahend);
     cpu->flags.H = (((lhs ^ rhs ^ out) & 0x1000u) != 0);
     cpu->flags.P = ((((lhs ^ rhs) & (lhs ^ out)) & 0x8000u) != 0);
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* SBC_HL_SP - arithmetic */
 static void inst_SBC_HL_SP(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
     uint16_t sp = cpu->sp;
-    uint16_t carry = cpu->flags.C ? 1u : 0u;
-    uint16_t subtrahend = (uint16_t)(sp + carry);
-    uint32_t result = (uint32_t)hl - (uint32_t)subtrahend;
+    uint32_t carry = cpu->flags.C ? 1u : 0u;
+    uint32_t full_subtrahend = (uint32_t)sp + carry;
+    uint32_t result = (uint32_t)hl - full_subtrahend;
     uint16_t out = (uint16_t)(result & 0xFFFF);
     cpu->registers[REG_H] = (uint8_t)(out >> 8);
     cpu->registers[REG_L] = (uint8_t)(out & 0xFF);
-    cpu->flags.C = (hl < subtrahend);
+    cpu->flags.C = ((uint32_t)hl < full_subtrahend);
     cpu->flags.H = (((hl ^ sp ^ out) & 0x1000u) != 0);
     cpu->flags.P = ((((hl ^ sp) & (hl ^ out)) & 0x8000u) != 0);
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x8000) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(out >> 8) & 0x28u));
 }
 
 /* LD_HLI_A - data_transfer */
@@ -1460,6 +2271,7 @@ static void inst_INC_IXH(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IXH - arithmetic */
@@ -1472,6 +2284,7 @@ static void inst_DEC_IXH(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* LD_IXH_N - data_transfer */
@@ -1489,6 +2302,7 @@ static void inst_INC_IXL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IXL - arithmetic */
@@ -1501,6 +2315,7 @@ static void inst_DEC_IXL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* LD_IXL_N - data_transfer */
@@ -1518,6 +2333,7 @@ static void inst_INC_IYH(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IYH - arithmetic */
@@ -1530,6 +2346,7 @@ static void inst_DEC_IYH(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* LD_IYH_N - data_transfer */
@@ -1547,6 +2364,7 @@ static void inst_INC_IYL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IYL - arithmetic */
@@ -1559,6 +2377,7 @@ static void inst_DEC_IYL(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* LD_IYL_N - data_transfer */
@@ -1580,6 +2399,7 @@ static void inst_ADD_A_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* ADC_A_IXD - arithmetic */
@@ -1597,6 +2417,7 @@ static void inst_ADC_A_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SUB_IXD - arithmetic */
@@ -1613,6 +2434,7 @@ static void inst_SUB_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SBC_A_IXD - arithmetic */
@@ -1631,6 +2453,7 @@ static void inst_SBC_A_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* AND_IXD - logic */
@@ -1644,6 +2467,8 @@ static void inst_AND_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* XOR_IXD - logic */
@@ -1657,6 +2482,7 @@ static void inst_XOR_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* OR_IXD - logic */
@@ -1670,6 +2496,8 @@ static void inst_OR_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* CP_IXD - logic */
@@ -1685,6 +2513,7 @@ static void inst_CP_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ val) & (a ^ result8) & 0x80) != 0);
     cpu->flags.C = ((result > 0xFF));
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (val & 0x28u));
 }
 
 /* ADD_A_IYD - arithmetic */
@@ -1701,6 +2530,7 @@ static void inst_ADD_A_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* ADC_A_IYD - arithmetic */
@@ -1718,6 +2548,7 @@ static void inst_ADC_A_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SUB_IYD - arithmetic */
@@ -1734,6 +2565,7 @@ static void inst_SUB_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SBC_A_IYD - arithmetic */
@@ -1752,6 +2584,7 @@ static void inst_SBC_A_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* AND_IYD - logic */
@@ -1765,6 +2598,7 @@ static void inst_AND_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* XOR_IYD - logic */
@@ -1778,6 +2612,8 @@ static void inst_XOR_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* OR_IYD - logic */
@@ -1791,6 +2627,7 @@ static void inst_OR_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* CP_IYD - logic */
@@ -1806,6 +2643,8 @@ static void inst_CP_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ val) & (a ^ result8) & 0x80) != 0);
     cpu->flags.C = ((result > 0xFF));
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (val & 0x28u));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (val & 0x28u));
 }
 
 /* ALU_A_IXHIXL_DD - arithmetic */
@@ -1839,6 +2678,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 1) { /* ADC */
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t result = (uint16_t)a + (uint16_t)value + (uint16_t)carry_in;
@@ -1850,6 +2690,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 2) { /* SUB */
     uint16_t result = (uint16_t)a - (uint16_t)value;
     uint8_t out = (uint8_t)(result & 0xFF);
@@ -1860,6 +2701,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 3) { /* SBC */
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t subtrahend = (uint16_t)value + (uint16_t)carry_in;
@@ -1872,6 +2714,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 4) { /* AND */
     uint8_t out = (uint8_t)(a & value);
     cpu->registers[REG_A] = out;
@@ -1881,6 +2724,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 5) { /* XOR */
     uint8_t out = (uint8_t)(a ^ value);
     cpu->registers[REG_A] = out;
@@ -1890,6 +2734,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 6) { /* OR */
     uint8_t out = (uint8_t)(a | value);
     cpu->registers[REG_A] = out;
@@ -1899,6 +2744,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else { /* CP */
     uint16_t result = (uint16_t)a - (uint16_t)value;
     uint8_t out = (uint8_t)(result & 0xFF);
@@ -1908,6 +2754,7 @@ static void inst_ALU_A_IXHIXL_DD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ value) & (a ^ out) & 0x80) != 0);
     cpu->flags.C = (a < value);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
     }
 }
 
@@ -1942,6 +2789,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 1) { /* ADC */
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t result = (uint16_t)a + (uint16_t)value + (uint16_t)carry_in;
@@ -1953,6 +2801,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 2) { /* SUB */
     uint16_t result = (uint16_t)a - (uint16_t)value;
     uint8_t out = (uint8_t)(result & 0xFF);
@@ -1963,6 +2812,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 3) { /* SBC */
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t subtrahend = (uint16_t)value + (uint16_t)carry_in;
@@ -1975,6 +2825,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (out == 0);
     cpu->flags.S = ((out & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 4) { /* AND */
     uint8_t out = (uint8_t)(a & value);
     cpu->registers[REG_A] = out;
@@ -1984,6 +2835,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 5) { /* XOR */
     uint8_t out = (uint8_t)(a ^ value);
     cpu->registers[REG_A] = out;
@@ -1993,6 +2845,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else if (op == 6) { /* OR */
     uint8_t out = (uint8_t)(a | value);
     cpu->registers[REG_A] = out;
@@ -2002,6 +2855,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(out));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (out & 0x28u));
     } else { /* CP */
     uint16_t result = (uint16_t)a - (uint16_t)value;
     uint8_t out = (uint8_t)(result & 0xFF);
@@ -2011,6 +2865,7 @@ static void inst_ALU_A_IYHIYL_FD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ value) & (a ^ out) & 0x80) != 0);
     cpu->flags.C = (a < value);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
     }
 }
 
@@ -2025,6 +2880,7 @@ static void inst_INC_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IXD - arithmetic */
@@ -2038,6 +2894,7 @@ static void inst_DEC_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* INC_IYD - arithmetic */
@@ -2051,6 +2908,7 @@ static void inst_INC_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_IYD - arithmetic */
@@ -2064,6 +2922,7 @@ static void inst_DEC_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* HALT - control */
@@ -2130,6 +2989,7 @@ static void inst_ADD_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* JP_NN - control */
@@ -2239,6 +3099,9 @@ static void inst_LDIR(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (bc != 0);
     cpu->flags.N = (false);
+    uint8_t sum = (uint8_t)(cpu->registers[REG_A] + val);
+    cpu->flags.F5 = ((sum & 0x02u) != 0u);
+    cpu->flags.F3 = ((sum & 0x08u) != 0u);
     if (bc != 0) {
     cpu->total_cycles += 5;
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) - 2);
@@ -2265,6 +3128,9 @@ static void inst_LDI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (bc != 0);
     cpu->flags.N = (false);
+    uint8_t sum = (uint8_t)(cpu->registers[REG_A] + val);
+    cpu->flags.F5 = ((sum & 0x02u) != 0u);
+    cpu->flags.F3 = ((sum & 0x08u) != 0u);
 }
 
 /* LDD - data_transfer */
@@ -2286,6 +3152,9 @@ static void inst_LDD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (bc != 0);
     cpu->flags.N = (false);
+    uint8_t sum = (uint8_t)(cpu->registers[REG_A] + val);
+    cpu->flags.F5 = ((sum & 0x02u) != 0u);
+    cpu->flags.F3 = ((sum & 0x08u) != 0u);
 }
 
 /* LDDR - data_transfer */
@@ -2307,6 +3176,9 @@ static void inst_LDDR(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (bc != 0);
     cpu->flags.N = (false);
+    uint8_t sum = (uint8_t)(cpu->registers[REG_A] + val);
+    cpu->flags.F5 = ((sum & 0x02u) != 0u);
+    cpu->flags.F3 = ((sum & 0x08u) != 0u);
     if (bc != 0) {
     cpu->total_cycles += 5;
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) - 2);
@@ -2337,6 +3209,7 @@ static void inst_AND_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* OR_A_R - logic */
@@ -2362,6 +3235,7 @@ static void inst_OR_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* XOR_A_R - logic */
@@ -2387,6 +3261,7 @@ static void inst_XOR_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.C = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* RLC_A - rotate */
@@ -2396,6 +3271,7 @@ static void inst_RLC_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (carry != 0);
     cpu->flags.H = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* RL_A - rotate */
@@ -2406,6 +3282,7 @@ static void inst_RL_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (new_carry != 0);
     cpu->flags.H = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* RR_A - rotate */
@@ -2416,6 +3293,7 @@ static void inst_RR_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (new_carry != 0);
     cpu->flags.H = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* BIT_0_A - bit */
@@ -2424,7 +3302,8 @@ static void inst_BIT_0_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x01) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x01) == 0x80));
+    cpu->flags.S = ((0x01u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_0_HLI - bit */
@@ -2435,7 +3314,8 @@ static void inst_BIT_0_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x01) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x01) == 0x80));
+    cpu->flags.S = ((0x01u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_1_A - bit */
@@ -2444,7 +3324,8 @@ static void inst_BIT_1_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x02) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x02) == 0x80));
+    cpu->flags.S = ((0x02u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_1_HLI - bit */
@@ -2455,7 +3336,8 @@ static void inst_BIT_1_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x02) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x02) == 0x80));
+    cpu->flags.S = ((0x02u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_2_A - bit */
@@ -2464,7 +3346,8 @@ static void inst_BIT_2_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x04) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x04) == 0x80));
+    cpu->flags.S = ((0x04u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_2_HLI - bit */
@@ -2475,7 +3358,8 @@ static void inst_BIT_2_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x04) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x04) == 0x80));
+    cpu->flags.S = ((0x04u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_3_A - bit */
@@ -2484,7 +3368,8 @@ static void inst_BIT_3_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x08) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x08) == 0x80));
+    cpu->flags.S = ((0x08u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_3_HLI - bit */
@@ -2495,7 +3380,8 @@ static void inst_BIT_3_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x08) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x08) == 0x80));
+    cpu->flags.S = ((0x08u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_4_A - bit */
@@ -2504,7 +3390,8 @@ static void inst_BIT_4_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x10) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x10) == 0x80));
+    cpu->flags.S = ((0x10u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_4_HLI - bit */
@@ -2515,7 +3402,8 @@ static void inst_BIT_4_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x10) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x10) == 0x80));
+    cpu->flags.S = ((0x10u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_5_A - bit */
@@ -2524,7 +3412,8 @@ static void inst_BIT_5_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x20) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x20) == 0x80));
+    cpu->flags.S = ((0x20u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_5_HLI - bit */
@@ -2535,7 +3424,8 @@ static void inst_BIT_5_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x20) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x20) == 0x80));
+    cpu->flags.S = ((0x20u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_6_A - bit */
@@ -2544,7 +3434,8 @@ static void inst_BIT_6_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x40) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x40) == 0x80));
+    cpu->flags.S = ((0x40u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_6_HLI - bit */
@@ -2555,7 +3446,8 @@ static void inst_BIT_6_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x40) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x40) == 0x80));
+    cpu->flags.S = ((0x40u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* BIT_7_A - bit */
@@ -2564,7 +3456,8 @@ static void inst_BIT_7_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((cpu->registers[REG_A] & 0x80) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((cpu->registers[REG_A] & 0x80) != 0) && ((cpu->registers[REG_A] & 0x80) == 0x80));
+    cpu->flags.S = ((0x80u == 0x80u) && ((cpu->registers[REG_A] & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((cpu->registers[REG_A]) & 0x28u));
 }
 
 /* BIT_7_HLI - bit */
@@ -2575,22 +3468,25 @@ static void inst_BIT_7_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x80) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x80) == 0x80));
+    cpu->flags.S = ((0x80u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(hl >> 8)) & 0x28u));
 }
 
 /* IN_A_N - data_transfer */
 static void inst_IN_A_N(CPUState *cpu, DecodedInstruction *inst) {
-    cpu->registers[REG_A] = z80_read_port(cpu, inst->n);
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_A] << 8u) | (uint16_t)inst->n);
+    cpu->registers[REG_A] = z80_read_port(cpu, port);
 }
 
 /* OUT_N_A - data_transfer */
 static void inst_OUT_N_A(CPUState *cpu, DecodedInstruction *inst) {
-    z80_write_port(cpu, inst->n, cpu->registers[REG_A]);
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_A] << 8u) | (uint16_t)inst->n);
+    z80_write_port(cpu, port, cpu->registers[REG_A]);
 }
 
 /* IN_R_C - data_transfer */
 static void inst_IN_R_C(CPUState *cpu, DecodedInstruction *inst) {
-    uint16_t port = (uint16_t)cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_port(cpu, port);
     uint8_t r = inst->r & 0x07;
     if (r == 0) cpu->registers[REG_B] = value;
@@ -2605,11 +3501,13 @@ static void inst_IN_R_C(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* OUT_C_R - data_transfer */
 static void inst_OUT_C_R(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t r = inst->r & 0x07;
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = 0;
     if (r == 0) value = cpu->registers[REG_B];
     else if (r == 1) value = cpu->registers[REG_C];
@@ -2618,7 +3516,7 @@ static void inst_OUT_C_R(CPUState *cpu, DecodedInstruction *inst) {
     else if (r == 4) value = cpu->registers[REG_H];
     else if (r == 5) value = cpu->registers[REG_L];
     else if (r == 7) value = cpu->registers[REG_A];
-    z80_write_port(cpu, (uint16_t)cpu->registers[REG_C], value);
+    z80_write_port(cpu, port, value);
 }
 
 /* LD_I_A - data_transfer */
@@ -2767,6 +3665,7 @@ static void inst_CP_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (((a ^ val) & (a ^ result8) & 0x80) != 0);
     cpu->flags.C = ((result > 0xFF));
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (val & 0x28u));
 }
 
 /* CALL_NN - control */
@@ -3168,6 +4067,7 @@ static void inst_SUB_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* ADC_A_R - arithmetic */
@@ -3197,6 +4097,7 @@ static void inst_ADC_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* SBC_A_R - arithmetic */
@@ -3227,6 +4128,7 @@ static void inst_SBC_A_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.Z = (result8 == 0);
     cpu->flags.S = ((result8 & 0x80) != 0);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (result8 & 0x28u));
 }
 
 /* INC_R - arithmetic */
@@ -3273,6 +4175,7 @@ static void inst_INC_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (((old & 0x0F) + 1u) > 0x0F);
     cpu->flags.P = (old == 0x7F);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old + 1u) & 0x28u));
 }
 
 /* DEC_R - arithmetic */
@@ -3319,6 +4222,7 @@ static void inst_DEC_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = ((old & 0x0F) == 0x00);
     cpu->flags.P = (old == 0x80);
     cpu->flags.N = (true);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(old - 1u) & 0x28u));
 }
 
 /* CPI - data_transfer */
@@ -3339,6 +4243,9 @@ static void inst_CPI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->registers[REG_B] = (uint8_t)(bc >> 8);
     cpu->registers[REG_C] = (uint8_t)(bc & 0xFF);
     cpu->flags.P = (bc != 0);
+    uint8_t adjust = (uint8_t)(result - (cpu->flags.H ? 1u : 0u));
+    cpu->flags.F5 = ((adjust & 0x02u) != 0u);
+    cpu->flags.F3 = ((adjust & 0x08u) != 0u);
 }
 
 /* CPIR - data_transfer */
@@ -3359,6 +4266,9 @@ static void inst_CPIR(CPUState *cpu, DecodedInstruction *inst) {
     cpu->registers[REG_B] = (uint8_t)(bc >> 8);
     cpu->registers[REG_C] = (uint8_t)(bc & 0xFF);
     cpu->flags.P = (bc != 0);
+    uint8_t adjust = (uint8_t)(result - (cpu->flags.H ? 1u : 0u));
+    cpu->flags.F5 = ((adjust & 0x02u) != 0u);
+    cpu->flags.F3 = ((adjust & 0x08u) != 0u);
     if (bc != 0 && result != 0) {
     cpu->total_cycles += 5;
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) - 2);
@@ -3384,6 +4294,9 @@ static void inst_CPD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->registers[REG_B] = (uint8_t)(bc >> 8);
     cpu->registers[REG_C] = (uint8_t)(bc & 0xFF);
     cpu->flags.P = (bc != 0);
+    uint8_t adjust = (uint8_t)(result - (cpu->flags.H ? 1u : 0u));
+    cpu->flags.F5 = ((adjust & 0x02u) != 0u);
+    cpu->flags.F3 = ((adjust & 0x08u) != 0u);
 }
 
 /* CPDR - data_transfer */
@@ -3404,6 +4317,9 @@ static void inst_CPDR(CPUState *cpu, DecodedInstruction *inst) {
     cpu->registers[REG_B] = (uint8_t)(bc >> 8);
     cpu->registers[REG_C] = (uint8_t)(bc & 0xFF);
     cpu->flags.P = (bc != 0);
+    uint8_t adjust = (uint8_t)(result - (cpu->flags.H ? 1u : 0u));
+    cpu->flags.F5 = ((adjust & 0x02u) != 0u);
+    cpu->flags.F3 = ((adjust & 0x08u) != 0u);
     if (bc != 0 && result != 0) {
     cpu->total_cycles += 5;
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) - 2);
@@ -3418,6 +4334,7 @@ static void inst_RRC_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.C = (carry != 0);
     cpu->flags.H = (false);
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* SRA_A - rotate */
@@ -3431,6 +4348,7 @@ static void inst_SRA_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* SLA_A - rotate */
@@ -3443,6 +4361,7 @@ static void inst_SLA_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* SRL_A - rotate */
@@ -3455,6 +4374,7 @@ static void inst_SRL_A(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(cpu->registers[REG_A]));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (cpu->registers[REG_A] & 0x28u));
 }
 
 /* RLC_HLI - rotate */
@@ -3470,6 +4390,7 @@ static void inst_RLC_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RRC_HLI - rotate */
@@ -3485,6 +4406,7 @@ static void inst_RRC_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RL_HLI - rotate */
@@ -3501,6 +4423,7 @@ static void inst_RL_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RR_HLI - rotate */
@@ -3517,6 +4440,7 @@ static void inst_RR_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLA_HLI - rotate */
@@ -3532,6 +4456,7 @@ static void inst_SLA_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLL_HLI - rotate */
@@ -3547,6 +4472,7 @@ static void inst_SLL_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRA_HLI - rotate */
@@ -3563,6 +4489,7 @@ static void inst_SRA_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRL_HLI - rotate */
@@ -3578,6 +4505,7 @@ static void inst_SRL_HLI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RLC_R - rotate */
@@ -3617,6 +4545,7 @@ static void inst_RLC_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RRC_R - rotate */
@@ -3656,6 +4585,7 @@ static void inst_RRC_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RL_R - rotate */
@@ -3696,6 +4626,7 @@ static void inst_RL_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RR_R - rotate */
@@ -3736,6 +4667,7 @@ static void inst_RR_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLA_R - rotate */
@@ -3775,6 +4707,7 @@ static void inst_SLA_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLL_R - rotate */
@@ -3814,6 +4747,7 @@ static void inst_SLL_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRA_R - rotate */
@@ -3854,6 +4788,7 @@ static void inst_SRA_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRL_R - rotate */
@@ -3893,6 +4828,7 @@ static void inst_SRL_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RLC_IXD - rotate */
@@ -3908,6 +4844,7 @@ static void inst_RLC_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RLC_IYD - rotate */
@@ -3923,6 +4860,7 @@ static void inst_RLC_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RRC_IXD - rotate */
@@ -3938,6 +4876,7 @@ static void inst_RRC_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RRC_IYD - rotate */
@@ -3953,6 +4892,7 @@ static void inst_RRC_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RL_IXD - rotate */
@@ -3969,6 +4909,7 @@ static void inst_RL_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RL_IYD - rotate */
@@ -3985,6 +4926,7 @@ static void inst_RL_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RR_IXD - rotate */
@@ -4001,6 +4943,7 @@ static void inst_RR_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* RR_IYD - rotate */
@@ -4017,6 +4960,7 @@ static void inst_RR_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLA_IXD - rotate */
@@ -4032,6 +4976,7 @@ static void inst_SLA_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLA_IYD - rotate */
@@ -4047,6 +4992,7 @@ static void inst_SLA_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLL_IXD - rotate */
@@ -4062,6 +5008,7 @@ static void inst_SLL_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SLL_IYD - rotate */
@@ -4077,6 +5024,7 @@ static void inst_SLL_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRA_IXD - rotate */
@@ -4093,6 +5041,7 @@ static void inst_SRA_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRA_IYD - rotate */
@@ -4109,6 +5058,7 @@ static void inst_SRA_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRL_IXD - rotate */
@@ -4124,6 +5074,7 @@ static void inst_SRL_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* SRL_IYD - rotate */
@@ -4139,6 +5090,7 @@ static void inst_SRL_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* BIT_0_IXD - bit */
@@ -4149,7 +5101,8 @@ static void inst_BIT_0_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x01) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x01) == 0x80));
+    cpu->flags.S = ((0x01u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_0_IXD - bit */
@@ -4176,7 +5129,8 @@ static void inst_BIT_0_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x01) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x01) == 0x80));
+    cpu->flags.S = ((0x01u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_0_IYD - bit */
@@ -4203,7 +5157,8 @@ static void inst_BIT_1_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x02) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x02) == 0x80));
+    cpu->flags.S = ((0x02u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_1_IXD - bit */
@@ -4230,7 +5185,8 @@ static void inst_BIT_2_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x04) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x04) == 0x80));
+    cpu->flags.S = ((0x04u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_2_IXD - bit */
@@ -4257,7 +5213,8 @@ static void inst_BIT_3_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x08) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x08) == 0x80));
+    cpu->flags.S = ((0x08u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_3_IXD - bit */
@@ -4284,7 +5241,8 @@ static void inst_BIT_4_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x10) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x10) == 0x80));
+    cpu->flags.S = ((0x10u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_4_IXD - bit */
@@ -4311,7 +5269,8 @@ static void inst_BIT_5_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x20) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x20) == 0x80));
+    cpu->flags.S = ((0x20u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_5_IXD - bit */
@@ -4338,7 +5297,8 @@ static void inst_BIT_6_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x40) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x40) == 0x80));
+    cpu->flags.S = ((0x40u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_6_IXD - bit */
@@ -4365,7 +5325,8 @@ static void inst_BIT_7_IXD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x80) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x80) == 0x80));
+    cpu->flags.S = ((0x80u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_7_IXD - bit */
@@ -4392,7 +5353,8 @@ static void inst_BIT_1_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x02) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x02) == 0x80));
+    cpu->flags.S = ((0x02u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_1_IYD - bit */
@@ -4419,7 +5381,8 @@ static void inst_BIT_2_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x04) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x04) == 0x80));
+    cpu->flags.S = ((0x04u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_2_IYD - bit */
@@ -4446,7 +5409,8 @@ static void inst_BIT_3_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x08) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x08) == 0x80));
+    cpu->flags.S = ((0x08u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_3_IYD - bit */
@@ -4473,7 +5437,8 @@ static void inst_BIT_4_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x10) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x10) == 0x80));
+    cpu->flags.S = ((0x10u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_4_IYD - bit */
@@ -4500,7 +5465,8 @@ static void inst_BIT_5_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x20) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x20) == 0x80));
+    cpu->flags.S = ((0x20u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_5_IYD - bit */
@@ -4527,7 +5493,8 @@ static void inst_BIT_6_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x40) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x40) == 0x80));
+    cpu->flags.S = ((0x40u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_6_IYD - bit */
@@ -4554,7 +5521,8 @@ static void inst_BIT_7_IYD(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (true);
     cpu->flags.P = ((value & 0x80) == 0);
     cpu->flags.N = (false);
-    cpu->flags.S = (((value & 0x80) != 0) && ((value & 0x80) == 0x80));
+    cpu->flags.S = ((0x80u == 0x80u) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (((uint8_t)(addr >> 8)) & 0x28u));
 }
 
 /* SET_7_IYD - bit */
@@ -4631,6 +5599,7 @@ static void inst_ROT_SHIFT_IXD_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* ROT_SHIFT_IYD_R - rotate */
@@ -4691,6 +5660,7 @@ static void inst_ROT_SHIFT_IYD_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.H = (false);
     cpu->flags.P = (cpu_parity(value));
     cpu->flags.N = (false);
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | (value & 0x28u));
 }
 
 /* BIT_IXD_R - bit */
@@ -4705,6 +5675,7 @@ static void inst_BIT_IXD_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (!bit_set);
     cpu->flags.N = (false);
     cpu->flags.S = (((inst->bit & 0x07) == 7) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(addr >> 8) & 0x28u));
 }
 
 /* BIT_IYD_R - bit */
@@ -4719,6 +5690,7 @@ static void inst_BIT_IYD_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (!bit_set);
     cpu->flags.N = (false);
     cpu->flags.S = (((inst->bit & 0x07) == 7) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | ((uint8_t)(addr >> 8) & 0x28u));
 }
 
 /* SET_IXD_R - bit */
@@ -5009,6 +5981,7 @@ static void inst_RES_7_HLI(CPUState *cpu, DecodedInstruction *inst) {
 static void inst_BIT_R(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t r = inst->r & 0x07;
     uint8_t value = 0;
+    uint8_t fxy = 0;
     if (r == 0) value = cpu->registers[REG_B];
     else if (r == 1) value = cpu->registers[REG_C];
     else if (r == 2) value = cpu->registers[REG_D];
@@ -5019,8 +5992,12 @@ static void inst_BIT_R(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
     value = z80_read_byte(cpu, hl);
     cpu->total_cycles += 4;
+    fxy = (uint8_t)((hl >> 8) & 0x28u);
     } else {
     value = cpu->registers[REG_A];
+    }
+    if (r != 6) {
+    fxy = (uint8_t)(value & 0x28u);
     }
     uint8_t mask = (uint8_t)(1u << (inst->bit & 0x07));
     bool bit_set = (value & mask) != 0;
@@ -5029,6 +6006,7 @@ static void inst_BIT_R(CPUState *cpu, DecodedInstruction *inst) {
     cpu->flags.P = (!bit_set);
     cpu->flags.N = (false);
     cpu->flags.S = (((inst->bit & 0x07) == 7) && ((value & 0x80) != 0));
+    cpu->flags.raw = (uint8_t)((cpu->flags.raw & (uint8_t)(~0x28u)) | fxy);
 }
 
 /* SET_R - bit */
@@ -5151,14 +6129,15 @@ static void inst_DJNZ_D(CPUState *cpu, DecodedInstruction *inst) {
 /* INI - data_transfer */
 static void inst_INI(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl++;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port + 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l + 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -5171,14 +6150,15 @@ static void inst_INI(CPUState *cpu, DecodedInstruction *inst) {
 /* IND - data_transfer */
 static void inst_IND(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl--;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port - 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l - 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -5191,14 +6171,15 @@ static void inst_IND(CPUState *cpu, DecodedInstruction *inst) {
 /* INIR - data_transfer */
 static void inst_INIR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl++;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port + 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l + 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -5216,14 +6197,15 @@ static void inst_INIR(CPUState *cpu, DecodedInstruction *inst) {
 /* INDR - data_transfer */
 static void inst_INDR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint8_t port_l = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)port_l);
     uint8_t value = z80_read_port(cpu, port);
     z80_write_byte(cpu, hl, value);
     hl--;
     cpu->registers[REG_H] = (uint8_t)(hl >> 8);
     cpu->registers[REG_L] = (uint8_t)(hl & 0xFF);
     cpu->registers[REG_B]--;
-    uint16_t sum = (uint16_t)value + (uint16_t)((port - 1u) & 0xFFu);
+    uint16_t sum = (uint16_t)value + (uint16_t)((port_l - 1u) & 0xFFu);
     bool hc = sum > 0xFFu;
     cpu->flags.S = ((cpu->registers[REG_B] & 0x80) != 0);
     cpu->flags.Z = (cpu->registers[REG_B] == 0);
@@ -5241,7 +6223,7 @@ static void inst_INDR(CPUState *cpu, DecodedInstruction *inst) {
 /* OUTI - data_transfer */
 static void inst_OUTI(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl++;
@@ -5261,7 +6243,7 @@ static void inst_OUTI(CPUState *cpu, DecodedInstruction *inst) {
 /* OUTD - data_transfer */
 static void inst_OUTD(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl--;
@@ -5281,7 +6263,7 @@ static void inst_OUTD(CPUState *cpu, DecodedInstruction *inst) {
 /* OTIR - data_transfer */
 static void inst_OTIR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl++;
@@ -5306,7 +6288,7 @@ static void inst_OTIR(CPUState *cpu, DecodedInstruction *inst) {
 /* OTDR - data_transfer */
 static void inst_OTDR(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t hl = (uint16_t)((cpu->registers[REG_H] << 8) | cpu->registers[REG_L]);
-    uint8_t port = cpu->registers[REG_C];
+    uint16_t port = (uint16_t)(((uint16_t)cpu->registers[REG_B] << 8u) | (uint16_t)cpu->registers[REG_C]);
     uint8_t value = z80_read_byte(cpu, hl);
     z80_write_port(cpu, port, value);
     hl--;
@@ -5337,6 +6319,10 @@ static void inst_ED_UNDOCUMENTED_NOP(CPUState *cpu, DecodedInstruction *inst) {
 /* ===== Dispatch ===== */
 int z80_step(CPUState *cpu) {
     if (!cpu->running) return 0;
+
+    if (cpu->reset_delay_pending) {
+        cpu->reset_delay_pending = false;
+    }
 
     if (cpu_check_breakpoints(cpu)) {
         cpu->running = false;
@@ -5377,11 +6363,17 @@ int z80_step(CPUState *cpu) {
                 cpu->pc = 0x0038;
                 break;
         }
+        cpu_irq_trace(cpu, "take", cpu->interrupt_vector, cpu->pc);
         cpu->total_cycles += irq_cycles;
         return 0;
     }
 
     if (cpu->halted) {
+        if (cpu->interrupt_pending && !cpu->interrupts_enabled) {
+            cpu->interrupt_pending = false;
+            cpu->halted = false;
+            return 0;
+        }
         uint16_t halted_pc = cpu->pc;
         DecodedInstruction halted_inst = {0};
         halted_inst.pc = halted_pc;
@@ -7391,6 +8383,11 @@ int z80_step(CPUState *cpu) {
 
     cpu_components_step_post(cpu, &inst, pc_before);
 
+    if (cpu->halted && !cpu->pc_modified) {
+        cpu->pc = (uint16_t)(pc_before + inst.length);
+        cpu->pc_modified = true;
+    }
+
     if (!cpu->pc_modified) {
         cpu->pc = (uint16_t)(pc_before + inst.length);
     }
@@ -7406,6 +8403,7 @@ void z80_run(CPUState *cpu) {
 void z80_run_until(CPUState *cpu, uint64_t cycles) {
     while (cpu->running) {
         if (cycles > 0 && cpu->total_cycles >= cycles) break;
+        if (cpu->halted && !cpu->interrupt_pending) break;
         if (z80_step(cpu) != 0) break;
     }
 }
@@ -7441,14 +8439,82 @@ CPUState *z80_create(size_t memory_size) {
     cpu->comp_vdp0.control_phase = 0;
     cpu->comp_vdp0.read_buffer = 0;
     cpu->comp_vdp0.render_dirty = 1;
+    cpu->comp_vdp0.reg0 = 0;
+    cpu->comp_vdp0.reg1 = 0;
+    cpu->comp_vdp0.reg2 = 0;
+    cpu->comp_vdp0.reg3 = 0;
+    cpu->comp_vdp0.reg4 = 0;
+    cpu->comp_vdp0.reg5 = 0;
+    cpu->comp_vdp0.reg6 = 0;
+    cpu->comp_vdp0.reg7 = 0;
+    cpu->comp_vdp0.status = 0;
+    cpu->comp_vdp0.vram = NULL;
+    {
+        ComponentState_vdp0 *comp = &cpu->comp_vdp0;
+        cpu->active_component_id = "vdp0";
+        do {
+            if (comp->vram != NULL) break;
+            comp->vram = (uint8_t *)calloc(16384u, sizeof(uint8_t));
+            if (comp->vram == NULL) break;
+        } while (0);
+        comp->render_dirty = 1u;
+    }
     cpu->comp_ppi0.slot_select = 0;
     cpu->comp_ppi0.keyboard_row = 0;
+    cpu->comp_ppi0.port_c = 0x0F;
     cpu->comp_ppi0.control_reg = 0x82;
+    cpu->comp_psg0.audio_enabled = 0;
     cpu->comp_psg0.selected_reg = 0;
+    cpu->comp_psg0.reg0 = 0;
+    cpu->comp_psg0.reg1 = 0;
+    cpu->comp_psg0.reg2 = 0;
+    cpu->comp_psg0.reg3 = 0;
+    cpu->comp_psg0.reg4 = 0;
+    cpu->comp_psg0.reg5 = 0;
+    cpu->comp_psg0.reg6 = 0;
+    cpu->comp_psg0.reg7 = 0;
+    cpu->comp_psg0.reg8 = 0;
+    cpu->comp_psg0.reg9 = 0;
+    cpu->comp_psg0.reg10 = 0;
+    cpu->comp_psg0.reg11 = 0;
+    cpu->comp_psg0.reg12 = 0;
+    cpu->comp_psg0.reg13 = 0;
+    cpu->comp_psg0.reg14 = 0xFF;
+    cpu->comp_psg0.reg15 = 0;
     cpu->comp_psg0.level_a = 0;
     cpu->comp_psg0.level_b = 0;
     cpu->comp_psg0.level_c = 0;
     cpu->comp_psg0.audio_tick_accum = 0;
+    cpu->comp_psg0.tone_ctr_a = 1;
+    cpu->comp_psg0.tone_ctr_b = 1;
+    cpu->comp_psg0.tone_ctr_c = 1;
+    cpu->comp_psg0.tone_out_a = 1;
+    cpu->comp_psg0.tone_out_b = 1;
+    cpu->comp_psg0.tone_out_c = 1;
+    cpu->comp_psg0.psg_subtick = 0;
+    cpu->comp_psg0.noise_ctr = 1;
+    cpu->comp_psg0.noise_lfsr = 0x1FFFFu;
+    cpu->comp_psg0.noise_out = 1;
+    cpu->comp_psg0.env_ctr = 1;
+    cpu->comp_psg0.env_volume = 0;
+    cpu->comp_psg0.env_direction = 1;
+    cpu->comp_psg0.env_attack = 0;
+    cpu->comp_psg0.env_continue = 0;
+    cpu->comp_psg0.env_alternate = 0;
+    cpu->comp_psg0.env_hold = 0;
+    cpu->comp_psg0.env_holding = 0;
+    cpu->comp_psg0.last_mix = 255;
+    cpu->comp_psg0.last_emitted_mix = 255;
+    cpu->comp_psg0.emit_accum = 0;
+    cpu->comp_psg0.emit_keepalive = 0;
+    {
+        ComponentState_psg0 *comp = &cpu->comp_psg0;
+        cpu->active_component_id = "psg0";
+        {
+            const char *audio_env = getenv("PASM_HOST_AUDIO");
+            comp->audio_enabled = (audio_env != NULL && audio_env[0] == '1') ? 1u : 0u;
+        }
+    }
     cpu->comp_keyboard_msx.last_row = 0;
     cpu->comp_video_msx.frame_count = 0;
     cpu->comp_video_msx.width = 256;
@@ -7459,6 +8525,32 @@ CPUState *z80_create(size_t memory_size) {
     cpu->comp_host_msx.irq_edges = 0;
     cpu->comp_host_msx.audio_samples = 0;
     cpu->comp_host_msx.keyboard_default = 0xFF;
+    cpu->comp_msx_cart0.rom_data = NULL;
+    cpu->comp_msx_cart0.rom_size = 0;
+    cpu->comp_msx_cart0.slot_id = 1;
+    cpu->comp_msx_cart0.bank_6000 = 1;
+    cpu->comp_msx_cart0.bank_8000 = 2;
+    cpu->comp_msx_cart0.bank_a000 = 3;
+    {
+        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
+        cpu->active_component_id = "msx_cart0";
+        {
+            const char *slot_env = getenv("PASM_MSX_CART_SLOT");
+            if (slot_env != NULL && slot_env[0] != '\0') {
+                int v = atoi(slot_env);
+                if (v >= 0 && v <= 3) {
+                    comp->slot_id = (uint8_t)v;
+                } else {
+                    comp->slot_id = 1u;
+                }
+            } else {
+                comp->slot_id = 1u;
+            }
+        }
+        comp->bank_6000 = 1u;
+        comp->bank_8000 = 2u;
+        comp->bank_a000 = 3u;
+    }
     
     z80_reset(cpu);
     return cpu;
@@ -7466,7 +8558,23 @@ CPUState *z80_create(size_t memory_size) {
 
 void z80_destroy(CPUState *cpu) {
     if (cpu) {
-        /* No component destroy hooks */
+        {
+            ComponentState_vdp0 *comp = &cpu->comp_vdp0;
+            cpu->active_component_id = "vdp0";
+            if (comp->vram != NULL) {
+                free(comp->vram);
+                comp->vram = NULL;
+            }
+        }
+        {
+            ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
+            cpu->active_component_id = "msx_cart0";
+            if (comp->rom_data != NULL) {
+                free(comp->rom_data);
+                comp->rom_data = NULL;
+            }
+            comp->rom_size = 0u;
+        }
         free(cpu->memory);
         free(cpu->port_memory);
         free(cpu);
@@ -7475,6 +8583,10 @@ void z80_destroy(CPUState *cpu) {
 
 void z80_reset(CPUState *cpu) {
     memset(cpu->registers, 0, sizeof(cpu->registers));
+    cpu->i = 0;
+    cpu->r = 0;
+    cpu->ix = 0;
+    cpu->iy = 0;
     cpu->pc = 0;
     cpu->sp = 0;
     cpu->flags.raw = 0;
@@ -7492,20 +8604,128 @@ void z80_reset(CPUState *cpu) {
     cpu->comp_vdp0.control_phase = 0;
     cpu->comp_vdp0.read_buffer = 0;
     cpu->comp_vdp0.render_dirty = 1;
+    cpu->comp_vdp0.reg0 = 0;
+    cpu->comp_vdp0.reg1 = 0;
+    cpu->comp_vdp0.reg2 = 0;
+    cpu->comp_vdp0.reg3 = 0;
+    cpu->comp_vdp0.reg4 = 0;
+    cpu->comp_vdp0.reg5 = 0;
+    cpu->comp_vdp0.reg6 = 0;
+    cpu->comp_vdp0.reg7 = 0;
+    cpu->comp_vdp0.status = 0;
+    {
+        ComponentState_vdp0 *comp = &cpu->comp_vdp0;
+        cpu->active_component_id = "vdp0";
+        if (comp->vram != NULL) {
+            memset(comp->vram, 0, 16384u);
+        }
+        comp->render_dirty = 1u;
+    }
     cpu->comp_ppi0.slot_select = 0;
     cpu->comp_ppi0.keyboard_row = 0;
+    cpu->comp_ppi0.port_c = 0x0F;
     cpu->comp_ppi0.control_reg = 0x82;
+    cpu->comp_psg0.audio_enabled = 0;
     cpu->comp_psg0.selected_reg = 0;
+    cpu->comp_psg0.reg0 = 0;
+    cpu->comp_psg0.reg1 = 0;
+    cpu->comp_psg0.reg2 = 0;
+    cpu->comp_psg0.reg3 = 0;
+    cpu->comp_psg0.reg4 = 0;
+    cpu->comp_psg0.reg5 = 0;
+    cpu->comp_psg0.reg6 = 0;
+    cpu->comp_psg0.reg7 = 0;
+    cpu->comp_psg0.reg8 = 0;
+    cpu->comp_psg0.reg9 = 0;
+    cpu->comp_psg0.reg10 = 0;
+    cpu->comp_psg0.reg11 = 0;
+    cpu->comp_psg0.reg12 = 0;
+    cpu->comp_psg0.reg13 = 0;
+    cpu->comp_psg0.reg14 = 0xFF;
+    cpu->comp_psg0.reg15 = 0;
     cpu->comp_psg0.level_a = 0;
     cpu->comp_psg0.level_b = 0;
     cpu->comp_psg0.level_c = 0;
     cpu->comp_psg0.audio_tick_accum = 0;
+    cpu->comp_psg0.tone_ctr_a = 1;
+    cpu->comp_psg0.tone_ctr_b = 1;
+    cpu->comp_psg0.tone_ctr_c = 1;
+    cpu->comp_psg0.tone_out_a = 1;
+    cpu->comp_psg0.tone_out_b = 1;
+    cpu->comp_psg0.tone_out_c = 1;
+    cpu->comp_psg0.psg_subtick = 0;
+    cpu->comp_psg0.noise_ctr = 1;
+    cpu->comp_psg0.noise_lfsr = 0x1FFFFu;
+    cpu->comp_psg0.noise_out = 1;
+    cpu->comp_psg0.env_ctr = 1;
+    cpu->comp_psg0.env_volume = 0;
+    cpu->comp_psg0.env_direction = 1;
+    cpu->comp_psg0.env_attack = 0;
+    cpu->comp_psg0.env_continue = 0;
+    cpu->comp_psg0.env_alternate = 0;
+    cpu->comp_psg0.env_hold = 0;
+    cpu->comp_psg0.env_holding = 0;
+    cpu->comp_psg0.last_mix = 255;
+    cpu->comp_psg0.last_emitted_mix = 255;
+    cpu->comp_psg0.emit_accum = 0;
+    cpu->comp_psg0.emit_keepalive = 0;
+    {
+        ComponentState_psg0 *comp = &cpu->comp_psg0;
+        cpu->active_component_id = "psg0";
+        {
+            const char *audio_env = getenv("PASM_HOST_AUDIO");
+            comp->audio_enabled = (audio_env != NULL && audio_env[0] == '1') ? 1u : 0u;
+        }
+        comp->audio_tick_accum = 0u;
+        comp->tone_ctr_a = 1u;
+        comp->tone_ctr_b = 1u;
+        comp->tone_ctr_c = 1u;
+        comp->tone_out_a = 1u;
+        comp->tone_out_b = 1u;
+        comp->tone_out_c = 1u;
+        comp->psg_subtick = 0u;
+        comp->noise_ctr = 1u;
+        comp->noise_lfsr = 0x1FFFFu;
+        comp->noise_out = 1u;
+        comp->env_ctr = 1u;
+        comp->env_volume = 0;
+        comp->env_direction = 1;
+        comp->env_attack = 0u;
+        comp->env_continue = 0u;
+        comp->env_alternate = 0u;
+        comp->env_hold = 0u;
+        comp->env_holding = 0u;
+        comp->emit_accum = 0u;
+        comp->emit_keepalive = 0u;
+        comp->last_mix = 128u;
+        comp->last_emitted_mix = 255u;
+    }
     cpu->comp_keyboard_msx.last_row = 0;
     cpu->comp_video_msx.frame_count = 0;
     cpu->comp_video_msx.width = 256;
     cpu->comp_video_msx.height = 192;
     cpu->comp_speaker_msx.level = 0;
     cpu->comp_speaker_msx.last_cycle = 0;
+    cpu->comp_msx_cart0.slot_id = 1;
+    cpu->comp_msx_cart0.bank_6000 = 1;
+    cpu->comp_msx_cart0.bank_8000 = 2;
+    cpu->comp_msx_cart0.bank_a000 = 3;
+    {
+        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
+        cpu->active_component_id = "msx_cart0";
+        {
+            const char *slot_env = getenv("PASM_MSX_CART_SLOT");
+            if (slot_env != NULL && slot_env[0] != '\0') {
+                int v = atoi(slot_env);
+                if (v >= 0 && v <= 3) {
+                    comp->slot_id = (uint8_t)v;
+                }
+            }
+        }
+        comp->bank_6000 = 1u;
+        comp->bank_8000 = 2u;
+        comp->bank_a000 = 3u;
+    }
     cpu->running = true;
     cpu->halted = false;
     cpu->error_code = CPU_ERROR_NONE;
@@ -7516,24 +8736,37 @@ void z80_reset(CPUState *cpu) {
     cpu->hook_opcode = 0;
     cpu->hook_raw = 0;
     cpu->tracing_enabled = false;
-    cpu->num_break_points = 0;
+    cpu->debug_overlay_enabled = true;
+    cpu->reset_delay_pending = true;
 }
 
 int z80_load_rom(CPUState *cpu, const char *filename, uint16_t address) {
+    if (!cpu || !filename || !filename[0]) return -1;
     FILE *f = fopen(filename, "rb");
     if (!f) return -1;
     
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
+    if (size < 0) {
+        fclose(f);
+        return -1;
+    }
     
     if (address + size > cpu->memory_size) {
         fclose(f);
         return -1;
     }
     
-    fread(&cpu->memory[address], 1, size, f);
+    size_t read_len = fread(&cpu->memory[address], 1, (size_t)size, f);
     fclose(f);
+    if (read_len != (size_t)size) return -1;
+    snprintf(
+        cpu->loaded_rom_debug,
+        sizeof(cpu->loaded_rom_debug),
+        "name=direct path=%s",
+        filename
+    );
     return 0;
 }
 typedef struct {
@@ -7544,7 +8777,7 @@ typedef struct {
 } SystemRomImage;
 
 static const SystemRomImage g_system_rom_images[] = {
-    { "msx_bios_32k", "../roms/msx.rom", 0x0000u, 32768u },
+    { "msx_bios_32k", "../../roms/msx1/msx.rom", 0x0000u, 32768u },
 };
 
 static bool cpu_path_is_absolute(const char *path) {
@@ -7555,6 +8788,7 @@ static bool cpu_path_is_absolute(const char *path) {
 }
 
 int z80_load_system_roms(CPUState *cpu, const char *system_base_dir) {
+    if (!cpu) return -1;
     char full_path[1024];
     size_t rom_count = sizeof(g_system_rom_images) / sizeof(g_system_rom_images[0]);
     for (size_t i = 0; i < rom_count; i++) {
@@ -7582,14 +8816,110 @@ int z80_load_system_roms(CPUState *cpu, const char *system_base_dir) {
         size_t read_len = fread(&cpu->memory[rom->address], 1, (size_t)file_size, f);
         fclose(f);
         if (read_len != (size_t)file_size) return -1;
+        if (i == 0u) {
+            if (rom_count > 1u) {
+                snprintf(
+                    cpu->loaded_rom_debug,
+                    sizeof(cpu->loaded_rom_debug),
+                    "name=%s path=%s (+%llu more)",
+                    rom->name,
+                    path_to_open,
+                    (unsigned long long)(rom_count - 1u)
+                );
+            } else {
+                snprintf(
+                    cpu->loaded_rom_debug,
+                    sizeof(cpu->loaded_rom_debug),
+                    "name=%s path=%s",
+                    rom->name,
+                    path_to_open
+                );
+            }
+        }
     }
+    return 0;
+}
+
+int z80_load_cartridge_rom(CPUState *cpu, const char *path) {
+    FILE *f;
+    long file_size;
+    uint8_t *buf;
+    ComponentState_msx_cart0 *comp;
+    size_t read_len;
+
+    if (!cpu || !path || !path[0]) return -1;
+    comp = &cpu->comp_msx_cart0;
+    f = fopen(path, "rb");
+    if (!f) return -1;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    file_size = ftell(f);
+    if (file_size < 0) { fclose(f); return -1; }
+    if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+    buf = (uint8_t *)malloc((size_t)file_size);
+    if (!buf) { fclose(f); return -1; }
+    read_len = fread(buf, 1, (size_t)file_size, f);
+    fclose(f);
+    if (read_len != (size_t)file_size) { free(buf); return -1; }
+    if (comp->rom_data != NULL) {
+        free(comp->rom_data);
+        comp->rom_data = NULL;
+    }
+    comp->rom_data = buf;
+    comp->rom_size = (uint32_t)file_size;
+    snprintf(
+        cpu->loaded_rom_debug,
+        sizeof(cpu->loaded_rom_debug),
+        "name=msx_cart0 path=%s",
+        path
+    );
     return 0;
 }
 
 
 /* ===== Memory Access ===== */
 uint8_t z80_read_byte(CPUState *cpu, uint16_t addr) {
+    {
+        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
+        cpu->active_component_id = "msx_cart0";
+        if (comp->rom_data != NULL && comp->rom_size > 0u) {
+            uint8_t slotreg = cpu->comp_ppi0.slot_select;
+            uint8_t page = (uint8_t)(addr >> 14);
+            uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+            if (page_slot == (uint8_t)(comp->slot_id & 0x03u)) {
+                uint32_t bank_size = 0x2000u;
+                uint32_t bank_count = comp->rom_size / bank_size;
+                if (bank_count == 0u) return 0xFFu;
 
+                if (addr >= 0x4000u && addr < 0x6000u) {
+                    uint32_t off = (uint32_t)(addr - 0x4000u);
+                    uint32_t bank_off = off;
+                    if (bank_off < comp->rom_size) return comp->rom_data[bank_off];
+                    return 0xFFu;
+                }
+
+                if (addr >= 0x6000u && addr < 0x8000u) {
+                    uint32_t bank = (uint32_t)(comp->bank_6000 % bank_count);
+                    uint32_t off = bank * bank_size + (uint32_t)(addr - 0x6000u);
+                    if (off < comp->rom_size) return comp->rom_data[off];
+                    return 0xFFu;
+                }
+
+                if (addr >= 0x8000u && addr < 0xA000u) {
+                    uint32_t bank = (uint32_t)(comp->bank_8000 % bank_count);
+                    uint32_t off = bank * bank_size + (uint32_t)(addr - 0x8000u);
+                    if (off < comp->rom_size) return comp->rom_data[off];
+                    return 0xFFu;
+                }
+
+                if (addr >= 0xA000u && addr < 0xC000u) {
+                    uint32_t bank = (uint32_t)(comp->bank_a000 % bank_count);
+                    uint32_t off = bank * bank_size + (uint32_t)(addr - 0xA000u);
+                    if (off < comp->rom_size) return comp->rom_data[off];
+                    return 0xFFu;
+                }
+            }
+        }
+    }
     if (addr >= cpu->memory_size) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return 0xFF;
@@ -7598,14 +8928,36 @@ uint8_t z80_read_byte(CPUState *cpu, uint16_t addr) {
 }
 
 void z80_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
+    {
+        ComponentState_msx_cart0 *comp = &cpu->comp_msx_cart0;
+        cpu->active_component_id = "msx_cart0";
+        if (comp->rom_data == NULL || comp->rom_size == 0u) return;
+        {
+            uint8_t slotreg = cpu->comp_ppi0.slot_select;
+            uint8_t page = (uint8_t)(addr >> 14);
+            uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+            if (page_slot != (uint8_t)(comp->slot_id & 0x03u)) return;
+        }
 
+        if (addr >= 0x6000u && addr < 0x8000u) {
+            comp->bank_6000 = value;
+            return;
+        }
+        if (addr >= 0x8000u && addr < 0xA000u) {
+            comp->bank_8000 = value;
+            return;
+        }
+        if (addr >= 0xA000u && addr < 0xC000u) {
+            comp->bank_a000 = value;
+            return;
+        }
+    }
     if (addr >= cpu->memory_size) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
     }
-    /* Block writes to read-only region: BIOS_32K */
+    /* Ignore writes to read-only region: BIOS_32K */
     if (addr < 0x8000u) {
-        cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
     }
     cpu->memory[addr] = value;
@@ -7613,32 +8965,34 @@ void z80_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
 
 uint16_t z80_read_word(CPUState *cpu, uint16_t addr) {
     uint16_t lo = z80_read_byte(cpu, addr);
-    uint16_t hi = z80_read_byte(cpu, addr + 1);
-    return lo | (hi << 8);
+    uint16_t hi = z80_read_byte(cpu, (uint16_t)(addr + 1u));
+    return (uint16_t)(lo | (hi << 8));
 }
 
 void z80_write_word(CPUState *cpu, uint16_t addr, uint16_t value) {
-    z80_write_byte(cpu, addr, value & 0xFF);
-    z80_write_byte(cpu, addr + 1, (value >> 8) & 0xFF);
+    z80_write_byte(cpu, addr, (uint8_t)(value & 0xFFu));
+    z80_write_byte(cpu, (uint16_t)(addr + 1u), (uint8_t)((value >> 8) & 0xFFu));
 }
 
 /* ===== Port I/O ===== */
 uint8_t z80_read_port(CPUState *cpu, uint16_t port) {
 
 
-    if (port >= cpu->port_size) return 0xFF;
-    uint8_t value = cpu->port_memory[port];
+    uint8_t value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFF;
     {
         ComponentState_vdp0 *comp = &cpu->comp_vdp0;
         cpu->active_component_id = "vdp0";
-        static uint8_t vram[16384];
+        uint8_t *vram = comp->vram;
+        if (vram == NULL) { value = 0xFFu; return value; }
         uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
         if (p == 0x98u) {
             value = comp->read_buffer;
             comp->read_buffer = vram[(uint16_t)(comp->vdp_addr & 0x3FFFu)];
             comp->vdp_addr = (uint16_t)((comp->vdp_addr + 1u) & 0x3FFFu);
         } else if (p == 0x99u) {
-            value = 0x00u;
+            value = comp->status;
+            comp->status = (uint8_t)(comp->status & 0x7Fu);
+            comp->control_phase = 0u;
         }
     }
     {
@@ -7651,7 +9005,7 @@ uint8_t z80_read_port(CPUState *cpu, uint16_t port) {
             uint64_t cb_args[1] = { (uint64_t)comp->keyboard_row };
             value = (uint8_t)cpu_component_call(cpu, "ppi0", "keyboard_read_row", cb_args, 1);
         } else if (p == 0xAAu) {
-            value = 0xFFu;
+            value = comp->port_c;
         } else if (p == 0xABu) {
             value = comp->control_reg;
         }
@@ -7661,8 +9015,31 @@ uint8_t z80_read_port(CPUState *cpu, uint16_t port) {
         cpu->active_component_id = "psg0";
         uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
         if (p == 0xA2u) {
-            uint8_t avg = (uint8_t)((comp->level_a + comp->level_b + comp->level_c) / 3u);
-            value = avg;
+            uint8_t reg = (uint8_t)(comp->selected_reg & 0x0Fu);
+            switch (reg) {
+                case 0u: value = comp->reg0; break;
+                case 1u: value = comp->reg1; break;
+                case 2u: value = comp->reg2; break;
+                case 3u: value = comp->reg3; break;
+                case 4u: value = comp->reg4; break;
+                case 5u: value = comp->reg5; break;
+                case 6u: value = comp->reg6; break;
+                case 7u: value = comp->reg7; break;
+                case 8u: value = comp->reg8; break;
+                case 9u: value = comp->reg9; break;
+                case 10u: value = comp->reg10; break;
+                case 11u: value = comp->reg11; break;
+                case 12u: value = comp->reg12; break;
+                case 13u: value = comp->reg13; break;
+                case 14u: {
+                    uint64_t joy = cpu_component_call(cpu, "psg0", "joy_read", NULL, 0);
+                    comp->reg14 = (uint8_t)(joy & 0xFFu);
+                    value = comp->reg14;
+                    break;
+                }
+                case 15u: value = comp->reg15; break;
+                default: value = 0xFFu; break;
+            }
         }
     }
 
@@ -7674,7 +9051,8 @@ void z80_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
     {
         ComponentState_vdp0 *comp = &cpu->comp_vdp0;
         cpu->active_component_id = "vdp0";
-        static uint8_t vram[16384];
+        uint8_t *vram = comp->vram;
+        if (vram == NULL) return;
         uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
         if (p == 0x98u) {
             vram[(uint16_t)(comp->vdp_addr & 0x3FFFu)] = value;
@@ -7687,7 +9065,22 @@ void z80_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
             } else {
                 uint8_t cmd = value;
                 uint16_t addr = (uint16_t)(((uint16_t)(cmd & 0x3Fu) << 8) | comp->control_latch);
-                if ((cmd & 0x40u) != 0u) {
+                if ((cmd & 0x80u) != 0u) {
+                    uint8_t reg_idx = (uint8_t)(cmd & 0x07u);
+                    uint8_t reg_val = comp->control_latch;
+                    switch (reg_idx) {
+                        case 0u: comp->reg0 = reg_val; break;
+                        case 1u: comp->reg1 = reg_val; break;
+                        case 2u: comp->reg2 = reg_val; break;
+                        case 3u: comp->reg3 = reg_val; break;
+                        case 4u: comp->reg4 = reg_val; break;
+                        case 5u: comp->reg5 = reg_val; break;
+                        case 6u: comp->reg6 = reg_val; break;
+                        case 7u: comp->reg7 = reg_val; break;
+                        default: break;
+                    }
+                    comp->render_dirty = 1u;
+                } else if ((cmd & 0x40u) != 0u) {
                     comp->vdp_addr = (uint16_t)(addr & 0x3FFFu);
                 } else {
                     comp->vdp_addr = (uint16_t)(addr & 0x3FFFu);
@@ -7705,9 +9098,41 @@ void z80_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
         if (p == 0xA8u) {
             comp->slot_select = value;
         } else if (p == 0xAAu) {
-            comp->keyboard_row = (uint8_t)(value & 0x0Fu);
+            comp->port_c = value;
+            {
+                uint8_t lo = (uint8_t)(comp->port_c & 0x0Fu);
+                uint8_t hi = (uint8_t)((comp->port_c >> 4) & 0x0Fu);
+                if (lo <= 10u) {
+                    comp->keyboard_row = lo;
+                } else if (hi <= 10u) {
+                    comp->keyboard_row = hi;
+                } else {
+                    comp->keyboard_row = lo;
+                }
+            }
         } else if (p == 0xABu) {
-            comp->control_reg = value;
+            if ((value & 0x80u) != 0u) {
+                comp->control_reg = value;
+            } else {
+                uint8_t bit = (uint8_t)((value >> 1) & 0x07u);
+                uint8_t mask = (uint8_t)(1u << bit);
+                if ((value & 0x01u) != 0u) {
+                    comp->port_c = (uint8_t)(comp->port_c | mask);
+                } else {
+                    comp->port_c = (uint8_t)(comp->port_c & (uint8_t)~mask);
+                }
+                {
+                    uint8_t lo = (uint8_t)(comp->port_c & 0x0Fu);
+                    uint8_t hi = (uint8_t)((comp->port_c >> 4) & 0x0Fu);
+                    if (lo <= 10u) {
+                        comp->keyboard_row = lo;
+                    } else if (hi <= 10u) {
+                        comp->keyboard_row = hi;
+                    } else {
+                        comp->keyboard_row = lo;
+                    }
+                }
+            }
         }
     }
     {
@@ -7717,10 +9142,42 @@ void z80_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
         if (p == 0xA0u) {
             comp->selected_reg = (uint8_t)(value & 0x0Fu);
         } else if (p == 0xA1u) {
-            uint8_t level = (uint8_t)(value & 0x0Fu);
-            if (comp->selected_reg == 8u) comp->level_a = level;
-            if (comp->selected_reg == 9u) comp->level_b = level;
-            if (comp->selected_reg == 10u) comp->level_c = level;
+            uint8_t reg = (uint8_t)(comp->selected_reg & 0x0Fu);
+            uint8_t v = (uint8_t)value;
+            switch (reg) {
+                case 0u: comp->reg0 = v; break;
+                case 1u: comp->reg1 = v; break;
+                case 2u: comp->reg2 = v; break;
+                case 3u: comp->reg3 = v; break;
+                case 4u: comp->reg4 = v; break;
+                case 5u: comp->reg5 = v; break;
+                case 6u: comp->reg6 = v; break;
+                case 7u: comp->reg7 = v; break;
+                case 8u: comp->reg8 = v; comp->level_a = (uint8_t)(v & 0x0Fu); break;
+                case 9u: comp->reg9 = v; comp->level_b = (uint8_t)(v & 0x0Fu); break;
+                case 10u: comp->reg10 = v; comp->level_c = (uint8_t)(v & 0x0Fu); break;
+                case 11u: comp->reg11 = v; break;
+                case 12u: comp->reg12 = v; break;
+                case 13u: {
+                    comp->reg13 = v;
+                    comp->env_continue = (uint8_t)((v >> 3) & 1u);
+                    comp->env_attack = (uint8_t)((v >> 2) & 1u);
+                    comp->env_alternate = (uint8_t)((v >> 1) & 1u);
+                    comp->env_hold = (uint8_t)(v & 1u);
+                    if (comp->env_continue == 0u) {
+                        comp->env_hold = 1u;
+                        comp->env_alternate = 0u;
+                    }
+                    comp->env_holding = 0u;
+                    comp->env_volume = (comp->env_attack != 0u) ? 0 : 15;
+                    comp->env_direction = (comp->env_attack != 0u) ? 1 : -1;
+                    comp->env_ctr = 1u;
+                    break;
+                }
+                case 14u: comp->reg14 = v; break;
+                case 15u: comp->reg15 = v; break;
+                default: break;
+            }
         }
     }
     if (port >= cpu->port_size) return;
@@ -7733,6 +9190,7 @@ void z80_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
 void z80_interrupt(CPUState *cpu, uint8_t vector) {
     cpu->interrupt_vector = vector;
     cpu->interrupt_pending = true;
+    cpu_irq_trace(cpu, "request", vector, 0u);
 }
 
 void z80_set_interrupt_mode(CPUState *cpu, uint8_t mode) {
@@ -7746,8 +9204,8 @@ void z80_set_irq(CPUState *cpu, bool enabled) {
 
 /* ===== Debug ===== */
 void z80_dump_registers(CPUState *cpu) {
-    printf("PC: 0x%04X SP: 0x%04X Flags: 0x%02X\n", cpu->pc, cpu->sp, cpu->flags.raw);
-    for (int i = 0; i < 8; i++) {
+    printf("PC: 0x%04X SP: 0x%04X Flags: 0x%02X\n", cpu->pc, cpu->sp, (uint8_t)((((cpu->flags.raw >> 7) & 1u) << 0) | (((cpu->flags.raw >> 6) & 1u) << 1) | (((cpu->flags.raw >> 4) & 1u) << 2) | (((cpu->flags.raw >> 2) & 1u) << 3) | (((cpu->flags.raw >> 1) & 1u) << 4) | (((cpu->flags.raw >> 0) & 1u) << 5)));
+    for (int i = 0; i < 20; i++) {
         printf("R%d: 0x%02X ", i, cpu->registers[i]);
     }
     printf("\n");
@@ -7853,7 +9311,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "JP %s", op_0);
@@ -7867,7 +9325,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "JP Z, %s", op_0);
@@ -7881,7 +9339,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "JP NZ, %s", op_0);
@@ -7895,7 +9353,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "JP NC, %s", op_0);
@@ -7909,7 +9367,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "JP C, %s", op_0);
@@ -7923,7 +9381,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "JP PO, %s", op_0);
@@ -7937,7 +9395,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "JP PE, %s", op_0);
@@ -7951,7 +9409,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "JP P, %s", op_0);
@@ -7965,7 +9423,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "JP M, %s", op_0);
@@ -8033,7 +9491,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "CALL %s", op_0);
@@ -8047,7 +9505,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "CALL Z, %s", op_0);
@@ -8061,7 +9519,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "CALL NZ, %s", op_0);
@@ -8075,7 +9533,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "CALL C, %s", op_0);
@@ -8089,7 +9547,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "CALL NC, %s", op_0);
@@ -8103,7 +9561,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "CALL PO, %s", op_0);
@@ -8117,7 +9575,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "CALL PE, %s", op_0);
@@ -8131,7 +9589,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "CALL P, %s", op_0);
@@ -8145,7 +9603,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "CALL M, %s", op_0);
@@ -8299,7 +9757,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD A, %s", op_0);
@@ -8313,7 +9771,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD B, %s", op_0);
@@ -8327,7 +9785,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD C, %s", op_0);
@@ -8341,7 +9799,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD D, %s", op_0);
@@ -8355,7 +9813,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD E, %s", op_0);
@@ -8369,7 +9827,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD H, %s", op_0);
@@ -8383,7 +9841,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD L, %s", op_0);
@@ -8397,7 +9855,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD IX, %s", op_0);
@@ -8411,7 +9869,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD IY, %s", op_0);
@@ -8425,7 +9883,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD SP, %s", op_0);
@@ -8451,7 +9909,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD BC, %s", op_0);
@@ -8465,7 +9923,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD DE, %s", op_0);
@@ -8479,10 +9937,10 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
-                            (void)snprintf(rendered, sizeof(rendered), "LD HL, (%s)", op_0);
+                            (void)snprintf(rendered, sizeof(rendered), "LD HL, %s", op_0);
                             mnemonic = rendered;
                         }
                     }
@@ -8493,7 +9951,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD (%s), A", op_0);
@@ -8515,7 +9973,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD A, (%s)", op_0);
@@ -8537,7 +9995,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD (HL), %s", op_0);
@@ -8551,7 +10009,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD (%s), HL", op_0);
@@ -8565,10 +10023,10 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
-                            (void)snprintf(rendered, sizeof(rendered), "LD HL, (%s)", op_0);
+                            (void)snprintf(rendered, sizeof(rendered), "LD HL, %s", op_0);
                             mnemonic = rendered;
                         }
                     }
@@ -8579,7 +10037,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD (%s), IX", op_0);
@@ -8593,7 +10051,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD IX, (%s)", op_0);
@@ -8607,7 +10065,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD (%s), IY", op_0);
@@ -8621,7 +10079,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD IY, (%s)", op_0);
@@ -8635,7 +10093,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD (%s), BC", op_0);
@@ -8649,7 +10107,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD (%s), DE", op_0);
@@ -8663,7 +10121,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD (%s), HL", op_0);
@@ -8677,7 +10135,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD (%s), SP", op_0);
@@ -8691,7 +10149,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD BC, (%s)", op_0);
@@ -8705,7 +10163,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD DE, (%s)", op_0);
@@ -8719,10 +10177,10 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
-                            (void)snprintf(rendered, sizeof(rendered), "LD HL, (%s)", op_0);
+                            (void)snprintf(rendered, sizeof(rendered), "LD HL, %s", op_0);
                             mnemonic = rendered;
                         }
                     }
@@ -8733,7 +10191,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%04X", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%04Xh", (unsigned int)(((uint32_t)inst.addr) & 0xFFFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD SP, (%s)", op_0);
@@ -8999,7 +10457,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         op_0 = op_buf_0;
                         const char *op_1 = "<?>";
                         char op_buf_1[40];
-                        (void)snprintf(op_buf_1, sizeof(op_buf_1), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_1, sizeof(op_buf_1), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_1 = op_buf_1;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD (IX+%s), %s", op_0, op_1);
@@ -9017,7 +10475,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         op_0 = op_buf_0;
                         const char *op_1 = "<?>";
                         char op_buf_1[40];
-                        (void)snprintf(op_buf_1, sizeof(op_buf_1), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_1, sizeof(op_buf_1), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_1 = op_buf_1;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD (IY+%s), %s", op_0, op_1);
@@ -9031,7 +10489,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD IXH, %s", op_0);
@@ -9045,7 +10503,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD IXL, %s", op_0);
@@ -9059,7 +10517,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD IYH, %s", op_0);
@@ -9073,7 +10531,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "LD IYL, %s", op_0);
@@ -9129,7 +10587,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "IN A, (%s)", op_0);
@@ -9143,7 +10601,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "OUT (%s), A", op_0);
@@ -9335,7 +10793,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "ADD A, %s", op_0);
@@ -9349,7 +10807,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "SUB A, %s", op_0);
@@ -9363,7 +10821,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "ADC A, %s", op_0);
@@ -9377,7 +10835,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "SBC A, %s", op_0);
@@ -9801,7 +11259,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "AND A, %s", op_0);
@@ -9815,7 +11273,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "XOR A, %s", op_0);
@@ -9829,7 +11287,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "OR A, %s", op_0);
@@ -9843,7 +11301,7 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
                         bool render_ok = true;
                         const char *op_0 = "<?>";
                         char op_buf_0[40];
-                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "0x%02X", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
+                        (void)snprintf(op_buf_0, sizeof(op_buf_0), "%02Xh", (unsigned int)(((uint32_t)inst.n) & 0xFFu));
                         op_0 = op_buf_0;
                         if (render_ok) {
                             (void)snprintf(rendered, sizeof(rendered), "CP A, %s", op_0);

@@ -32,6 +32,7 @@ typedef enum {
     PASM_ARCH_MOS6510 = 2,
     PASM_ARCH_MOTOROLA68000 = 3,
     PASM_ARCH_RICOH2A03 = 4,
+    PASM_ARCH_MC6809 = 5,
     PASM_ARCH_UNKNOWN = 255,
 } PASMArchitecture;
 
@@ -51,7 +52,7 @@ typedef struct {
 
 typedef struct {
     char target_name[64];
-    char status_line[128];
+    char status_line[256];
     uint8_t mode;
     uint8_t architecture;
     uint64_t system_clock_hz;
@@ -180,7 +181,12 @@ int z80_dbg_toggle_breakpoint(CPUState *cpu, uint64_t address);
 int z80_dbg_select_thread(CPUState *cpu, uint32_t thread_id);
 int z80_dbg_jump_frame(CPUState *cpu, size_t frame_index);
 int z80_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
+int z80_dbg_clear_memory(CPUState *cpu);
+int z80_dbg_clear_history(CPUState *cpu);
 int z80_dbg_set_pc(CPUState *cpu, uint64_t address);
+int z80_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
+int z80_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
+int z80_dbg_focus_host_window(CPUState *cpu);
 
 /* Generic bridge symbols for architecture-agnostic debugger frontends. */
 CPUState *pasm_dbg_create(size_t memory_size);
@@ -188,6 +194,7 @@ void pasm_dbg_destroy(CPUState *cpu);
 void pasm_dbg_reset(CPUState *cpu);
 int pasm_dbg_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int pasm_dbg_load_system_roms(CPUState *cpu, const char *system_base_dir);
+int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path);
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
 int pasm_dbg_snapshot_fill(
     CPUState *cpu,
@@ -215,7 +222,12 @@ int pasm_dbg_toggle_breakpoint(CPUState *cpu, uint64_t address);
 int pasm_dbg_select_thread(CPUState *cpu, uint32_t thread_id);
 int pasm_dbg_jump_frame(CPUState *cpu, size_t frame_index);
 int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
+int pasm_dbg_clear_memory(CPUState *cpu);
+int pasm_dbg_clear_history(CPUState *cpu);
 int pasm_dbg_set_pc(CPUState *cpu, uint64_t address);
+int pasm_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
+int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
+int pasm_dbg_focus_host_window(CPUState *cpu);
 const char *pasm_dbg_processor_name(void);
 const char *pasm_dbg_system_name(void);
 uint8_t pasm_dbg_architecture(void);

@@ -13,7 +13,7 @@ void print_usage(const char *prog) {
     printf("Options:\n");
     printf("  --system-dir <dir>  Load system ROM manifests relative to this directory\n");
     printf("  --rom <file>    Load ROM file\n");
-    printf("  --cart-rom <file>  Load cartridge ROM file (overrides generated default)\n");
+
     printf("  --addr <addr>   Load address (default: 0x0000)\n");
     printf("  --run           Run emulator\n");
     printf("  --cycles <n>    Run for n cycles\n");
@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
     uint64_t max_cycles = 0;
     const char *system_dir = NULL;
     const char *rom_file = NULL;
-    const char *cart_rom_file = "/home/dvlop/projects/pasm/examples/roms/atari800xl/Star_Raiders_1979_Atari_US.rom";
+
     uint16_t load_addr = 0;
     const char *test_name = NULL;
     
@@ -41,8 +41,6 @@ int main(int argc, char *argv[]) {
             system_dir = argv[++i];
         } else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {
             rom_file = argv[++i];
-        } else if (strcmp(argv[i], "--cart-rom") == 0 && i + 1 < argc) {
-            cart_rom_file = argv[++i];
         } else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--run") == 0) {
@@ -66,14 +64,6 @@ int main(int argc, char *argv[]) {
         printf("Loaded system ROMs from: %s\n", system_dir);
     }
     
-    if (cart_rom_file && cart_rom_file[0]) {
-        if (mos6502_load_cartridge_rom(cpu, cart_rom_file) != 0) {
-            fprintf(stderr, "Failed to load cartridge ROM: %s\n", cart_rom_file);
-            return 1;
-        }
-        mos6502_reset(cpu);
-        printf("Loaded cartridge ROM: %s\n", cart_rom_file);
-    }
     if (rom_file) {
         if (mos6502_load_rom(cpu, rom_file, load_addr) != 0) {
             fprintf(stderr, "Failed to load ROM: %s\n", rom_file);

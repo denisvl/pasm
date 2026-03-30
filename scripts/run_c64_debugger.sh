@@ -25,12 +25,11 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
 PROCESSOR="examples/processors/mos6510.yaml"
-SYSTEM_DIR="examples/systems"
 IC_IO="examples/ics/c64/c64_io.yaml"
 DEVICE_KB="examples/devices/c64/c64_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/c64/c64_video.yaml"
 DEVICE_SPK="examples/devices/c64/c64_speaker.yaml"
-HOST_INTERACTIVE="examples/hosts/c64/c64_host_sdl2_interactive.yaml"
+HOST_INTERACTIVE="examples/hosts/c64/c64_host_hal_interactive.yaml"
 
 case "${PROFILE}" in
   default)
@@ -48,6 +47,8 @@ case "${PROFILE}" in
     ;;
 esac
 
+SYSTEM_DIR="$(dirname "${SYSTEM}")"
+
 OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
@@ -63,6 +64,7 @@ if [[ "${PROFILE}" == "interactive" ]]; then
     --device "${DEVICE_VIDEO}" \
     --device "${DEVICE_SPK}" \
     --host "${HOST_INTERACTIVE}" \
+    --host-backend "${HOST_BACKEND:-sdl2}" \
     --output "${OUTPUT_DIR}"
 else
   uv run python -m src.main generate \
