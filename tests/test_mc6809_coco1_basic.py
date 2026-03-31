@@ -1,6 +1,8 @@
 import pathlib
 import uuid
 
+import yaml
+
 from src import generator as gen_mod
 from src.parser import yaml_loader
 
@@ -83,9 +85,15 @@ def test_coco1_keyboard_wiring_and_bindings():
     keyboard = next(comp for comp in data["devices"] if comp["metadata"]["id"] == "keyboard_coco")
     callbacks = {cb["name"] for cb in keyboard["interfaces"]["callbacks"]}
     assert {"read_row", "host_matrix"} <= callbacks
-    assert host["input"]["keyboard"]["focus_required"] is True
+    assert "input" not in host
     host_callbacks = {cb["name"] for cb in host["interfaces"]["callbacks"]}
     assert {"keyboard_matrix", "joystick_axis", "joystick_button"} <= host_callbacks
+
+    keymap_data = yaml.safe_load(
+        (BASE_DIR / "examples" / "hosts" / "coco1" / "host_keyboard_coco.yaml").read_text(encoding="utf-8")
+    )
+    assert keymap_data["keyboard"]["kind"] == "matrix"
+    assert keymap_data["keyboard"]["focus_required"] is True
 
     conn_pairs = {
         (
@@ -131,7 +139,7 @@ def test_coco1_keyboard_wiring_and_bindings():
         "joystick_button",
     ) in conn_pairs
 
-    bindings = host["input"]["keyboard"]["bindings"]
+    bindings = keymap_data["keyboard"]["bindings"]
     binding_map = {b["host_key"]: {(p["row"], p["bit"]) for p in b["presses"]} for b in bindings}
     assert (0, 1) in binding_map["A"]
     assert (6, 2) in binding_map["ESCAPE"]

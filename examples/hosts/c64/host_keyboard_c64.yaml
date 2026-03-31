@@ -1,0 +1,300 @@
+keyboard:
+  kind: matrix
+  focus_required: false
+  bindings:
+  - host_key: BACKSPACE
+    presses:
+    - row: 0
+      bit: 0
+  - host_key: RETURN
+    presses:
+    - row: 0
+      bit: 1
+  - host_key: RIGHT
+    presses:
+    - row: 0
+      bit: 2
+  - host_key: LEFT
+    presses:
+    - row: 0
+      bit: 2
+    - row: 1
+      bit: 7
+  - host_key: F7
+    presses:
+    - row: 0
+      bit: 3
+  - host_key: F8
+    presses:
+    - row: 0
+      bit: 3
+    - row: 1
+      bit: 7
+  - host_key: F1
+    presses:
+    - row: 0
+      bit: 4
+  - host_key: F2
+    presses:
+    - row: 0
+      bit: 4
+    - row: 1
+      bit: 7
+  - host_key: F3
+    presses:
+    - row: 0
+      bit: 5
+  - host_key: F4
+    presses:
+    - row: 0
+      bit: 5
+    - row: 1
+      bit: 7
+  - host_key: F5
+    presses:
+    - row: 0
+      bit: 6
+  - host_key: F6
+    presses:
+    - row: 0
+      bit: 6
+    - row: 1
+      bit: 7
+  - host_key: DOWN
+    presses:
+    - row: 0
+      bit: 7
+  - host_key: UP
+    presses:
+    - row: 0
+      bit: 7
+    - row: 1
+      bit: 7
+  - host_key: '3'
+    presses:
+    - row: 1
+      bit: 0
+  - host_key: W
+    presses:
+    - row: 1
+      bit: 1
+  - host_key: A
+    presses:
+    - row: 1
+      bit: 2
+  - host_key: '4'
+    presses:
+    - row: 1
+      bit: 3
+  - host_key: Z
+    presses:
+    - row: 1
+      bit: 4
+  - host_key: S
+    presses:
+    - row: 1
+      bit: 5
+  - host_key: E
+    presses:
+    - row: 1
+      bit: 6
+  - host_key: LSHIFT
+    presses:
+    - row: 1
+      bit: 7
+  - host_key: '5'
+    presses:
+    - row: 2
+      bit: 0
+  - host_key: R
+    presses:
+    - row: 2
+      bit: 1
+  - host_key: D
+    presses:
+    - row: 2
+      bit: 2
+  - host_key: '6'
+    presses:
+    - row: 2
+      bit: 3
+  - host_key: C
+    presses:
+    - row: 2
+      bit: 4
+  - host_key: F
+    presses:
+    - row: 2
+      bit: 5
+  - host_key: T
+    presses:
+    - row: 2
+      bit: 6
+  - host_key: X
+    presses:
+    - row: 2
+      bit: 7
+  - host_key: '7'
+    presses:
+    - row: 3
+      bit: 0
+  - host_key: Y
+    presses:
+    - row: 3
+      bit: 1
+  - host_key: G
+    presses:
+    - row: 3
+      bit: 2
+  - host_key: '8'
+    presses:
+    - row: 3
+      bit: 3
+  - host_key: B
+    presses:
+    - row: 3
+      bit: 4
+  - host_key: H
+    presses:
+    - row: 3
+      bit: 5
+  - host_key: U
+    presses:
+    - row: 3
+      bit: 6
+  - host_key: V
+    presses:
+    - row: 3
+      bit: 7
+  - host_key: '9'
+    presses:
+    - row: 4
+      bit: 0
+  - host_key: I
+    presses:
+    - row: 4
+      bit: 1
+  - host_key: J
+    presses:
+    - row: 4
+      bit: 2
+  - host_key: '0'
+    presses:
+    - row: 4
+      bit: 3
+  - host_key: M
+    presses:
+    - row: 4
+      bit: 4
+  - host_key: K
+    presses:
+    - row: 4
+      bit: 5
+  - host_key: O
+    presses:
+    - row: 4
+      bit: 6
+  - host_key: N
+    presses:
+    - row: 4
+      bit: 7
+  - host_key: EQUALS
+    presses:
+    - row: 5
+      bit: 0
+  - host_key: P
+    presses:
+    - row: 5
+      bit: 1
+  - host_key: L
+    presses:
+    - row: 5
+      bit: 2
+  - host_key: MINUS
+    presses:
+    - row: 5
+      bit: 3
+  - host_key: PERIOD
+    presses:
+    - row: 5
+      bit: 4
+  - host_key: SEMICOLON
+    presses:
+    - row: 5
+      bit: 5
+  - host_key: LEFTBRACKET
+    presses:
+    - row: 5
+      bit: 6
+  - host_key: COMMA
+    presses:
+    - row: 5
+      bit: 7
+  - host_key: BACKSLASH
+    presses:
+    - row: 6
+      bit: 0
+  - host_key: RIGHTBRACKET
+    presses:
+    - row: 6
+      bit: 1
+  - host_key: APOSTROPHE
+    presses:
+    - row: 6
+      bit: 2
+  - host_key: HOME
+    presses:
+    - row: 6
+      bit: 3
+  - host_key: RSHIFT
+    presses:
+    - row: 6
+      bit: 4
+  - host_key: NONUSBACKSLASH
+    presses:
+    - row: 6
+      bit: 4
+  - host_key: GRAVE
+    presses:
+    - row: 6
+      bit: 5
+  - host_key: SLASH
+    presses:
+    - row: 6
+      bit: 7
+  - host_key: '1'
+    presses:
+    - row: 7
+      bit: 0
+  - host_key: '2'
+    presses:
+    - row: 7
+      bit: 3
+  - host_key: SPACE
+    presses:
+    - row: 7
+      bit: 4
+  - host_key: LALT
+    presses:
+    - row: 7
+      bit: 5
+  - host_key: RALT
+    presses:
+    - row: 7
+      bit: 5
+  - host_key: Q
+    presses:
+    - row: 7
+      bit: 6
+  - host_key: ESCAPE
+    presses:
+    - row: 7
+      bit: 7
+  - host_key: LCTRL
+    presses:
+    - row: 7
+      bit: 2
+  - host_key: RCTRL
+    presses:
+    - row: 7
+      bit: 2

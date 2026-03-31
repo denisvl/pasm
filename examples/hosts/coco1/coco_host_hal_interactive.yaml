@@ -2,862 +2,477 @@ metadata:
   id: host_coco
   type: host_adapter
   model: coco_hal_interactive
-  version: "1.0"
-
-
+  version: '1.0'
 state:
-  - name: host_inited
-    type: uint8_t
-    initial: "0"
-  - name: window
-    type: void *
-    initial: "NULL"
-  - name: renderer
-    type: void *
-    initial: "NULL"
-  - name: texture
-    type: void *
-    initial: "NULL"
-  - name: texture_w
-    type: uint32_t
-    initial: "256"
-  - name: texture_h
-    type: uint32_t
-    initial: "192"
-  - name: audio_out_dev
-    type: uint32_t
-    initial: "0"
-  - name: audio_device_samples
-    type: uint32_t
-    initial: "0"
-  - name: audio_out_ready
-    type: uint8_t
-    initial: "0"
-  - name: frame_count
-    type: uint32_t
-    initial: "0"
-  - name: irq_edges
-    type: uint32_t
-    initial: "0"
-  - name: audio_samples
-    type: uint32_t
-    initial: "0"
-  - name: audio_level
-    type: int16_t
-    initial: "0"
-  - name: audio_last_cycle
-    type: uint64_t
-    initial: "0"
-  - name: audio_sample_cursor
-    type: uint64_t
-    initial: "0"
-  - name: audio_rate
-    type: uint32_t
-    initial: "0"
-  - name: audio_ring
-    type: int16_t *
-    initial: "NULL"
-  - name: audio_ring_capacity
-    type: uint32_t
-    initial: "0"
-  - name: audio_ring_read_idx
-    type: uint32_t
-    initial: "0"
-  - name: audio_ring_write_idx
-    type: uint32_t
-    initial: "0"
-  - name: audio_ring_fill
-    type: uint32_t
-    initial: "0"
-  - name: has_keyboard_focus
-    type: uint8_t
-    initial: "0"
-  - name: last_focus_state
-    type: uint8_t
-    initial: "0"
-  - name: last_event_poll_cycle
-    type: uint64_t
-    initial: "0"
-  - name: overlay_last_ms
-    type: uint32_t
-    initial: "0"
-  - name: overlay_last_frame_count
-    type: uint64_t
-    initial: "0"
-  - name: overlay_last_cycle_count
-    type: uint64_t
-    initial: "0"
-  - name: overlay_fps_x100
-    type: uint32_t
-    initial: "0"
-  - name: overlay_cpu_hz
-    type: uint64_t
-    initial: "0"
-  - name: overlay_cpu_pct_x10
-    type: uint32_t
-    initial: "0"
-  - name: row0
-    type: uint8_t
-    initial: "0xFF"
-  - name: row1
-    type: uint8_t
-    initial: "0xFF"
-  - name: row2
-    type: uint8_t
-    initial: "0xFF"
-  - name: row3
-    type: uint8_t
-    initial: "0xFF"
-  - name: row4
-    type: uint8_t
-    initial: "0xFF"
-  - name: row5
-    type: uint8_t
-    initial: "0xFF"
-  - name: row6
-    type: uint8_t
-    initial: "0xFF"
-  - name: row7
-    type: uint8_t
-    initial: "0xFF"
-  - name: joy1_axis_x
-    type: uint8_t
-    initial: "0x20"
-  - name: joy1_axis_y
-    type: uint8_t
-    initial: "0x20"
-  - name: joy2_axis_x
-    type: uint8_t
-    initial: "0xFF"
-  - name: joy2_axis_y
-    type: uint8_t
-    initial: "0xFF"
-  - name: joy1_button
-    type: uint8_t
-    initial: "0"
-  - name: joy2_button
-    type: uint8_t
-    initial: "0"
-  - name: joy1_connected
-    type: uint8_t
-    initial: "1"
-  - name: joy2_connected
-    type: uint8_t
-    initial: "0"
-  - name: active_joy_port
-    type: uint8_t
-    initial: "1"
-
+- name: host_inited
+  type: uint8_t
+  initial: '0'
+- name: window
+  type: void *
+  initial: 'NULL'
+- name: renderer
+  type: void *
+  initial: 'NULL'
+- name: texture
+  type: void *
+  initial: 'NULL'
+- name: texture_w
+  type: uint32_t
+  initial: '256'
+- name: texture_h
+  type: uint32_t
+  initial: '192'
+- name: audio_out_dev
+  type: uint32_t
+  initial: '0'
+- name: audio_device_samples
+  type: uint32_t
+  initial: '0'
+- name: audio_out_ready
+  type: uint8_t
+  initial: '0'
+- name: frame_count
+  type: uint32_t
+  initial: '0'
+- name: irq_edges
+  type: uint32_t
+  initial: '0'
+- name: audio_samples
+  type: uint32_t
+  initial: '0'
+- name: audio_level
+  type: int16_t
+  initial: '0'
+- name: audio_last_cycle
+  type: uint64_t
+  initial: '0'
+- name: audio_sample_cursor
+  type: uint64_t
+  initial: '0'
+- name: audio_rate
+  type: uint32_t
+  initial: '0'
+- name: audio_ring
+  type: int16_t *
+  initial: 'NULL'
+- name: audio_ring_capacity
+  type: uint32_t
+  initial: '0'
+- name: audio_ring_read_idx
+  type: uint32_t
+  initial: '0'
+- name: audio_ring_write_idx
+  type: uint32_t
+  initial: '0'
+- name: audio_ring_fill
+  type: uint32_t
+  initial: '0'
+- name: has_keyboard_focus
+  type: uint8_t
+  initial: '0'
+- name: last_focus_state
+  type: uint8_t
+  initial: '0'
+- name: last_event_poll_cycle
+  type: uint64_t
+  initial: '0'
+- name: overlay_last_ms
+  type: uint32_t
+  initial: '0'
+- name: overlay_last_frame_count
+  type: uint64_t
+  initial: '0'
+- name: overlay_last_cycle_count
+  type: uint64_t
+  initial: '0'
+- name: overlay_fps_x100
+  type: uint32_t
+  initial: '0'
+- name: overlay_cpu_hz
+  type: uint64_t
+  initial: '0'
+- name: overlay_cpu_pct_x10
+  type: uint32_t
+  initial: '0'
+- name: row0
+  type: uint8_t
+  initial: '0xFF'
+- name: row1
+  type: uint8_t
+  initial: '0xFF'
+- name: row2
+  type: uint8_t
+  initial: '0xFF'
+- name: row3
+  type: uint8_t
+  initial: '0xFF'
+- name: row4
+  type: uint8_t
+  initial: '0xFF'
+- name: row5
+  type: uint8_t
+  initial: '0xFF'
+- name: row6
+  type: uint8_t
+  initial: '0xFF'
+- name: row7
+  type: uint8_t
+  initial: '0xFF'
+- name: joy1_axis_x
+  type: uint8_t
+  initial: '0x20'
+- name: joy1_axis_y
+  type: uint8_t
+  initial: '0x20'
+- name: joy2_axis_x
+  type: uint8_t
+  initial: '0xFF'
+- name: joy2_axis_y
+  type: uint8_t
+  initial: '0xFF'
+- name: joy1_button
+  type: uint8_t
+  initial: '0'
+- name: joy2_button
+  type: uint8_t
+  initial: '0'
+- name: joy1_connected
+  type: uint8_t
+  initial: '1'
+- name: joy2_connected
+  type: uint8_t
+  initial: '0'
+- name: active_joy_port
+  type: uint8_t
+  initial: '1'
 interfaces:
   callbacks:
-    - name: keyboard_matrix
-      args: [u8]
-      returns: u8
-    - name: joystick_axis
-      args: [u8]
-      returns: u8
-    - name: joystick_button
-      args: [u8]
-      returns: u8
+  - name: keyboard_matrix
+    args:
+    - u8
+    returns: u8
+  - name: joystick_axis
+    args:
+    - u8
+    returns: u8
+  - name: joystick_button
+    args:
+    - u8
+    returns: u8
   handlers:
-    - name: video_frame
-      args: [u32, u64, u32, u32]
-    - name: irq_edge
-      args: [u8]
-    - name: audio_pcm
-      args: [u8, u64]
+  - name: video_frame
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+  - name: irq_edge
+    args:
+    - u8
+  - name: audio_pcm
+    args:
+    - u8
+    - u64
   signals: []
-
-input:
-  keyboard:
-    focus_required: true
-    bindings:
-      # Row 0: @ A B C D E F G
-      - host_key: GRAVE
-        presses: [{ row: 0, bit: 0 }]
-      - host_key: A
-        presses: [{ row: 0, bit: 1 }]
-      - host_key: B
-        presses: [{ row: 0, bit: 2 }]
-      - host_key: C
-        presses: [{ row: 0, bit: 3 }]
-      - host_key: D
-        presses: [{ row: 0, bit: 4 }]
-      - host_key: E
-        presses: [{ row: 0, bit: 5 }]
-      - host_key: F
-        presses: [{ row: 0, bit: 6 }]
-      - host_key: G
-        presses: [{ row: 0, bit: 7 }]
-
-      # Row 1: H I J K L M N O
-      - host_key: H
-        presses: [{ row: 1, bit: 0 }]
-      - host_key: I
-        presses: [{ row: 1, bit: 1 }]
-      - host_key: J
-        presses: [{ row: 1, bit: 2 }]
-      - host_key: K
-        presses: [{ row: 1, bit: 3 }]
-      - host_key: L
-        presses: [{ row: 1, bit: 4 }]
-      - host_key: M
-        presses: [{ row: 1, bit: 5 }]
-      - host_key: N
-        presses: [{ row: 1, bit: 6 }]
-      - host_key: O
-        presses: [{ row: 1, bit: 7 }]
-
-      # Row 2: P Q R S T U V W
-      - host_key: P
-        presses: [{ row: 2, bit: 0 }]
-      - host_key: Q
-        presses: [{ row: 2, bit: 1 }]
-      - host_key: R
-        presses: [{ row: 2, bit: 2 }]
-      - host_key: S
-        presses: [{ row: 2, bit: 3 }]
-      - host_key: T
-        presses: [{ row: 2, bit: 4 }]
-      - host_key: U
-        presses: [{ row: 2, bit: 5 }]
-      - host_key: V
-        presses: [{ row: 2, bit: 6 }]
-      - host_key: W
-        presses: [{ row: 2, bit: 7 }]
-
-      # Row 3: X Y Z
-      - host_key: X
-        presses: [{ row: 3, bit: 0 }]
-      - host_key: Y
-        presses: [{ row: 3, bit: 1 }]
-      - host_key: Z
-        presses: [{ row: 3, bit: 2 }]
-
-      # Row 4: 0 1 2 3 4 5 6 7
-      - host_key: "0"
-        presses: [{ row: 4, bit: 0 }]
-      - host_key: "1"
-        presses: [{ row: 4, bit: 1 }]
-      - host_key: "2"
-        presses: [{ row: 4, bit: 2 }]
-      - host_key: "3"
-        presses: [{ row: 4, bit: 3 }]
-      - host_key: "4"
-        presses: [{ row: 4, bit: 4 }]
-      - host_key: "5"
-        presses: [{ row: 4, bit: 5 }]
-      - host_key: "6"
-        presses: [{ row: 4, bit: 6 }]
-      - host_key: "7"
-        presses: [{ row: 4, bit: 7 }]
-
-      # Row 5: 8 9 :* ;+ ,< -= .> /?
-      - host_key: "8"
-        presses: [{ row: 5, bit: 0 }]
-      - host_key: "9"
-        presses: [{ row: 5, bit: 1 }]
-      - host_key: MINUS
-        presses: [{ row: 5, bit: 5 }]
-      - host_key: EQUALS
-        presses: [{ row: 5, bit: 5 }, { row: 6, bit: 7 }]
-      - host_key: SEMICOLON
-        presses: [{ row: 5, bit: 3 }]
-      - host_key: APOSTROPHE
-        presses: [{ row: 4, bit: 7 }]
-      - host_key: SLASH
-        presses: [{ row: 5, bit: 7 }]
-      - host_key: COMMA
-        presses: [{ row: 5, bit: 4 }]
-      - host_key: PERIOD
-        presses: [{ row: 5, bit: 6 }]
-      - host_key: LEFTBRACKET
-        presses: [{ row: 3, bit: 4 }, { row: 6, bit: 7 }]
-      - host_key: RIGHTBRACKET
-        presses: [{ row: 3, bit: 6 }, { row: 6, bit: 7 }]
-      - host_key: NONUSBACKSLASH
-        presses: [{ row: 5, bit: 7 }]
-      - host_key: BACKSLASH
-        presses: [{ row: 6, bit: 1 }, { row: 6, bit: 7 }]
-
-      # Row 6: Enter Clear Break (CoCo 1 SHIFT is row 6, bit 7)
-      - host_key: RETURN
-        presses: [{ row: 6, bit: 0 }]
-      - host_key: KP_ENTER
-        presses: [{ row: 6, bit: 0 }]
-      - host_key: RETURN2
-        presses: [{ row: 6, bit: 0 }]
-      - host_key: HOME
-        presses: [{ row: 6, bit: 1 }]
-      - host_key: ESCAPE
-        presses: [{ row: 6, bit: 2 }]
-      - host_key: UP
-        presses: [{ row: 3, bit: 3 }]
-      - host_key: DOWN
-        presses: [{ row: 3, bit: 4 }]
-      - host_key: LEFT
-        presses: [{ row: 3, bit: 5 }]
-      - host_key: BACKSPACE
-        presses: [{ row: 3, bit: 5 }]
-      - host_key: DELETE
-        presses: [{ row: 3, bit: 5 }]
-      - host_key: RIGHT
-        presses: [{ row: 3, bit: 6 }]
-      - host_key: SPACE
-        presses: [{ row: 3, bit: 7 }]
-      - host_key: NONUSHASH
-        presses: [{ row: 0, bit: 0 }, { row: 6, bit: 7 }]
-
-      # CoCo 1 modifiers
-      - host_key: LSHIFT
-        presses: [{ row: 6, bit: 7 }, { row: 7, bit: 0 }]
-      - host_key: RSHIFT
-        presses: [{ row: 6, bit: 7 }, { row: 7, bit: 0 }]
-
 behavior:
   snippets:
-    init: |
-      do {
-          if (comp->host_inited != 0u) break;
-          if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) {
-              break;
-          }
-          comp->window = cpu_host_hal_create_window(
-              "PASM TRS-80 Color Computer 1",
-              CPU_HOST_WINDOWPOS_CENTERED,
-              CPU_HOST_WINDOWPOS_CENTERED,
-              768,
-              576,
-              CPU_HOST_WINDOW_RESIZABLE
-          );
-          if (comp->window == NULL) break;
-          comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, CPU_HOST_RENDERER_ACCELERATED);
-          if (comp->renderer == NULL) {
-              comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);
-          }
-          if (comp->renderer == NULL) break;
-          cpu_host_hal_start_text_input();
-          comp->texture = cpu_host_hal_create_texture(
-              comp->renderer,
-              CPU_HOST_PIXELFORMAT_ARGB8888,
-              CPU_HOST_TEXTUREACCESS_STREAMING,
-              256,
-              192
-          );
-          if (comp->texture == NULL) break;
-          {
-              const char *audio_env = cpu_host_hal_getenv("PASM_HOST_AUDIO");
-              if (audio_env == NULL || audio_env[0] != '0') {
-                  CPUHostAudioSpec want;
-                  CPUHostAudioSpec have;
-                  cpu_host_audio_spec_zero(&want);
-                  cpu_host_audio_spec_zero(&have);
-                  want.freq = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (int)CPU_AUDIO_SAMPLE_RATE : 44100;
-                  want.format = CPU_HOST_AUDIO_FORMAT_S16;
-                  want.channels = 1;
-                  want.samples = 512;
-                  want.callback = NULL;
-                  comp->audio_device_samples = 0u;
-                  comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have, CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE);
-                  if (comp->audio_out_dev != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels == 1) {
-                      uint32_t ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq * 2u) : 88200u;
-                      if (ring_capacity < 8192u) ring_capacity = 8192u;
-                      comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));
-                      if (comp->audio_ring != NULL) {
-                          comp->audio_rate = (have.freq > 0) ? (uint32_t)have.freq : 44100u;
-                          comp->audio_device_samples = (uint32_t)have.samples;
-                          comp->audio_ring_capacity = ring_capacity;
-                          comp->audio_ring_read_idx = 0u;
-                          comp->audio_ring_write_idx = 0u;
-                          comp->audio_ring_fill = 0u;
-                          comp->audio_out_ready = 1u;
-                          cpu_host_hal_audio_pause(comp->audio_out_dev, 0);
-                      } else {
-                          cpu_host_hal_audio_close(comp->audio_out_dev);
-                          comp->audio_out_dev = 0u;
-                          comp->audio_device_samples = 0u;
-                      }
-                  } else if (comp->audio_out_dev != 0u) {
-                      cpu_host_hal_audio_close(comp->audio_out_dev);
-                      comp->audio_out_dev = 0u;
-                      comp->audio_device_samples = 0u;
-                  }
-              }
-          }
-          comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
-          comp->last_focus_state = comp->has_keyboard_focus;
-          {
-              const char *joy1_env = cpu_host_hal_getenv("PASM_COCO_JOY1_CONNECTED");
-              const char *joy2_env = cpu_host_hal_getenv("PASM_COCO_JOY2_CONNECTED");
-              const char *active_joy_env = cpu_host_hal_getenv("PASM_COCO_ACTIVE_JOY");
-              uint8_t joy1_explicit = (uint8_t)((joy1_env != NULL && joy1_env[0] != '\0') ? 1u : 0u);
-              uint8_t joy2_explicit = (uint8_t)((joy2_env != NULL && joy2_env[0] != '\0') ? 1u : 0u);
-              comp->active_joy_port = (uint8_t)((active_joy_env != NULL && active_joy_env[0] == '2') ? 2u : 1u);
-              comp->joy1_connected = (joy1_explicit != 0u) ? (uint8_t)(joy1_env[0] != '0') : 1u;
-              comp->joy2_connected = (joy2_explicit != 0u) ? (uint8_t)(joy2_env[0] == '1') : 0u;
-              if (comp->active_joy_port == 1u && joy1_explicit == 0u) comp->joy1_connected = 1u;
-              if (comp->active_joy_port == 2u && joy2_explicit == 0u) comp->joy2_connected = 1u;
-          }
-          if (comp->window != NULL && comp->has_keyboard_focus == 0u) {
-              cpu_host_hal_raise_window(comp->window);
-          }
-          comp->host_inited = 1u;
-      } while (0);
-    reset: |
-      comp->row0 = 0xFFu;
-      comp->row1 = 0xFFu;
-      comp->row2 = 0xFFu;
-      comp->row3 = 0xFFu;
-      comp->row4 = 0xFFu;
-      comp->row5 = 0xFFu;
-      comp->row6 = 0xFFu;
-      comp->row7 = 0xFFu;
-      comp->joy1_axis_x = (comp->joy1_connected != 0u) ? 0x20u : 0xFFu;
-      comp->joy1_axis_y = (comp->joy1_connected != 0u) ? 0x20u : 0xFFu;
-      comp->joy2_axis_x = (comp->joy2_connected != 0u) ? 0x20u : 0xFFu;
-      comp->joy2_axis_y = (comp->joy2_connected != 0u) ? 0x20u : 0xFFu;
-      comp->joy1_button = 0u;
-      comp->joy2_button = 0u;
-      comp->frame_count = 0u;
-      comp->irq_edges = 0u;
-      comp->audio_samples = 0u;
-      comp->audio_level = 0;
-      comp->audio_last_cycle = 0u;
-      comp->audio_sample_cursor = 0u;
-      comp->audio_ring_read_idx = 0u;
-      comp->audio_ring_write_idx = 0u;
-      comp->audio_ring_fill = 0u;
-      comp->last_event_poll_cycle = 0u;
-      comp->overlay_last_ms = 0u;
-      comp->overlay_last_frame_count = 0u;
-      comp->overlay_last_cycle_count = 0u;
-      comp->overlay_fps_x100 = 0u;
-      comp->overlay_cpu_hz = 0u;
-      comp->overlay_cpu_pct_x10 = 0u;
-      if (comp->audio_out_dev != 0u) {
-          cpu_host_hal_audio_clear(comp->audio_out_dev);
-      }
-    step_post: |
-      if (comp->host_inited == 0u) return;
-      static int kb_trace = -1;
-      static FILE *kb_trace_fp = NULL;
-      static int joy_trace = -1;
-      static FILE *joy_trace_fp = NULL;
-      static uint8_t joy_prev_valid = 0u;
-      static uint8_t joy_prev_1x = 0u;
-      static uint8_t joy_prev_1y = 0u;
-      static uint8_t joy_prev_2x = 0u;
-      static uint8_t joy_prev_2y = 0u;
-      static uint8_t joy_prev_1b = 0u;
-      static uint8_t joy_prev_2b = 0u;
-      static uint8_t joy_prev_c1 = 0u;
-      static uint8_t joy_prev_c2 = 0u;
-      static uint8_t joy_prev_active = 0u;
-      if (kb_trace < 0) {
-          const char *trace_env = cpu_host_hal_getenv("PASM_COCO_KB_TRACE");
-          kb_trace = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
-          if (kb_trace != 0) {
-              const char *trace_file = cpu_host_hal_getenv("PASM_COCO_KB_TRACE_FILE");
-              if (trace_file == NULL || trace_file[0] == '\0') trace_file = "coco_kb_trace.log";
-              kb_trace_fp = fopen(trace_file, "a");
-          }
-      }
-      if (joy_trace < 0) {
-          const char *trace_env = cpu_host_hal_getenv("PASM_COCO_JOY_TRACE");
-          joy_trace = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
-          if (joy_trace != 0) {
-              const char *trace_file = cpu_host_hal_getenv("PASM_COCO_JOY_TRACE_FILE");
-              if (trace_file == NULL || trace_file[0] == '\0') trace_file = "coco_joy_trace.log";
-              joy_trace_fp = fopen(trace_file, "a");
-          }
-      }
-      uint64_t now = cpu->total_cycles;
-      if ((now - comp->last_event_poll_cycle) < 2048u) return;
-      comp->last_event_poll_cycle = now;
-      CPUHostEvent ev;
-      while (cpu_host_hal_poll_event(&ev)) {
-          if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {
-              cpu->running = false;
-              cpu->halted = true;
-          } else if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN || cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYUP) {
-              if (kb_trace != 0 && kb_trace_fp != NULL) {
-                  int32_t sc = cpu_host_hal_event_scancode(&ev);
-                  fprintf(
-                      kb_trace_fp,
-                      "coco-kb event=%s sc=%d name=%s repeat=%u focus=%u\n",
-                      (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN) ? "down" : "up",
-                      (int)sc,
-                      cpu_host_hal_scancode_name(sc),
-                      (unsigned)cpu_host_hal_event_key_repeat(&ev),
-                      (unsigned)comp->has_keyboard_focus
-                  );
-                  fflush(kb_trace_fp);
-              }
-          }
-      }
-      cpu_host_hal_pump_events();
-      comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
-      if (comp->has_keyboard_focus != comp->last_focus_state) {
-          comp->last_focus_state = comp->has_keyboard_focus;
-          if (comp->window != NULL) {
-              cpu_host_hal_set_window_title(
-                  comp->window,
-                  (comp->has_keyboard_focus != 0u) ? "PASM TRS-80 Color Computer 1 [FOCUS]" : "PASM TRS-80 Color Computer 1 [NO-FOCUS]"
-              );
-          }
-      }
-      {
-          sms_overlay_update_perf(
-              cpu_host_hal_ticks_ms(),
-              (uint64_t)comp->frame_count,
-              cpu->total_cycles,
-              (uint64_t)CPU_SYSTEM_CLOCK_HZ,
-              &comp->overlay_last_ms,
-              &comp->overlay_last_frame_count,
-              &comp->overlay_last_cycle_count,
-              &comp->overlay_fps_x100,
-              &comp->overlay_cpu_hz,
-              &comp->overlay_cpu_pct_x10
-          );
-      }
-      int key_count = 0;
-      const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
-      if (ks == NULL || key_count <= 0) return;
-      uint8_t rows[8] = {
-          0xFFu, 0xFFu, 0xFFu, 0xFFu,
-          0xFFu, 0xFFu, 0xFFu, 0xFFu
-      };
-      cpu_component_apply_declared_keymap(
-          cpu,
-          "host_coco",
-          ks,
-          (size_t)key_count,
-          rows,
-          8u,
-          comp->has_keyboard_focus
-      );
-      {
-          if (kb_trace != 0 && kb_trace_fp != NULL) {
-              uint8_t changed = 0u;
-              if (
-                  rows[0] != comp->row0 || rows[1] != comp->row1 || rows[2] != comp->row2 || rows[3] != comp->row3 ||
-                  rows[4] != comp->row4 || rows[5] != comp->row5 || rows[6] != comp->row6 || rows[7] != comp->row7
-              ) {
-                  changed = 1u;
-              }
-              if (changed != 0u) {
-                  fprintf(
-                      kb_trace_fp,
-                      "coco-kb matrix focus=%u rows=[%02X %02X %02X %02X %02X %02X %02X %02X]\n",
-                      (unsigned)comp->has_keyboard_focus,
-                      (unsigned)rows[0], (unsigned)rows[1], (unsigned)rows[2], (unsigned)rows[3],
-                      (unsigned)rows[4], (unsigned)rows[5], (unsigned)rows[6], (unsigned)rows[7]
-                  );
-                  fflush(kb_trace_fp);
-              }
-          }
-      }
-      comp->row0 = rows[0];
-      comp->row1 = rows[1];
-      comp->row2 = rows[2];
-      comp->row3 = rows[3];
-      comp->row4 = rows[4];
-      comp->row5 = rows[5];
-      comp->row6 = rows[6];
-      comp->row7 = rows[7];
-      {
-          uint8_t joy1_x = (comp->joy1_connected != 0u) ? 0x20u : 0xFFu;
-          uint8_t joy1_y = (comp->joy1_connected != 0u) ? 0x20u : 0xFFu;
-          uint8_t joy2_x = (comp->joy2_connected != 0u) ? 0x20u : 0xFFu;
-          uint8_t joy2_y = (comp->joy2_connected != 0u) ? 0x20u : 0xFFu;
-          uint8_t joy1_btn = 0u;
-          uint8_t joy2_btn = 0u;
-          {
-              uint8_t kp1 = ((size_t)CPU_HOST_SCANCODE(KP_1) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_1)] != 0u) ? 1u : 0u;
-              uint8_t kp2 = ((size_t)CPU_HOST_SCANCODE(KP_2) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_2)] != 0u) ? 1u : 0u;
-              uint8_t kp3 = ((size_t)CPU_HOST_SCANCODE(KP_3) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_3)] != 0u) ? 1u : 0u;
-              uint8_t kp4 = ((size_t)CPU_HOST_SCANCODE(KP_4) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_4)] != 0u) ? 1u : 0u;
-              uint8_t kp5 = ((size_t)CPU_HOST_SCANCODE(KP_5) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_5)] != 0u) ? 1u : 0u;
-              uint8_t kp6 = ((size_t)CPU_HOST_SCANCODE(KP_6) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_6)] != 0u) ? 1u : 0u;
-              uint8_t kp7 = ((size_t)CPU_HOST_SCANCODE(KP_7) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_7)] != 0u) ? 1u : 0u;
-              uint8_t kp8 = ((size_t)CPU_HOST_SCANCODE(KP_8) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_8)] != 0u) ? 1u : 0u;
-              uint8_t kp9 = ((size_t)CPU_HOST_SCANCODE(KP_9) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_9)] != 0u) ? 1u : 0u;
-              uint8_t kp_dot = ((size_t)CPU_HOST_SCANCODE(KP_PERIOD) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_PERIOD)] != 0u) ? 1u : 0u;
-              uint8_t lctrl = ((size_t)CPU_HOST_SCANCODE(LCTRL) < (size_t)key_count && ks[CPU_HOST_SCANCODE(LCTRL)] != 0u) ? 1u : 0u;
-              uint8_t rctrl = ((size_t)CPU_HOST_SCANCODE(RCTRL) < (size_t)key_count && ks[CPU_HOST_SCANCODE(RCTRL)] != 0u) ? 1u : 0u;
-              uint32_t mods = cpu_host_hal_get_mod_state();
-              if ((mods & CPU_HOST_MOD_LCTRL) != 0) lctrl = 1u;
-              uint8_t left = (uint8_t)((kp4 | kp7 | kp1) != 0u);
-              uint8_t right = (uint8_t)((kp6 | kp9 | kp3) != 0u);
-              uint8_t up = (uint8_t)((kp8 | kp7 | kp9) != 0u);
-              uint8_t down = (uint8_t)((kp2 | kp1 | kp3) != 0u);
-              uint8_t fire = (uint8_t)(((kp_dot != 0u) || (lctrl != 0u) || (rctrl != 0u)) ? 1u : 0u);
-              uint8_t target = comp->active_joy_port;
-              joy1_btn = 0u;
-              joy2_btn = 0u;
-              if (kp5 != 0u) {
-                  left = 0u; right = 0u; up = 0u; down = 0u;
-              }
-              if (target == 2u && comp->joy2_connected == 0u && comp->joy1_connected != 0u) target = 1u;
-              if (target == 1u && comp->joy1_connected == 0u && comp->joy2_connected != 0u) target = 2u;
-              if (target == 1u && comp->joy1_connected != 0u) {
-                  if (left != 0u && right == 0u) joy1_x = 0u;
-                  else if (right != 0u && left == 0u) joy1_x = 63u;
-                  if (up != 0u && down == 0u) joy1_y = 0u;
-                  else if (down != 0u && up == 0u) joy1_y = 63u;
-                  joy1_btn = fire;
-              }
-              if (target == 2u && comp->joy2_connected != 0u) {
-                  if (left != 0u && right == 0u) joy2_x = 0u;
-                  else if (right != 0u && left == 0u) joy2_x = 63u;
-                  if (up != 0u && down == 0u) joy2_y = 0u;
-                  else if (down != 0u && up == 0u) joy2_y = 63u;
-                  joy2_btn = fire;
-              }
-          }
-          comp->joy1_axis_x = joy1_x;
-          comp->joy1_axis_y = joy1_y;
-          comp->joy2_axis_x = joy2_x;
-          comp->joy2_axis_y = joy2_y;
-          comp->joy1_button = joy1_btn;
-          comp->joy2_button = joy2_btn;
-          if (joy_trace != 0 && joy_trace_fp != NULL) {
-              uint8_t changed = (uint8_t)(
-                  joy_prev_valid == 0u ||
-                  joy_prev_1x != comp->joy1_axis_x ||
-                  joy_prev_1y != comp->joy1_axis_y ||
-                  joy_prev_2x != comp->joy2_axis_x ||
-                  joy_prev_2y != comp->joy2_axis_y ||
-                  joy_prev_1b != comp->joy1_button ||
-                  joy_prev_2b != comp->joy2_button ||
-                  joy_prev_c1 != comp->joy1_connected ||
-                  joy_prev_c2 != comp->joy2_connected ||
-                  joy_prev_active != comp->active_joy_port
-              );
-              if (changed != 0u) {
-                  fprintf(
-                      joy_trace_fp,
-                      "coco-joy focus=%u active=%u conn=[%u,%u] axis=[%02X,%02X,%02X,%02X] btn=[%u,%u]\n",
-                      (unsigned)comp->has_keyboard_focus,
-                      (unsigned)comp->active_joy_port,
-                      (unsigned)comp->joy1_connected,
-                      (unsigned)comp->joy2_connected,
-                      (unsigned)comp->joy1_axis_x,
-                      (unsigned)comp->joy1_axis_y,
-                      (unsigned)comp->joy2_axis_x,
-                      (unsigned)comp->joy2_axis_y,
-                      (unsigned)(comp->joy1_button & 0x01u),
-                      (unsigned)(comp->joy2_button & 0x01u)
-                  );
-                  fflush(joy_trace_fp);
-                  joy_prev_valid = 1u;
-                  joy_prev_1x = comp->joy1_axis_x;
-                  joy_prev_1y = comp->joy1_axis_y;
-                  joy_prev_2x = comp->joy2_axis_x;
-                  joy_prev_2y = comp->joy2_axis_y;
-                  joy_prev_1b = comp->joy1_button;
-                  joy_prev_2b = comp->joy2_button;
-                  joy_prev_c1 = comp->joy1_connected;
-                  joy_prev_c2 = comp->joy2_connected;
-                  joy_prev_active = comp->active_joy_port;
-              }
-          }
-      }
-      if (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u && comp->audio_ring != NULL && comp->audio_ring_fill > 0u) {
-          uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
-          uint32_t device_samples = (comp->audio_device_samples > 0u) ? comp->audio_device_samples : 512u;
-          uint32_t low_watermark = device_samples * 2u;
-          uint32_t target_total = device_samples * 4u;
-          uint32_t max_total = device_samples * 8u;
-          uint32_t total_backlog = queued_samples + comp->audio_ring_fill;
-          if (total_backlog > max_total) {
-              uint32_t drop = total_backlog - max_total;
-              if (drop > comp->audio_ring_fill) {
-                  drop = comp->audio_ring_fill;
-              }
-              if (drop > 0u) {
-                  comp->audio_ring_read_idx = (comp->audio_ring_read_idx + drop) % comp->audio_ring_capacity;
-                  comp->audio_ring_fill -= drop;
-              }
-          }
-          if (queued_samples < low_watermark) {
-              uint32_t desired = target_total - queued_samples;
-              uint32_t to_send = (comp->audio_ring_fill < desired) ? comp->audio_ring_fill : desired;
-              while (to_send > 0u) {
-                  int16_t chunk[1024];
-                  uint32_t n = (to_send > 1024u) ? 1024u : to_send;
-                  for (uint32_t i = 0u; i < n; ++i) {
-                      chunk[i] = comp->audio_ring[comp->audio_ring_read_idx];
-                      comp->audio_ring_read_idx += 1u;
-                      if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
-                  }
-                  comp->audio_ring_fill -= n;
-                  if (cpu_host_hal_audio_queue(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t)) != 0) {
-                      break;
-                  }
-                  to_send -= n;
-              }
-          }
-      }
-    destroy: |
-      if (comp->audio_out_dev != 0u) {
-          cpu_host_hal_audio_close(comp->audio_out_dev);
-          comp->audio_out_dev = 0u;
-      }
-      if (comp->audio_ring != NULL) {
-          cpu_host_hal_free(comp->audio_ring);
-          comp->audio_ring = NULL;
-      }
-      comp->audio_ring_capacity = 0u;
-      comp->audio_ring_read_idx = 0u;
-      comp->audio_ring_write_idx = 0u;
-      comp->audio_ring_fill = 0u;
-      comp->audio_device_samples = 0u;
-      if (comp->texture != NULL) {
-          cpu_host_hal_destroy_texture(comp->texture);
-          comp->texture = NULL;
-      }
-      if (comp->renderer != NULL) {
-          cpu_host_hal_destroy_renderer(comp->renderer);
-          comp->renderer = NULL;
-      }
-      if (comp->window != NULL) {
-          cpu_host_hal_destroy_window(comp->window);
-          comp->window = NULL;
-      }
-      if (comp->host_inited != 0u) {
-          cpu_host_hal_stop_text_input();
-          cpu_host_hal_quit_subsystems();
-          cpu_host_hal_quit();
-          comp->host_inited = 0u;
-      }
+    init: "do {\n    if (comp->host_inited != 0u) break;\n    if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO\
+      \ | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) {\n        break;\n  \
+      \  }\n    comp->window = cpu_host_hal_create_window(\n        \"PASM TRS-80\
+      \ Color Computer 1\",\n        CPU_HOST_WINDOWPOS_CENTERED,\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
+      \        768,\n        576,\n        CPU_HOST_WINDOW_RESIZABLE\n    );\n   \
+      \ if (comp->window == NULL) break;\n    comp->renderer = cpu_host_hal_create_renderer(comp->window,\
+      \ -1, CPU_HOST_RENDERER_ACCELERATED);\n    if (comp->renderer == NULL) {\n \
+      \       comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);\n\
+      \    }\n    if (comp->renderer == NULL) break;\n    cpu_host_hal_start_text_input();\n\
+      \    comp->texture = cpu_host_hal_create_texture(\n        comp->renderer,\n\
+      \        CPU_HOST_PIXELFORMAT_ARGB8888,\n        CPU_HOST_TEXTUREACCESS_STREAMING,\n\
+      \        256,\n        192\n    );\n    if (comp->texture == NULL) break;\n\
+      \    {\n        const char *audio_env = cpu_host_hal_getenv(\"PASM_HOST_AUDIO\"\
+      );\n        if (audio_env == NULL || audio_env[0] != '0') {\n            CPUHostAudioSpec\
+      \ want;\n            CPUHostAudioSpec have;\n            cpu_host_audio_spec_zero(&want);\n\
+      \            cpu_host_audio_spec_zero(&have);\n            want.freq = (CPU_AUDIO_SAMPLE_RATE\
+      \ > 0u) ? (int)CPU_AUDIO_SAMPLE_RATE : 44100;\n            want.format = CPU_HOST_AUDIO_FORMAT_S16;\n\
+      \            want.channels = 1;\n            want.samples = 512;\n         \
+      \   want.callback = NULL;\n            comp->audio_device_samples = 0u;\n  \
+      \          comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have,\
+      \ CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE);\n            if (comp->audio_out_dev\
+      \ != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels == 1) {\n\
+      \                uint32_t ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq\
+      \ * 2u) : 88200u;\n                if (ring_capacity < 8192u) ring_capacity\
+      \ = 8192u;\n                comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity\
+      \ * sizeof(int16_t));\n                if (comp->audio_ring != NULL) {\n   \
+      \                 comp->audio_rate = (have.freq > 0) ? (uint32_t)have.freq :\
+      \ 44100u;\n                    comp->audio_device_samples = (uint32_t)have.samples;\n\
+      \                    comp->audio_ring_capacity = ring_capacity;\n          \
+      \          comp->audio_ring_read_idx = 0u;\n                    comp->audio_ring_write_idx\
+      \ = 0u;\n                    comp->audio_ring_fill = 0u;\n                 \
+      \   comp->audio_out_ready = 1u;\n                    cpu_host_hal_audio_pause(comp->audio_out_dev,\
+      \ 0);\n                } else {\n                    cpu_host_hal_audio_close(comp->audio_out_dev);\n\
+      \                    comp->audio_out_dev = 0u;\n                    comp->audio_device_samples\
+      \ = 0u;\n                }\n            } else if (comp->audio_out_dev != 0u)\
+      \ {\n                cpu_host_hal_audio_close(comp->audio_out_dev);\n      \
+      \          comp->audio_out_dev = 0u;\n                comp->audio_device_samples\
+      \ = 0u;\n            }\n        }\n    }\n    comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);\n\
+      \    comp->last_focus_state = comp->has_keyboard_focus;\n    {\n        const\
+      \ char *joy1_env = cpu_host_hal_getenv(\"PASM_COCO_JOY1_CONNECTED\");\n    \
+      \    const char *joy2_env = cpu_host_hal_getenv(\"PASM_COCO_JOY2_CONNECTED\"\
+      );\n        const char *active_joy_env = cpu_host_hal_getenv(\"PASM_COCO_ACTIVE_JOY\"\
+      );\n        uint8_t joy1_explicit = (uint8_t)((joy1_env != NULL && joy1_env[0]\
+      \ != '\\0') ? 1u : 0u);\n        uint8_t joy2_explicit = (uint8_t)((joy2_env\
+      \ != NULL && joy2_env[0] != '\\0') ? 1u : 0u);\n        comp->active_joy_port\
+      \ = (uint8_t)((active_joy_env != NULL && active_joy_env[0] == '2') ? 2u : 1u);\n\
+      \        comp->joy1_connected = (joy1_explicit != 0u) ? (uint8_t)(joy1_env[0]\
+      \ != '0') : 1u;\n        comp->joy2_connected = (joy2_explicit != 0u) ? (uint8_t)(joy2_env[0]\
+      \ == '1') : 0u;\n        if (comp->active_joy_port == 1u && joy1_explicit ==\
+      \ 0u) comp->joy1_connected = 1u;\n        if (comp->active_joy_port == 2u &&\
+      \ joy2_explicit == 0u) comp->joy2_connected = 1u;\n    }\n    if (comp->window\
+      \ != NULL && comp->has_keyboard_focus == 0u) {\n        cpu_host_hal_raise_window(comp->window);\n\
+      \    }\n    comp->host_inited = 1u;\n} while (0);\n"
+    reset: "comp->row0 = 0xFFu;\ncomp->row1 = 0xFFu;\ncomp->row2 = 0xFFu;\ncomp->row3\
+      \ = 0xFFu;\ncomp->row4 = 0xFFu;\ncomp->row5 = 0xFFu;\ncomp->row6 = 0xFFu;\n\
+      comp->row7 = 0xFFu;\ncomp->joy1_axis_x = (comp->joy1_connected != 0u) ? 0x20u\
+      \ : 0xFFu;\ncomp->joy1_axis_y = (comp->joy1_connected != 0u) ? 0x20u : 0xFFu;\n\
+      comp->joy2_axis_x = (comp->joy2_connected != 0u) ? 0x20u : 0xFFu;\ncomp->joy2_axis_y\
+      \ = (comp->joy2_connected != 0u) ? 0x20u : 0xFFu;\ncomp->joy1_button = 0u;\n\
+      comp->joy2_button = 0u;\ncomp->frame_count = 0u;\ncomp->irq_edges = 0u;\ncomp->audio_samples\
+      \ = 0u;\ncomp->audio_level = 0;\ncomp->audio_last_cycle = 0u;\ncomp->audio_sample_cursor\
+      \ = 0u;\ncomp->audio_ring_read_idx = 0u;\ncomp->audio_ring_write_idx = 0u;\n\
+      comp->audio_ring_fill = 0u;\ncomp->last_event_poll_cycle = 0u;\ncomp->overlay_last_ms\
+      \ = 0u;\ncomp->overlay_last_frame_count = 0u;\ncomp->overlay_last_cycle_count\
+      \ = 0u;\ncomp->overlay_fps_x100 = 0u;\ncomp->overlay_cpu_hz = 0u;\ncomp->overlay_cpu_pct_x10\
+      \ = 0u;\nif (comp->audio_out_dev != 0u) {\n    cpu_host_hal_audio_clear(comp->audio_out_dev);\n\
+      }\n"
+    step_post: "if (comp->host_inited == 0u) return;\nstatic int kb_trace = -1;\n\
+      static FILE *kb_trace_fp = NULL;\nstatic int joy_trace = -1;\nstatic FILE *joy_trace_fp\
+      \ = NULL;\nstatic uint8_t joy_prev_valid = 0u;\nstatic uint8_t joy_prev_1x =\
+      \ 0u;\nstatic uint8_t joy_prev_1y = 0u;\nstatic uint8_t joy_prev_2x = 0u;\n\
+      static uint8_t joy_prev_2y = 0u;\nstatic uint8_t joy_prev_1b = 0u;\nstatic uint8_t\
+      \ joy_prev_2b = 0u;\nstatic uint8_t joy_prev_c1 = 0u;\nstatic uint8_t joy_prev_c2\
+      \ = 0u;\nstatic uint8_t joy_prev_active = 0u;\nif (kb_trace < 0) {\n    const\
+      \ char *trace_env = cpu_host_hal_getenv(\"PASM_COCO_KB_TRACE\");\n    kb_trace\
+      \ = (trace_env != NULL && trace_env[0] != '\\0' && trace_env[0] != '0') ? 1\
+      \ : 0;\n    if (kb_trace != 0) {\n        const char *trace_file = cpu_host_hal_getenv(\"\
+      PASM_COCO_KB_TRACE_FILE\");\n        if (trace_file == NULL || trace_file[0]\
+      \ == '\\0') trace_file = \"coco_kb_trace.log\";\n        kb_trace_fp = fopen(trace_file,\
+      \ \"a\");\n    }\n}\nif (joy_trace < 0) {\n    const char *trace_env = cpu_host_hal_getenv(\"\
+      PASM_COCO_JOY_TRACE\");\n    joy_trace = (trace_env != NULL && trace_env[0]\
+      \ != '\\0' && trace_env[0] != '0') ? 1 : 0;\n    if (joy_trace != 0) {\n   \
+      \     const char *trace_file = cpu_host_hal_getenv(\"PASM_COCO_JOY_TRACE_FILE\"\
+      );\n        if (trace_file == NULL || trace_file[0] == '\\0') trace_file = \"\
+      coco_joy_trace.log\";\n        joy_trace_fp = fopen(trace_file, \"a\");\n  \
+      \  }\n}\nuint64_t now = cpu->total_cycles;\nif ((now - comp->last_event_poll_cycle)\
+      \ < 2048u) return;\ncomp->last_event_poll_cycle = now;\nCPUHostEvent ev;\nwhile\
+      \ (cpu_host_hal_poll_event(&ev)) {\n    if (cpu_host_hal_event_type(&ev) ==\
+      \ CPU_HOST_EVENT_QUIT) {\n        cpu->running = false;\n        cpu->halted\
+      \ = true;\n    } else if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN\
+      \ || cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYUP) {\n        if (kb_trace\
+      \ != 0 && kb_trace_fp != NULL) {\n            int32_t sc = cpu_host_hal_event_scancode(&ev);\n\
+      \            fprintf(\n                kb_trace_fp,\n                \"coco-kb\
+      \ event=%s sc=%d name=%s repeat=%u focus=%u\\n\",\n                (cpu_host_hal_event_type(&ev)\
+      \ == CPU_HOST_EVENT_KEYDOWN) ? \"down\" : \"up\",\n                (int)sc,\n\
+      \                cpu_host_hal_scancode_name(sc),\n                (unsigned)cpu_host_hal_event_key_repeat(&ev),\n\
+      \                (unsigned)comp->has_keyboard_focus\n            );\n      \
+      \      fflush(kb_trace_fp);\n        }\n    }\n}\ncpu_host_hal_pump_events();\n\
+      comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);\nif\
+      \ (comp->has_keyboard_focus != comp->last_focus_state) {\n    comp->last_focus_state\
+      \ = comp->has_keyboard_focus;\n    if (comp->window != NULL) {\n        cpu_host_hal_set_window_title(\n\
+      \            comp->window,\n            (comp->has_keyboard_focus != 0u) ? \"\
+      PASM TRS-80 Color Computer 1 [FOCUS]\" : \"PASM TRS-80 Color Computer 1 [NO-FOCUS]\"\
+      \n        );\n    }\n}\n{\n    sms_overlay_update_perf(\n        cpu_host_hal_ticks_ms(),\n\
+      \        (uint64_t)comp->frame_count,\n        cpu->total_cycles,\n        (uint64_t)CPU_SYSTEM_CLOCK_HZ,\n\
+      \        &comp->overlay_last_ms,\n        &comp->overlay_last_frame_count,\n\
+      \        &comp->overlay_last_cycle_count,\n        &comp->overlay_fps_x100,\n\
+      \        &comp->overlay_cpu_hz,\n        &comp->overlay_cpu_pct_x10\n    );\n\
+      }\nint key_count = 0;\nconst uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n\
+      if (ks == NULL || key_count <= 0) return;\nuint8_t rows[8] = {\n    0xFFu, 0xFFu,\
+      \ 0xFFu, 0xFFu,\n    0xFFu, 0xFFu, 0xFFu, 0xFFu\n};\ncpu_component_apply_declared_keymap(\n\
+      \    cpu,\n    \"host_coco\",\n    ks,\n    (size_t)key_count,\n    rows,\n\
+      \    8u,\n    comp->has_keyboard_focus\n);\n{\n    if (kb_trace != 0 && kb_trace_fp\
+      \ != NULL) {\n        uint8_t changed = 0u;\n        if (\n            rows[0]\
+      \ != comp->row0 || rows[1] != comp->row1 || rows[2] != comp->row2 || rows[3]\
+      \ != comp->row3 ||\n            rows[4] != comp->row4 || rows[5] != comp->row5\
+      \ || rows[6] != comp->row6 || rows[7] != comp->row7\n        ) {\n         \
+      \   changed = 1u;\n        }\n        if (changed != 0u) {\n            fprintf(\n\
+      \                kb_trace_fp,\n                \"coco-kb matrix focus=%u rows=[%02X\
+      \ %02X %02X %02X %02X %02X %02X %02X]\\n\",\n                (unsigned)comp->has_keyboard_focus,\n\
+      \                (unsigned)rows[0], (unsigned)rows[1], (unsigned)rows[2], (unsigned)rows[3],\n\
+      \                (unsigned)rows[4], (unsigned)rows[5], (unsigned)rows[6], (unsigned)rows[7]\n\
+      \            );\n            fflush(kb_trace_fp);\n        }\n    }\n}\ncomp->row0\
+      \ = rows[0];\ncomp->row1 = rows[1];\ncomp->row2 = rows[2];\ncomp->row3 = rows[3];\n\
+      comp->row4 = rows[4];\ncomp->row5 = rows[5];\ncomp->row6 = rows[6];\ncomp->row7\
+      \ = rows[7];\n{\n    uint8_t joy1_x = (comp->joy1_connected != 0u) ? 0x20u :\
+      \ 0xFFu;\n    uint8_t joy1_y = (comp->joy1_connected != 0u) ? 0x20u : 0xFFu;\n\
+      \    uint8_t joy2_x = (comp->joy2_connected != 0u) ? 0x20u : 0xFFu;\n    uint8_t\
+      \ joy2_y = (comp->joy2_connected != 0u) ? 0x20u : 0xFFu;\n    uint8_t joy1_btn\
+      \ = 0u;\n    uint8_t joy2_btn = 0u;\n    {\n        uint8_t kp1 = ((size_t)CPU_HOST_SCANCODE(KP_1)\
+      \ < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_1)] != 0u) ? 1u : 0u;\n   \
+      \     uint8_t kp2 = ((size_t)CPU_HOST_SCANCODE(KP_2) < (size_t)key_count &&\
+      \ ks[CPU_HOST_SCANCODE(KP_2)] != 0u) ? 1u : 0u;\n        uint8_t kp3 = ((size_t)CPU_HOST_SCANCODE(KP_3)\
+      \ < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_3)] != 0u) ? 1u : 0u;\n   \
+      \     uint8_t kp4 = ((size_t)CPU_HOST_SCANCODE(KP_4) < (size_t)key_count &&\
+      \ ks[CPU_HOST_SCANCODE(KP_4)] != 0u) ? 1u : 0u;\n        uint8_t kp5 = ((size_t)CPU_HOST_SCANCODE(KP_5)\
+      \ < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_5)] != 0u) ? 1u : 0u;\n   \
+      \     uint8_t kp6 = ((size_t)CPU_HOST_SCANCODE(KP_6) < (size_t)key_count &&\
+      \ ks[CPU_HOST_SCANCODE(KP_6)] != 0u) ? 1u : 0u;\n        uint8_t kp7 = ((size_t)CPU_HOST_SCANCODE(KP_7)\
+      \ < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_7)] != 0u) ? 1u : 0u;\n   \
+      \     uint8_t kp8 = ((size_t)CPU_HOST_SCANCODE(KP_8) < (size_t)key_count &&\
+      \ ks[CPU_HOST_SCANCODE(KP_8)] != 0u) ? 1u : 0u;\n        uint8_t kp9 = ((size_t)CPU_HOST_SCANCODE(KP_9)\
+      \ < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_9)] != 0u) ? 1u : 0u;\n   \
+      \     uint8_t kp_dot = ((size_t)CPU_HOST_SCANCODE(KP_PERIOD) < (size_t)key_count\
+      \ && ks[CPU_HOST_SCANCODE(KP_PERIOD)] != 0u) ? 1u : 0u;\n        uint8_t lctrl\
+      \ = ((size_t)CPU_HOST_SCANCODE(LCTRL) < (size_t)key_count && ks[CPU_HOST_SCANCODE(LCTRL)]\
+      \ != 0u) ? 1u : 0u;\n        uint8_t rctrl = ((size_t)CPU_HOST_SCANCODE(RCTRL)\
+      \ < (size_t)key_count && ks[CPU_HOST_SCANCODE(RCTRL)] != 0u) ? 1u : 0u;\n  \
+      \      uint32_t mods = cpu_host_hal_get_mod_state();\n        if ((mods & CPU_HOST_MOD_LCTRL)\
+      \ != 0) lctrl = 1u;\n        uint8_t left = (uint8_t)((kp4 | kp7 | kp1) != 0u);\n\
+      \        uint8_t right = (uint8_t)((kp6 | kp9 | kp3) != 0u);\n        uint8_t\
+      \ up = (uint8_t)((kp8 | kp7 | kp9) != 0u);\n        uint8_t down = (uint8_t)((kp2\
+      \ | kp1 | kp3) != 0u);\n        uint8_t fire = (uint8_t)(((kp_dot != 0u) ||\
+      \ (lctrl != 0u) || (rctrl != 0u)) ? 1u : 0u);\n        uint8_t target = comp->active_joy_port;\n\
+      \        joy1_btn = 0u;\n        joy2_btn = 0u;\n        if (kp5 != 0u) {\n\
+      \            left = 0u; right = 0u; up = 0u; down = 0u;\n        }\n       \
+      \ if (target == 2u && comp->joy2_connected == 0u && comp->joy1_connected !=\
+      \ 0u) target = 1u;\n        if (target == 1u && comp->joy1_connected == 0u &&\
+      \ comp->joy2_connected != 0u) target = 2u;\n        if (target == 1u && comp->joy1_connected\
+      \ != 0u) {\n            if (left != 0u && right == 0u) joy1_x = 0u;\n      \
+      \      else if (right != 0u && left == 0u) joy1_x = 63u;\n            if (up\
+      \ != 0u && down == 0u) joy1_y = 0u;\n            else if (down != 0u && up ==\
+      \ 0u) joy1_y = 63u;\n            joy1_btn = fire;\n        }\n        if (target\
+      \ == 2u && comp->joy2_connected != 0u) {\n            if (left != 0u && right\
+      \ == 0u) joy2_x = 0u;\n            else if (right != 0u && left == 0u) joy2_x\
+      \ = 63u;\n            if (up != 0u && down == 0u) joy2_y = 0u;\n           \
+      \ else if (down != 0u && up == 0u) joy2_y = 63u;\n            joy2_btn = fire;\n\
+      \        }\n    }\n    comp->joy1_axis_x = joy1_x;\n    comp->joy1_axis_y =\
+      \ joy1_y;\n    comp->joy2_axis_x = joy2_x;\n    comp->joy2_axis_y = joy2_y;\n\
+      \    comp->joy1_button = joy1_btn;\n    comp->joy2_button = joy2_btn;\n    if\
+      \ (joy_trace != 0 && joy_trace_fp != NULL) {\n        uint8_t changed = (uint8_t)(\n\
+      \            joy_prev_valid == 0u ||\n            joy_prev_1x != comp->joy1_axis_x\
+      \ ||\n            joy_prev_1y != comp->joy1_axis_y ||\n            joy_prev_2x\
+      \ != comp->joy2_axis_x ||\n            joy_prev_2y != comp->joy2_axis_y ||\n\
+      \            joy_prev_1b != comp->joy1_button ||\n            joy_prev_2b !=\
+      \ comp->joy2_button ||\n            joy_prev_c1 != comp->joy1_connected ||\n\
+      \            joy_prev_c2 != comp->joy2_connected ||\n            joy_prev_active\
+      \ != comp->active_joy_port\n        );\n        if (changed != 0u) {\n     \
+      \       fprintf(\n                joy_trace_fp,\n                \"coco-joy\
+      \ focus=%u active=%u conn=[%u,%u] axis=[%02X,%02X,%02X,%02X] btn=[%u,%u]\\n\"\
+      ,\n                (unsigned)comp->has_keyboard_focus,\n                (unsigned)comp->active_joy_port,\n\
+      \                (unsigned)comp->joy1_connected,\n                (unsigned)comp->joy2_connected,\n\
+      \                (unsigned)comp->joy1_axis_x,\n                (unsigned)comp->joy1_axis_y,\n\
+      \                (unsigned)comp->joy2_axis_x,\n                (unsigned)comp->joy2_axis_y,\n\
+      \                (unsigned)(comp->joy1_button & 0x01u),\n                (unsigned)(comp->joy2_button\
+      \ & 0x01u)\n            );\n            fflush(joy_trace_fp);\n            joy_prev_valid\
+      \ = 1u;\n            joy_prev_1x = comp->joy1_axis_x;\n            joy_prev_1y\
+      \ = comp->joy1_axis_y;\n            joy_prev_2x = comp->joy2_axis_x;\n     \
+      \       joy_prev_2y = comp->joy2_axis_y;\n            joy_prev_1b = comp->joy1_button;\n\
+      \            joy_prev_2b = comp->joy2_button;\n            joy_prev_c1 = comp->joy1_connected;\n\
+      \            joy_prev_c2 = comp->joy2_connected;\n            joy_prev_active\
+      \ = comp->active_joy_port;\n        }\n    }\n}\nif (comp->audio_out_dev !=\
+      \ 0u && comp->audio_out_ready != 0u && comp->audio_ring != NULL && comp->audio_ring_fill\
+      \ > 0u) {\n    uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev)\
+      \ / (uint32_t)sizeof(int16_t);\n    uint32_t device_samples = (comp->audio_device_samples\
+      \ > 0u) ? comp->audio_device_samples : 512u;\n    uint32_t low_watermark = device_samples\
+      \ * 2u;\n    uint32_t target_total = device_samples * 4u;\n    uint32_t max_total\
+      \ = device_samples * 8u;\n    uint32_t total_backlog = queued_samples + comp->audio_ring_fill;\n\
+      \    if (total_backlog > max_total) {\n        uint32_t drop = total_backlog\
+      \ - max_total;\n        if (drop > comp->audio_ring_fill) {\n            drop\
+      \ = comp->audio_ring_fill;\n        }\n        if (drop > 0u) {\n          \
+      \  comp->audio_ring_read_idx = (comp->audio_ring_read_idx + drop) % comp->audio_ring_capacity;\n\
+      \            comp->audio_ring_fill -= drop;\n        }\n    }\n    if (queued_samples\
+      \ < low_watermark) {\n        uint32_t desired = target_total - queued_samples;\n\
+      \        uint32_t to_send = (comp->audio_ring_fill < desired) ? comp->audio_ring_fill\
+      \ : desired;\n        while (to_send > 0u) {\n            int16_t chunk[1024];\n\
+      \            uint32_t n = (to_send > 1024u) ? 1024u : to_send;\n           \
+      \ for (uint32_t i = 0u; i < n; ++i) {\n                chunk[i] = comp->audio_ring[comp->audio_ring_read_idx];\n\
+      \                comp->audio_ring_read_idx += 1u;\n                if (comp->audio_ring_read_idx\
+      \ >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;\n          \
+      \  }\n            comp->audio_ring_fill -= n;\n            if (cpu_host_hal_audio_queue(comp->audio_out_dev,\
+      \ chunk, n * (uint32_t)sizeof(int16_t)) != 0) {\n                break;\n  \
+      \          }\n            to_send -= n;\n        }\n    }\n}\n"
+    destroy: "if (comp->audio_out_dev != 0u) {\n    cpu_host_hal_audio_close(comp->audio_out_dev);\n\
+      \    comp->audio_out_dev = 0u;\n}\nif (comp->audio_ring != NULL) {\n    cpu_host_hal_free(comp->audio_ring);\n\
+      \    comp->audio_ring = NULL;\n}\ncomp->audio_ring_capacity = 0u;\ncomp->audio_ring_read_idx\
+      \ = 0u;\ncomp->audio_ring_write_idx = 0u;\ncomp->audio_ring_fill = 0u;\ncomp->audio_device_samples\
+      \ = 0u;\nif (comp->texture != NULL) {\n    cpu_host_hal_destroy_texture(comp->texture);\n\
+      \    comp->texture = NULL;\n}\nif (comp->renderer != NULL) {\n    cpu_host_hal_destroy_renderer(comp->renderer);\n\
+      \    comp->renderer = NULL;\n}\nif (comp->window != NULL) {\n    cpu_host_hal_destroy_window(comp->window);\n\
+      \    comp->window = NULL;\n}\nif (comp->host_inited != 0u) {\n    cpu_host_hal_stop_text_input();\n\
+      \    cpu_host_hal_quit_subsystems();\n    cpu_host_hal_quit();\n    comp->host_inited\
+      \ = 0u;\n}\n"
   callback_handlers:
-    keyboard_matrix: |
-      uint8_t row = (argc > 0) ? (uint8_t)(args[0] & 0x0Fu) : 0xFFu;
-      uint8_t value = 0xFFu;
-      switch (row) {
-          case 0u: value = comp->row0; break;
-          case 1u: value = comp->row1; break;
-          case 2u: value = comp->row2; break;
-          case 3u: value = comp->row3; break;
-          case 4u: value = comp->row4; break;
-          case 5u: value = comp->row5; break;
-          case 6u: value = comp->row6; break;
-          case 7u: value = comp->row7; break;
-          default: value = 0xFFu; break;
-      }
-      return (uint64_t)value;
-    joystick_axis: |
-      uint8_t index = (argc > 0) ? (uint8_t)(args[0] & 0x03u) : 0x00u;
-      switch (index) {
-          case 0u: return (uint64_t)comp->joy1_axis_x;
-          case 1u: return (uint64_t)comp->joy1_axis_y;
-          case 2u: return (uint64_t)comp->joy2_axis_x;
-          case 3u: return (uint64_t)comp->joy2_axis_y;
-          default: return 0xFFu;
-      }
-    joystick_button: |
-      uint8_t index = (argc > 0) ? (uint8_t)(args[0] & 0x01u) : 0x00u;
+    keyboard_matrix: "uint8_t row = (argc > 0) ? (uint8_t)(args[0] & 0x0Fu) : 0xFFu;\n\
+      uint8_t value = 0xFFu;\nswitch (row) {\n    case 0u: value = comp->row0; break;\n\
+      \    case 1u: value = comp->row1; break;\n    case 2u: value = comp->row2; break;\n\
+      \    case 3u: value = comp->row3; break;\n    case 4u: value = comp->row4; break;\n\
+      \    case 5u: value = comp->row5; break;\n    case 6u: value = comp->row6; break;\n\
+      \    case 7u: value = comp->row7; break;\n    default: value = 0xFFu; break;\n\
+      }\nreturn (uint64_t)value;\n"
+    joystick_axis: "uint8_t index = (argc > 0) ? (uint8_t)(args[0] & 0x03u) : 0x00u;\n\
+      switch (index) {\n    case 0u: return (uint64_t)comp->joy1_axis_x;\n    case\
+      \ 1u: return (uint64_t)comp->joy1_axis_y;\n    case 2u: return (uint64_t)comp->joy2_axis_x;\n\
+      \    case 3u: return (uint64_t)comp->joy2_axis_y;\n    default: return 0xFFu;\n\
+      }\n"
+    joystick_button: 'uint8_t index = (argc > 0) ? (uint8_t)(args[0] & 0x01u) : 0x00u;
+
       if (index == 0u) return (uint64_t)(comp->joy1_button & 0x01u);
+
       return (uint64_t)(comp->joy2_button & 0x01u);
+
+      '
   handler_bodies:
-    video_frame: |
-      if (comp->host_inited == 0u || argc < 4) return;
-      void *renderer = comp->renderer;
-      void *texture = comp->texture;
-      uint32_t frame = (uint32_t)(args[0] & 0xFFFFFFFFu);
-      uint32_t *pixels = (uint32_t *)(uintptr_t)args[1];
-      uint32_t w = (uint32_t)(args[2] & 0xFFFFFFFFu);
-      uint32_t h = (uint32_t)(args[3] & 0xFFFFFFFFu);
-      if (renderer == NULL || texture == NULL || pixels == NULL || w == 0u || h == 0u) return;
-      comp->frame_count = frame;
-      if (cpu->debug_overlay_enabled) {
-          sms_overlay_draw_perf(
-              pixels,
-              w,
-              h,
-              comp->overlay_fps_x100,
-              comp->overlay_cpu_hz,
-              comp->overlay_cpu_pct_x10
-          );
-      }
-      if (comp->texture_w != w || comp->texture_h != h) {
-          cpu_host_hal_destroy_texture(texture);
-          texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888, CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);
-          if (texture == NULL) return;
-          comp->texture = (void *)texture;
-          comp->texture_w = w;
-          comp->texture_h = h;
-      }
-      if (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
-      cpu_host_hal_render_set_draw_color(renderer, 0, 0, 0, 255);
-      cpu_host_hal_render_clear(renderer);
-      int ww = 0;
-      int wh = 0;
-      if (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
-      CPUHostRect dst;
-      int scaled_w = ww;
-      int scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);
-      if (scaled_h > wh) {
-          scaled_h = wh;
-          scaled_w = (int)((((int64_t)wh) * (int64_t)w) / (int64_t)h);
-      }
-      dst.w = (scaled_w > 0) ? scaled_w : ww;
-      dst.h = (scaled_h > 0) ? scaled_h : wh;
-      dst.x = (ww - dst.w) / 2;
-      dst.y = (wh - dst.h) / 2;
-      if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;
-      cpu_host_hal_render_present(renderer);
-    irq_edge: |
-      if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {
-          comp->irq_edges += 1u;
-      }
-    audio_pcm: |
-      if (comp->audio_out_dev == 0u || comp->audio_out_ready == 0u || comp->audio_ring == NULL || comp->audio_ring_capacity == 0u || argc < 1) return;
-      uint8_t level_u = (uint8_t)(args[0] & 0xFFu); /* 8-bit unsigned DAC level */
-      uint64_t cycle = (argc > 1) ? (uint64_t)args[1] : cpu->total_cycles;
-      uint64_t sample_rate = (comp->audio_rate > 0u) ? (uint64_t)comp->audio_rate : ((CPU_AUDIO_SAMPLE_RATE > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u);
-      uint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? CPU_SYSTEM_CLOCK_HZ : 1u;
-      uint64_t target_sample_index = (cycle * sample_rate) / clock_hz;
-      int32_t centered = (int32_t)level_u - 128;
-      int16_t next_level = (int16_t)(centered * 120);
-
-      if (comp->audio_last_cycle == 0u && comp->audio_sample_cursor == 0u && comp->audio_samples == 0u) {
-          comp->audio_last_cycle = cycle;
-          comp->audio_sample_cursor = target_sample_index;
-          comp->audio_level = next_level;
-          return;
-      }
-
-      if (target_sample_index < comp->audio_sample_cursor) {
-          comp->audio_sample_cursor = target_sample_index;
-      }
-      {
-          uint64_t samples_to_emit = target_sample_index - comp->audio_sample_cursor;
-          while (samples_to_emit > 0u) {
-              uint64_t n = (samples_to_emit > 4096u) ? 4096u : samples_to_emit;
-              for (uint64_t i = 0u; i < n; ++i) {
-                  if (comp->audio_ring_fill >= comp->audio_ring_capacity) {
-                      comp->audio_ring_read_idx += 1u;
-                      if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
-                      comp->audio_ring_fill -= 1u;
-                  }
-                  comp->audio_ring[comp->audio_ring_write_idx] = comp->audio_level;
-                  comp->audio_ring_write_idx += 1u;
-                  if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
-                  comp->audio_ring_fill += 1u;
-              }
-              comp->audio_samples += (uint32_t)n;
-              comp->audio_sample_cursor += n;
-              samples_to_emit -= n;
-          }
-      }
-
-      comp->audio_last_cycle = cycle;
-      comp->audio_level = next_level;
-
+    video_frame: "if (comp->host_inited == 0u || argc < 4) return;\nvoid *renderer\
+      \ = comp->renderer;\nvoid *texture = comp->texture;\nuint32_t frame = (uint32_t)(args[0]\
+      \ & 0xFFFFFFFFu);\nuint32_t *pixels = (uint32_t *)(uintptr_t)args[1];\nuint32_t\
+      \ w = (uint32_t)(args[2] & 0xFFFFFFFFu);\nuint32_t h = (uint32_t)(args[3] &\
+      \ 0xFFFFFFFFu);\nif (renderer == NULL || texture == NULL || pixels == NULL ||\
+      \ w == 0u || h == 0u) return;\ncomp->frame_count = frame;\nif (cpu->debug_overlay_enabled)\
+      \ {\n    sms_overlay_draw_perf(\n        pixels,\n        w,\n        h,\n \
+      \       comp->overlay_fps_x100,\n        comp->overlay_cpu_hz,\n        comp->overlay_cpu_pct_x10\n\
+      \    );\n}\nif (comp->texture_w != w || comp->texture_h != h) {\n    cpu_host_hal_destroy_texture(texture);\n\
+      \    texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888,\
+      \ CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);\n    if (texture == NULL)\
+      \ return;\n    comp->texture = (void *)texture;\n    comp->texture_w = w;\n\
+      \    comp->texture_h = h;\n}\nif (cpu_host_hal_update_texture(texture, NULL,\
+      \ pixels, (int)(w * sizeof(uint32_t))) != 0) return;\ncpu_host_hal_render_set_draw_color(renderer,\
+      \ 0, 0, 0, 255);\ncpu_host_hal_render_clear(renderer);\nint ww = 0;\nint wh\
+      \ = 0;\nif (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww\
+      \ <= 0 || wh <= 0) return;\nCPUHostRect dst;\nint scaled_w = ww;\nint scaled_h\
+      \ = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);\nif (scaled_h > wh) {\n\
+      \    scaled_h = wh;\n    scaled_w = (int)((((int64_t)wh) * (int64_t)w) / (int64_t)h);\n\
+      }\ndst.w = (scaled_w > 0) ? scaled_w : ww;\ndst.h = (scaled_h > 0) ? scaled_h\
+      \ : wh;\ndst.x = (ww - dst.w) / 2;\ndst.y = (wh - dst.h) / 2;\nif (cpu_host_hal_render_copy(renderer,\
+      \ texture, NULL, &dst) != 0) return;\ncpu_host_hal_render_present(renderer);\n"
+    irq_edge: "if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {\n    comp->irq_edges +=\
+      \ 1u;\n}\n"
+    audio_pcm: "if (comp->audio_out_dev == 0u || comp->audio_out_ready == 0u || comp->audio_ring\
+      \ == NULL || comp->audio_ring_capacity == 0u || argc < 1) return;\nuint8_t level_u\
+      \ = (uint8_t)(args[0] & 0xFFu); /* 8-bit unsigned DAC level */\nuint64_t cycle\
+      \ = (argc > 1) ? (uint64_t)args[1] : cpu->total_cycles;\nuint64_t sample_rate\
+      \ = (comp->audio_rate > 0u) ? (uint64_t)comp->audio_rate : ((CPU_AUDIO_SAMPLE_RATE\
+      \ > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u);\nuint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ\
+      \ > 0u) ? CPU_SYSTEM_CLOCK_HZ : 1u;\nuint64_t target_sample_index = (cycle *\
+      \ sample_rate) / clock_hz;\nint32_t centered = (int32_t)level_u - 128;\nint16_t\
+      \ next_level = (int16_t)(centered * 120);\n\nif (comp->audio_last_cycle == 0u\
+      \ && comp->audio_sample_cursor == 0u && comp->audio_samples == 0u) {\n    comp->audio_last_cycle\
+      \ = cycle;\n    comp->audio_sample_cursor = target_sample_index;\n    comp->audio_level\
+      \ = next_level;\n    return;\n}\n\nif (target_sample_index < comp->audio_sample_cursor)\
+      \ {\n    comp->audio_sample_cursor = target_sample_index;\n}\n{\n    uint64_t\
+      \ samples_to_emit = target_sample_index - comp->audio_sample_cursor;\n    while\
+      \ (samples_to_emit > 0u) {\n        uint64_t n = (samples_to_emit > 4096u) ?\
+      \ 4096u : samples_to_emit;\n        for (uint64_t i = 0u; i < n; ++i) {\n  \
+      \          if (comp->audio_ring_fill >= comp->audio_ring_capacity) {\n     \
+      \           comp->audio_ring_read_idx += 1u;\n                if (comp->audio_ring_read_idx\
+      \ >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;\n          \
+      \      comp->audio_ring_fill -= 1u;\n            }\n            comp->audio_ring[comp->audio_ring_write_idx]\
+      \ = comp->audio_level;\n            comp->audio_ring_write_idx += 1u;\n    \
+      \        if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx\
+      \ = 0u;\n            comp->audio_ring_fill += 1u;\n        }\n        comp->audio_samples\
+      \ += (uint32_t)n;\n        comp->audio_sample_cursor += n;\n        samples_to_emit\
+      \ -= n;\n    }\n}\n\ncomp->audio_last_cycle = cycle;\ncomp->audio_level = next_level;\n"
 coding:
-  headers: ["pasm_overlay.h"]
-  include_paths: ["../include"]
+  headers:
+  - pasm_overlay.h
+  include_paths:
+  - ../include
   linked_libraries: []
   library_paths: []

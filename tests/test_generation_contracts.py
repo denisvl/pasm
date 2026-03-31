@@ -491,7 +491,7 @@ def test_cpu_codegen_does_not_infer_backend_from_host_model_name():
     assert "return SDL_PollEvent((SDL_Event *)event);" not in code
 
 
-def test_cpu_codegen_rejects_non_host_key_source_when_parser_is_bypassed():
+def test_cpu_codegen_ignores_legacy_host_keyboard_declarations():
     data = _base_isa("CpuHostSourceStrict8")
     data["hosts"] = [
         {
@@ -510,12 +510,12 @@ def test_cpu_codegen_rejects_non_host_key_source_when_parser_is_bypassed():
             "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
         }
     ]
+    code = generate_cpu_impl(data, "Z80")
+    assert "cpu_component_scancode_for_host_key(" in code
+    assert "g_component_keyboard_maps" not in code
 
-    with pytest.raises(ValueError, match="input.keyboard.source must be 'host_key'"):
-        generate_cpu_impl(data, "Z80")
 
-
-def test_cpu_codegen_rejects_invalid_host_key_binding_when_parser_is_bypassed():
+def test_cpu_codegen_emits_runtime_keyboard_loader_apis():
     data = _base_isa("CpuHostBindingStrict8")
     data["hosts"] = [
         {
@@ -533,9 +533,9 @@ def test_cpu_codegen_rejects_invalid_host_key_binding_when_parser_is_bypassed():
             "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
         }
     ]
-
-    with pytest.raises(ValueError, match="must be canonical"):
-        generate_cpu_impl(data, "Z80")
+    code = generate_cpu_impl(data, "Z80")
+    assert "load_keyboard_map(CPUState *cpu, const char *path)" in code
+    assert "cpu_component_keyboard_ascii_feed(" in code
 
 
 def test_memory_read_only_regions_emit_write_guards():
@@ -1744,25 +1744,16 @@ def test_interactive_host_uses_declarative_keyboard_map_generation():
                 "linked_libraries": [],
                 "library_paths": [],
             },
-            "input": {
-                "keyboard": {
-                    "source": "host_key",
-                    "focus_required": True,
-                    "bindings": [
-                        {"host_key": "BACKSPACE", "presses": [{"row": 0, "bit": 0}]},
-                        {"host_key": "LEFT", "presses": [{"row": 1, "bit": 0}]},
-                    ],
-                }
-            },
         }
     ]
     code = generate_cpu_impl(data, "Z80")
     assert "cpu_component_apply_declared_keymap(" in code
-    assert "if (map->focus_required && has_focus == 0u) return;" in code
-    assert "cpu_component_host_key_is_pressed(" in code
+    assert "if (g_runtime_keyboard_map.focus_required && has_focus == 0u) return;" in code
+    assert "cpu_component_scancode_for_host_key(" in code
     assert "#if CPU_HOST_HAS_SCANCODE_MAP" in code
-    assert "{ \"BACKSPACE\", component_host_hal_keyboard_presses_" in code
-    assert "{ \"LEFT\", component_host_hal_keyboard_presses_" in code
+    assert "CPU_HOST_SCANCODE(BACKSPACE)" in code
+    assert "CPU_HOST_SCANCODE(LEFT)" in code
+    assert "component_host_hal_keyboard_bindings" not in code
     assert "CPU_HOST_SCANCODE(BACKSPACE)" in code
     assert "CPU_HOST_SCANCODE(LEFT)" in code
     assert "ks[SDL_SCANCODE_A]" not in code
@@ -1783,16 +1774,10 @@ def test_interactive_host_canonical_keys_map_to_sdl_scancodes_in_codegen():
                 "linked_libraries": [],
                 "library_paths": [],
             },
-            "input": {
-                "keyboard": {
-                    "focus_required": True,
-                    "bindings": [{"host_key": "BACKSPACE", "presses": [{"row": 0, "bit": 0}]}],
-                }
-            },
         }
     ]
     code = generate_cpu_impl(data, "Z80")
-    assert "{ \"BACKSPACE\", component_host_hal_keyboard_presses_" in code
+    assert "cpu_component_scancode_for_host_key(" in code
     assert "#if CPU_HOST_HAS_SCANCODE_MAP" in code
     assert "CPU_HOST_SCANCODE(BACKSPACE)" in code
 
@@ -1812,18 +1797,12 @@ def test_interactive_host_stub_backend_does_not_emit_sdl_scancodes():
                 "linked_libraries": [],
                 "library_paths": [],
             },
-            "input": {
-                "keyboard": {
-                    "focus_required": True,
-                    "bindings": [{"host_key": "BACKSPACE", "presses": [{"row": 0, "bit": 0}]}],
-                }
-            },
         }
     ]
     code = generate_cpu_impl(data, "Z80")
-    assert "cpu_component_host_key_is_pressed(" in code
+    assert "cpu_component_scancode_for_host_key(" in code
     assert "#if CPU_HOST_HAS_SCANCODE_MAP" in code
-    assert "{ \"BACKSPACE\", component_host_stub_keyboard_presses_" in code
+    assert "CPU_HOST_SCANCODE(BACKSPACE)" in code
     assert "SDL_SCANCODE_BACKSPACE" not in code
 
 

@@ -1,0 +1,28 @@
+keyboard:
+  kind: matrix
+  focus_required: true
+  bindings:
+  - host_key: UP
+    presses:
+    - row: 0
+      bit: 0
+  - host_key: DOWN
+    presses:
+    - row: 0
+      bit: 1
+  - host_key: LEFT
+    presses:
+    - row: 0
+      bit: 2
+  - host_key: RIGHT
+    presses:
+    - row: 0
+      bit: 3
+  - host_key: A
+    presses:
+    - row: 0
+      bit: 4
+  - host_key: S
+    presses:
+    - row: 0
+      bit: 5

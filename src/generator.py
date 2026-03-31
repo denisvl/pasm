@@ -193,6 +193,17 @@ class EmulatorGenerator:
         """Generate main.c template."""
 
         memory_default_size = int(self.isa_data.get("memory", {}).get("default_size", 65536))
+        host_backend_target = str(self.isa_data.get("host_backend_target", "")).strip().lower()
+        interactive_host_backend = host_backend_target in {"sdl2", "glfw"}
+        has_keyboard_callbacks = any(
+            any(
+                str(cb.get("name", "")).strip() in {"keyboard_matrix", "keyboard_ascii"}
+                for cb in list((host.get("interfaces") or {}).get("callbacks", []))
+            )
+            for host in list(self.isa_data.get("hosts", []))
+            if isinstance(host, dict)
+        )
+        keyboard_map_required = interactive_host_backend and has_keyboard_callbacks
         default_cart_rom = (
             str(self.isa_data.get("cartridge_rom", {}).get("path", ""))
             .replace("\\", "\\\\")
@@ -225,6 +236,36 @@ class EmulatorGenerator:
             if has_cartridge
             else ""
         )
+        keyboard_usage_line = (
+            '    printf("  --keyboard-map <file>  Load runtime keyboard map YAML\\n");'
+            if keyboard_map_required
+            else ""
+        )
+        keyboard_cli_parse = (
+            '        } else if (strcmp(argv[i], "--keyboard-map") == 0 && i + 1 < argc) {\n'
+            "            keyboard_map_file = argv[++i];\n"
+            if keyboard_map_required
+            else ""
+        )
+        keyboard_required_check = (
+            "    if (keyboard_map_file == NULL || keyboard_map_file[0] == '\\0') {\n"
+            '        fprintf(stderr, "Missing required --keyboard-map <file>\\n");\n'
+            "        return 1;\n"
+            "    }\n"
+            if keyboard_map_required
+            else ""
+        )
+        keyboard_load_block = (
+            "    if (keyboard_map_file && keyboard_map_file[0]) {\n"
+            f"        if ({self.cpu_prefix}_load_keyboard_map(cpu, keyboard_map_file) != 0) {{\n"
+            '            fprintf(stderr, "Failed to load keyboard map: %s\\n", keyboard_map_file);\n'
+            "            return 1;\n"
+            "        }\n"
+            '        printf("Loaded keyboard map: %s\\n", keyboard_map_file);\n'
+            "    }\n"
+            if keyboard_map_required
+            else ""
+        )
 
         template = """/*
  * Auto-generated main.c
@@ -240,6 +281,7 @@ void print_usage(const char *prog) {{
     printf("Usage: %s [options]\\n", prog);
     printf("Options:\\n");
     printf("  --system-dir <dir>  Load system ROM manifests relative to this directory\\n");
+{keyboard_usage_line}
     printf("  --rom <file>    Load ROM file\\n");
 {cart_usage_line}
     printf("  --addr <addr>   Load address (default: 0x0000)\\n");
@@ -259,6 +301,7 @@ int main(int argc, char *argv[]) {{
     bool run_emulator = false;
     uint64_t max_cycles = 0;
     const char *system_dir = NULL;
+    const char *keyboard_map_file = NULL;
     const char *rom_file = NULL;
 {cart_default_decl}
     uint16_t load_addr = 0;
@@ -267,7 +310,7 @@ int main(int argc, char *argv[]) {{
     for (int i = 1; i < argc; i++) {{
         if (strcmp(argv[i], "--system-dir") == 0 && i + 1 < argc) {{
             system_dir = argv[++i];
-        }} else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {{
+{keyboard_cli_parse}        }} else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {{
             rom_file = argv[++i];
 {cart_cli_parse}        }} else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {{
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
@@ -282,6 +325,7 @@ int main(int argc, char *argv[]) {{
             return 0;
         }}
     }}
+{keyboard_required_check}
     
     if (system_dir) {{
         if ({cpu_prefix}_load_system_roms(cpu, system_dir) != 0) {{
@@ -292,7 +336,7 @@ int main(int argc, char *argv[]) {{
         printf("Loaded system ROMs from: %s\\n", system_dir);
     }}
     
-{cart_load_block}    if (rom_file) {{
+{keyboard_load_block}{cart_load_block}    if (rom_file) {{
         if ({cpu_prefix}_load_rom(cpu, rom_file, load_addr) != 0) {{
             fprintf(stderr, "Failed to load ROM: %s\\n", rom_file);
             return 1;
@@ -329,9 +373,13 @@ int main(int argc, char *argv[]) {{
             cpu_name=self.cpu_name,
             cpu_prefix=self.cpu_prefix,
             memory_default_size=memory_default_size,
+            keyboard_usage_line=keyboard_usage_line,
             cart_usage_line=cart_usage_line,
             cart_default_decl=cart_default_decl,
+            keyboard_cli_parse=keyboard_cli_parse,
             cart_cli_parse=cart_cli_parse,
+            keyboard_required_check=keyboard_required_check,
+            keyboard_load_block=keyboard_load_block,
             cart_load_block=cart_load_block,
         )
 

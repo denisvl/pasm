@@ -30,6 +30,7 @@ PASM_HOST_LOGFILE="${PASM_HOST_LOGFILE:-/tmp/msx_sdl.log}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
+KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/msx1/host_keyboard_msx.yaml}"
 USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/msx1/msx_mapper_konami.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-}"
@@ -109,6 +110,9 @@ RUN_ARGS=(
 if [[ "${USE_CARTRIDGE}" != "0" ]]; then
   GEN_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_GEN}")
   RUN_ARGS+=(--cart-rom "${CARTRIDGE_ROM_RUNTIME}")
+fi
+if [[ "${PROFILE}" == "interactive" ]]; then
+  RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
 fi
 uv run python -m src.main generate \
   "${GEN_ARGS[@]}"

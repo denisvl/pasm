@@ -12,6 +12,7 @@ void print_usage(const char *prog) {
     printf("Usage: %s [options]\n", prog);
     printf("Options:\n");
     printf("  --system-dir <dir>  Load system ROM manifests relative to this directory\n");
+
     printf("  --rom <file>    Load ROM file\n");
     printf("  --cart-rom <file>  Load cartridge ROM file (overrides generated default)\n");
     printf("  --addr <addr>   Load address (default: 0x0000)\n");
@@ -31,6 +32,7 @@ int main(int argc, char *argv[]) {
     bool run_emulator = false;
     uint64_t max_cycles = 0;
     const char *system_dir = NULL;
+    const char *keyboard_map_file = NULL;
     const char *rom_file = NULL;
     const char *cart_rom_file = "/home/dvlop/projects/pasm/examples/roms/atari2600/Pitfall! (1982) (Activision) [!].a26";
     uint16_t load_addr = 0;
@@ -56,6 +58,7 @@ int main(int argc, char *argv[]) {
             return 0;
         }
     }
+
     
     if (system_dir) {
         if (mos6502_load_system_roms(cpu, system_dir) != 0) {

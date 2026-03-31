@@ -197,15 +197,6 @@ typedef struct ComponentState_host_msx {
     uint8_t joy_buttons_profile;
 } ComponentState_host_msx;
 
-typedef struct ComponentState_msx_cart0 {
-    uint8_t * rom_data;
-    uint32_t rom_size;
-    uint8_t slot_id;
-    uint8_t bank_6000;
-    uint8_t bank_8000;
-    uint8_t bank_a000;
-} ComponentState_msx_cart0;
-
 
 /* ===== CPU State ===== */
 struct CPUState {
@@ -290,7 +281,6 @@ struct CPUState {
     ComponentState_video_msx comp_video_msx;
     ComponentState_speaker_msx comp_speaker_msx;
     ComponentState_host_msx comp_host_msx;
-    ComponentState_msx_cart0 comp_msx_cart0;
 };
 
 /* ===== Constants ===== */
@@ -304,11 +294,11 @@ struct CPUState {
 #define CPU_AUDIO_SAMPLE_RATE 44100ULL
 #define CPU_AUDIO_CHANNELS 1
 #define CPU_AUDIO_FORMAT "s16le"
-/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"msx1_cartridge_interactive\"} */
+/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"msx1_interactive\"} */
 #define CPU_IC_COUNT 3
 #define CPU_DEVICE_COUNT 3
 #define CPU_HOST_COUNT 1
-#define CPU_CARTRIDGE_COUNT 1
+#define CPU_CARTRIDGE_COUNT 0
 
 /* ===== Register Enum ===== */
 typedef enum {
@@ -354,6 +344,7 @@ void z80_reset(CPUState *cpu);
 int z80_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int z80_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int z80_load_cartridge_rom(CPUState *cpu, const char *path);
+int z80_load_keyboard_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int z80_step(CPUState *cpu);

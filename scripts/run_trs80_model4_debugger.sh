@@ -22,6 +22,7 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
+KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/trs80_model4/host_keyboard_trs80.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -75,13 +76,19 @@ cmake --build "${BUILD_DIR}" --config "${CMAKE_BUILD_TYPE}"
 
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED}"
+RUN_ARGS=(
+  --backend linked
+  --memory-size "${MEMORY_SIZE}"
+  --system-dir "${SYSTEM_DIR_ABS}"
+  --start-pc "${START_PC}"
+  --run-speed "${RUN_SPEED}"
+)
+if [[ "${PROFILE}" == "interactive" ]]; then
+  RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
+fi
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
-  --backend linked \
-  --memory-size "${MEMORY_SIZE}" \
-  --system-dir "${SYSTEM_DIR_ABS}" \
-  --start-pc "${START_PC}" \
-  --run-speed "${RUN_SPEED}"
+  "${RUN_ARGS[@]}"

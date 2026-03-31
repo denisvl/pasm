@@ -27,8 +27,8 @@
   },
   "memory_default_size": 65536,
   "cartridge": {
-    "enabled": true,
-    "id": "msx_cart0",
-    "default_rom_path": "/home/dvlop/projects/pasm/examples/roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
+    "enabled": false,
+    "id": "",
+    "default_rom_path": ""
   }
 }

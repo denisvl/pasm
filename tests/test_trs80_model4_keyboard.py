@@ -69,8 +69,13 @@ def test_trs80_interactive_host_bindings_cover_caps_and_punctuation():
         [str(path) for path in host_paths],
     )
     host = next(comp for comp in data["hosts"] if comp["metadata"]["id"] == "host_trs80")
-    assert host["input"]["keyboard"]["focus_required"] is True
-    bindings = host["input"]["keyboard"]["bindings"]
+    assert "input" not in host
+    keymap = yaml.safe_load(
+        (BASE_DIR / "examples" / "hosts" / "trs80_model4" / "host_keyboard_trs80.yaml").read_text(encoding="utf-8")
+    )
+    assert keymap["keyboard"]["kind"] == "matrix"
+    assert keymap["keyboard"]["focus_required"] is True
+    bindings = keymap["keyboard"]["bindings"]
     binding_map = {b["host_key"]: {(p["row"], p["bit"]) for p in b["presses"]} for b in bindings}
 
     assert (0, 0) in binding_map["F5"]

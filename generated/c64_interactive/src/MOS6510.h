@@ -272,6 +272,7 @@ void mos6510_reset(CPUState *cpu);
 int mos6510_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mos6510_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mos6510_load_cartridge_rom(CPUState *cpu, const char *path);
+int mos6510_load_keyboard_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int mos6510_step(CPUState *cpu);

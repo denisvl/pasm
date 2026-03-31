@@ -902,6 +902,10 @@ int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path) {
     return mos6510_load_cartridge_rom(cpu, path);
 }
 
+int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path) {
+    return mos6510_load_keyboard_map(cpu, path);
+}
+
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {
     return mos6510_dbg_snapshot_counts(cpu, out_counts);
 }
@@ -1004,6 +1008,10 @@ int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled) {
 
 int pasm_dbg_focus_host_window(CPUState *cpu) {
     return mos6510_dbg_focus_host_window(cpu);
+}
+
+uint8_t pasm_dbg_requires_keyboard_map(void) {
+    return 1u;
 }
 
 const char *pasm_dbg_processor_name(void) {

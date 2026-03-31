@@ -371,6 +371,8 @@ def get_schema_path(kind: str) -> Path:
         return base / "host_schema.json"
     if kind == "cartridge":
         return base / "cartridge_schema.json"
+    if kind == "runtime_keyboard_map":
+        return base / "runtime_keyboard_map_schema.json"
     raise ValueError(f"Unknown schema kind: {kind}")
 
 
@@ -501,100 +503,11 @@ def _validate_host_keyboard_input(host_data: Dict[str, Any]) -> None:
         raise ValidationError("Host validation failed:\ninput must be an object")
 
     keyboard_cfg = input_cfg.get("keyboard")
-    if keyboard_cfg is None:
-        return
-    if not isinstance(keyboard_cfg, dict):
-        raise ValidationError("Host validation failed:\ninput.keyboard must be an object")
-
-    source_raw = keyboard_cfg.get("source")
-    source = str(source_raw).strip() if source_raw is not None else ""
-    if source == "":
-        source = "host_key"
-    if source != "host_key":
+    if keyboard_cfg is not None:
         raise ValidationError(
-            "Host validation failed:\ninput.keyboard.source must be 'host_key'"
+            "Host validation failed:\n"
+            "input.keyboard is no longer supported; use runtime --keyboard-map YAML"
         )
-
-    focus_required = keyboard_cfg.get("focus_required", True)
-    if not isinstance(focus_required, bool):
-        raise ValidationError(
-            "Host validation failed:\ninput.keyboard.focus_required must be a boolean"
-        )
-
-    bindings = keyboard_cfg.get("bindings")
-    if not isinstance(bindings, list):
-        raise ValidationError(
-            "Host validation failed:\ninput.keyboard.bindings must be a list"
-        )
-
-    seen_host_keys: set[str] = set()
-    for binding_idx, binding in enumerate(bindings):
-        if not isinstance(binding, dict):
-            raise ValidationError(
-                "Host validation failed:\n"
-                f"input.keyboard.bindings[{binding_idx}] must be an object"
-            )
-
-        host_key = str(binding.get("host_key", "")).strip()
-        if not host_key:
-            raise ValidationError(
-                "Host validation failed:\n"
-                f"input.keyboard.bindings[{binding_idx}].host_key must be non-empty"
-            )
-        if host_key.startswith("SDL_SCANCODE_"):
-            raise ValidationError(
-                "Host validation failed:\n"
-                f"input.keyboard.bindings[{binding_idx}] host_key '{host_key}' must be canonical "
-                "(A-Z, 0-9, underscore)"
-            )
-        if CANONICAL_HOST_KEY_RE.fullmatch(host_key) is None:
-            raise ValidationError(
-                "Host validation failed:\n"
-                f"input.keyboard.bindings[{binding_idx}] host_key '{host_key}' must be canonical "
-                "(A-Z, 0-9, underscore)"
-            )
-        if host_key not in ALLOWED_HOST_KEYS:
-            raise ValidationError(
-                "Host validation failed:\n"
-                f"input.keyboard.bindings[{binding_idx}] host_key '{host_key}' is not supported"
-            )
-
-        if host_key in seen_host_keys:
-            raise ValidationError(
-                "Host validation failed:\n"
-                f"input.keyboard.bindings[{binding_idx}] duplicate host_key '{host_key}'"
-            )
-        seen_host_keys.add(host_key)
-
-        presses = binding.get("presses")
-        if not isinstance(presses, list) or not presses:
-            raise ValidationError(
-                "Host validation failed:\n"
-                f"input.keyboard.bindings[{binding_idx}].presses must be a non-empty list"
-            )
-        for press_idx, press in enumerate(presses):
-            if not isinstance(press, dict):
-                raise ValidationError(
-                    "Host validation failed:\n"
-                    f"input.keyboard.bindings[{binding_idx}].presses[{press_idx}] must be an object"
-                )
-            row = press.get("row")
-            bit = press.get("bit")
-            if not isinstance(row, int) or not isinstance(bit, int):
-                raise ValidationError(
-                    "Host validation failed:\n"
-                    f"input.keyboard.bindings[{binding_idx}].presses[{press_idx}] row/bit must be integers"
-                )
-            if row < 0 or row > 31:
-                raise ValidationError(
-                    "Host validation failed:\n"
-                    f"input.keyboard.bindings[{binding_idx}].presses[{press_idx}].row out of range (0..31)"
-                )
-            if bit < 0 or bit > 7:
-                raise ValidationError(
-                    "Host validation failed:\n"
-                    f"input.keyboard.bindings[{binding_idx}].presses[{press_idx}].bit out of range (0..7)"
-                )
 
 
 def _normalize_and_validate_host_backend(host_data: Dict[str, Any]) -> None:
@@ -1000,6 +913,7 @@ class ProcessorSystemLoader:
         return device_data
 
     def validate_host(self, host_data: Dict[str, Any]) -> Dict[str, Any]:
+        _validate_host_keyboard_input(host_data)
         errors = _iter_errors(self.host_validator, host_data)
         if errors:
             raise ValidationError(_format_schema_errors("Host", errors))
@@ -1007,7 +921,6 @@ class ProcessorSystemLoader:
         self._validate_coding_block(host_data.get("coding", {}), "Host")
         self._validate_component_behavior("Host", host_data)
         _validate_endpoint_names("Host", host_data)
-        _validate_host_keyboard_input(host_data)
         _normalize_and_validate_host_backend(host_data)
 
         return host_data

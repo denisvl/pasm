@@ -381,6 +381,7 @@ void mos6502_reset(CPUState *cpu);
 int mos6502_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mos6502_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mos6502_load_cartridge_rom(CPUState *cpu, const char *path);
+int mos6502_load_keyboard_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int mos6502_step(CPUState *cpu);

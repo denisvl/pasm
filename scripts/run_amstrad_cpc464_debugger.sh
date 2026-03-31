@@ -22,6 +22,7 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
+KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/cpc464/host_keyboard_cpc.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -77,11 +78,18 @@ echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
 echo "    expected_roms: examples/roms/cpc464/OS_464.ROM and examples/roms/cpc464/BASIC_1.0.ROM"
 
+RUN_ARGS=(
+  --backend linked
+  --memory-size "${MEMORY_SIZE}"
+  --system-dir "${SYSTEM_DIR}"
+  --start-pc "${START_PC}"
+  --run-speed "${RUN_SPEED}"
+)
+if [[ "${PROFILE}" == "interactive" ]]; then
+  RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
+fi
+
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
-  --backend linked \
-  --memory-size "${MEMORY_SIZE}" \
-  --system-dir "${SYSTEM_DIR}" \
-  --start-pc "${START_PC}" \
-  --run-speed "${RUN_SPEED}"
+  "${RUN_ARGS[@]}"

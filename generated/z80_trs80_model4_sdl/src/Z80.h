@@ -290,6 +290,7 @@ void z80_reset(CPUState *cpu);
 int z80_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int z80_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int z80_load_cartridge_rom(CPUState *cpu, const char *path);
+int z80_load_keyboard_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int z80_step(CPUState *cpu);

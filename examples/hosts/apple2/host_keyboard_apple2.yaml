@@ -1,0 +1,183 @@
+keyboard:
+  kind: ascii
+  focus_required: false
+  bindings:
+  - host_key: A
+    ascii: 65
+    ascii_shift: 65
+    ascii_ctrl: 1
+  - host_key: B
+    ascii: 66
+    ascii_shift: 66
+    ascii_ctrl: 2
+  - host_key: C
+    ascii: 67
+    ascii_shift: 67
+    ascii_ctrl: 3
+  - host_key: D
+    ascii: 68
+    ascii_shift: 68
+    ascii_ctrl: 4
+  - host_key: E
+    ascii: 69
+    ascii_shift: 69
+    ascii_ctrl: 5
+  - host_key: F
+    ascii: 70
+    ascii_shift: 70
+    ascii_ctrl: 6
+  - host_key: G
+    ascii: 71
+    ascii_shift: 71
+    ascii_ctrl: 7
+  - host_key: H
+    ascii: 72
+    ascii_shift: 72
+    ascii_ctrl: 8
+  - host_key: I
+    ascii: 73
+    ascii_shift: 73
+    ascii_ctrl: 9
+  - host_key: J
+    ascii: 74
+    ascii_shift: 74
+    ascii_ctrl: 10
+  - host_key: K
+    ascii: 75
+    ascii_shift: 75
+    ascii_ctrl: 11
+  - host_key: L
+    ascii: 76
+    ascii_shift: 76
+    ascii_ctrl: 12
+  - host_key: M
+    ascii: 77
+    ascii_shift: 77
+    ascii_ctrl: 13
+  - host_key: N
+    ascii: 78
+    ascii_shift: 78
+    ascii_ctrl: 14
+  - host_key: O
+    ascii: 79
+    ascii_shift: 79
+    ascii_ctrl: 15
+  - host_key: P
+    ascii: 80
+    ascii_shift: 80
+    ascii_ctrl: 16
+  - host_key: Q
+    ascii: 81
+    ascii_shift: 81
+    ascii_ctrl: 17
+  - host_key: R
+    ascii: 82
+    ascii_shift: 82
+    ascii_ctrl: 18
+  - host_key: S
+    ascii: 83
+    ascii_shift: 83
+    ascii_ctrl: 19
+  - host_key: T
+    ascii: 84
+    ascii_shift: 84
+    ascii_ctrl: 20
+  - host_key: U
+    ascii: 85
+    ascii_shift: 85
+    ascii_ctrl: 21
+  - host_key: V
+    ascii: 86
+    ascii_shift: 86
+    ascii_ctrl: 22
+  - host_key: W
+    ascii: 87
+    ascii_shift: 87
+    ascii_ctrl: 23
+  - host_key: X
+    ascii: 88
+    ascii_shift: 88
+    ascii_ctrl: 24
+  - host_key: Y
+    ascii: 89
+    ascii_shift: 89
+    ascii_ctrl: 25
+  - host_key: Z
+    ascii: 90
+    ascii_shift: 90
+    ascii_ctrl: 26
+  - host_key: '0'
+    ascii: 48
+    ascii_shift: 41
+  - host_key: '1'
+    ascii: 49
+    ascii_shift: 33
+  - host_key: '2'
+    ascii: 50
+    ascii_shift: 64
+  - host_key: '3'
+    ascii: 51
+    ascii_shift: 35
+  - host_key: '4'
+    ascii: 52
+    ascii_shift: 36
+  - host_key: '5'
+    ascii: 53
+    ascii_shift: 37
+  - host_key: '6'
+    ascii: 54
+    ascii_shift: 94
+  - host_key: '7'
+    ascii: 55
+    ascii_shift: 38
+  - host_key: '8'
+    ascii: 56
+    ascii_shift: 42
+  - host_key: '9'
+    ascii: 57
+    ascii_shift: 40
+  - host_key: SPACE
+    ascii: 32
+  - host_key: RETURN
+    ascii: 13
+  - host_key: KP_ENTER
+    ascii: 13
+  - host_key: BACKSPACE
+    ascii: 8
+  - host_key: ESCAPE
+    ascii: 27
+  - host_key: TAB
+    ascii: 9
+  - host_key: MINUS
+    ascii: 45
+    ascii_shift: 95
+  - host_key: EQUALS
+    ascii: 61
+    ascii_shift: 43
+  - host_key: LEFTBRACKET
+    ascii: 91
+    ascii_shift: 123
+  - host_key: RIGHTBRACKET
+    ascii: 93
+    ascii_shift: 125
+  - host_key: BACKSLASH
+    ascii: 92
+    ascii_shift: 124
+  - host_key: SEMICOLON
+    ascii: 59
+    ascii_shift: 58
+  - host_key: APOSTROPHE
+    ascii: 39
+    ascii_shift: 34
+  - host_key: COMMA
+    ascii: 44
+    ascii_shift: 60
+  - host_key: PERIOD
+    ascii: 46
+    ascii_shift: 62
+  - host_key: SLASH
+    ascii: 47
+    ascii_shift: 63
+  - host_key: GRAVE
+    ascii: 96
+    ascii_shift: 126

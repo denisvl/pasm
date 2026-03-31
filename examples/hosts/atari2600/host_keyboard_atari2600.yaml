@@ -1,0 +1,60 @@
+keyboard:
+  kind: matrix
+  focus_required: true
+  bindings:
+  - host_key: UP
+    presses:
+    - row: 0
+      bit: 0
+  - host_key: DOWN
+    presses:
+    - row: 0
+      bit: 1
+  - host_key: LEFT
+    presses:
+    - row: 0
+      bit: 2
+  - host_key: RIGHT
+    presses:
+    - row: 0
+      bit: 3
+  - host_key: Z
+    presses:
+    - row: 0
+      bit: 4
+  - host_key: SPACE
+    presses:
+    - row: 0
+      bit: 4
+  - host_key: KP_8
+    presses:
+    - row: 1
+      bit: 0
+  - host_key: KP_2
+    presses:
+    - row: 1
+      bit: 1
+  - host_key: KP_4
+    presses:
+    - row: 1
+      bit: 2
+  - host_key: KP_6
+    presses:
+    - row: 1
+      bit: 3
+  - host_key: KP_0
+    presses:
+    - row: 1
+      bit: 4
+  - host_key: R
+    presses:
+    - row: 2
+      bit: 0
+  - host_key: F
+    presses:
+    - row: 2
+      bit: 1
+  - host_key: C
+    presses:
+    - row: 2
+      bit: 3

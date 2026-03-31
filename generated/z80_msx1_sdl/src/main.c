@@ -12,8 +12,9 @@ void print_usage(const char *prog) {
     printf("Usage: %s [options]\n", prog);
     printf("Options:\n");
     printf("  --system-dir <dir>  Load system ROM manifests relative to this directory\n");
+    printf("  --keyboard-map <file>  Load runtime keyboard map YAML\n");
     printf("  --rom <file>    Load ROM file\n");
-    printf("  --cart-rom <file>  Load cartridge ROM file (overrides generated default)\n");
+
     printf("  --addr <addr>   Load address (default: 0x0000)\n");
     printf("  --run           Run emulator\n");
     printf("  --cycles <n>    Run for n cycles\n");
@@ -31,18 +32,19 @@ int main(int argc, char *argv[]) {
     bool run_emulator = false;
     uint64_t max_cycles = 0;
     const char *system_dir = NULL;
+    const char *keyboard_map_file = NULL;
     const char *rom_file = NULL;
-    const char *cart_rom_file = "/home/dvlop/projects/pasm/examples/roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom";
+
     uint16_t load_addr = 0;
     const char *test_name = NULL;
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--system-dir") == 0 && i + 1 < argc) {
             system_dir = argv[++i];
+        } else if (strcmp(argv[i], "--keyboard-map") == 0 && i + 1 < argc) {
+            keyboard_map_file = argv[++i];
         } else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {
             rom_file = argv[++i];
-        } else if (strcmp(argv[i], "--cart-rom") == 0 && i + 1 < argc) {
-            cart_rom_file = argv[++i];
         } else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--run") == 0) {
@@ -56,6 +58,11 @@ int main(int argc, char *argv[]) {
             return 0;
         }
     }
+    if (keyboard_map_file == NULL || keyboard_map_file[0] == '\0') {
+        fprintf(stderr, "Missing required --keyboard-map <file>\n");
+        return 1;
+    }
+
     
     if (system_dir) {
         if (z80_load_system_roms(cpu, system_dir) != 0) {
@@ -66,13 +73,12 @@ int main(int argc, char *argv[]) {
         printf("Loaded system ROMs from: %s\n", system_dir);
     }
     
-    if (cart_rom_file && cart_rom_file[0]) {
-        if (z80_load_cartridge_rom(cpu, cart_rom_file) != 0) {
-            fprintf(stderr, "Failed to load cartridge ROM: %s\n", cart_rom_file);
+    if (keyboard_map_file && keyboard_map_file[0]) {
+        if (z80_load_keyboard_map(cpu, keyboard_map_file) != 0) {
+            fprintf(stderr, "Failed to load keyboard map: %s\n", keyboard_map_file);
             return 1;
         }
-        z80_reset(cpu);
-        printf("Loaded cartridge ROM: %s\n", cart_rom_file);
+        printf("Loaded keyboard map: %s\n", keyboard_map_file);
     }
     if (rom_file) {
         if (z80_load_rom(cpu, rom_file, load_addr) != 0) {

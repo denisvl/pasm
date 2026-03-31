@@ -15,6 +15,8 @@ unsafe extern "C" {
     fn pasm_dbg_clear_memory(cpu: *mut CPUState) -> c_int;
     fn pasm_dbg_load_system_roms(cpu: *mut CPUState, system_base_dir: *const c_char) -> c_int;
     fn pasm_dbg_load_cartridge_rom(cpu: *mut CPUState, path: *const c_char) -> c_int;
+    fn pasm_dbg_load_keyboard_map(cpu: *mut CPUState, path: *const c_char) -> c_int;
+    fn pasm_dbg_requires_keyboard_map() -> c_uchar;
     fn pasm_dbg_snapshot_counts(cpu: *mut CPUState, out_counts: *mut PASMDebugCounts) -> c_int;
     fn pasm_dbg_snapshot_fill(
         cpu: *mut CPUState,
@@ -74,6 +76,7 @@ pub struct LinkedEmulatorBackend {
     start_pc: Option<u64>,
     system_dir: Option<String>,
     cart_rom: Option<String>,
+    keyboard_map: Option<String>,
 }
 
 impl LinkedEmulatorBackend {
@@ -81,6 +84,7 @@ impl LinkedEmulatorBackend {
         memory_size: usize,
         system_dir: Option<&str>,
         cart_rom: Option<&str>,
+        keyboard_map: Option<&str>,
         start_pc: Option<u64>,
     ) -> Result<Self, String> {
         // SAFETY: FFI constructor from generated emulator.
@@ -93,6 +97,7 @@ impl LinkedEmulatorBackend {
             start_pc,
             system_dir: system_dir.map(ToOwned::to_owned),
             cart_rom: cart_rom.map(ToOwned::to_owned),
+            keyboard_map: keyboard_map.map(ToOwned::to_owned),
         };
         if let Some(dir) = system_dir {
             let c_dir = CString::new(dir).map_err(|_| "invalid system path")?;
@@ -114,7 +119,20 @@ Use the directory that contains your system YAML (for example: examples/systems)
                 ));
             }
         }
-        if system_dir.is_some() || cart_rom.is_some() {
+        let keyboard_required = unsafe { pasm_dbg_requires_keyboard_map() } != 0;
+        if keyboard_required && keyboard_map.is_none() {
+            return Err("missing required --keyboard-map <file>".to_string());
+        }
+        if let Some(path) = keyboard_map {
+            let c_path = CString::new(path).map_err(|_| "invalid keyboard map path")?;
+            let rc = unsafe { pasm_dbg_load_keyboard_map(backend.cpu, c_path.as_ptr()) };
+            if rc != 0 {
+                return Err(format!(
+                    "failed to load keyboard map from '{path}' (code {rc})"
+                ));
+            }
+        }
+        if system_dir.is_some() || cart_rom.is_some() || keyboard_map.is_some() {
             unsafe { pasm_dbg_reset(backend.cpu) };
         }
         if let Some(pc) = start_pc {
@@ -411,7 +429,20 @@ impl DebuggerBackend for LinkedEmulatorBackend {
                 ));
             }
         }
-        if self.system_dir.is_some() || self.cart_rom.is_some() {
+        let keyboard_required = unsafe { pasm_dbg_requires_keyboard_map() } != 0;
+        if keyboard_required && self.keyboard_map.is_none() {
+            return Err("missing required --keyboard-map <file>".to_string());
+        }
+        if let Some(path) = self.keyboard_map.as_deref() {
+            let c_path = CString::new(path).map_err(|_| "invalid keyboard map path")?;
+            let rc = unsafe { pasm_dbg_load_keyboard_map(self.cpu, c_path.as_ptr()) };
+            if rc != 0 {
+                return Err(format!(
+                    "failed to reload keyboard map from '{path}' during reset (code {rc})"
+                ));
+            }
+        }
+        if self.system_dir.is_some() || self.cart_rom.is_some() || self.keyboard_map.is_some() {
             unsafe { pasm_dbg_reset(self.cpu) };
         }
         if let Some(pc) = self.start_pc {

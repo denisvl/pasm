@@ -623,17 +623,6 @@ def _base_host_with_keyboard_input():
             "linked_libraries": [],
             "library_paths": [],
         },
-        "input": {
-            "keyboard": {
-                "focus_required": True,
-                "bindings": [
-                    {
-                        "host_key": "A",
-                        "presses": [{"row": 1, "bit": 0}],
-                    }
-                ],
-            }
-        },
     }
 
 
@@ -697,69 +686,64 @@ def _write_host_system_yaml(path: pathlib.Path, host_ids: list[str]) -> pathlib.
     return system_path
 
 
-def test_host_keyboard_input_validation_accepts_valid_mapping():
+def test_host_keyboard_input_validation_rejects_runtime_keyboard_mapping_in_host_yaml():
     loader = yaml_loader.ProcessorSystemLoader()
     host_data = _base_host_with_keyboard_input()
-    validated = loader.validate_host(host_data)
-    assert validated["input"]["keyboard"]["bindings"][0]["host_key"] == "A"
-
-
-def test_host_keyboard_input_validation_accepts_explicit_host_key_source():
-    loader = yaml_loader.ProcessorSystemLoader()
-    host_data = _base_host_with_keyboard_input()
-    host_data["input"]["keyboard"]["source"] = "host_key"
-    validated = loader.validate_host(host_data)
-    assert validated["input"]["keyboard"]["source"] == "host_key"
-
-
-def test_host_keyboard_input_validation_rejects_legacy_sdl_source():
-    loader = yaml_loader.ProcessorSystemLoader()
-    host_data = _base_host_with_keyboard_input()
-    host_data["input"]["keyboard"]["source"] = "sdl_scancode"
-    with pytest.raises(Exception, match="source.*not one of \\['host_key'\\]"):
+    host_data["input"] = {
+        "keyboard": {
+            "focus_required": True,
+            "bindings": [{"host_key": "A", "presses": [{"row": 1, "bit": 0}]}],
+        }
+    }
+    with pytest.raises(Exception, match="input.keyboard is no longer supported"):
         loader.validate_host(host_data)
 
 
-def test_host_keyboard_input_validation_rejects_legacy_sdl_host_key_token():
-    loader = yaml_loader.ProcessorSystemLoader()
-    host_data = _base_host_with_keyboard_input()
-    host_data["input"]["keyboard"]["bindings"][0]["host_key"] = "SDL_SCANCODE_A"
-    with pytest.raises(Exception, match="must be canonical"):
-        loader.validate_host(host_data)
+def test_runtime_keyboard_map_schema_accepts_valid_matrix_and_ascii_maps():
+    if yaml_loader.Draft7Validator is None:
+        pytest.skip("jsonschema not available")
+    schema = yaml_loader.load_schema("runtime_keyboard_map")
+    validator = yaml_loader.Draft7Validator(schema)
+
+    matrix_map = {
+        "keyboard": {
+            "kind": "matrix",
+            "focus_required": True,
+            "bindings": [{"host_key": "A", "presses": [{"row": 1, "bit": 0}]}],
+        }
+    }
+    ascii_map = {
+        "keyboard": {
+            "kind": "ascii",
+            "focus_required": False,
+            "bindings": [{"host_key": "A", "ascii": 97, "ascii_shift": 65, "ascii_ctrl": 1}],
+        }
+    }
+
+    assert list(validator.iter_errors(matrix_map)) == []
+    assert list(validator.iter_errors(ascii_map)) == []
 
 
-def test_host_keyboard_input_validation_rejects_duplicate_host_key():
-    loader = yaml_loader.ProcessorSystemLoader()
-    host_data = _base_host_with_keyboard_input()
-    host_data["input"]["keyboard"]["bindings"].append(
-        {"host_key": "A", "presses": [{"row": 0, "bit": 0}]}
-    )
-    with pytest.raises(Exception, match="duplicate host_key"):
-        loader.validate_host(host_data)
+def test_runtime_keyboard_map_schema_rejects_invalid_host_key_and_out_of_range_press():
+    if yaml_loader.Draft7Validator is None:
+        pytest.skip("jsonschema not available")
+    schema = yaml_loader.load_schema("runtime_keyboard_map")
+    validator = yaml_loader.Draft7Validator(schema)
 
-
-def test_host_keyboard_input_validation_rejects_invalid_canonical_host_key():
-    loader = yaml_loader.ProcessorSystemLoader()
-    host_data = _base_host_with_keyboard_input()
-    host_data["input"]["keyboard"]["bindings"][0]["host_key"] = "A-key"
-    with pytest.raises(Exception, match="host_key.*does not match '\\^\\[A-Z0-9_\\]\\+\\$'|must be canonical"):
-        loader.validate_host(host_data)
-
-
-def test_host_keyboard_input_validation_rejects_unknown_scancode():
-    loader = yaml_loader.ProcessorSystemLoader()
-    host_data = _base_host_with_keyboard_input()
-    host_data["input"]["keyboard"]["bindings"][0]["host_key"] = "UNKNOWN_X"
-    with pytest.raises(Exception, match="not supported"):
-        loader.validate_host(host_data)
-
-
-def test_host_keyboard_input_validation_rejects_out_of_range_press():
-    loader = yaml_loader.ProcessorSystemLoader()
-    host_data = _base_host_with_keyboard_input()
-    host_data["input"]["keyboard"]["bindings"][0]["presses"] = [{"row": 32, "bit": 0}]
-    with pytest.raises(Exception, match="maximum of 31|row out of range"):
-        loader.validate_host(host_data)
+    invalid_map = {
+        "keyboard": {
+            "kind": "matrix",
+            "bindings": [
+                {
+                    "host_key": "bad-key",
+                    "presses": [{"row": 40, "bit": 9}],
+                }
+            ],
+        }
+    }
+    errors = [err.message for err in validator.iter_errors(invalid_map)]
+    assert errors
+    assert any("does not match" in msg or "is greater than the maximum" in msg for msg in errors)
 
 
 def test_host_backend_allows_omitted_target():

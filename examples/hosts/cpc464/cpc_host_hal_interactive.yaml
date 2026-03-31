@@ -2,670 +2,349 @@ metadata:
   id: host_cpc
   type: host_adapter
   model: amstrad_cpc_hal_interactive
-  version: "1.0"
-
-
+  version: '1.0'
 state:
-  - name: host_inited
-    type: uint8_t
-    initial: "0"
-  - name: window
-    type: void *
-    initial: "NULL"
-  - name: renderer
-    type: void *
-    initial: "NULL"
-  - name: texture
-    type: void *
-    initial: "NULL"
-  - name: texture_w
-    type: uint32_t
-    initial: "320"
-  - name: texture_h
-    type: uint32_t
-    initial: "200"
-  - name: audio_out_dev
-    type: uint32_t
-    initial: "0"
-  - name: audio_out_ready
-    type: uint8_t
-    initial: "0"
-  - name: audio_device_samples
-    type: uint32_t
-    initial: "0"
-  - name: audio_rate
-    type: uint32_t
-    initial: "0"
-  - name: audio_ring
-    type: int16_t *
-    initial: "NULL"
-  - name: audio_ring_capacity
-    type: uint32_t
-    initial: "0"
-  - name: audio_ring_read_idx
-    type: uint32_t
-    initial: "0"
-  - name: audio_ring_write_idx
-    type: uint32_t
-    initial: "0"
-  - name: audio_ring_fill
-    type: uint32_t
-    initial: "0"
-  - name: audio_samples
-    type: uint32_t
-    initial: "0"
-  - name: frame_count
-    type: uint32_t
-    initial: "0"
-  - name: irq_edges
-    type: uint32_t
-    initial: "0"
-  - name: has_keyboard_focus
-    type: uint8_t
-    initial: "0"
-  - name: last_focus_state
-    type: uint8_t
-    initial: "0"
-  - name: last_event_poll_cycle
-    type: uint64_t
-    initial: "0"
-  - name: overlay_last_ms
-    type: uint32_t
-    initial: "0"
-  - name: overlay_last_frame_count
-    type: uint64_t
-    initial: "0"
-  - name: overlay_last_cycle_count
-    type: uint64_t
-    initial: "0"
-  - name: overlay_fps_x100
-    type: uint32_t
-    initial: "0"
-  - name: overlay_cpu_hz
-    type: uint64_t
-    initial: "0"
-  - name: overlay_cpu_pct_x10
-    type: uint32_t
-    initial: "0"
-  - name: row0
-    type: uint8_t
-    initial: "0xFF"
-  - name: row1
-    type: uint8_t
-    initial: "0xFF"
-  - name: row2
-    type: uint8_t
-    initial: "0xFF"
-  - name: row3
-    type: uint8_t
-    initial: "0xFF"
-  - name: row4
-    type: uint8_t
-    initial: "0xFF"
-  - name: row5
-    type: uint8_t
-    initial: "0xFF"
-  - name: row6
-    type: uint8_t
-    initial: "0xFF"
-  - name: row7
-    type: uint8_t
-    initial: "0xFF"
-  - name: row8
-    type: uint8_t
-    initial: "0xFF"
-  - name: row9
-    type: uint8_t
-    initial: "0xFF"
-
+- name: host_inited
+  type: uint8_t
+  initial: '0'
+- name: window
+  type: void *
+  initial: 'NULL'
+- name: renderer
+  type: void *
+  initial: 'NULL'
+- name: texture
+  type: void *
+  initial: 'NULL'
+- name: texture_w
+  type: uint32_t
+  initial: '320'
+- name: texture_h
+  type: uint32_t
+  initial: '200'
+- name: audio_out_dev
+  type: uint32_t
+  initial: '0'
+- name: audio_out_ready
+  type: uint8_t
+  initial: '0'
+- name: audio_device_samples
+  type: uint32_t
+  initial: '0'
+- name: audio_rate
+  type: uint32_t
+  initial: '0'
+- name: audio_ring
+  type: int16_t *
+  initial: 'NULL'
+- name: audio_ring_capacity
+  type: uint32_t
+  initial: '0'
+- name: audio_ring_read_idx
+  type: uint32_t
+  initial: '0'
+- name: audio_ring_write_idx
+  type: uint32_t
+  initial: '0'
+- name: audio_ring_fill
+  type: uint32_t
+  initial: '0'
+- name: audio_samples
+  type: uint32_t
+  initial: '0'
+- name: frame_count
+  type: uint32_t
+  initial: '0'
+- name: irq_edges
+  type: uint32_t
+  initial: '0'
+- name: has_keyboard_focus
+  type: uint8_t
+  initial: '0'
+- name: last_focus_state
+  type: uint8_t
+  initial: '0'
+- name: last_event_poll_cycle
+  type: uint64_t
+  initial: '0'
+- name: overlay_last_ms
+  type: uint32_t
+  initial: '0'
+- name: overlay_last_frame_count
+  type: uint64_t
+  initial: '0'
+- name: overlay_last_cycle_count
+  type: uint64_t
+  initial: '0'
+- name: overlay_fps_x100
+  type: uint32_t
+  initial: '0'
+- name: overlay_cpu_hz
+  type: uint64_t
+  initial: '0'
+- name: overlay_cpu_pct_x10
+  type: uint32_t
+  initial: '0'
+- name: row0
+  type: uint8_t
+  initial: '0xFF'
+- name: row1
+  type: uint8_t
+  initial: '0xFF'
+- name: row2
+  type: uint8_t
+  initial: '0xFF'
+- name: row3
+  type: uint8_t
+  initial: '0xFF'
+- name: row4
+  type: uint8_t
+  initial: '0xFF'
+- name: row5
+  type: uint8_t
+  initial: '0xFF'
+- name: row6
+  type: uint8_t
+  initial: '0xFF'
+- name: row7
+  type: uint8_t
+  initial: '0xFF'
+- name: row8
+  type: uint8_t
+  initial: '0xFF'
+- name: row9
+  type: uint8_t
+  initial: '0xFF'
 interfaces:
   callbacks:
-    - name: keyboard_matrix
-      args: [u8]
-      returns: u8
+  - name: keyboard_matrix
+    args:
+    - u8
+    returns: u8
   handlers:
-    - name: video_frame
-      args: [u32, u64, u32, u32]
-    - name: irq_edge
-      args: [u8]
-    - name: audio_pcm
-      args: [u8, u64]
+  - name: video_frame
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+  - name: irq_edge
+    args:
+    - u8
+  - name: audio_pcm
+    args:
+    - u8
+    - u64
   signals: []
-
-input:
-  keyboard:
-    focus_required: true
-    bindings:
-      - host_key: "0"
-        presses: [{ row: 4, bit: 0 }]  # CPC_0
-      - host_key: "1"
-        presses: [{ row: 8, bit: 0 }]  # CPC_1
-      - host_key: "2"
-        presses: [{ row: 8, bit: 1 }]  # CPC_2
-      - host_key: "3"
-        presses: [{ row: 7, bit: 1 }]  # CPC_3
-      - host_key: "4"
-        presses: [{ row: 7, bit: 0 }]  # CPC_4
-      - host_key: "5"
-        presses: [{ row: 6, bit: 1 }]  # CPC_5
-      - host_key: "6"
-        presses: [{ row: 6, bit: 0 }]  # CPC_6
-      - host_key: "7"
-        presses: [{ row: 5, bit: 1 }]  # CPC_7
-      - host_key: "8"
-        presses: [{ row: 5, bit: 0 }]  # CPC_8
-      - host_key: "9"
-        presses: [{ row: 4, bit: 1 }]  # CPC_9
-      - host_key: A
-        presses: [{ row: 8, bit: 5 }]  # CPC_a
-      - host_key: B
-        presses: [{ row: 6, bit: 6 }]  # CPC_b
-      - host_key: C
-        presses: [{ row: 7, bit: 6 }]  # CPC_c
-      - host_key: D
-        presses: [{ row: 7, bit: 5 }]  # CPC_d
-      - host_key: E
-        presses: [{ row: 7, bit: 2 }]  # CPC_e
-      - host_key: F
-        presses: [{ row: 6, bit: 5 }]  # CPC_f
-      - host_key: G
-        presses: [{ row: 6, bit: 4 }]  # CPC_g
-      - host_key: H
-        presses: [{ row: 5, bit: 4 }]  # CPC_h
-      - host_key: I
-        presses: [{ row: 4, bit: 3 }]  # CPC_i
-      - host_key: J
-        presses: [{ row: 5, bit: 5 }]  # CPC_j
-      - host_key: K
-        presses: [{ row: 4, bit: 5 }]  # CPC_k
-      - host_key: L
-        presses: [{ row: 4, bit: 4 }]  # CPC_l
-      - host_key: M
-        presses: [{ row: 4, bit: 6 }]  # CPC_m
-      - host_key: N
-        presses: [{ row: 5, bit: 6 }]  # CPC_n
-      - host_key: O
-        presses: [{ row: 4, bit: 2 }]  # CPC_o
-      - host_key: P
-        presses: [{ row: 3, bit: 3 }]  # CPC_p
-      - host_key: Q
-        presses: [{ row: 8, bit: 3 }]  # CPC_q
-      - host_key: R
-        presses: [{ row: 6, bit: 2 }]  # CPC_r
-      - host_key: S
-        presses: [{ row: 7, bit: 4 }]  # CPC_s
-      - host_key: T
-        presses: [{ row: 6, bit: 3 }]  # CPC_t
-      - host_key: U
-        presses: [{ row: 5, bit: 2 }]  # CPC_u
-      - host_key: V
-        presses: [{ row: 6, bit: 7 }]  # CPC_v
-      - host_key: W
-        presses: [{ row: 7, bit: 3 }]  # CPC_w
-      - host_key: X
-        presses: [{ row: 7, bit: 7 }]  # CPC_x
-      - host_key: Y
-        presses: [{ row: 5, bit: 3 }]  # CPC_y
-      - host_key: Z
-        presses: [{ row: 8, bit: 7 }]  # CPC_z
-      - host_key: GRAVE
-        presses: [{ row: 2, bit: 6 }]  # CPC_BACKQUOTE
-      - host_key: BACKSLASH
-        presses: [{ row: 2, bit: 6 }]  # CPC_BACKSLASH
-      - host_key: CAPSLOCK
-        presses: [{ row: 8, bit: 6 }]  # CPC_CAPSLOCK
-      - host_key: DELETE
-        presses: [{ row: 2, bit: 0 }]  # CPC_CLR
-      - host_key: COMMA
-        presses: [{ row: 4, bit: 7 }]  # CPC_COMMA
-      - host_key: LCTRL
-        presses: [{ row: 2, bit: 7 }]  # CPC_CONTROL
-      - host_key: LALT
-        presses: [{ row: 1, bit: 1 }]  # CPC_COPY
-      - host_key: DOWN
-        presses: [{ row: 0, bit: 2 }]  # CPC_CUR_DOWN
-      - host_key: LEFT
-        presses: [{ row: 1, bit: 0 }]  # CPC_CUR_LEFT
-      - host_key: RIGHT
-        presses: [{ row: 0, bit: 1 }]  # CPC_CUR_RIGHT
-      - host_key: UP
-        presses: [{ row: 0, bit: 0 }]  # CPC_CUR_UP
-      - host_key: HOME
-        presses: [{ row: 1, bit: 0 }]  # CPC_CUR_HOMELN
-      - host_key: END
-        presses: [{ row: 0, bit: 1 }]  # CPC_CUR_ENDLN
-      - host_key: BACKSPACE
-        presses: [{ row: 9, bit: 7 }]  # CPC_DEL
-      - host_key: KP_ENTER
-        presses: [{ row: 0, bit: 6 }]  # CPC_ENTER
-      - host_key: EQUALS
-        presses: [{ row: 3, bit: 1 }]  # CPC_EQUAL
-      - host_key: ESCAPE
-        presses: [{ row: 8, bit: 2 }]  # CPC_ESC
-      - host_key: KP_0
-        presses: [{ row: 1, bit: 7 }]  # CPC_F0
-      - host_key: KP_1
-        presses: [{ row: 1, bit: 5 }]  # CPC_F1
-      - host_key: KP_2
-        presses: [{ row: 1, bit: 6 }]  # CPC_F2
-      - host_key: KP_3
-        presses: [{ row: 0, bit: 5 }]  # CPC_F3
-      - host_key: KP_4
-        presses: [{ row: 2, bit: 4 }]  # CPC_F4
-      - host_key: KP_5
-        presses: [{ row: 1, bit: 4 }]  # CPC_F5
-      - host_key: KP_6
-        presses: [{ row: 0, bit: 4 }]  # CPC_F6
-      - host_key: KP_7
-        presses: [{ row: 1, bit: 2 }]  # CPC_F7
-      - host_key: KP_8
-        presses: [{ row: 1, bit: 3 }]  # CPC_F8
-      - host_key: KP_9
-        presses: [{ row: 0, bit: 3 }]  # CPC_F9
-      - host_key: KP_PERIOD
-        presses: [{ row: 0, bit: 7 }]  # CPC_FPERIOD
-      - host_key: LEFTBRACKET
-        presses: [{ row: 2, bit: 1 }]  # CPC_LBRACKET
-      - host_key: LSHIFT
-        presses: [{ row: 2, bit: 5 }]  # CPC_LSHIFT
-      - host_key: MINUS
-        presses: [{ row: 3, bit: 1 }]  # CPC_MINUS
-      - host_key: PERIOD
-        presses: [{ row: 3, bit: 7 }]  # CPC_PERIOD
-      - host_key: APOSTROPHE
-        presses: [{ row: 5, bit: 1 }]  # CPC_QUOTE
-      - host_key: RIGHTBRACKET
-        presses: [{ row: 2, bit: 3 }]  # CPC_RBRACKET
-      - host_key: RETURN
-        presses: [{ row: 2, bit: 2 }]  # CPC_RETURN
-      - host_key: RSHIFT
-        presses: [{ row: 2, bit: 5 }]  # CPC_RSHIFT
-      - host_key: SEMICOLON
-        presses: [{ row: 3, bit: 4 }]  # CPC_SEMICOLON
-      - host_key: SLASH
-        presses: [{ row: 3, bit: 6 }]  # CPC_SLASH
-      - host_key: SPACE
-        presses: [{ row: 5, bit: 7 }]  # CPC_SPACE
-      - host_key: TAB
-        presses: [{ row: 8, bit: 4 }]  # CPC_TAB
-
 behavior:
   snippets:
-    init: |
-      do {
-          if (comp->host_inited != 0u) break;
-          if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) break;
+    init: "do {\n    if (comp->host_inited != 0u) break;\n    if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO\
+      \ | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) break;\n\n    comp->window\
+      \ = cpu_host_hal_create_window(\n        \"PASM Amstrad CPC464\",\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
+      \        CPU_HOST_WINDOWPOS_CENTERED,\n        960,\n        600,\n        CPU_HOST_WINDOW_RESIZABLE\n\
+      \    );\n    if (comp->window == NULL) break;\n\n    comp->renderer = cpu_host_hal_create_renderer(comp->window,\
+      \ -1, CPU_HOST_RENDERER_ACCELERATED);\n    if (comp->renderer == NULL) {\n \
+      \       comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);\n\
+      \    }\n    if (comp->renderer == NULL) break;\n\n    comp->texture = cpu_host_hal_create_texture(\n\
+      \        comp->renderer,\n        CPU_HOST_PIXELFORMAT_ARGB8888,\n        CPU_HOST_TEXTUREACCESS_STREAMING,\n\
+      \        320,\n        200\n    );\n    if (comp->texture == NULL) break;\n\n\
+      \    {\n        const char *audio_env = cpu_host_hal_getenv(\"PASM_HOST_AUDIO\"\
+      );\n        if (audio_env == NULL || audio_env[0] != '0') {\n            CPUHostAudioSpec\
+      \ want;\n            CPUHostAudioSpec have;\n            uint32_t expected_rate\
+      \ = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (uint32_t)CPU_AUDIO_SAMPLE_RATE : 44100u;\n\
+      \            cpu_host_audio_spec_zero(&want);\n            cpu_host_audio_spec_zero(&have);\n\
+      \            want.freq = (int)expected_rate;\n            want.format = CPU_HOST_AUDIO_FORMAT_S16;\n\
+      \            want.channels = 1;\n            want.samples = 512;\n         \
+      \   want.callback = NULL;\n\n            comp->audio_out_dev = cpu_host_hal_audio_open(NULL,\
+      \ 0, &want, &have, 0);\n            if (\n                comp->audio_out_dev\
+      \ != 0u &&\n                have.format == CPU_HOST_AUDIO_FORMAT_S16 &&\n  \
+      \              have.channels == 1 &&\n                have.freq > 0 &&\n   \
+      \             have.samples > 0\n            ) {\n                uint32_t ring_capacity\
+      \ = (uint32_t)have.samples * 8u;\n                if (ring_capacity < 4096u)\
+      \ ring_capacity = 4096u;\n                comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity\
+      \ * sizeof(int16_t));\n                if (comp->audio_ring != NULL) {\n   \
+      \                 comp->audio_rate = (uint32_t)have.freq;\n                \
+      \    comp->audio_device_samples = (uint32_t)have.samples;\n                \
+      \    comp->audio_ring_capacity = ring_capacity;\n                    comp->audio_ring_read_idx\
+      \ = 0u;\n                    comp->audio_ring_write_idx = 0u;\n            \
+      \        comp->audio_ring_fill = 0u;\n                    comp->audio_out_ready\
+      \ = 1u;\n                    cpu_host_hal_audio_pause(comp->audio_out_dev, 0);\n\
+      \                } else {\n                    cpu_host_hal_audio_close(comp->audio_out_dev);\n\
+      \                    comp->audio_out_dev = 0u;\n                }\n        \
+      \    }\n        }\n    }\n\n    comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);\n\
+      \    comp->last_focus_state = comp->has_keyboard_focus;\n    comp->host_inited\
+      \ = 1u;\n} while (0);\n"
+    reset: 'comp->frame_count = 0u;
 
-          comp->window = cpu_host_hal_create_window(
-              "PASM Amstrad CPC464",
-              CPU_HOST_WINDOWPOS_CENTERED,
-              CPU_HOST_WINDOWPOS_CENTERED,
-              960,
-              600,
-              CPU_HOST_WINDOW_RESIZABLE
-          );
-          if (comp->window == NULL) break;
-
-          comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, CPU_HOST_RENDERER_ACCELERATED);
-          if (comp->renderer == NULL) {
-              comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);
-          }
-          if (comp->renderer == NULL) break;
-
-          comp->texture = cpu_host_hal_create_texture(
-              comp->renderer,
-              CPU_HOST_PIXELFORMAT_ARGB8888,
-              CPU_HOST_TEXTUREACCESS_STREAMING,
-              320,
-              200
-          );
-          if (comp->texture == NULL) break;
-
-          {
-              const char *audio_env = cpu_host_hal_getenv("PASM_HOST_AUDIO");
-              if (audio_env == NULL || audio_env[0] != '0') {
-                  CPUHostAudioSpec want;
-                  CPUHostAudioSpec have;
-                  uint32_t expected_rate = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (uint32_t)CPU_AUDIO_SAMPLE_RATE : 44100u;
-                  cpu_host_audio_spec_zero(&want);
-                  cpu_host_audio_spec_zero(&have);
-                  want.freq = (int)expected_rate;
-                  want.format = CPU_HOST_AUDIO_FORMAT_S16;
-                  want.channels = 1;
-                  want.samples = 512;
-                  want.callback = NULL;
-
-                  comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have, 0);
-                  if (
-                      comp->audio_out_dev != 0u &&
-                      have.format == CPU_HOST_AUDIO_FORMAT_S16 &&
-                      have.channels == 1 &&
-                      have.freq > 0 &&
-                      have.samples > 0
-                  ) {
-                      uint32_t ring_capacity = (uint32_t)have.samples * 8u;
-                      if (ring_capacity < 4096u) ring_capacity = 4096u;
-                      comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));
-                      if (comp->audio_ring != NULL) {
-                          comp->audio_rate = (uint32_t)have.freq;
-                          comp->audio_device_samples = (uint32_t)have.samples;
-                          comp->audio_ring_capacity = ring_capacity;
-                          comp->audio_ring_read_idx = 0u;
-                          comp->audio_ring_write_idx = 0u;
-                          comp->audio_ring_fill = 0u;
-                          comp->audio_out_ready = 1u;
-                          cpu_host_hal_audio_pause(comp->audio_out_dev, 0);
-                      } else {
-                          cpu_host_hal_audio_close(comp->audio_out_dev);
-                          comp->audio_out_dev = 0u;
-                      }
-                  }
-              }
-          }
-
-          comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
-          comp->last_focus_state = comp->has_keyboard_focus;
-          comp->host_inited = 1u;
-      } while (0);
-    reset: |
-      comp->frame_count = 0u;
       comp->irq_edges = 0u;
+
       comp->audio_samples = 0u;
+
       comp->row0 = 0xFFu;
+
       comp->row1 = 0xFFu;
+
       comp->row2 = 0xFFu;
+
       comp->row3 = 0xFFu;
+
       comp->row4 = 0xFFu;
+
       comp->row5 = 0xFFu;
+
       comp->row6 = 0xFFu;
+
       comp->row7 = 0xFFu;
+
       comp->row8 = 0xFFu;
+
       comp->row9 = 0xFFu;
+
       comp->last_event_poll_cycle = 0u;
+
       comp->overlay_last_ms = 0u;
+
       comp->overlay_last_frame_count = 0u;
+
       comp->overlay_last_cycle_count = 0u;
+
       comp->overlay_fps_x100 = 0u;
+
       comp->overlay_cpu_hz = 0u;
+
       comp->overlay_cpu_pct_x10 = 0u;
+
       if (comp->audio_out_dev != 0u) cpu_host_hal_audio_clear(comp->audio_out_dev);
-    step_post: |
-      if (comp->host_inited == 0u) return;
-      if ((cpu->total_cycles - comp->last_event_poll_cycle) < 1024u) return;
-      comp->last_event_poll_cycle = cpu->total_cycles;
 
-      CPUHostEvent ev;
-      while (cpu_host_hal_poll_event(&ev)) {
-          if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {
-              cpu->running = false;
-              cpu->halted = true;
-          }
-      }
-
-      cpu_host_hal_pump_events();
-      comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
-      if (comp->has_keyboard_focus != comp->last_focus_state) {
-          comp->last_focus_state = comp->has_keyboard_focus;
-          if (comp->window != NULL) {
-              cpu_host_hal_set_window_title(
-                  comp->window,
-                  (comp->has_keyboard_focus != 0u)
-                      ? "PASM Amstrad CPC464 [FOCUS]"
-                      : "PASM Amstrad CPC464 [NO-FOCUS]"
-              );
-          }
-      }
-      {
-          sms_overlay_update_perf(
-              cpu_host_hal_ticks_ms(),
-              (uint64_t)comp->frame_count,
-              cpu->total_cycles,
-              (uint64_t)CPU_SYSTEM_CLOCK_HZ,
-              &comp->overlay_last_ms,
-              &comp->overlay_last_frame_count,
-              &comp->overlay_last_cycle_count,
-              &comp->overlay_fps_x100,
-              &comp->overlay_cpu_hz,
-              &comp->overlay_cpu_pct_x10
-          );
-      }
-
-      {
-          int key_count = 0;
-          const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
-          if (ks != NULL && key_count > 0) {
-              static int host_trace_init = 0;
-              static int host_trace_on = 0;
-              static uint32_t host_trace_count = 0u;
-              static FILE *host_trace_fp = NULL;
-              static uint8_t host_prev_rows[10] = {
-                  0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu
-              };
-              uint8_t rows[10] = { 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu };
-              if (host_trace_init == 0) {
-                  const char *env = cpu_host_hal_getenv("PASM_CPC_HOST_KB_TRACE");
-                  host_trace_on = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-                  host_trace_init = 1;
-                  if (host_trace_on != 0) {
-                      host_trace_fp = fopen("log/cpc_host_kb_trace.log", "w");
-                      if (host_trace_fp == NULL) host_trace_fp = stderr;
-                      fprintf(host_trace_fp, "# cycle,focus,row0,row1,row2,row3,row4,row5,row6,row7,row8,row9\n");
-                      fflush(host_trace_fp);
-                  }
-              }
-              cpu_component_apply_declared_keymap(
-                  cpu,
-                  "host_cpc",
-                  ks,
-                  (size_t)key_count,
-                  rows,
-                  10u,
-                  comp->has_keyboard_focus
-              );
-              comp->row0 = rows[0];
-              comp->row1 = rows[1];
-              comp->row2 = rows[2];
-              comp->row3 = rows[3];
-              comp->row4 = rows[4];
-              comp->row5 = rows[5];
-              comp->row6 = rows[6];
-              comp->row7 = rows[7];
-              comp->row8 = rows[8];
-              comp->row9 = rows[9];
-              if (host_trace_on != 0 && host_trace_count < 5000u) {
-                  int changed = 0;
-                  for (int i = 0; i < 10; ++i) {
-                      if (rows[i] != host_prev_rows[i]) {
-                          changed = 1;
-                          break;
-                      }
-                  }
-                  if (changed != 0) {
-                      fprintf(
-                          host_trace_fp,
-                          "%llu,%u,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X\n",
-                          (unsigned long long)cpu->total_cycles,
-                          (unsigned)comp->has_keyboard_focus,
-                          (unsigned)rows[0],
-                          (unsigned)rows[1],
-                          (unsigned)rows[2],
-                          (unsigned)rows[3],
-                          (unsigned)rows[4],
-                          (unsigned)rows[5],
-                          (unsigned)rows[6],
-                          (unsigned)rows[7],
-                          (unsigned)rows[8],
-                          (unsigned)rows[9]
-                      );
-                      host_trace_count += 1u;
-                      if ((host_trace_count & 63u) == 0u) fflush(host_trace_fp);
-                      for (int i = 0; i < 10; ++i) host_prev_rows[i] = rows[i];
-                  }
-              }
-          }
-      }
-
-      if (
-          comp->audio_out_dev != 0u &&
-          comp->audio_out_ready != 0u &&
-          comp->audio_ring != NULL
-      ) {
-          uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);
-          uint32_t device_samples = (comp->audio_device_samples > 0u) ? comp->audio_device_samples : 512u;
-          uint32_t low_watermark = device_samples * 2u;
-          uint32_t target_total = device_samples * 4u;
-
-          if (queued_samples < low_watermark && comp->audio_ring_fill > 0u) {
-              uint32_t desired = (queued_samples < target_total) ? (target_total - queued_samples) : 0u;
-              uint32_t to_send = (comp->audio_ring_fill < desired) ? comp->audio_ring_fill : desired;
-              while (to_send > 0u) {
-                  int16_t chunk[512];
-                  uint32_t n = (to_send > 512u) ? 512u : to_send;
-                  for (uint32_t i = 0u; i < n; ++i) {
-                      chunk[i] = comp->audio_ring[comp->audio_ring_read_idx];
-                      comp->audio_ring_read_idx += 1u;
-                      if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
-                  }
-                  comp->audio_ring_fill -= n;
-                  if (cpu_host_hal_audio_queue(comp->audio_out_dev, chunk, n * (uint32_t)sizeof(int16_t)) != 0) break;
-                  to_send -= n;
-              }
-          }
-      }
-    destroy: |
-      if (comp->audio_out_dev != 0u) {
-          cpu_host_hal_audio_close(comp->audio_out_dev);
-          comp->audio_out_dev = 0u;
-      }
-      comp->audio_out_ready = 0u;
-      comp->audio_device_samples = 0u;
-      comp->audio_rate = 0u;
-      if (comp->audio_ring != NULL) {
-          cpu_host_hal_free(comp->audio_ring);
-          comp->audio_ring = NULL;
-      }
-      comp->audio_ring_capacity = 0u;
-      comp->audio_ring_read_idx = 0u;
-      comp->audio_ring_write_idx = 0u;
-      comp->audio_ring_fill = 0u;
-      if (comp->texture != NULL) {
-          cpu_host_hal_destroy_texture(comp->texture);
-          comp->texture = NULL;
-      }
-      if (comp->renderer != NULL) {
-          cpu_host_hal_destroy_renderer(comp->renderer);
-          comp->renderer = NULL;
-      }
-      if (comp->window != NULL) {
-          cpu_host_hal_destroy_window(comp->window);
-          comp->window = NULL;
-      }
-      if (comp->host_inited != 0u) {
-          cpu_host_hal_quit_subsystems();
-          cpu_host_hal_quit();
-          comp->host_inited = 0u;
-      }
+      '
+    step_post: "if (comp->host_inited == 0u) return;\nif ((cpu->total_cycles - comp->last_event_poll_cycle)\
+      \ < 1024u) return;\ncomp->last_event_poll_cycle = cpu->total_cycles;\n\nCPUHostEvent\
+      \ ev;\nwhile (cpu_host_hal_poll_event(&ev)) {\n    if (cpu_host_hal_event_type(&ev)\
+      \ == CPU_HOST_EVENT_QUIT) {\n        cpu->running = false;\n        cpu->halted\
+      \ = true;\n    }\n}\n\ncpu_host_hal_pump_events();\ncomp->has_keyboard_focus\
+      \ = cpu_host_hal_window_has_focus(comp->window);\nif (comp->has_keyboard_focus\
+      \ != comp->last_focus_state) {\n    comp->last_focus_state = comp->has_keyboard_focus;\n\
+      \    if (comp->window != NULL) {\n        cpu_host_hal_set_window_title(\n \
+      \           comp->window,\n            (comp->has_keyboard_focus != 0u)\n  \
+      \              ? \"PASM Amstrad CPC464 [FOCUS]\"\n                : \"PASM Amstrad\
+      \ CPC464 [NO-FOCUS]\"\n        );\n    }\n}\n{\n    sms_overlay_update_perf(\n\
+      \        cpu_host_hal_ticks_ms(),\n        (uint64_t)comp->frame_count,\n  \
+      \      cpu->total_cycles,\n        (uint64_t)CPU_SYSTEM_CLOCK_HZ,\n        &comp->overlay_last_ms,\n\
+      \        &comp->overlay_last_frame_count,\n        &comp->overlay_last_cycle_count,\n\
+      \        &comp->overlay_fps_x100,\n        &comp->overlay_cpu_hz,\n        &comp->overlay_cpu_pct_x10\n\
+      \    );\n}\n\n{\n    int key_count = 0;\n    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n\
+      \    if (ks != NULL && key_count > 0) {\n        static int host_trace_init\
+      \ = 0;\n        static int host_trace_on = 0;\n        static uint32_t host_trace_count\
+      \ = 0u;\n        static FILE *host_trace_fp = NULL;\n        static uint8_t\
+      \ host_prev_rows[10] = {\n            0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,\
+      \ 0xFFu, 0xFFu, 0xFFu, 0xFFu\n        };\n        uint8_t rows[10] = { 0xFFu,\
+      \ 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu };\n       \
+      \ if (host_trace_init == 0) {\n            const char *env = cpu_host_hal_getenv(\"\
+      PASM_CPC_HOST_KB_TRACE\");\n            host_trace_on = (env != NULL && env[0]\
+      \ != '\\0' && env[0] != '0') ? 1 : 0;\n            host_trace_init = 1;\n  \
+      \          if (host_trace_on != 0) {\n                host_trace_fp = fopen(\"\
+      log/cpc_host_kb_trace.log\", \"w\");\n                if (host_trace_fp == NULL)\
+      \ host_trace_fp = stderr;\n                fprintf(host_trace_fp, \"# cycle,focus,row0,row1,row2,row3,row4,row5,row6,row7,row8,row9\\\
+      n\");\n                fflush(host_trace_fp);\n            }\n        }\n  \
+      \      cpu_component_apply_declared_keymap(\n            cpu,\n            \"\
+      host_cpc\",\n            ks,\n            (size_t)key_count,\n            rows,\n\
+      \            10u,\n            comp->has_keyboard_focus\n        );\n      \
+      \  comp->row0 = rows[0];\n        comp->row1 = rows[1];\n        comp->row2\
+      \ = rows[2];\n        comp->row3 = rows[3];\n        comp->row4 = rows[4];\n\
+      \        comp->row5 = rows[5];\n        comp->row6 = rows[6];\n        comp->row7\
+      \ = rows[7];\n        comp->row8 = rows[8];\n        comp->row9 = rows[9];\n\
+      \        if (host_trace_on != 0 && host_trace_count < 5000u) {\n           \
+      \ int changed = 0;\n            for (int i = 0; i < 10; ++i) {\n           \
+      \     if (rows[i] != host_prev_rows[i]) {\n                    changed = 1;\n\
+      \                    break;\n                }\n            }\n            if\
+      \ (changed != 0) {\n                fprintf(\n                    host_trace_fp,\n\
+      \                    \"%llu,%u,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X\\\
+      n\",\n                    (unsigned long long)cpu->total_cycles,\n         \
+      \           (unsigned)comp->has_keyboard_focus,\n                    (unsigned)rows[0],\n\
+      \                    (unsigned)rows[1],\n                    (unsigned)rows[2],\n\
+      \                    (unsigned)rows[3],\n                    (unsigned)rows[4],\n\
+      \                    (unsigned)rows[5],\n                    (unsigned)rows[6],\n\
+      \                    (unsigned)rows[7],\n                    (unsigned)rows[8],\n\
+      \                    (unsigned)rows[9]\n                );\n               \
+      \ host_trace_count += 1u;\n                if ((host_trace_count & 63u) == 0u)\
+      \ fflush(host_trace_fp);\n                for (int i = 0; i < 10; ++i) host_prev_rows[i]\
+      \ = rows[i];\n            }\n        }\n    }\n}\n\nif (\n    comp->audio_out_dev\
+      \ != 0u &&\n    comp->audio_out_ready != 0u &&\n    comp->audio_ring != NULL\n\
+      ) {\n    uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev)\
+      \ / (uint32_t)sizeof(int16_t);\n    uint32_t device_samples = (comp->audio_device_samples\
+      \ > 0u) ? comp->audio_device_samples : 512u;\n    uint32_t low_watermark = device_samples\
+      \ * 2u;\n    uint32_t target_total = device_samples * 4u;\n\n    if (queued_samples\
+      \ < low_watermark && comp->audio_ring_fill > 0u) {\n        uint32_t desired\
+      \ = (queued_samples < target_total) ? (target_total - queued_samples) : 0u;\n\
+      \        uint32_t to_send = (comp->audio_ring_fill < desired) ? comp->audio_ring_fill\
+      \ : desired;\n        while (to_send > 0u) {\n            int16_t chunk[512];\n\
+      \            uint32_t n = (to_send > 512u) ? 512u : to_send;\n            for\
+      \ (uint32_t i = 0u; i < n; ++i) {\n                chunk[i] = comp->audio_ring[comp->audio_ring_read_idx];\n\
+      \                comp->audio_ring_read_idx += 1u;\n                if (comp->audio_ring_read_idx\
+      \ >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;\n          \
+      \  }\n            comp->audio_ring_fill -= n;\n            if (cpu_host_hal_audio_queue(comp->audio_out_dev,\
+      \ chunk, n * (uint32_t)sizeof(int16_t)) != 0) break;\n            to_send -=\
+      \ n;\n        }\n    }\n}\n"
+    destroy: "if (comp->audio_out_dev != 0u) {\n    cpu_host_hal_audio_close(comp->audio_out_dev);\n\
+      \    comp->audio_out_dev = 0u;\n}\ncomp->audio_out_ready = 0u;\ncomp->audio_device_samples\
+      \ = 0u;\ncomp->audio_rate = 0u;\nif (comp->audio_ring != NULL) {\n    cpu_host_hal_free(comp->audio_ring);\n\
+      \    comp->audio_ring = NULL;\n}\ncomp->audio_ring_capacity = 0u;\ncomp->audio_ring_read_idx\
+      \ = 0u;\ncomp->audio_ring_write_idx = 0u;\ncomp->audio_ring_fill = 0u;\nif (comp->texture\
+      \ != NULL) {\n    cpu_host_hal_destroy_texture(comp->texture);\n    comp->texture\
+      \ = NULL;\n}\nif (comp->renderer != NULL) {\n    cpu_host_hal_destroy_renderer(comp->renderer);\n\
+      \    comp->renderer = NULL;\n}\nif (comp->window != NULL) {\n    cpu_host_hal_destroy_window(comp->window);\n\
+      \    comp->window = NULL;\n}\nif (comp->host_inited != 0u) {\n    cpu_host_hal_quit_subsystems();\n\
+      \    cpu_host_hal_quit();\n    comp->host_inited = 0u;\n}\n"
   callback_handlers:
-    keyboard_matrix: |
-      if (argc < 1) return 0xFFu;
-      switch ((uint8_t)(args[0] & 0x0Fu)) {
-          case 0u: return (uint64_t)comp->row0;
-          case 1u: return (uint64_t)comp->row1;
-          case 2u: return (uint64_t)comp->row2;
-          case 3u: return (uint64_t)comp->row3;
-          case 4u: return (uint64_t)comp->row4;
-          case 5u: return (uint64_t)comp->row5;
-          case 6u: return (uint64_t)comp->row6;
-          case 7u: return (uint64_t)comp->row7;
-          case 8u: return (uint64_t)comp->row8;
-          case 9u: return (uint64_t)comp->row9;
-          default: return 0xFFu;
-      }
+    keyboard_matrix: "if (argc < 1) return 0xFFu;\nswitch ((uint8_t)(args[0] & 0x0Fu))\
+      \ {\n    case 0u: return (uint64_t)comp->row0;\n    case 1u: return (uint64_t)comp->row1;\n\
+      \    case 2u: return (uint64_t)comp->row2;\n    case 3u: return (uint64_t)comp->row3;\n\
+      \    case 4u: return (uint64_t)comp->row4;\n    case 5u: return (uint64_t)comp->row5;\n\
+      \    case 6u: return (uint64_t)comp->row6;\n    case 7u: return (uint64_t)comp->row7;\n\
+      \    case 8u: return (uint64_t)comp->row8;\n    case 9u: return (uint64_t)comp->row9;\n\
+      \    default: return 0xFFu;\n}\n"
   handler_bodies:
-    video_frame: |
-      if (comp->host_inited == 0u || argc < 4) return;
-      void *renderer = comp->renderer;
-      void *texture = comp->texture;
-      uint32_t frame = (uint32_t)(args[0] & 0xFFFFFFFFu);
-      uint32_t *pixels = (uint32_t *)(uintptr_t)args[1];
-      uint32_t w = (uint32_t)(args[2] & 0xFFFFFFFFu);
-      uint32_t h = (uint32_t)(args[3] & 0xFFFFFFFFu);
-      if (renderer == NULL || texture == NULL || pixels == NULL || w == 0u || h == 0u) return;
-
-      comp->frame_count = frame;
-      if (cpu->debug_overlay_enabled) {
-          sms_overlay_draw_perf(
-              pixels,
-              w,
-              h,
-              comp->overlay_fps_x100,
-              comp->overlay_cpu_hz,
-              comp->overlay_cpu_pct_x10
-          );
-      }
-      if (comp->texture_w != w || comp->texture_h != h) {
-          cpu_host_hal_destroy_texture(texture);
-          texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888, CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);
-          if (texture == NULL) return;
-          comp->texture = (void *)texture;
-          comp->texture_w = w;
-          comp->texture_h = h;
-      }
-      if (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
-      cpu_host_hal_render_set_draw_color(renderer, 0, 0, 0, 255);
-      cpu_host_hal_render_clear(renderer);
-      {
-          int ww = 0;
-          int wh = 0;
-          CPUHostRect dst;
-          int scaled_w;
-          int scaled_h;
-          if (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
-          scaled_w = ww;
-          scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);
-          if (scaled_h > wh) {
-              scaled_h = wh;
-              scaled_w = (int)((((int64_t)wh) * (int64_t)w) / (int64_t)h);
-          }
-          dst.w = (scaled_w > 0) ? scaled_w : ww;
-          dst.h = (scaled_h > 0) ? scaled_h : wh;
-          dst.x = (ww - dst.w) / 2;
-          dst.y = (wh - dst.h) / 2;
-          if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;
-      }
-      cpu_host_hal_render_present(renderer);
-    irq_edge: |
-      if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {
-          comp->irq_edges += 1u;
-      }
-    audio_pcm: |
-      if (
-          comp->audio_out_dev == 0u ||
-          comp->audio_out_ready == 0u ||
-          comp->audio_ring == NULL ||
-          comp->audio_ring_capacity == 0u ||
-          argc < 1
-      ) {
-          return;
-      }
-      {
-          uint8_t level = (uint8_t)(args[0] & 0xFFu);
-          int centered = ((int)level) - 128;
-          int16_t sample = (int16_t)(centered * 128);
-          if (comp->audio_ring_fill >= comp->audio_ring_capacity) {
-              comp->audio_ring_read_idx += 1u;
-              if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
-              comp->audio_ring_fill -= 1u;
-          }
-          comp->audio_ring[comp->audio_ring_write_idx] = sample;
-          comp->audio_ring_write_idx += 1u;
-          if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
-          comp->audio_ring_fill += 1u;
-          comp->audio_samples += 1u;
-      }
-
+    video_frame: "if (comp->host_inited == 0u || argc < 4) return;\nvoid *renderer\
+      \ = comp->renderer;\nvoid *texture = comp->texture;\nuint32_t frame = (uint32_t)(args[0]\
+      \ & 0xFFFFFFFFu);\nuint32_t *pixels = (uint32_t *)(uintptr_t)args[1];\nuint32_t\
+      \ w = (uint32_t)(args[2] & 0xFFFFFFFFu);\nuint32_t h = (uint32_t)(args[3] &\
+      \ 0xFFFFFFFFu);\nif (renderer == NULL || texture == NULL || pixels == NULL ||\
+      \ w == 0u || h == 0u) return;\n\ncomp->frame_count = frame;\nif (cpu->debug_overlay_enabled)\
+      \ {\n    sms_overlay_draw_perf(\n        pixels,\n        w,\n        h,\n \
+      \       comp->overlay_fps_x100,\n        comp->overlay_cpu_hz,\n        comp->overlay_cpu_pct_x10\n\
+      \    );\n}\nif (comp->texture_w != w || comp->texture_h != h) {\n    cpu_host_hal_destroy_texture(texture);\n\
+      \    texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888,\
+      \ CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);\n    if (texture == NULL)\
+      \ return;\n    comp->texture = (void *)texture;\n    comp->texture_w = w;\n\
+      \    comp->texture_h = h;\n}\nif (cpu_host_hal_update_texture(texture, NULL,\
+      \ pixels, (int)(w * sizeof(uint32_t))) != 0) return;\ncpu_host_hal_render_set_draw_color(renderer,\
+      \ 0, 0, 0, 255);\ncpu_host_hal_render_clear(renderer);\n{\n    int ww = 0;\n\
+      \    int wh = 0;\n    CPUHostRect dst;\n    int scaled_w;\n    int scaled_h;\n\
+      \    if (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww <=\
+      \ 0 || wh <= 0) return;\n    scaled_w = ww;\n    scaled_h = (int)((((int64_t)ww)\
+      \ * (int64_t)h) / (int64_t)w);\n    if (scaled_h > wh) {\n        scaled_h =\
+      \ wh;\n        scaled_w = (int)((((int64_t)wh) * (int64_t)w) / (int64_t)h);\n\
+      \    }\n    dst.w = (scaled_w > 0) ? scaled_w : ww;\n    dst.h = (scaled_h >\
+      \ 0) ? scaled_h : wh;\n    dst.x = (ww - dst.w) / 2;\n    dst.y = (wh - dst.h)\
+      \ / 2;\n    if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0)\
+      \ return;\n}\ncpu_host_hal_render_present(renderer);\n"
+    irq_edge: "if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {\n    comp->irq_edges +=\
+      \ 1u;\n}\n"
+    audio_pcm: "if (\n    comp->audio_out_dev == 0u ||\n    comp->audio_out_ready\
+      \ == 0u ||\n    comp->audio_ring == NULL ||\n    comp->audio_ring_capacity ==\
+      \ 0u ||\n    argc < 1\n) {\n    return;\n}\n{\n    uint8_t level = (uint8_t)(args[0]\
+      \ & 0xFFu);\n    int centered = ((int)level) - 128;\n    int16_t sample = (int16_t)(centered\
+      \ * 128);\n    if (comp->audio_ring_fill >= comp->audio_ring_capacity) {\n \
+      \       comp->audio_ring_read_idx += 1u;\n        if (comp->audio_ring_read_idx\
+      \ >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;\n        comp->audio_ring_fill\
+      \ -= 1u;\n    }\n    comp->audio_ring[comp->audio_ring_write_idx] = sample;\n\
+      \    comp->audio_ring_write_idx += 1u;\n    if (comp->audio_ring_write_idx >=\
+      \ comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;\n    comp->audio_ring_fill\
+      \ += 1u;\n    comp->audio_samples += 1u;\n}\n"
 coding:
-  headers: ["pasm_overlay.h"]
-  include_paths: ["../include"]
+  headers:
+  - pasm_overlay.h
+  include_paths:
+  - ../include
   linked_libraries: []
   library_paths: []

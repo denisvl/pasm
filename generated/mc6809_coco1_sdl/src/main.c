@@ -12,6 +12,7 @@ void print_usage(const char *prog) {
     printf("Usage: %s [options]\n", prog);
     printf("Options:\n");
     printf("  --system-dir <dir>  Load system ROM manifests relative to this directory\n");
+    printf("  --keyboard-map <file>  Load runtime keyboard map YAML\n");
     printf("  --rom <file>    Load ROM file\n");
 
     printf("  --addr <addr>   Load address (default: 0x0000)\n");
@@ -31,6 +32,7 @@ int main(int argc, char *argv[]) {
     bool run_emulator = false;
     uint64_t max_cycles = 0;
     const char *system_dir = NULL;
+    const char *keyboard_map_file = NULL;
     const char *rom_file = NULL;
 
     uint16_t load_addr = 0;
@@ -39,6 +41,8 @@ int main(int argc, char *argv[]) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--system-dir") == 0 && i + 1 < argc) {
             system_dir = argv[++i];
+        } else if (strcmp(argv[i], "--keyboard-map") == 0 && i + 1 < argc) {
+            keyboard_map_file = argv[++i];
         } else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {
             rom_file = argv[++i];
         } else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {
@@ -54,6 +58,11 @@ int main(int argc, char *argv[]) {
             return 0;
         }
     }
+    if (keyboard_map_file == NULL || keyboard_map_file[0] == '\0') {
+        fprintf(stderr, "Missing required --keyboard-map <file>\n");
+        return 1;
+    }
+
     
     if (system_dir) {
         if (mc6809_load_system_roms(cpu, system_dir) != 0) {
@@ -64,6 +73,13 @@ int main(int argc, char *argv[]) {
         printf("Loaded system ROMs from: %s\n", system_dir);
     }
     
+    if (keyboard_map_file && keyboard_map_file[0]) {
+        if (mc6809_load_keyboard_map(cpu, keyboard_map_file) != 0) {
+            fprintf(stderr, "Failed to load keyboard map: %s\n", keyboard_map_file);
+            return 1;
+        }
+        printf("Loaded keyboard map: %s\n", keyboard_map_file);
+    }
     if (rom_file) {
         if (mc6809_load_rom(cpu, rom_file, load_addr) != 0) {
             fprintf(stderr, "Failed to load ROM: %s\n", rom_file);

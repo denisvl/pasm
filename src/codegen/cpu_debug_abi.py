@@ -79,6 +79,17 @@ def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, st
     processor_name = str(isa_data.get("metadata", {}).get("name", cpu_name))
     system_name = str(isa_data.get("system", {}).get("metadata", {}).get("name", "system"))
     hosts = list(isa_data.get("hosts", []))
+    host_backend_target = str(isa_data.get("host_backend_target", "")).strip().lower()
+    interactive_host_backend = host_backend_target in {"sdl2", "glfw"}
+    has_keyboard_callbacks = any(
+        any(
+            str(cb.get("name", "")).strip() in {"keyboard_matrix", "keyboard_ascii"}
+            for cb in list((host.get("interfaces") or {}).get("callbacks", []))
+        )
+        for host in hosts
+        if isinstance(host, dict)
+    )
+    keyboard_map_required = interactive_host_backend and has_keyboard_callbacks
     focus_host_blocks: List[str] = []
     for host in hosts:
         comp_id = str(host.get("metadata", {}).get("id", "")).strip()
@@ -172,6 +183,7 @@ def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, st
         ula_id=ula_id,
         sdl_include_block=sdl_include_block,
         focus_impl=focus_impl,
+        keyboard_map_required=keyboard_map_required,
     )
     return header, impl
 
@@ -380,6 +392,7 @@ void pasm_dbg_reset(CPUState *cpu);
 int pasm_dbg_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int pasm_dbg_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path);
+int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path);
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
 int pasm_dbg_snapshot_fill(
     CPUState *cpu,
@@ -413,6 +426,7 @@ int pasm_dbg_set_pc(CPUState *cpu, uint64_t address);
 int pasm_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
 int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
 int pasm_dbg_focus_host_window(CPUState *cpu);
+uint8_t pasm_dbg_requires_keyboard_map(void);
 const char *pasm_dbg_processor_name(void);
 const char *pasm_dbg_system_name(void);
 uint8_t pasm_dbg_architecture(void);
@@ -452,6 +466,7 @@ def _generate_impl(
     ula_id: str | None,
     sdl_include_block: str,
     focus_impl: str,
+    keyboard_map_required: bool,
 ) -> str:
     explicit_prefixes = sorted(
         {
@@ -1294,6 +1309,10 @@ int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path) {{
     return {cpu_prefix}_load_cartridge_rom(cpu, path);
 }}
 
+int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path) {{
+    return {cpu_prefix}_load_keyboard_map(cpu, path);
+}}
+
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {{
     return {cpu_prefix}_dbg_snapshot_counts(cpu, out_counts);
 }}
@@ -1396,6 +1415,10 @@ int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled) {{
 
 int pasm_dbg_focus_host_window(CPUState *cpu) {{
     return {cpu_prefix}_dbg_focus_host_window(cpu);
+}}
+
+uint8_t pasm_dbg_requires_keyboard_map(void) {{
+    return {"1u" if keyboard_map_required else "0u"};
 }}
 
 const char *pasm_dbg_processor_name(void) {{

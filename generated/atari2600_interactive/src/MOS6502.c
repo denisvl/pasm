@@ -194,20 +194,34 @@ static void cpu_component_emit_signal(
 typedef struct {
     uint8_t row;
     uint8_t bit;
-} ComponentKeyboardPress;
+} RuntimeKeyboardPress;
 
 typedef struct {
-    const char *host_key;
-    const ComponentKeyboardPress *presses;
+    int32_t scancode;
+    RuntimeKeyboardPress *presses;
     uint8_t press_count;
-} ComponentKeyboardBinding;
+    uint8_t press_cap;
+    uint8_t has_ascii;
+    uint8_t has_ascii_shift;
+    uint8_t has_ascii_ctrl;
+    uint8_t ascii;
+    uint8_t ascii_shift;
+    uint8_t ascii_ctrl;
+} RuntimeKeyboardBinding;
 
 typedef struct {
-    const char *component_id;
+    uint8_t loaded;
+    uint8_t kind; /* 1=matrix, 2=ascii */
     uint8_t focus_required;
-    const ComponentKeyboardBinding *bindings;
+    RuntimeKeyboardBinding *bindings;
     size_t binding_count;
-} ComponentKeyboardMap;
+    size_t binding_cap;
+    uint8_t ascii_queue[64];
+    uint8_t ascii_q_head;
+    uint8_t ascii_q_len;
+} RuntimeKeyboardMap;
+
+static RuntimeKeyboardMap g_runtime_keyboard_map = {0};
 
 static int32_t cpu_host_hal_key_from_scancode(int scancode);
 
@@ -623,101 +637,488 @@ static const char *cpu_host_hal_key_name(int32_t keycode) {
     return name;
 }
 
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_0[] = {
-    { 0u, 0u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_1[] = {
-    { 0u, 1u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_2[] = {
-    { 0u, 2u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_3[] = {
-    { 0u, 3u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_4[] = {
-    { 0u, 4u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_5[] = {
-    { 0u, 4u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_6[] = {
-    { 1u, 0u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_7[] = {
-    { 1u, 1u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_8[] = {
-    { 1u, 2u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_9[] = {
-    { 1u, 3u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_10[] = {
-    { 1u, 4u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_11[] = {
-    { 2u, 0u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_12[] = {
-    { 2u, 1u },
-};
-static const ComponentKeyboardPress component_host_atari2600_keyboard_presses_13[] = {
-    { 2u, 3u },
-};
-static const ComponentKeyboardBinding component_host_atari2600_keyboard_bindings[] = {
-    { "UP", component_host_atari2600_keyboard_presses_0, 1u },
-    { "DOWN", component_host_atari2600_keyboard_presses_1, 1u },
-    { "LEFT", component_host_atari2600_keyboard_presses_2, 1u },
-    { "RIGHT", component_host_atari2600_keyboard_presses_3, 1u },
-    { "Z", component_host_atari2600_keyboard_presses_4, 1u },
-    { "SPACE", component_host_atari2600_keyboard_presses_5, 1u },
-    { "KP_8", component_host_atari2600_keyboard_presses_6, 1u },
-    { "KP_2", component_host_atari2600_keyboard_presses_7, 1u },
-    { "KP_4", component_host_atari2600_keyboard_presses_8, 1u },
-    { "KP_6", component_host_atari2600_keyboard_presses_9, 1u },
-    { "KP_0", component_host_atari2600_keyboard_presses_10, 1u },
-    { "R", component_host_atari2600_keyboard_presses_11, 1u },
-    { "F", component_host_atari2600_keyboard_presses_12, 1u },
-    { "C", component_host_atari2600_keyboard_presses_13, 1u },
-};
-static const ComponentKeyboardMap g_component_keyboard_maps[] = {
-    { "host_atari2600", 1u, component_host_atari2600_keyboard_bindings, (sizeof(component_host_atari2600_keyboard_bindings) / sizeof(component_host_atari2600_keyboard_bindings[0])) },
-};
-static uint8_t cpu_component_host_key_is_pressed(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {
+static int32_t cpu_component_scancode_for_host_key(const char *host_key) {
 #if CPU_HOST_HAS_SCANCODE_MAP
-    if (!host_key || !host_keys || host_key_count == 0u) return 0u;
-    if (0) return 0u;
-    else if (strcmp(host_key, "C") == 0) return ((size_t)CPU_HOST_SCANCODE(C) < host_key_count && host_keys[CPU_HOST_SCANCODE(C)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "DOWN") == 0) return ((size_t)CPU_HOST_SCANCODE(DOWN) < host_key_count && host_keys[CPU_HOST_SCANCODE(DOWN)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "F") == 0) return ((size_t)CPU_HOST_SCANCODE(F) < host_key_count && host_keys[CPU_HOST_SCANCODE(F)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_0") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_0) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_0)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_2") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_2) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_2)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_4") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_4) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_4)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_6") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_6) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_6)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_8") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_8) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_8)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "LEFT") == 0) return ((size_t)CPU_HOST_SCANCODE(LEFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LEFT)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "R") == 0) return ((size_t)CPU_HOST_SCANCODE(R) < host_key_count && host_keys[CPU_HOST_SCANCODE(R)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "RIGHT") == 0) return ((size_t)CPU_HOST_SCANCODE(RIGHT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RIGHT)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "SPACE") == 0) return ((size_t)CPU_HOST_SCANCODE(SPACE) < host_key_count && host_keys[CPU_HOST_SCANCODE(SPACE)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "UP") == 0) return ((size_t)CPU_HOST_SCANCODE(UP) < host_key_count && host_keys[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "Z") == 0) return ((size_t)CPU_HOST_SCANCODE(Z) < host_key_count && host_keys[CPU_HOST_SCANCODE(Z)] != 0u) ? 1u : 0u;
-    return 0u;
+    if (!host_key || !host_key[0]) return -1;
+    if (0) return -1;
+    else if (strcmp(host_key, "0") == 0) return (int32_t)CPU_HOST_SCANCODE(0);
+    else if (strcmp(host_key, "1") == 0) return (int32_t)CPU_HOST_SCANCODE(1);
+    else if (strcmp(host_key, "2") == 0) return (int32_t)CPU_HOST_SCANCODE(2);
+    else if (strcmp(host_key, "3") == 0) return (int32_t)CPU_HOST_SCANCODE(3);
+    else if (strcmp(host_key, "4") == 0) return (int32_t)CPU_HOST_SCANCODE(4);
+    else if (strcmp(host_key, "5") == 0) return (int32_t)CPU_HOST_SCANCODE(5);
+    else if (strcmp(host_key, "6") == 0) return (int32_t)CPU_HOST_SCANCODE(6);
+    else if (strcmp(host_key, "7") == 0) return (int32_t)CPU_HOST_SCANCODE(7);
+    else if (strcmp(host_key, "8") == 0) return (int32_t)CPU_HOST_SCANCODE(8);
+    else if (strcmp(host_key, "9") == 0) return (int32_t)CPU_HOST_SCANCODE(9);
+    else if (strcmp(host_key, "A") == 0) return (int32_t)CPU_HOST_SCANCODE(A);
+    else if (strcmp(host_key, "AC_BACK") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_BACK);
+    else if (strcmp(host_key, "AC_BOOKMARKS") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_BOOKMARKS);
+    else if (strcmp(host_key, "AC_FORWARD") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_FORWARD);
+    else if (strcmp(host_key, "AC_HOME") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_HOME);
+    else if (strcmp(host_key, "AC_REFRESH") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_REFRESH);
+    else if (strcmp(host_key, "AC_SEARCH") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_SEARCH);
+    else if (strcmp(host_key, "AC_STOP") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_STOP);
+    else if (strcmp(host_key, "AGAIN") == 0) return (int32_t)CPU_HOST_SCANCODE(AGAIN);
+    else if (strcmp(host_key, "ALTERASE") == 0) return (int32_t)CPU_HOST_SCANCODE(ALTERASE);
+    else if (strcmp(host_key, "APOSTROPHE") == 0) return (int32_t)CPU_HOST_SCANCODE(APOSTROPHE);
+    else if (strcmp(host_key, "APP1") == 0) return (int32_t)CPU_HOST_SCANCODE(APP1);
+    else if (strcmp(host_key, "APP2") == 0) return (int32_t)CPU_HOST_SCANCODE(APP2);
+    else if (strcmp(host_key, "APPLICATION") == 0) return (int32_t)CPU_HOST_SCANCODE(APPLICATION);
+    else if (strcmp(host_key, "AUDIOFASTFORWARD") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOFASTFORWARD);
+    else if (strcmp(host_key, "AUDIOMUTE") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOMUTE);
+    else if (strcmp(host_key, "AUDIONEXT") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIONEXT);
+    else if (strcmp(host_key, "AUDIOPLAY") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOPLAY);
+    else if (strcmp(host_key, "AUDIOPREV") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOPREV);
+    else if (strcmp(host_key, "AUDIOREWIND") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOREWIND);
+    else if (strcmp(host_key, "AUDIOSTOP") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOSTOP);
+    else if (strcmp(host_key, "B") == 0) return (int32_t)CPU_HOST_SCANCODE(B);
+    else if (strcmp(host_key, "BACKSLASH") == 0) return (int32_t)CPU_HOST_SCANCODE(BACKSLASH);
+    else if (strcmp(host_key, "BACKSPACE") == 0) return (int32_t)CPU_HOST_SCANCODE(BACKSPACE);
+    else if (strcmp(host_key, "BRIGHTNESSDOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(BRIGHTNESSDOWN);
+    else if (strcmp(host_key, "BRIGHTNESSUP") == 0) return (int32_t)CPU_HOST_SCANCODE(BRIGHTNESSUP);
+    else if (strcmp(host_key, "C") == 0) return (int32_t)CPU_HOST_SCANCODE(C);
+    else if (strcmp(host_key, "CALCULATOR") == 0) return (int32_t)CPU_HOST_SCANCODE(CALCULATOR);
+    else if (strcmp(host_key, "CALL") == 0) return (int32_t)CPU_HOST_SCANCODE(CALL);
+    else if (strcmp(host_key, "CANCEL") == 0) return (int32_t)CPU_HOST_SCANCODE(CANCEL);
+    else if (strcmp(host_key, "CAPSLOCK") == 0) return (int32_t)CPU_HOST_SCANCODE(CAPSLOCK);
+    else if (strcmp(host_key, "CLEAR") == 0) return (int32_t)CPU_HOST_SCANCODE(CLEAR);
+    else if (strcmp(host_key, "CLEARAGAIN") == 0) return (int32_t)CPU_HOST_SCANCODE(CLEARAGAIN);
+    else if (strcmp(host_key, "COMMA") == 0) return (int32_t)CPU_HOST_SCANCODE(COMMA);
+    else if (strcmp(host_key, "COMPUTER") == 0) return (int32_t)CPU_HOST_SCANCODE(COMPUTER);
+    else if (strcmp(host_key, "COPY") == 0) return (int32_t)CPU_HOST_SCANCODE(COPY);
+    else if (strcmp(host_key, "CRSEL") == 0) return (int32_t)CPU_HOST_SCANCODE(CRSEL);
+    else if (strcmp(host_key, "CURRENCYSUBUNIT") == 0) return (int32_t)CPU_HOST_SCANCODE(CURRENCYSUBUNIT);
+    else if (strcmp(host_key, "CURRENCYUNIT") == 0) return (int32_t)CPU_HOST_SCANCODE(CURRENCYUNIT);
+    else if (strcmp(host_key, "CUT") == 0) return (int32_t)CPU_HOST_SCANCODE(CUT);
+    else if (strcmp(host_key, "D") == 0) return (int32_t)CPU_HOST_SCANCODE(D);
+    else if (strcmp(host_key, "DECIMALSEPARATOR") == 0) return (int32_t)CPU_HOST_SCANCODE(DECIMALSEPARATOR);
+    else if (strcmp(host_key, "DELETE") == 0) return (int32_t)CPU_HOST_SCANCODE(DELETE);
+    else if (strcmp(host_key, "DISPLAYSWITCH") == 0) return (int32_t)CPU_HOST_SCANCODE(DISPLAYSWITCH);
+    else if (strcmp(host_key, "DOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(DOWN);
+    else if (strcmp(host_key, "E") == 0) return (int32_t)CPU_HOST_SCANCODE(E);
+    else if (strcmp(host_key, "EJECT") == 0) return (int32_t)CPU_HOST_SCANCODE(EJECT);
+    else if (strcmp(host_key, "END") == 0) return (int32_t)CPU_HOST_SCANCODE(END);
+    else if (strcmp(host_key, "ENDCALL") == 0) return (int32_t)CPU_HOST_SCANCODE(ENDCALL);
+    else if (strcmp(host_key, "EQUALS") == 0) return (int32_t)CPU_HOST_SCANCODE(EQUALS);
+    else if (strcmp(host_key, "ESCAPE") == 0) return (int32_t)CPU_HOST_SCANCODE(ESCAPE);
+    else if (strcmp(host_key, "EXECUTE") == 0) return (int32_t)CPU_HOST_SCANCODE(EXECUTE);
+    else if (strcmp(host_key, "EXSEL") == 0) return (int32_t)CPU_HOST_SCANCODE(EXSEL);
+    else if (strcmp(host_key, "F") == 0) return (int32_t)CPU_HOST_SCANCODE(F);
+    else if (strcmp(host_key, "F1") == 0) return (int32_t)CPU_HOST_SCANCODE(F1);
+    else if (strcmp(host_key, "F10") == 0) return (int32_t)CPU_HOST_SCANCODE(F10);
+    else if (strcmp(host_key, "F11") == 0) return (int32_t)CPU_HOST_SCANCODE(F11);
+    else if (strcmp(host_key, "F12") == 0) return (int32_t)CPU_HOST_SCANCODE(F12);
+    else if (strcmp(host_key, "F13") == 0) return (int32_t)CPU_HOST_SCANCODE(F13);
+    else if (strcmp(host_key, "F14") == 0) return (int32_t)CPU_HOST_SCANCODE(F14);
+    else if (strcmp(host_key, "F15") == 0) return (int32_t)CPU_HOST_SCANCODE(F15);
+    else if (strcmp(host_key, "F16") == 0) return (int32_t)CPU_HOST_SCANCODE(F16);
+    else if (strcmp(host_key, "F17") == 0) return (int32_t)CPU_HOST_SCANCODE(F17);
+    else if (strcmp(host_key, "F18") == 0) return (int32_t)CPU_HOST_SCANCODE(F18);
+    else if (strcmp(host_key, "F19") == 0) return (int32_t)CPU_HOST_SCANCODE(F19);
+    else if (strcmp(host_key, "F2") == 0) return (int32_t)CPU_HOST_SCANCODE(F2);
+    else if (strcmp(host_key, "F20") == 0) return (int32_t)CPU_HOST_SCANCODE(F20);
+    else if (strcmp(host_key, "F21") == 0) return (int32_t)CPU_HOST_SCANCODE(F21);
+    else if (strcmp(host_key, "F22") == 0) return (int32_t)CPU_HOST_SCANCODE(F22);
+    else if (strcmp(host_key, "F23") == 0) return (int32_t)CPU_HOST_SCANCODE(F23);
+    else if (strcmp(host_key, "F24") == 0) return (int32_t)CPU_HOST_SCANCODE(F24);
+    else if (strcmp(host_key, "F3") == 0) return (int32_t)CPU_HOST_SCANCODE(F3);
+    else if (strcmp(host_key, "F4") == 0) return (int32_t)CPU_HOST_SCANCODE(F4);
+    else if (strcmp(host_key, "F5") == 0) return (int32_t)CPU_HOST_SCANCODE(F5);
+    else if (strcmp(host_key, "F6") == 0) return (int32_t)CPU_HOST_SCANCODE(F6);
+    else if (strcmp(host_key, "F7") == 0) return (int32_t)CPU_HOST_SCANCODE(F7);
+    else if (strcmp(host_key, "F8") == 0) return (int32_t)CPU_HOST_SCANCODE(F8);
+    else if (strcmp(host_key, "F9") == 0) return (int32_t)CPU_HOST_SCANCODE(F9);
+    else if (strcmp(host_key, "FIND") == 0) return (int32_t)CPU_HOST_SCANCODE(FIND);
+    else if (strcmp(host_key, "G") == 0) return (int32_t)CPU_HOST_SCANCODE(G);
+    else if (strcmp(host_key, "GRAVE") == 0) return (int32_t)CPU_HOST_SCANCODE(GRAVE);
+    else if (strcmp(host_key, "H") == 0) return (int32_t)CPU_HOST_SCANCODE(H);
+    else if (strcmp(host_key, "HELP") == 0) return (int32_t)CPU_HOST_SCANCODE(HELP);
+    else if (strcmp(host_key, "HOME") == 0) return (int32_t)CPU_HOST_SCANCODE(HOME);
+    else if (strcmp(host_key, "I") == 0) return (int32_t)CPU_HOST_SCANCODE(I);
+    else if (strcmp(host_key, "INSERT") == 0) return (int32_t)CPU_HOST_SCANCODE(INSERT);
+    else if (strcmp(host_key, "INTERNATIONAL1") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL1);
+    else if (strcmp(host_key, "INTERNATIONAL2") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL2);
+    else if (strcmp(host_key, "INTERNATIONAL3") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL3);
+    else if (strcmp(host_key, "INTERNATIONAL4") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL4);
+    else if (strcmp(host_key, "INTERNATIONAL5") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL5);
+    else if (strcmp(host_key, "INTERNATIONAL6") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL6);
+    else if (strcmp(host_key, "INTERNATIONAL7") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL7);
+    else if (strcmp(host_key, "INTERNATIONAL8") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL8);
+    else if (strcmp(host_key, "INTERNATIONAL9") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL9);
+    else if (strcmp(host_key, "J") == 0) return (int32_t)CPU_HOST_SCANCODE(J);
+    else if (strcmp(host_key, "K") == 0) return (int32_t)CPU_HOST_SCANCODE(K);
+    else if (strcmp(host_key, "KBDILLUMDOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(KBDILLUMDOWN);
+    else if (strcmp(host_key, "KBDILLUMTOGGLE") == 0) return (int32_t)CPU_HOST_SCANCODE(KBDILLUMTOGGLE);
+    else if (strcmp(host_key, "KBDILLUMUP") == 0) return (int32_t)CPU_HOST_SCANCODE(KBDILLUMUP);
+    else if (strcmp(host_key, "KP_0") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_0);
+    else if (strcmp(host_key, "KP_00") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_00);
+    else if (strcmp(host_key, "KP_000") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_000);
+    else if (strcmp(host_key, "KP_1") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_1);
+    else if (strcmp(host_key, "KP_2") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_2);
+    else if (strcmp(host_key, "KP_3") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_3);
+    else if (strcmp(host_key, "KP_4") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_4);
+    else if (strcmp(host_key, "KP_5") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_5);
+    else if (strcmp(host_key, "KP_6") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_6);
+    else if (strcmp(host_key, "KP_7") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_7);
+    else if (strcmp(host_key, "KP_8") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_8);
+    else if (strcmp(host_key, "KP_9") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_9);
+    else if (strcmp(host_key, "KP_A") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_A);
+    else if (strcmp(host_key, "KP_AMPERSAND") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_AMPERSAND);
+    else if (strcmp(host_key, "KP_AT") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_AT);
+    else if (strcmp(host_key, "KP_B") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_B);
+    else if (strcmp(host_key, "KP_BACKSPACE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_BACKSPACE);
+    else if (strcmp(host_key, "KP_BINARY") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_BINARY);
+    else if (strcmp(host_key, "KP_C") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_C);
+    else if (strcmp(host_key, "KP_CLEAR") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_CLEAR);
+    else if (strcmp(host_key, "KP_CLEARENTRY") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_CLEARENTRY);
+    else if (strcmp(host_key, "KP_COLON") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_COLON);
+    else if (strcmp(host_key, "KP_COMMA") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_COMMA);
+    else if (strcmp(host_key, "KP_D") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_D);
+    else if (strcmp(host_key, "KP_DBLAMPERSAND") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_DBLAMPERSAND);
+    else if (strcmp(host_key, "KP_DBLVERTICALBAR") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_DBLVERTICALBAR);
+    else if (strcmp(host_key, "KP_DECIMAL") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_DECIMAL);
+    else if (strcmp(host_key, "KP_DIVIDE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_DIVIDE);
+    else if (strcmp(host_key, "KP_E") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_E);
+    else if (strcmp(host_key, "KP_ENTER") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_ENTER);
+    else if (strcmp(host_key, "KP_EQUALS") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_EQUALS);
+    else if (strcmp(host_key, "KP_EQUALSAS400") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_EQUALSAS400);
+    else if (strcmp(host_key, "KP_EXCLAM") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_EXCLAM);
+    else if (strcmp(host_key, "KP_F") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_F);
+    else if (strcmp(host_key, "KP_GREATER") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_GREATER);
+    else if (strcmp(host_key, "KP_HASH") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_HASH);
+    else if (strcmp(host_key, "KP_HEXADECIMAL") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_HEXADECIMAL);
+    else if (strcmp(host_key, "KP_LEFTBRACE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_LEFTBRACE);
+    else if (strcmp(host_key, "KP_LEFTPAREN") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_LEFTPAREN);
+    else if (strcmp(host_key, "KP_LESS") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_LESS);
+    else if (strcmp(host_key, "KP_MEMADD") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMADD);
+    else if (strcmp(host_key, "KP_MEMCLEAR") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMCLEAR);
+    else if (strcmp(host_key, "KP_MEMDIVIDE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMDIVIDE);
+    else if (strcmp(host_key, "KP_MEMMULTIPLY") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMMULTIPLY);
+    else if (strcmp(host_key, "KP_MEMRECALL") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMRECALL);
+    else if (strcmp(host_key, "KP_MEMSTORE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMSTORE);
+    else if (strcmp(host_key, "KP_MEMSUBTRACT") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMSUBTRACT);
+    else if (strcmp(host_key, "KP_MINUS") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MINUS);
+    else if (strcmp(host_key, "KP_MULTIPLY") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MULTIPLY);
+    else if (strcmp(host_key, "KP_OCTAL") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_OCTAL);
+    else if (strcmp(host_key, "KP_PERCENT") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_PERCENT);
+    else if (strcmp(host_key, "KP_PERIOD") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_PERIOD);
+    else if (strcmp(host_key, "KP_PLUS") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_PLUS);
+    else if (strcmp(host_key, "KP_PLUSMINUS") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_PLUSMINUS);
+    else if (strcmp(host_key, "KP_POWER") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_POWER);
+    else if (strcmp(host_key, "KP_RIGHTBRACE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_RIGHTBRACE);
+    else if (strcmp(host_key, "KP_RIGHTPAREN") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_RIGHTPAREN);
+    else if (strcmp(host_key, "KP_SPACE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_SPACE);
+    else if (strcmp(host_key, "KP_TAB") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_TAB);
+    else if (strcmp(host_key, "KP_VERTICALBAR") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_VERTICALBAR);
+    else if (strcmp(host_key, "KP_XOR") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_XOR);
+    else if (strcmp(host_key, "L") == 0) return (int32_t)CPU_HOST_SCANCODE(L);
+    else if (strcmp(host_key, "LALT") == 0) return (int32_t)CPU_HOST_SCANCODE(LALT);
+    else if (strcmp(host_key, "LANG1") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG1);
+    else if (strcmp(host_key, "LANG2") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG2);
+    else if (strcmp(host_key, "LANG3") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG3);
+    else if (strcmp(host_key, "LANG4") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG4);
+    else if (strcmp(host_key, "LANG5") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG5);
+    else if (strcmp(host_key, "LANG6") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG6);
+    else if (strcmp(host_key, "LANG7") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG7);
+    else if (strcmp(host_key, "LANG8") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG8);
+    else if (strcmp(host_key, "LANG9") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG9);
+    else if (strcmp(host_key, "LCTRL") == 0) return (int32_t)CPU_HOST_SCANCODE(LCTRL);
+    else if (strcmp(host_key, "LEFT") == 0) return (int32_t)CPU_HOST_SCANCODE(LEFT);
+    else if (strcmp(host_key, "LEFTBRACKET") == 0) return (int32_t)CPU_HOST_SCANCODE(LEFTBRACKET);
+    else if (strcmp(host_key, "LGUI") == 0) return (int32_t)CPU_HOST_SCANCODE(LGUI);
+    else if (strcmp(host_key, "LSHIFT") == 0) return (int32_t)CPU_HOST_SCANCODE(LSHIFT);
+    else if (strcmp(host_key, "M") == 0) return (int32_t)CPU_HOST_SCANCODE(M);
+    else if (strcmp(host_key, "MAIL") == 0) return (int32_t)CPU_HOST_SCANCODE(MAIL);
+    else if (strcmp(host_key, "MEDIASELECT") == 0) return (int32_t)CPU_HOST_SCANCODE(MEDIASELECT);
+    else if (strcmp(host_key, "MENU") == 0) return (int32_t)CPU_HOST_SCANCODE(MENU);
+    else if (strcmp(host_key, "MINUS") == 0) return (int32_t)CPU_HOST_SCANCODE(MINUS);
+    else if (strcmp(host_key, "MODE") == 0) return (int32_t)CPU_HOST_SCANCODE(MODE);
+    else if (strcmp(host_key, "MUTE") == 0) return (int32_t)CPU_HOST_SCANCODE(MUTE);
+    else if (strcmp(host_key, "N") == 0) return (int32_t)CPU_HOST_SCANCODE(N);
+    else if (strcmp(host_key, "NONUSBACKSLASH") == 0) return (int32_t)CPU_HOST_SCANCODE(NONUSBACKSLASH);
+    else if (strcmp(host_key, "NONUSHASH") == 0) return (int32_t)CPU_HOST_SCANCODE(NONUSHASH);
+    else if (strcmp(host_key, "NUMLOCKCLEAR") == 0) return (int32_t)CPU_HOST_SCANCODE(NUMLOCKCLEAR);
+    else if (strcmp(host_key, "O") == 0) return (int32_t)CPU_HOST_SCANCODE(O);
+    else if (strcmp(host_key, "OPER") == 0) return (int32_t)CPU_HOST_SCANCODE(OPER);
+    else if (strcmp(host_key, "OUT") == 0) return (int32_t)CPU_HOST_SCANCODE(OUT);
+    else if (strcmp(host_key, "P") == 0) return (int32_t)CPU_HOST_SCANCODE(P);
+    else if (strcmp(host_key, "PAGEDOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(PAGEDOWN);
+    else if (strcmp(host_key, "PAGEUP") == 0) return (int32_t)CPU_HOST_SCANCODE(PAGEUP);
+    else if (strcmp(host_key, "PASTE") == 0) return (int32_t)CPU_HOST_SCANCODE(PASTE);
+    else if (strcmp(host_key, "PAUSE") == 0) return (int32_t)CPU_HOST_SCANCODE(PAUSE);
+    else if (strcmp(host_key, "PERIOD") == 0) return (int32_t)CPU_HOST_SCANCODE(PERIOD);
+    else if (strcmp(host_key, "POWER") == 0) return (int32_t)CPU_HOST_SCANCODE(POWER);
+    else if (strcmp(host_key, "PRINTSCREEN") == 0) return (int32_t)CPU_HOST_SCANCODE(PRINTSCREEN);
+    else if (strcmp(host_key, "PRIOR") == 0) return (int32_t)CPU_HOST_SCANCODE(PRIOR);
+    else if (strcmp(host_key, "Q") == 0) return (int32_t)CPU_HOST_SCANCODE(Q);
+    else if (strcmp(host_key, "R") == 0) return (int32_t)CPU_HOST_SCANCODE(R);
+    else if (strcmp(host_key, "RALT") == 0) return (int32_t)CPU_HOST_SCANCODE(RALT);
+    else if (strcmp(host_key, "RCTRL") == 0) return (int32_t)CPU_HOST_SCANCODE(RCTRL);
+    else if (strcmp(host_key, "RETURN") == 0) return (int32_t)CPU_HOST_SCANCODE(RETURN);
+    else if (strcmp(host_key, "RETURN2") == 0) return (int32_t)CPU_HOST_SCANCODE(RETURN2);
+    else if (strcmp(host_key, "RGUI") == 0) return (int32_t)CPU_HOST_SCANCODE(RGUI);
+    else if (strcmp(host_key, "RIGHT") == 0) return (int32_t)CPU_HOST_SCANCODE(RIGHT);
+    else if (strcmp(host_key, "RIGHTBRACKET") == 0) return (int32_t)CPU_HOST_SCANCODE(RIGHTBRACKET);
+    else if (strcmp(host_key, "RSHIFT") == 0) return (int32_t)CPU_HOST_SCANCODE(RSHIFT);
+    else if (strcmp(host_key, "S") == 0) return (int32_t)CPU_HOST_SCANCODE(S);
+    else if (strcmp(host_key, "SCROLLLOCK") == 0) return (int32_t)CPU_HOST_SCANCODE(SCROLLLOCK);
+    else if (strcmp(host_key, "SELECT") == 0) return (int32_t)CPU_HOST_SCANCODE(SELECT);
+    else if (strcmp(host_key, "SEMICOLON") == 0) return (int32_t)CPU_HOST_SCANCODE(SEMICOLON);
+    else if (strcmp(host_key, "SEPARATOR") == 0) return (int32_t)CPU_HOST_SCANCODE(SEPARATOR);
+    else if (strcmp(host_key, "SLASH") == 0) return (int32_t)CPU_HOST_SCANCODE(SLASH);
+    else if (strcmp(host_key, "SLEEP") == 0) return (int32_t)CPU_HOST_SCANCODE(SLEEP);
+    else if (strcmp(host_key, "SOFTLEFT") == 0) return (int32_t)CPU_HOST_SCANCODE(SOFTLEFT);
+    else if (strcmp(host_key, "SOFTRIGHT") == 0) return (int32_t)CPU_HOST_SCANCODE(SOFTRIGHT);
+    else if (strcmp(host_key, "SPACE") == 0) return (int32_t)CPU_HOST_SCANCODE(SPACE);
+    else if (strcmp(host_key, "STOP") == 0) return (int32_t)CPU_HOST_SCANCODE(STOP);
+    else if (strcmp(host_key, "SYSREQ") == 0) return (int32_t)CPU_HOST_SCANCODE(SYSREQ);
+    else if (strcmp(host_key, "T") == 0) return (int32_t)CPU_HOST_SCANCODE(T);
+    else if (strcmp(host_key, "TAB") == 0) return (int32_t)CPU_HOST_SCANCODE(TAB);
+    else if (strcmp(host_key, "THOUSANDSSEPARATOR") == 0) return (int32_t)CPU_HOST_SCANCODE(THOUSANDSSEPARATOR);
+    else if (strcmp(host_key, "U") == 0) return (int32_t)CPU_HOST_SCANCODE(U);
+    else if (strcmp(host_key, "UNDO") == 0) return (int32_t)CPU_HOST_SCANCODE(UNDO);
+    else if (strcmp(host_key, "UNKNOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(UNKNOWN);
+    else if (strcmp(host_key, "UP") == 0) return (int32_t)CPU_HOST_SCANCODE(UP);
+    else if (strcmp(host_key, "V") == 0) return (int32_t)CPU_HOST_SCANCODE(V);
+    else if (strcmp(host_key, "VOLUMEDOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(VOLUMEDOWN);
+    else if (strcmp(host_key, "VOLUMEUP") == 0) return (int32_t)CPU_HOST_SCANCODE(VOLUMEUP);
+    else if (strcmp(host_key, "W") == 0) return (int32_t)CPU_HOST_SCANCODE(W);
+    else if (strcmp(host_key, "WWW") == 0) return (int32_t)CPU_HOST_SCANCODE(WWW);
+    else if (strcmp(host_key, "X") == 0) return (int32_t)CPU_HOST_SCANCODE(X);
+    else if (strcmp(host_key, "Y") == 0) return (int32_t)CPU_HOST_SCANCODE(Y);
+    else if (strcmp(host_key, "Z") == 0) return (int32_t)CPU_HOST_SCANCODE(Z);
+    return -1;
 #else
     (void)host_key;
-    (void)host_keys;
-    (void)host_key_count;
-    return 0u;
+    return -1;
 #endif
 }
-static const ComponentKeyboardMap *cpu_component_find_keyboard_map(const char *component_id) {
-    size_t map_count = sizeof(g_component_keyboard_maps) / sizeof(g_component_keyboard_maps[0]);
-    for (size_t i = 0; i < map_count; i++) {
-        const ComponentKeyboardMap *map = &g_component_keyboard_maps[i];
-        if (!map->component_id || !map->component_id[0]) continue;
-        if (strcmp(map->component_id, component_id) == 0) return map;
+
+static void cpu_component_runtime_keyboard_clear(void) {
+    if (g_runtime_keyboard_map.bindings != NULL) {
+        for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+            RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+            if (b->presses != NULL) free(b->presses);
+            b->presses = NULL;
+            b->press_count = 0u;
+            b->press_cap = 0u;
+        }
+        free(g_runtime_keyboard_map.bindings);
     }
-    return NULL;
+    memset(&g_runtime_keyboard_map, 0, sizeof(g_runtime_keyboard_map));
+}
+
+static RuntimeKeyboardBinding *cpu_component_runtime_binding_for_scancode(int32_t scancode, uint8_t create_if_missing) {
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        if (g_runtime_keyboard_map.bindings[i].scancode == scancode) {
+            if (create_if_missing != 0u) return NULL;
+            return &g_runtime_keyboard_map.bindings[i];
+        }
+    }
+    if (create_if_missing == 0u) return NULL;
+    if (g_runtime_keyboard_map.binding_count >= g_runtime_keyboard_map.binding_cap) {
+        size_t new_cap = (g_runtime_keyboard_map.binding_cap == 0u) ? 32u : (g_runtime_keyboard_map.binding_cap * 2u);
+        RuntimeKeyboardBinding *nb = (RuntimeKeyboardBinding *)realloc(g_runtime_keyboard_map.bindings, new_cap * sizeof(RuntimeKeyboardBinding));
+        if (nb == NULL) return NULL;
+        memset(nb + g_runtime_keyboard_map.binding_cap, 0, (new_cap - g_runtime_keyboard_map.binding_cap) * sizeof(RuntimeKeyboardBinding));
+        g_runtime_keyboard_map.bindings = nb;
+        g_runtime_keyboard_map.binding_cap = new_cap;
+    }
+    {
+        RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[g_runtime_keyboard_map.binding_count++];
+        memset(b, 0, sizeof(*b));
+        b->scancode = scancode;
+        return b;
+    }
+}
+
+static int cpu_component_runtime_add_press(RuntimeKeyboardBinding *binding, uint8_t row, uint8_t bit) {
+    if (binding == NULL) return -1;
+    if (row > 31u || bit > 7u) return -1;
+    for (uint8_t i = 0u; i < binding->press_count; ++i) {
+        if (binding->presses[i].row == row && binding->presses[i].bit == bit) return 0;
+    }
+    if (binding->press_count >= binding->press_cap) {
+        uint8_t new_cap = (binding->press_cap == 0u) ? 4u : (uint8_t)(binding->press_cap * 2u);
+        RuntimeKeyboardPress *np = (RuntimeKeyboardPress *)realloc(binding->presses, (size_t)new_cap * sizeof(RuntimeKeyboardPress));
+        if (np == NULL) return -1;
+        binding->presses = np;
+        binding->press_cap = new_cap;
+    }
+    binding->presses[binding->press_count].row = row;
+    binding->presses[binding->press_count].bit = bit;
+    binding->press_count += 1u;
+    return 0;
+}
+
+static void cpu_component_keyboard_ascii_queue_push(uint8_t value) {
+    if (value == 0u) return;
+    if (g_runtime_keyboard_map.ascii_q_len >= sizeof(g_runtime_keyboard_map.ascii_queue)) return;
+    {
+        uint8_t pos = (uint8_t)((g_runtime_keyboard_map.ascii_q_head + g_runtime_keyboard_map.ascii_q_len) % sizeof(g_runtime_keyboard_map.ascii_queue));
+        g_runtime_keyboard_map.ascii_queue[pos] = value;
+        g_runtime_keyboard_map.ascii_q_len += 1u;
+    }
+}
+
+static uint8_t cpu_component_keyboard_ascii_queue_pop(void) {
+    uint8_t value;
+    if (g_runtime_keyboard_map.ascii_q_len == 0u) return 0u;
+    value = g_runtime_keyboard_map.ascii_queue[g_runtime_keyboard_map.ascii_q_head];
+    g_runtime_keyboard_map.ascii_q_head = (uint8_t)((g_runtime_keyboard_map.ascii_q_head + 1u) % sizeof(g_runtime_keyboard_map.ascii_queue));
+    g_runtime_keyboard_map.ascii_q_len -= 1u;
+    return value;
+}
+
+static char *cpu_component_trim(char *s) {
+    char *end;
+    while (s && *s && (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n')) s++;
+    if (!s || !*s) return s;
+    end = s + strlen(s);
+    while (end > s && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n')) end--;
+    *end = '\0';
+    return s;
+}
+
+static int cpu_component_parse_u8(const char *text, uint8_t *out) {
+    char *end = NULL;
+    long v;
+    if (!text || !out) return -1;
+    v = strtol(text, &end, 0);
+    if (end == text || *cpu_component_trim(end) != '\0') return -1;
+    if (v < 0 || v > 255) return -1;
+    *out = (uint8_t)v;
+    return 0;
+}
+
+static char *cpu_component_unquote(char *s) {
+    size_t n;
+    if (s == NULL) return NULL;
+    s = cpu_component_trim(s);
+    n = strlen(s);
+    if (n >= 2u) {
+        if ((s[0] == '\'' && s[n - 1u] == '\'') || (s[0] == '"' && s[n - 1u] == '"')) {
+            s[n - 1u] = '\0';
+            return s + 1;
+        }
+    }
+    return s;
+}
+
+int mos6502_load_keyboard_map(CPUState *cpu, const char *path) {
+    FILE *f;
+    char line[512];
+    RuntimeKeyboardBinding *current = NULL;
+    (void)cpu;
+    if (path == NULL || path[0] == '\0') return -1;
+    f = fopen(path, "r");
+    if (f == NULL) return -1;
+    cpu_component_runtime_keyboard_clear();
+    g_runtime_keyboard_map.focus_required = 1u;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char *hash = strchr(line, '#');
+        char *s;
+        if (hash) *hash = '\0';
+        s = cpu_component_trim(line);
+        if (s == NULL || s[0] == '\0') continue;
+        if (strcmp(s, "keyboard:") == 0) continue;
+        if (strcmp(s, "bindings:") == 0) continue;
+        if (strcmp(s, "presses:") == 0) continue;
+        if (strcmp(s, "-") == 0) continue;
+        if (strncmp(s, "kind:", 5) == 0) {
+            s = cpu_component_trim(s + 5);
+            if (strcmp(s, "matrix") == 0) g_runtime_keyboard_map.kind = 1u;
+            else if (strcmp(s, "ascii") == 0) g_runtime_keyboard_map.kind = 2u;
+            else { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            continue;
+        }
+        if (strncmp(s, "focus_required:", 15) == 0) {
+            s = cpu_component_trim(s + 15);
+            if (strcmp(s, "true") == 0) g_runtime_keyboard_map.focus_required = 1u;
+            else if (strcmp(s, "false") == 0) g_runtime_keyboard_map.focus_required = 0u;
+            else { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            continue;
+        }
+        if (strncmp(s, "- host_key:", 11) == 0 || strncmp(s, "host_key:", 9) == 0) {
+            int32_t sc;
+            s = cpu_component_unquote(cpu_component_trim(s + ((s[0] == '-') ? 11 : 9)));
+            sc = cpu_component_scancode_for_host_key(s);
+            if (sc < 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current = cpu_component_runtime_binding_for_scancode(sc, 1u);
+            if (current == NULL) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            continue;
+        }
+        if (current == NULL) continue;
+        if (strncmp(s, "- row:", 6) == 0 || strncmp(s, "row:", 4) == 0) {
+            uint8_t row = 0u;
+            const char *row_text = cpu_component_trim(s + ((s[0] == '-') ? 6 : 4));
+            if (cpu_component_parse_u8(row_text, &row) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            if (cpu_component_runtime_add_press(current, row, 0u) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current->presses[current->press_count - 1u].bit = 255u;
+            continue;
+        }
+        if (strncmp(s, "bit:", 4) == 0) {
+            uint8_t bit = 0u;
+            if (current->press_count == 0u) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            if (cpu_component_parse_u8(cpu_component_trim(s + 4), &bit) != 0 || bit > 7u) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current->presses[current->press_count - 1u].bit = bit;
+            continue;
+        }
+        if (strncmp(s, "ascii:", 6) == 0) {
+            uint8_t v = 0u;
+            if (cpu_component_parse_u8(cpu_component_trim(s + 6), &v) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current->ascii = v;
+            current->has_ascii = 1u;
+            continue;
+        }
+        if (strncmp(s, "ascii_shift:", 12) == 0) {
+            uint8_t v = 0u;
+            if (cpu_component_parse_u8(cpu_component_trim(s + 12), &v) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current->ascii_shift = v;
+            current->has_ascii_shift = 1u;
+            continue;
+        }
+        if (strncmp(s, "ascii_ctrl:", 11) == 0) {
+            uint8_t v = 0u;
+            if (cpu_component_parse_u8(cpu_component_trim(s + 11), &v) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current->ascii_ctrl = v;
+            current->has_ascii_ctrl = 1u;
+            continue;
+        }
+        fclose(f);
+        cpu_component_runtime_keyboard_clear();
+        return -1;
+    }
+    fclose(f);
+    if (g_runtime_keyboard_map.kind == 0u || g_runtime_keyboard_map.binding_count == 0u) {
+        cpu_component_runtime_keyboard_clear();
+        return -1;
+    }
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+        if (g_runtime_keyboard_map.kind == 1u) {
+            if (b->has_ascii != 0u || b->has_ascii_shift != 0u || b->has_ascii_ctrl != 0u) {
+                cpu_component_runtime_keyboard_clear();
+                return -1;
+            }
+            if (b->press_count == 0u) { cpu_component_runtime_keyboard_clear(); return -1; }
+            for (uint8_t p = 0u; p < b->press_count; ++p) {
+                if (b->presses[p].bit > 7u) { cpu_component_runtime_keyboard_clear(); return -1; }
+            }
+        } else {
+            if (b->press_count != 0u) {
+                cpu_component_runtime_keyboard_clear();
+                return -1;
+            }
+            if (b->has_ascii == 0u && b->has_ascii_shift == 0u && b->has_ascii_ctrl == 0u) {
+                cpu_component_runtime_keyboard_clear();
+                return -1;
+            }
+        }
+    }
+    g_runtime_keyboard_map.loaded = 1u;
+    return 0;
 }
 
 static void cpu_component_apply_declared_keymap(
@@ -729,19 +1130,46 @@ static void cpu_component_apply_declared_keymap(
     size_t row_count,
     uint8_t has_focus
 ) {
-    const ComponentKeyboardMap *map = cpu_component_find_keyboard_map(component_id);
     (void)cpu;
-    if (!map || !rows || row_count == 0u || !host_keys || host_key_count == 0u) return;
-    if (map->focus_required && has_focus == 0u) return;
-    for (size_t bind_idx = 0; bind_idx < map->binding_count; bind_idx++) {
-        const ComponentKeyboardBinding *binding = &map->bindings[bind_idx];
-        if (!cpu_component_host_key_is_pressed(binding->host_key, host_keys, host_key_count)) continue;
-        for (size_t press_idx = 0; press_idx < binding->press_count; press_idx++) {
-            const ComponentKeyboardPress *press = &binding->presses[press_idx];
-            if ((size_t)press->row >= row_count || press->bit >= 8u) continue;
-            rows[press->row] &= (uint8_t)~(1u << press->bit);
+    (void)component_id;
+    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 1u) return;
+    if (!rows || row_count == 0u || !host_keys || host_key_count == 0u) return;
+    if (g_runtime_keyboard_map.focus_required && has_focus == 0u) return;
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+        if (b->scancode < 0 || (size_t)b->scancode >= host_key_count) continue;
+        if (host_keys[b->scancode] == 0u) continue;
+        for (uint8_t p = 0u; p < b->press_count; ++p) {
+            const RuntimeKeyboardPress *pr = &b->presses[p];
+            if ((size_t)pr->row >= row_count || pr->bit > 7u) continue;
+            rows[pr->row] &= (uint8_t)~(1u << pr->bit);
         }
     }
+}
+
+static void cpu_component_keyboard_ascii_feed(
+    int32_t scancode,
+    uint8_t shifted,
+    uint8_t controlled,
+    uint8_t has_focus
+) {
+    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return;
+    if (g_runtime_keyboard_map.focus_required && has_focus == 0u) return;
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+        uint8_t out = 0u;
+        if (b->scancode != scancode) continue;
+        if (controlled != 0u && b->has_ascii_ctrl != 0u) out = b->ascii_ctrl;
+        else if (shifted != 0u && b->has_ascii_shift != 0u) out = b->ascii_shift;
+        else if (b->has_ascii != 0u) out = b->ascii;
+        cpu_component_keyboard_ascii_queue_push(out);
+        return;
+    }
+}
+
+static uint8_t cpu_component_keyboard_ascii_pop(void) {
+    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return 0u;
+    return cpu_component_keyboard_ascii_queue_pop();
 }
 
 static const ComponentConnection g_component_connections[] = {

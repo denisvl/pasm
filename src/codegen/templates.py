@@ -132,6 +132,7 @@ void {cpu_prefix}_reset(CPUState *cpu);
 int {cpu_prefix}_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int {cpu_prefix}_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int {cpu_prefix}_load_cartridge_rom(CPUState *cpu, const char *path);
+int {cpu_prefix}_load_keyboard_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int {cpu_prefix}_step(CPUState *cpu);

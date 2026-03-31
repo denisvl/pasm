@@ -27,6 +27,7 @@ RUN_SPEED="${RUN_SPEED:-realtime}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-}"
+KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/coco1/host_keyboard_coco.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -104,6 +105,11 @@ if [[ "${USE_CARTRIDGE}" == "1" ]]; then
   RUN_CARTRIDGE_ARGS+=(--cart-rom "${CARTRIDGE_ROM_RUNTIME}")
 fi
 
+KEYBOARD_ARGS=()
+if [[ "${PROFILE}" == "interactive" ]]; then
+  KEYBOARD_ARGS=(--keyboard-map "${KEYBOARD_MAP}")
+fi
+
 echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
@@ -136,6 +142,7 @@ cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --fe
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \
   --system-dir "${SYSTEM_DIR}" \
+  "${KEYBOARD_ARGS[@]}" \
   "${RUN_CARTRIDGE_ARGS[@]}" \
   --start-pc "${START_PC}" \
   --run-speed "${RUN_SPEED}"

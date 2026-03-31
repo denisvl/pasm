@@ -36,6 +36,7 @@ CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 OS_ROM="${OS_ROM:-../../roms/atari800xl/ATARIXL.ROM}"
 BASIC_ROM="${BASIC_ROM:-../../roms/atari800xl/BASIC_C.ROM}"
 SELFTEST_ROM="${SELFTEST_ROM:-../../roms/atari800xl/ATARIXL_SELFTEST.ROM}"
+KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/atari800xl/host_keyboard_atari800xl.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -181,6 +182,11 @@ else
   set --
 fi
 
+KEYBOARD_ARGS=()
+if [[ "${PROFILE}" == "interactive" ]]; then
+  KEYBOARD_ARGS=(--keyboard-map "${KEYBOARD_MAP}")
+fi
+
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
@@ -189,6 +195,7 @@ cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --fe
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \
   --system-dir "${SYSTEM_DIR}" \
+  "${KEYBOARD_ARGS[@]}" \
   "${RUN_CARTRIDGE_ARGS[@]}" \
   "$@" \
   --run-speed "${RUN_SPEED}"

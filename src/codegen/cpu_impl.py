@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .interrupts import configured_interrupt_modes, resolve_interrupt_model
 from .templates import get_template
+from ..parser.yaml_loader import ALLOWED_HOST_KEYS
 
 
 DISPLAY_TEMPLATE_TOKEN_RE = re.compile(
@@ -50,6 +51,105 @@ MC6809_SPECIAL_DISPLAY_KINDS = {
     "mc6809_puls_mask",
     "mc6809_pshu_mask",
     "mc6809_pulu_mask",
+}
+SDL_UNSUPPORTED_SCANCODE_KEYS = {
+    "LOCKINGCAPSLOCK",
+    "LOCKINGNUMLOCK",
+    "LOCKINGSCROLLLOCK",
+}
+GLFW_SCANCODE_KEYS = {
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "A",
+    "APOSTROPHE",
+    "APPLICATION",
+    "B",
+    "BACKSLASH",
+    "BACKSPACE",
+    "C",
+    "CAPSLOCK",
+    "COMMA",
+    "D",
+    "DELETE",
+    "DOWN",
+    "E",
+    "END",
+    "EQUALS",
+    "ESCAPE",
+    "F",
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "G",
+    "GRAVE",
+    "H",
+    "HOME",
+    "I",
+    "INSERT",
+    "J",
+    "K",
+    "KP_0",
+    "KP_1",
+    "KP_2",
+    "KP_3",
+    "KP_4",
+    "KP_5",
+    "KP_6",
+    "KP_7",
+    "KP_8",
+    "KP_9",
+    "KP_ENTER",
+    "KP_PERIOD",
+    "L",
+    "LALT",
+    "LCTRL",
+    "LEFT",
+    "LEFTBRACKET",
+    "LSHIFT",
+    "M",
+    "MINUS",
+    "N",
+    "NONUSBACKSLASH",
+    "NONUSHASH",
+    "O",
+    "P",
+    "PAGEUP",
+    "PERIOD",
+    "Q",
+    "R",
+    "RALT",
+    "RCTRL",
+    "RETURN",
+    "RETURN2",
+    "RIGHT",
+    "RIGHTBRACKET",
+    "RSHIFT",
+    "S",
+    "SEMICOLON",
+    "SLASH",
+    "SPACE",
+    "T",
+    "TAB",
+    "U",
+    "UP",
+    "V",
+    "W",
+    "X",
+    "Y",
+    "Z",
 }
 BASE_DECODED_FIELD_WIDTHS = {
     "r": 8,
@@ -1259,7 +1359,13 @@ def _generate_ic_runtime_blocks(
             "",
             "",
             "",
-            "/* No IC runtime API */",
+            (
+                f"int {cpu_prefix}_load_keyboard_map(CPUState *cpu, const char *path) {{\n"
+                "    (void)cpu;\n"
+                "    (void)path;\n"
+                "    return -1;\n"
+                "}\n"
+            ),
         )
     connections = list(isa_data.get("connections", []))
     host_component_ids = {
@@ -1272,73 +1378,6 @@ def _generate_ic_runtime_blocks(
 
     def _ident(name: str) -> str:
         return _to_c_ident(name)
-
-    def _component_keyboard_input(component: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        comp_id = str(component.get("metadata", {}).get("id", "host"))
-        input_cfg = component.get("input", {})
-        if not isinstance(input_cfg, dict):
-            return None
-        keyboard_cfg = input_cfg.get("keyboard")
-        if not isinstance(keyboard_cfg, dict):
-            return None
-        source_raw = keyboard_cfg.get("source")
-        source = str(source_raw).strip() if source_raw is not None else ""
-        if source == "":
-            source = "host_key"
-        if source != "host_key":
-            raise ValueError(
-                f"Host '{comp_id}': input.keyboard.source must be 'host_key'"
-            )
-        bindings = keyboard_cfg.get("bindings", [])
-        if not isinstance(bindings, list) or not bindings:
-            return None
-
-        normalized_bindings: List[Dict[str, Any]] = []
-        for binding_idx, binding in enumerate(bindings):
-            if not isinstance(binding, dict):
-                raise ValueError(
-                    f"Host '{comp_id}': input.keyboard.bindings[{binding_idx}] must be an object"
-                )
-            host_key = str(binding.get("host_key", "")).strip()
-            presses = binding.get("presses", [])
-            if not host_key or not isinstance(presses, list) or not presses:
-                raise ValueError(
-                    f"Host '{comp_id}': input.keyboard.bindings[{binding_idx}] must define non-empty host_key and presses"
-                )
-            host_key_token = host_key
-            if CANONICAL_HOST_KEY_RE.fullmatch(host_key_token) is None:
-                raise ValueError(
-                    f"Host '{comp_id}': input.keyboard.bindings[{binding_idx}] host_key '{host_key_token}' must be canonical (A-Z, 0-9, underscore)"
-                )
-            normalized_presses: List[Tuple[int, int]] = []
-            for press_idx, press in enumerate(presses):
-                if not isinstance(press, dict):
-                    raise ValueError(
-                        f"Host '{comp_id}': input.keyboard.bindings[{binding_idx}].presses[{press_idx}] must be an object"
-                    )
-                row = int(press.get("row", -1))
-                bit = int(press.get("bit", -1))
-                if row < 0 or row > 31 or bit < 0 or bit > 7:
-                    raise ValueError(
-                        f"Host '{comp_id}': input.keyboard.bindings[{binding_idx}].presses[{press_idx}] row/bit out of range"
-                    )
-                normalized_presses.append((row, bit))
-            if not normalized_presses:
-                raise ValueError(
-                    f"Host '{comp_id}': input.keyboard.bindings[{binding_idx}] must contain at least one valid press"
-                )
-            normalized_bindings.append(
-                {
-                    "host_key": host_key_token,
-                    "presses": normalized_presses,
-                }
-            )
-        if not normalized_bindings:
-            return None
-        return {
-            "focus_required": bool(keyboard_cfg.get("focus_required", True)),
-            "bindings": normalized_bindings,
-        }
 
     def _snippet_block(component: Dict[str, Any], snippet_key: str, indent: str = "    ") -> str:
         behavior = component.get("behavior", {})
@@ -1390,20 +1429,34 @@ def _generate_ic_runtime_blocks(
         "typedef struct {",
         "    uint8_t row;",
         "    uint8_t bit;",
-        "} ComponentKeyboardPress;",
+        "} RuntimeKeyboardPress;",
         "",
         "typedef struct {",
-        "    const char *host_key;",
-        "    const ComponentKeyboardPress *presses;",
+        "    int32_t scancode;",
+        "    RuntimeKeyboardPress *presses;",
         "    uint8_t press_count;",
-        "} ComponentKeyboardBinding;",
+        "    uint8_t press_cap;",
+        "    uint8_t has_ascii;",
+        "    uint8_t has_ascii_shift;",
+        "    uint8_t has_ascii_ctrl;",
+        "    uint8_t ascii;",
+        "    uint8_t ascii_shift;",
+        "    uint8_t ascii_ctrl;",
+        "} RuntimeKeyboardBinding;",
         "",
         "typedef struct {",
-        "    const char *component_id;",
+        "    uint8_t loaded;",
+        "    uint8_t kind; /* 1=matrix, 2=ascii */",
         "    uint8_t focus_required;",
-        "    const ComponentKeyboardBinding *bindings;",
+        "    RuntimeKeyboardBinding *bindings;",
         "    size_t binding_count;",
-        "} ComponentKeyboardMap;",
+        "    size_t binding_cap;",
+        "    uint8_t ascii_queue[64];",
+        "    uint8_t ascii_q_head;",
+        "    uint8_t ascii_q_len;",
+        "} RuntimeKeyboardMap;",
+        "",
+        "static RuntimeKeyboardMap g_runtime_keyboard_map = {0};",
         "",
         "static int32_t cpu_host_hal_key_from_scancode(int scancode);",
         "",
@@ -3641,109 +3694,254 @@ def _generate_ic_runtime_blocks(
             ]
         )
 
-    keyboard_maps: List[Tuple[str, str, bool, List[Dict[str, Any]]]] = []
-    for component in components:
-        comp_id = str(component.get("metadata", {}).get("id", "component"))
-        comp_ident = _ident(comp_id)
-        keyboard_input = _component_keyboard_input(component)
-        if keyboard_input is None:
+    helper_lines.append(
+        "static int32_t cpu_component_scancode_for_host_key(const char *host_key) {"
+    )
+    helper_lines.append("#if CPU_HOST_HAS_SCANCODE_MAP")
+    helper_lines.append("    if (!host_key || !host_key[0]) return -1;")
+    helper_lines.append("    if (0) return -1;")
+    for key in sorted(ALLOWED_HOST_KEYS):
+        if host_uses_sdl2_backend and key in SDL_UNSUPPORTED_SCANCODE_KEYS:
             continue
-        keyboard_maps.append(
-            (
-                comp_id,
-                comp_ident,
-                bool(keyboard_input.get("focus_required", True)),
-                list(keyboard_input.get("bindings", [])),
-            )
-        )
-
-    if keyboard_maps:
-        used_host_keys: set[str] = set()
-        for comp_id, comp_ident, _, bindings in keyboard_maps:
-            for bind_idx, binding in enumerate(bindings):
-                presses = binding.get("presses", [])
-                used_host_keys.add(str(binding.get("host_key", "")).strip())
-                helper_lines.append(
-                    f"static const ComponentKeyboardPress component_{comp_ident}_keyboard_presses_{bind_idx}[] = {{"
-                )
-                for row, bit in presses:
-                    helper_lines.append(f"    {{ {int(row)}u, {int(bit)}u }},")
-                helper_lines.append("};")
-            helper_lines.append(
-                f"static const ComponentKeyboardBinding component_{comp_ident}_keyboard_bindings[] = {{"
-            )
-            for bind_idx, binding in enumerate(bindings):
-                host_key = _escape_c_string(str(binding.get("host_key", "")))
-                press_count = len(binding.get("presses", []))
-                helper_lines.append(
-                    "    { "
-                    f"\"{host_key}\", "
-                    f"component_{comp_ident}_keyboard_presses_{bind_idx}, "
-                    f"{press_count}u "
-                    "},"
-                )
-            helper_lines.append("};")
-        helper_lines.append("static const ComponentKeyboardMap g_component_keyboard_maps[] = {")
-        for comp_id, comp_ident, focus_required, _ in keyboard_maps:
-            helper_lines.append(
-                "    { "
-                f"\"{_escape_c_string(comp_id)}\", "
-                f"{'1u' if focus_required else '0u'}, "
-                f"component_{comp_ident}_keyboard_bindings, "
-                f"(sizeof(component_{comp_ident}_keyboard_bindings) / sizeof(component_{comp_ident}_keyboard_bindings[0])) "
-                "},"
-            )
-        helper_lines.append("};")
+        if host_uses_glfw_backend and key not in GLFW_SCANCODE_KEYS:
+            continue
+        key_escaped = _escape_c_string(str(key))
         helper_lines.append(
-            "static uint8_t cpu_component_host_key_is_pressed(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {"
+            f"    else if (strcmp(host_key, \"{key_escaped}\") == 0) return (int32_t)CPU_HOST_SCANCODE({key});"
         )
-        helper_lines.append("#if CPU_HOST_HAS_SCANCODE_MAP")
-        helper_lines.append("    if (!host_key || !host_keys || host_key_count == 0u) return 0u;")
-        helper_lines.append("    if (0) return 0u;")
-        for key in sorted(used_host_keys):
-            if not key:
-                continue
-            key_escaped = _escape_c_string(key)
-            scancode = _escape_c_string(f"CPU_HOST_SCANCODE({key})")
-            helper_lines.append(
-                f"    else if (strcmp(host_key, \"{key_escaped}\") == 0) return ((size_t){scancode} < host_key_count && host_keys[{scancode}] != 0u) ? 1u : 0u;"
-            )
-        helper_lines.append("    return 0u;")
-        helper_lines.append("#else")
-        helper_lines.append("    (void)host_key;")
-        helper_lines.append("    (void)host_keys;")
-        helper_lines.append("    (void)host_key_count;")
-        helper_lines.append("    return 0u;")
-        helper_lines.append("#endif")
-        helper_lines.append("}")
-    else:
-        helper_lines.append(
-            "static const ComponentKeyboardMap g_component_keyboard_maps[] = { { \"\", 0u, NULL, 0u } };"
-        )
-        helper_lines.append(
-            "static uint8_t cpu_component_host_key_is_pressed_noop(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {"
-        )
-        helper_lines.append("    (void)host_key;")
-        helper_lines.append("    (void)host_keys;")
-        helper_lines.append("    (void)host_key_count;")
-        helper_lines.append("    return 0u;")
-        helper_lines.append("}")
-        helper_lines.append(
-            "static uint8_t cpu_component_host_key_is_pressed(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {"
-        )
-        helper_lines.append("    return cpu_component_host_key_is_pressed_noop(host_key, host_keys, host_key_count);")
-        helper_lines.append("}")
-
+    helper_lines.append("    return -1;")
+    helper_lines.append("#else")
+    helper_lines.append("    (void)host_key;")
+    helper_lines.append("    return -1;")
+    helper_lines.append("#endif")
+    helper_lines.append("}")
     helper_lines.extend(
         [
-            "static const ComponentKeyboardMap *cpu_component_find_keyboard_map(const char *component_id) {",
-            "    size_t map_count = sizeof(g_component_keyboard_maps) / sizeof(g_component_keyboard_maps[0]);",
-            "    for (size_t i = 0; i < map_count; i++) {",
-            "        const ComponentKeyboardMap *map = &g_component_keyboard_maps[i];",
-            "        if (!map->component_id || !map->component_id[0]) continue;",
-            "        if (strcmp(map->component_id, component_id) == 0) return map;",
+            "",
+            "static void cpu_component_runtime_keyboard_clear(void) {",
+            "    if (g_runtime_keyboard_map.bindings != NULL) {",
+            "        for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {",
+            "            RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];",
+            "            if (b->presses != NULL) free(b->presses);",
+            "            b->presses = NULL;",
+            "            b->press_count = 0u;",
+            "            b->press_cap = 0u;",
+            "        }",
+            "        free(g_runtime_keyboard_map.bindings);",
             "    }",
-            "    return NULL;",
+            "    memset(&g_runtime_keyboard_map, 0, sizeof(g_runtime_keyboard_map));",
+            "}",
+            "",
+            "static RuntimeKeyboardBinding *cpu_component_runtime_binding_for_scancode(int32_t scancode, uint8_t create_if_missing) {",
+            "    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {",
+            "        if (g_runtime_keyboard_map.bindings[i].scancode == scancode) {",
+            "            if (create_if_missing != 0u) return NULL;",
+            "            return &g_runtime_keyboard_map.bindings[i];",
+            "        }",
+            "    }",
+            "    if (create_if_missing == 0u) return NULL;",
+            "    if (g_runtime_keyboard_map.binding_count >= g_runtime_keyboard_map.binding_cap) {",
+            "        size_t new_cap = (g_runtime_keyboard_map.binding_cap == 0u) ? 32u : (g_runtime_keyboard_map.binding_cap * 2u);",
+            "        RuntimeKeyboardBinding *nb = (RuntimeKeyboardBinding *)realloc(g_runtime_keyboard_map.bindings, new_cap * sizeof(RuntimeKeyboardBinding));",
+            "        if (nb == NULL) return NULL;",
+            "        memset(nb + g_runtime_keyboard_map.binding_cap, 0, (new_cap - g_runtime_keyboard_map.binding_cap) * sizeof(RuntimeKeyboardBinding));",
+            "        g_runtime_keyboard_map.bindings = nb;",
+            "        g_runtime_keyboard_map.binding_cap = new_cap;",
+            "    }",
+            "    {",
+            "        RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[g_runtime_keyboard_map.binding_count++];",
+            "        memset(b, 0, sizeof(*b));",
+            "        b->scancode = scancode;",
+            "        return b;",
+            "    }",
+            "}",
+            "",
+            "static int cpu_component_runtime_add_press(RuntimeKeyboardBinding *binding, uint8_t row, uint8_t bit) {",
+            "    if (binding == NULL) return -1;",
+            "    if (row > 31u || bit > 7u) return -1;",
+            "    for (uint8_t i = 0u; i < binding->press_count; ++i) {",
+            "        if (binding->presses[i].row == row && binding->presses[i].bit == bit) return 0;",
+            "    }",
+            "    if (binding->press_count >= binding->press_cap) {",
+            "        uint8_t new_cap = (binding->press_cap == 0u) ? 4u : (uint8_t)(binding->press_cap * 2u);",
+            "        RuntimeKeyboardPress *np = (RuntimeKeyboardPress *)realloc(binding->presses, (size_t)new_cap * sizeof(RuntimeKeyboardPress));",
+            "        if (np == NULL) return -1;",
+            "        binding->presses = np;",
+            "        binding->press_cap = new_cap;",
+            "    }",
+            "    binding->presses[binding->press_count].row = row;",
+            "    binding->presses[binding->press_count].bit = bit;",
+            "    binding->press_count += 1u;",
+            "    return 0;",
+            "}",
+            "",
+            "static void cpu_component_keyboard_ascii_queue_push(uint8_t value) {",
+            "    if (value == 0u) return;",
+            "    if (g_runtime_keyboard_map.ascii_q_len >= sizeof(g_runtime_keyboard_map.ascii_queue)) return;",
+            "    {",
+            "        uint8_t pos = (uint8_t)((g_runtime_keyboard_map.ascii_q_head + g_runtime_keyboard_map.ascii_q_len) % sizeof(g_runtime_keyboard_map.ascii_queue));",
+            "        g_runtime_keyboard_map.ascii_queue[pos] = value;",
+            "        g_runtime_keyboard_map.ascii_q_len += 1u;",
+            "    }",
+            "}",
+            "",
+            "static uint8_t cpu_component_keyboard_ascii_queue_pop(void) {",
+            "    uint8_t value;",
+            "    if (g_runtime_keyboard_map.ascii_q_len == 0u) return 0u;",
+            "    value = g_runtime_keyboard_map.ascii_queue[g_runtime_keyboard_map.ascii_q_head];",
+            "    g_runtime_keyboard_map.ascii_q_head = (uint8_t)((g_runtime_keyboard_map.ascii_q_head + 1u) % sizeof(g_runtime_keyboard_map.ascii_queue));",
+            "    g_runtime_keyboard_map.ascii_q_len -= 1u;",
+            "    return value;",
+            "}",
+            "",
+            "static char *cpu_component_trim(char *s) {",
+            "    char *end;",
+            "    while (s && *s && (*s == ' ' || *s == '\\t' || *s == '\\r' || *s == '\\n')) s++;",
+            "    if (!s || !*s) return s;",
+            "    end = s + strlen(s);",
+            "    while (end > s && (end[-1] == ' ' || end[-1] == '\\t' || end[-1] == '\\r' || end[-1] == '\\n')) end--;",
+            "    *end = '\\0';",
+            "    return s;",
+            "}",
+            "",
+            "static int cpu_component_parse_u8(const char *text, uint8_t *out) {",
+            "    char *end = NULL;",
+            "    long v;",
+            "    if (!text || !out) return -1;",
+            "    v = strtol(text, &end, 0);",
+            "    if (end == text || *cpu_component_trim(end) != '\\0') return -1;",
+            "    if (v < 0 || v > 255) return -1;",
+            "    *out = (uint8_t)v;",
+            "    return 0;",
+            "}",
+            "",
+            "static char *cpu_component_unquote(char *s) {",
+            "    size_t n;",
+            "    if (s == NULL) return NULL;",
+            "    s = cpu_component_trim(s);",
+            "    n = strlen(s);",
+            "    if (n >= 2u) {",
+            "        if ((s[0] == '\\'' && s[n - 1u] == '\\'') || (s[0] == '\"' && s[n - 1u] == '\"')) {",
+            "            s[n - 1u] = '\\0';",
+            "            return s + 1;",
+            "        }",
+            "    }",
+            "    return s;",
+            "}",
+            "",
+            "int " + cpu_prefix + "_load_keyboard_map(CPUState *cpu, const char *path) {",
+            "    FILE *f;",
+            "    char line[512];",
+            "    RuntimeKeyboardBinding *current = NULL;",
+            "    (void)cpu;",
+            "    if (path == NULL || path[0] == '\\0') return -1;",
+            "    f = fopen(path, \"r\");",
+            "    if (f == NULL) return -1;",
+            "    cpu_component_runtime_keyboard_clear();",
+            "    g_runtime_keyboard_map.focus_required = 1u;",
+            "    while (fgets(line, sizeof(line), f) != NULL) {",
+            "        char *hash = strchr(line, '#');",
+            "        char *s;",
+            "        if (hash) *hash = '\\0';",
+            "        s = cpu_component_trim(line);",
+            "        if (s == NULL || s[0] == '\\0') continue;",
+            "        if (strcmp(s, \"keyboard:\") == 0) continue;",
+            "        if (strcmp(s, \"bindings:\") == 0) continue;",
+            "        if (strcmp(s, \"presses:\") == 0) continue;",
+            "        if (strcmp(s, \"-\") == 0) continue;",
+            "        if (strncmp(s, \"kind:\", 5) == 0) {",
+            "            s = cpu_component_trim(s + 5);",
+            "            if (strcmp(s, \"matrix\") == 0) g_runtime_keyboard_map.kind = 1u;",
+            "            else if (strcmp(s, \"ascii\") == 0) g_runtime_keyboard_map.kind = 2u;",
+            "            else { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            continue;",
+            "        }",
+            "        if (strncmp(s, \"focus_required:\", 15) == 0) {",
+            "            s = cpu_component_trim(s + 15);",
+            "            if (strcmp(s, \"true\") == 0) g_runtime_keyboard_map.focus_required = 1u;",
+            "            else if (strcmp(s, \"false\") == 0) g_runtime_keyboard_map.focus_required = 0u;",
+            "            else { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            continue;",
+            "        }",
+            "        if (strncmp(s, \"- host_key:\", 11) == 0 || strncmp(s, \"host_key:\", 9) == 0) {",
+            "            int32_t sc;",
+            "            s = cpu_component_unquote(cpu_component_trim(s + ((s[0] == '-') ? 11 : 9)));",
+            "            sc = cpu_component_scancode_for_host_key(s);",
+            "            if (sc < 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            current = cpu_component_runtime_binding_for_scancode(sc, 1u);",
+            "            if (current == NULL) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            continue;",
+            "        }",
+            "        if (current == NULL) continue;",
+            "        if (strncmp(s, \"- row:\", 6) == 0 || strncmp(s, \"row:\", 4) == 0) {",
+            "            uint8_t row = 0u;",
+            "            const char *row_text = cpu_component_trim(s + ((s[0] == '-') ? 6 : 4));",
+            "            if (cpu_component_parse_u8(row_text, &row) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            if (cpu_component_runtime_add_press(current, row, 0u) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            current->presses[current->press_count - 1u].bit = 255u;",
+            "            continue;",
+            "        }",
+            "        if (strncmp(s, \"bit:\", 4) == 0) {",
+            "            uint8_t bit = 0u;",
+            "            if (current->press_count == 0u) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            if (cpu_component_parse_u8(cpu_component_trim(s + 4), &bit) != 0 || bit > 7u) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            current->presses[current->press_count - 1u].bit = bit;",
+            "            continue;",
+            "        }",
+            "        if (strncmp(s, \"ascii:\", 6) == 0) {",
+            "            uint8_t v = 0u;",
+            "            if (cpu_component_parse_u8(cpu_component_trim(s + 6), &v) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            current->ascii = v;",
+            "            current->has_ascii = 1u;",
+            "            continue;",
+            "        }",
+            "        if (strncmp(s, \"ascii_shift:\", 12) == 0) {",
+            "            uint8_t v = 0u;",
+            "            if (cpu_component_parse_u8(cpu_component_trim(s + 12), &v) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            current->ascii_shift = v;",
+            "            current->has_ascii_shift = 1u;",
+            "            continue;",
+            "        }",
+            "        if (strncmp(s, \"ascii_ctrl:\", 11) == 0) {",
+            "            uint8_t v = 0u;",
+            "            if (cpu_component_parse_u8(cpu_component_trim(s + 11), &v) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            current->ascii_ctrl = v;",
+            "            current->has_ascii_ctrl = 1u;",
+            "            continue;",
+            "        }",
+            "        fclose(f);",
+            "        cpu_component_runtime_keyboard_clear();",
+            "        return -1;",
+            "    }",
+            "    fclose(f);",
+            "    if (g_runtime_keyboard_map.kind == 0u || g_runtime_keyboard_map.binding_count == 0u) {",
+            "        cpu_component_runtime_keyboard_clear();",
+            "        return -1;",
+            "    }",
+            "    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {",
+            "        RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];",
+            "        if (g_runtime_keyboard_map.kind == 1u) {",
+            "            if (b->has_ascii != 0u || b->has_ascii_shift != 0u || b->has_ascii_ctrl != 0u) {",
+            "                cpu_component_runtime_keyboard_clear();",
+            "                return -1;",
+            "            }",
+            "            if (b->press_count == 0u) { cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            for (uint8_t p = 0u; p < b->press_count; ++p) {",
+            "                if (b->presses[p].bit > 7u) { cpu_component_runtime_keyboard_clear(); return -1; }",
+            "            }",
+            "        } else {",
+            "            if (b->press_count != 0u) {",
+            "                cpu_component_runtime_keyboard_clear();",
+            "                return -1;",
+            "            }",
+            "            if (b->has_ascii == 0u && b->has_ascii_shift == 0u && b->has_ascii_ctrl == 0u) {",
+            "                cpu_component_runtime_keyboard_clear();",
+            "                return -1;",
+            "            }",
+            "        }",
+            "    }",
+            "    g_runtime_keyboard_map.loaded = 1u;",
+            "    return 0;",
             "}",
             "",
             "static void cpu_component_apply_declared_keymap(",
@@ -3755,19 +3953,46 @@ def _generate_ic_runtime_blocks(
             "    size_t row_count,",
             "    uint8_t has_focus",
             ") {",
-            "    const ComponentKeyboardMap *map = cpu_component_find_keyboard_map(component_id);",
             "    (void)cpu;",
-            "    if (!map || !rows || row_count == 0u || !host_keys || host_key_count == 0u) return;",
-            "    if (map->focus_required && has_focus == 0u) return;",
-            "    for (size_t bind_idx = 0; bind_idx < map->binding_count; bind_idx++) {",
-            "        const ComponentKeyboardBinding *binding = &map->bindings[bind_idx];",
-            "        if (!cpu_component_host_key_is_pressed(binding->host_key, host_keys, host_key_count)) continue;",
-            "        for (size_t press_idx = 0; press_idx < binding->press_count; press_idx++) {",
-            "            const ComponentKeyboardPress *press = &binding->presses[press_idx];",
-            "            if ((size_t)press->row >= row_count || press->bit >= 8u) continue;",
-            "            rows[press->row] &= (uint8_t)~(1u << press->bit);",
+            "    (void)component_id;",
+            "    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 1u) return;",
+            "    if (!rows || row_count == 0u || !host_keys || host_key_count == 0u) return;",
+            "    if (g_runtime_keyboard_map.focus_required && has_focus == 0u) return;",
+            "    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {",
+            "        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];",
+            "        if (b->scancode < 0 || (size_t)b->scancode >= host_key_count) continue;",
+            "        if (host_keys[b->scancode] == 0u) continue;",
+            "        for (uint8_t p = 0u; p < b->press_count; ++p) {",
+            "            const RuntimeKeyboardPress *pr = &b->presses[p];",
+            "            if ((size_t)pr->row >= row_count || pr->bit > 7u) continue;",
+            "            rows[pr->row] &= (uint8_t)~(1u << pr->bit);",
             "        }",
             "    }",
+            "}",
+            "",
+            "static void cpu_component_keyboard_ascii_feed(",
+            "    int32_t scancode,",
+            "    uint8_t shifted,",
+            "    uint8_t controlled,",
+            "    uint8_t has_focus",
+            ") {",
+            "    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return;",
+            "    if (g_runtime_keyboard_map.focus_required && has_focus == 0u) return;",
+            "    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {",
+            "        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];",
+            "        uint8_t out = 0u;",
+            "        if (b->scancode != scancode) continue;",
+            "        if (controlled != 0u && b->has_ascii_ctrl != 0u) out = b->ascii_ctrl;",
+            "        else if (shifted != 0u && b->has_ascii_shift != 0u) out = b->ascii_shift;",
+            "        else if (b->has_ascii != 0u) out = b->ascii;",
+            "        cpu_component_keyboard_ascii_queue_push(out);",
+            "        return;",
+            "    }",
+            "}",
+            "",
+            "static uint8_t cpu_component_keyboard_ascii_pop(void) {",
+            "    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return 0u;",
+            "    return cpu_component_keyboard_ascii_queue_pop();",
             "}",
             "",
         ]

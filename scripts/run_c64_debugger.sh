@@ -19,6 +19,7 @@ MEMORY_SIZE="${MEMORY_SIZE:-65536}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
+KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/c64/host_keyboard_c64.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -80,10 +81,17 @@ cmake --build "${BUILD_DIR}"
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED}"
 
+RUN_ARGS=(
+  --backend linked
+  --memory-size "${MEMORY_SIZE}"
+  --system-dir "${SYSTEM_DIR}"
+  --start-pc "${START_PC}"
+  --run-speed "${RUN_SPEED}"
+)
+if [[ "${PROFILE}" == "interactive" ]]; then
+  RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
+fi
+
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
-  --backend linked \
-  --memory-size "${MEMORY_SIZE}" \
-  --system-dir "${SYSTEM_DIR}" \
-  --start-pc "${START_PC}" \
-  --run-speed "${RUN_SPEED}"
+  "${RUN_ARGS[@]}"

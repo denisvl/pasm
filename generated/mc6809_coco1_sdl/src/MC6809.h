@@ -301,6 +301,7 @@ void mc6809_reset(CPUState *cpu);
 int mc6809_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mc6809_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mc6809_load_cartridge_rom(CPUState *cpu, const char *path);
+int mc6809_load_keyboard_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int mc6809_step(CPUState *cpu);
