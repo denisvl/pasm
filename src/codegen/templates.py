@@ -94,6 +94,8 @@ struct CPUState {{
     int error_code;
     uint64_t total_cycles;
     bool pc_modified;
+    uint8_t current_instruction_cycles;
+    uint16_t io_read_phase_ppu_dots;
     uint16_t hook_pc;
     uint8_t hook_prefix;
     uint8_t hook_opcode;
@@ -132,7 +134,9 @@ void {cpu_prefix}_reset(CPUState *cpu);
 int {cpu_prefix}_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int {cpu_prefix}_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int {cpu_prefix}_load_cartridge_rom(CPUState *cpu, const char *path);
+int {cpu_prefix}_set_cartridge_dir(CPUState *cpu, const char *path);
 int {cpu_prefix}_load_keyboard_map(CPUState *cpu, const char *path);
+int {cpu_prefix}_load_controller_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int {cpu_prefix}_step(CPUState *cpu);
@@ -223,6 +227,7 @@ CPUState *{cpu_prefix}_create(size_t memory_size) {{
         cpu->hooks[i].func = NULL;
         cpu->hooks[i].context = NULL;
     }}
+    cpu->debug_overlay_enabled = false;
 {ic_init}
     
     {cpu_prefix}_reset(cpu);
@@ -252,12 +257,13 @@ void {cpu_prefix}_reset(CPUState *cpu) {{
     cpu->error_code = CPU_ERROR_NONE;
     cpu->total_cycles = 0;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = 0;
+    cpu->io_read_phase_ppu_dots = 0;
     cpu->hook_pc = 0;
     cpu->hook_prefix = 0;
     cpu->hook_opcode = 0;
     cpu->hook_raw = 0;
     cpu->tracing_enabled = false;
-    cpu->debug_overlay_enabled = true;
     cpu->reset_delay_pending = true;
 }}
 

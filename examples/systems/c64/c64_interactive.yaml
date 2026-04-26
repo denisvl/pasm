@@ -63,6 +63,7 @@ components:
     - c64_io
   devices:
     - keyboard_c64
+    - joystick_c64
     - video_c64
     - speaker_c64
   hosts:
@@ -86,6 +87,24 @@ connections:
       component: host_c64_sdl2
       kind: callback
       name: keyboard_matrix
+
+  - from:
+      component: c64_io
+      kind: callback
+      name: joystick_port
+    to:
+      component: joystick_c64
+      kind: callback
+      name: read_port
+
+  - from:
+      component: joystick_c64
+      kind: callback
+      name: host_port
+    to:
+      component: host_c64_sdl2
+      kind: callback
+      name: joystick_port
 
   - from:
       component: c64_io

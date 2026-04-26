@@ -43,6 +43,9 @@ interfaces:
     - name: keyboard_read
       args: [u8]
       returns: u8
+    - name: kempston_read
+      args: []
+      returns: u8
   handlers:
     - name: mic_input
       args: [u8]
@@ -123,6 +126,8 @@ behavior:
           }
           uint64_t call_args[1] = { (uint64_t)row_mask };
           value = (uint8_t)cpu_component_call(cpu, "ula0", "keyboard_read", call_args, 1);
+      } else if ((((uint16_t)port) & 0x00FFu) == 0x1Fu) {
+          value = (uint8_t)cpu_component_call(cpu, "ula0", "kempston_read", NULL, 0);
       }
     port_write_pre: |
       if ((((uint16_t)port) & 0x0001u) == 0u) {

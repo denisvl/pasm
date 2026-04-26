@@ -1075,6 +1075,10 @@ int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path) {
     return z80_load_keyboard_map(cpu, path);
 }
 
+int pasm_dbg_load_controller_map(CPUState *cpu, const char *path) {
+    return z80_load_controller_map(cpu, path);
+}
+
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {
     return z80_dbg_snapshot_counts(cpu, out_counts);
 }

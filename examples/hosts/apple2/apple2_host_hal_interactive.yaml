@@ -69,6 +69,15 @@ state:
   - name: key_ascii
     type: uint8_t
     initial: "0"
+  - name: rept_last_ascii
+    type: uint8_t
+    initial: "0"
+  - name: rept_held
+    type: uint8_t
+    initial: "0"
+  - name: rept_next_cycle
+    type: uint64_t
+    initial: "0u"
   - name: last_event_poll_cycle
     type: uint64_t
     initial: "0u"
@@ -90,10 +99,37 @@ state:
   - name: overlay_cpu_pct_x10
     type: uint32_t
     initial: "0"
+  - name: joy_left
+    type: uint8_t
+    initial: "0"
+  - name: joy_right
+    type: uint8_t
+    initial: "0"
+  - name: joy_up
+    type: uint8_t
+    initial: "0"
+  - name: joy_down
+    type: uint8_t
+    initial: "0"
+  - name: joy_fire
+    type: uint8_t
+    initial: "0"
 
 interfaces:
   callbacks:
     - name: keyboard_ascii
+      args: []
+      returns: u8
+    - name: joystick_paddle0
+      args: []
+      returns: u8
+    - name: joystick_paddle1
+      args: []
+      returns: u8
+    - name: joystick_button0
+      args: []
+      returns: u8
+    - name: joystick_button1
       args: []
       returns: u8
   handlers:
@@ -108,7 +144,19 @@ behavior:
     init: |
       do {
           if (comp->host_inited != 0u) break;
+          {
+              const char *disable_dead = cpu_host_hal_getenv("PASM_DISABLE_DEADKEYS");
+              if (disable_dead == NULL || disable_dead[0] != '0') {
+                  #if defined(__linux__)
+                  /* Keep scancode flow deterministic by disabling XIM dead-key composition for this process. */
+                  setenv("XMODIFIERS", "@im=none", 1);
+                  setenv("GTK_IM_MODULE", "xim", 0);
+                  setenv("QT_IM_MODULE", "xim", 0);
+                  #endif
+              }
+          }
           if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) break;
+          cpu_host_hal_stop_text_input();
           comp->window = cpu_host_hal_create_window(
               "PASM Apple II",
               CPU_HOST_WINDOWPOS_CENTERED,
@@ -182,6 +230,9 @@ behavior:
       comp->audio_ring_write_idx = 0u;
       comp->audio_ring_fill = 0u;
       comp->key_ascii = 0u;
+      comp->rept_last_ascii = 0u;
+      comp->rept_held = 0u;
+      comp->rept_next_cycle = 0u;
       comp->last_event_poll_cycle = 0u;
       comp->overlay_last_ms = 0u;
       comp->overlay_last_frame_count = 0u;
@@ -189,6 +240,11 @@ behavior:
       comp->overlay_fps_x100 = 0u;
       comp->overlay_cpu_hz = 0u;
       comp->overlay_cpu_pct_x10 = 0u;
+      comp->joy_left = 0u;
+      comp->joy_right = 0u;
+      comp->joy_up = 0u;
+      comp->joy_down = 0u;
+      comp->joy_fire = 0u;
       if (comp->audio_out_dev != 0u) {
           cpu_host_hal_audio_clear(comp->audio_out_dev);
       }
@@ -203,15 +259,179 @@ behavior:
       }
       CPUHostEvent ev;
       while (cpu_host_hal_poll_event(&ev)) {
+          static int ev_trace_init = 0;
+          static int ev_trace_on = 0;
+          static FILE *ev_trace_fp = NULL;
+          if (ev_trace_init == 0) {
+              const char *env_ev = cpu_host_hal_getenv("PASM_APPLE2_HOST_KB_EVENTS");
+              ev_trace_on = (env_ev != NULL && env_ev[0] != '\0' && env_ev[0] != '0') ? 1 : 0;
+              ev_trace_init = 1;
+              if (ev_trace_on != 0) {
+                  ev_trace_fp = fopen("log/apple2_host_kb_events.log", "w");
+                  if (ev_trace_fp == NULL) ev_trace_fp = stderr;
+                  fprintf(ev_trace_fp, "# cycle,type,scancode,scancode_name,key_name,mods_hex,repeat\n");
+                  fflush(ev_trace_fp);
+              }
+          }
+          if (ev_trace_on != 0) {
+              uint32_t et = cpu_host_hal_event_type(&ev);
+              if (et == CPU_HOST_EVENT_KEYDOWN || et == CPU_HOST_EVENT_KEYUP) {
+                  int32_t sc_ev = cpu_host_hal_event_scancode(&ev);
+                  fprintf(
+                      ev_trace_fp,
+                      "%llu,%u,%d,%s,%s,0x%X,%u\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)et,
+                      (int)sc_ev,
+                      cpu_host_hal_scancode_name(sc_ev),
+                      cpu_host_hal_key_name(ev.key.keysym.sym),
+                      (unsigned)cpu_host_hal_event_mod_state(&ev),
+                      (unsigned)cpu_host_hal_event_key_repeat(&ev)
+                  );
+                  fflush(ev_trace_fp);
+              }
+          }
           if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {
               cpu->running = false;
               cpu->halted = true;
               return;
           } else if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN && cpu_host_hal_event_key_repeat(&ev) == 0) {
               int32_t sc = cpu_host_hal_event_scancode(&ev);
-              uint8_t controlled = ((cpu_host_hal_event_mod_state(&ev) & CPU_HOST_MOD_CTRL) != 0) ? 1u : 0u;
-              uint8_t shifted = ((cpu_host_hal_event_mod_state(&ev) & CPU_HOST_MOD_SHIFT) != 0) ? 1u : 0u;
-              cpu_component_keyboard_ascii_feed(sc, shifted, controlled, 1u);
+              int key_count = 0;
+              const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
+              uint8_t shifted = 0u;
+              uint8_t controlled = 0u;
+              uint8_t out = 0u;
+              uint8_t is_rept = 0u;
+              uint8_t handled_special = 0u;
+              uint64_t repeat_initial_delay = ((uint64_t)CPU_SYSTEM_CLOCK_HZ * 250u) / 1000u;
+              if (repeat_initial_delay == 0u) repeat_initial_delay = 1u;
+              if (ks != NULL && key_count > 0) {
+                  for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+                      const RuntimeKeyboardBinding *m = &g_runtime_keyboard_map.bindings[i];
+                      if (m->scancode < 0 || m->scancode >= key_count) continue;
+                      if (ks[m->scancode] == 0u) continue;
+                      if (m->is_shift_modifier != 0u) shifted = 1u;
+                      if (m->is_ctrl_modifier != 0u) controlled = 1u;
+                  }
+              }
+              for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+                  const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+                      if (b->scancode != sc) continue;
+                      if (b->emulator_key_id[0] != '\0') {
+                          /* Joystick/controller input is handled via the runtime controller map (separate file),
+                             not via keyboard map emulator_key_id bindings. */
+                          if (strcmp(b->emulator_key_id, "EMU_POWER_TOGGLE") == 0) {
+                              /* Power button behavior in the emulator: do a cold power-cycle.
+                                 This is layout-independent (scancode-driven) and makes the user-visible
+                                 behavior obvious compared to a simple "halt". */
+                              cpu->halted = false;
+                              if (cpu->memory != NULL && cpu->memory_size > 0) {
+                                  size_t ram_end = (cpu->memory_size > 0xD000u) ? 0xD000u : cpu->memory_size;
+                                  memset(cpu->memory, 0, ram_end);
+                              }
+                              if (cpu->port_memory != NULL && cpu->port_size > 0) {
+                                  memset(cpu->port_memory, 0, cpu->port_size);
+                              }
+                              mos6502_reset(cpu);
+                              if (comp->window != NULL) cpu_host_hal_set_window_title(comp->window, "PASM Apple II | POWER CYCLE");
+                              handled_special = 1u;
+                              goto handled_special_keydown;
+                          }
+                      if (strcmp(b->emulator_key_id, "EMU_RESET") == 0) {
+                          cpu->halted = false;
+                          mos6502_reset(cpu);
+                          if (comp->window != NULL) cpu_host_hal_set_window_title(comp->window, "PASM Apple II | RESET");
+                          handled_special = 1u;
+                          goto handled_special_keydown;
+                      }
+                  }
+                  if (strcmp(b->mapper_key_id, "K_RESET") == 0) {
+                      cpu->halted = false;
+                      mos6502_reset(cpu);
+                      if (comp->window != NULL) cpu_host_hal_set_window_title(comp->window, "PASM Apple II | RESET");
+                      handled_special = 1u;
+                      goto handled_special_keydown;
+                  }
+                  if (strcmp(b->mapper_key_id, "K_REPT") == 0) {
+                      is_rept = 1u;
+                      break;
+                  }
+                  if (controlled != 0u && b->has_ascii_ctrl != 0u) out = b->ascii_ctrl;
+                  else if (shifted != 0u && b->has_ascii_shift != 0u) out = b->ascii_shift;
+                  else if (b->has_ascii != 0u) out = b->ascii;
+                  break;
+              }
+              handled_special_keydown: ;
+              if (handled_special != 0u) {
+                  continue;
+              }
+              if (is_rept != 0u) {
+                  comp->rept_held = 1u;
+                  comp->rept_next_cycle = cpu->total_cycles + repeat_initial_delay;
+                  if (comp->window != NULL) {
+                      char title[192];
+                      snprintf(
+                          title,
+                          sizeof(title),
+                          "PASM Apple II | sc=%d (%s) | REPT held | last=%u (0x%02X)",
+                          (int)sc,
+                          cpu_host_hal_scancode_name(sc),
+                          (unsigned)comp->rept_last_ascii,
+                          (unsigned)comp->rept_last_ascii
+                      );
+                      cpu_host_hal_set_window_title(comp->window, title);
+                  }
+                  continue;
+              }
+              cpu_component_keyboard_ascii_feed(sc, ks, (size_t)((key_count > 0) ? key_count : 0), 1u);
+              if (out != 0u) {
+                  comp->rept_last_ascii = out;
+                  if (comp->rept_held != 0u) {
+                      comp->rept_next_cycle = cpu->total_cycles + repeat_initial_delay;
+                  }
+              }
+              if (comp->window != NULL) {
+                  char title[192];
+                  snprintf(
+                      title,
+                      sizeof(title),
+                      "PASM Apple II | sc=%d (%s) | code=%u (0x%02X)",
+                      (int)sc,
+                      cpu_host_hal_scancode_name(sc),
+                      (unsigned)out,
+                      (unsigned)out
+                  );
+                  cpu_host_hal_set_window_title(comp->window, title);
+              }
+          } else if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYUP) {
+              int32_t sc_up = cpu_host_hal_event_scancode(&ev);
+              for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+                  const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+                  if (b->scancode != sc_up) continue;
+                  if (strcmp(b->mapper_key_id, "K_REPT") == 0) {
+                      comp->rept_held = 0u;
+                      comp->rept_next_cycle = 0u;
+                  }
+                  break;
+              }
+          }
+      }
+      /* Controller map is separate from keyboard map: poll it once per tick and update gameport state. */
+      cpu_component_controller_map_poll(cpu, 1u);
+      comp->joy_up = cpu_component_controller_pressed("P1_UP");
+      comp->joy_down = cpu_component_controller_pressed("P1_DOWN");
+      comp->joy_left = cpu_component_controller_pressed("P1_LEFT");
+      comp->joy_right = cpu_component_controller_pressed("P1_RIGHT");
+      comp->joy_fire = cpu_component_controller_pressed("P1_BUTTON0");
+      if (comp->rept_held != 0u && comp->rept_last_ascii != 0u && comp->rept_next_cycle != 0u) {
+          uint64_t repeat_step = ((uint64_t)CPU_SYSTEM_CLOCK_HZ * 50u) / 1000u;
+          if (repeat_step == 0u) repeat_step = 1u;
+          if (cpu->total_cycles >= comp->rept_next_cycle) {
+              cpu_component_keyboard_ascii_queue_push(comp->rept_last_ascii);
+              do {
+                  comp->rept_next_cycle += repeat_step;
+              } while (comp->rept_next_cycle <= cpu->total_cycles);
           }
       }
       {
@@ -295,6 +515,18 @@ behavior:
   callback_handlers:
     keyboard_ascii: |
       return (uint64_t)cpu_component_keyboard_ascii_pop();
+    joystick_paddle0: |
+      if (comp->joy_left != 0u && comp->joy_right == 0u) return 0u;
+      if (comp->joy_right != 0u && comp->joy_left == 0u) return 255u;
+      return 128u;
+    joystick_paddle1: |
+      if (comp->joy_up != 0u && comp->joy_down == 0u) return 0u;
+      if (comp->joy_down != 0u && comp->joy_up == 0u) return 255u;
+      return 128u;
+    joystick_button0: |
+      return (uint64_t)(comp->joy_fire != 0u ? 1u : 0u);
+    joystick_button1: |
+      return 0u;
   handler_bodies:
     video_frame: |
       if (comp->host_inited == 0u || argc < 4) return;

@@ -1,0 +1,42 @@
+metadata:
+  id: host_bbc_micro
+  type: host_adapter
+  model: bbc_micro_hal_headless
+  version: "1.0"
+
+state:
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: audio_samples
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_ascii
+      args: []
+      returns: u8
+  handlers:
+    - name: video_frame
+      args: [u32, u64, u32, u32]
+    - name: audio_pcm
+      args: [u8, u64]
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    keyboard_ascii: |
+      return (uint64_t)cpu_component_keyboard_ascii_pop();
+  handler_bodies:
+    video_frame: |
+      if (argc > 0) comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+    audio_pcm: |
+      comp->audio_samples += 1u;
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

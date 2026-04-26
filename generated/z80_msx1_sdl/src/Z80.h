@@ -139,6 +139,9 @@ typedef struct ComponentState_keyboard_msx {
     uint8_t last_row;
 } ComponentState_keyboard_msx;
 
+typedef struct ComponentState_controller_msx {
+} ComponentState_controller_msx;
+
 typedef struct ComponentState_video_msx {
     uint32_t frame_count;
     uint32_t width;
@@ -196,6 +199,15 @@ typedef struct ComponentState_host_msx {
     uint8_t row10;
     uint8_t joy_buttons_profile;
 } ComponentState_host_msx;
+
+typedef struct ComponentState_msx_cart0 {
+    uint8_t * rom_data;
+    uint32_t rom_size;
+    uint8_t slot_id;
+    uint8_t bank_6000;
+    uint8_t bank_8000;
+    uint8_t bank_a000;
+} ComponentState_msx_cart0;
 
 
 /* ===== CPU State ===== */
@@ -278,9 +290,11 @@ struct CPUState {
     ComponentState_ppi0 comp_ppi0;
     ComponentState_psg0 comp_psg0;
     ComponentState_keyboard_msx comp_keyboard_msx;
+    ComponentState_controller_msx comp_controller_msx;
     ComponentState_video_msx comp_video_msx;
     ComponentState_speaker_msx comp_speaker_msx;
     ComponentState_host_msx comp_host_msx;
+    ComponentState_msx_cart0 comp_msx_cart0;
 };
 
 /* ===== Constants ===== */
@@ -294,11 +308,11 @@ struct CPUState {
 #define CPU_AUDIO_SAMPLE_RATE 44100ULL
 #define CPU_AUDIO_CHANNELS 1
 #define CPU_AUDIO_FORMAT "s16le"
-/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"msx1_interactive\"} */
+/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"msx1_cartridge_interactive\"} */
 #define CPU_IC_COUNT 3
-#define CPU_DEVICE_COUNT 3
+#define CPU_DEVICE_COUNT 4
 #define CPU_HOST_COUNT 1
-#define CPU_CARTRIDGE_COUNT 0
+#define CPU_CARTRIDGE_COUNT 1
 
 /* ===== Register Enum ===== */
 typedef enum {
@@ -345,6 +359,7 @@ int z80_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int z80_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int z80_load_cartridge_rom(CPUState *cpu, const char *path);
 int z80_load_keyboard_map(CPUState *cpu, const char *path);
+int z80_load_controller_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int z80_step(CPUState *cpu);

@@ -43,6 +43,7 @@ components:
     - cpc_io
   devices:
     - keyboard_cpc
+    - gameport_cpc
     - video_cpc
     - speaker_cpc
   hosts:
@@ -66,6 +67,24 @@ connections:
       component: host_cpc
       kind: callback
       name: keyboard_matrix
+
+  - from:
+      component: cpc_io
+      kind: callback
+      name: controller_read_row
+    to:
+      component: gameport_cpc
+      kind: callback
+      name: read_row
+
+  - from:
+      component: gameport_cpc
+      kind: callback
+      name: host_matrix
+    to:
+      component: host_cpc
+      kind: callback
+      name: joystick_matrix
 
   - from:
       component: cpc_io

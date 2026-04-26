@@ -20,6 +20,7 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/zx_spectrum48k/host_keyboard_zx48.yaml}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/zx_spectrum48k/host_controller_zx48_kempston.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -28,6 +29,7 @@ cd "${REPO_ROOT}"
 PROCESSOR="examples/processors/z80.yaml"
 IC="examples/ics/zx_spectrum48k/zx_spectrum_48k_ula.yaml"
 DEVICE_KB="examples/devices/zx_spectrum48k/zx48_keyboard.yaml"
+DEVICE_CTRL="examples/devices/zx_spectrum48k/zx48_controller.yaml"
 DEVICE_VIDEO="examples/devices/zx_spectrum48k/zx48_video.yaml"
 DEVICE_SPK="examples/devices/zx_spectrum48k/zx48_speaker.yaml"
 DEVICE_MIC="examples/devices/zx_spectrum48k/zx48_mic.yaml"
@@ -62,6 +64,7 @@ uv run python -m src.main generate \
   --system "${SYSTEM}" \
   --ic "${IC}" \
   --device "${DEVICE_KB}" \
+  --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --device "${DEVICE_MIC}" \
@@ -83,6 +86,7 @@ RUN_ARGS=(
 )
 if [[ "${PROFILE}" == "interactive" ]]; then
   RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
+  RUN_ARGS+=(--controller-map "${CONTROLLER_MAP}")
 fi
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \

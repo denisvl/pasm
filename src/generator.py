@@ -203,7 +203,8 @@ class EmulatorGenerator:
             for host in list(self.isa_data.get("hosts", []))
             if isinstance(host, dict)
         )
-        keyboard_map_required = interactive_host_backend and has_keyboard_callbacks
+        keyboard_map_supported = interactive_host_backend
+        keyboard_map_required = keyboard_map_supported and has_keyboard_callbacks
         default_cart_rom = (
             str(self.isa_data.get("cartridge_rom", {}).get("path", ""))
             .replace("\\", "\\\\")
@@ -238,13 +239,13 @@ class EmulatorGenerator:
         )
         keyboard_usage_line = (
             '    printf("  --keyboard-map <file>  Load runtime keyboard map YAML\\n");'
-            if keyboard_map_required
+            if keyboard_map_supported
             else ""
         )
         keyboard_cli_parse = (
             '        } else if (strcmp(argv[i], "--keyboard-map") == 0 && i + 1 < argc) {\n'
             "            keyboard_map_file = argv[++i];\n"
-            if keyboard_map_required
+            if keyboard_map_supported
             else ""
         )
         keyboard_required_check = (

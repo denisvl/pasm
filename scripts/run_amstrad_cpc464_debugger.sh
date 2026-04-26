@@ -23,6 +23,7 @@ PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/cpc464/host_keyboard_cpc.yaml}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/cpc464/host_controller_cpc464.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -31,6 +32,7 @@ cd "${REPO_ROOT}"
 PROCESSOR="examples/processors/z80.yaml"
 IC_MAIN="examples/ics/cpc464/amstrad_cpc_io.yaml"
 DEVICE_KB="examples/devices/cpc464/cpc_keyboard.yaml"
+DEVICE_GP="examples/devices/cpc464/cpc_gameport.yaml"
 DEVICE_VIDEO="examples/devices/cpc464/cpc_video.yaml"
 DEVICE_SPK="examples/devices/cpc464/cpc_speaker.yaml"
 SYSTEM_DIR="examples/systems/cpc464"
@@ -64,6 +66,7 @@ uv run python -m src.main generate \
   --system "${SYSTEM}" \
   --ic "${IC_MAIN}" \
   --device "${DEVICE_KB}" \
+  --device "${DEVICE_GP}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
@@ -87,6 +90,7 @@ RUN_ARGS=(
 )
 if [[ "${PROFILE}" == "interactive" ]]; then
   RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
+  RUN_ARGS+=(--controller-map "${CONTROLLER_MAP}")
 fi
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \

@@ -92,7 +92,9 @@ state:
 
 interfaces:
   callbacks: []
-  handlers: []
+  handlers:
+    - name: on_audio_command
+      args: [u8, u64]
   signals:
     - name: audio_level
       args: [u8, u64]
@@ -481,7 +483,62 @@ behavior:
       }
 
   callback_handlers: {}
-  handler_bodies: {}
+  handler_bodies:
+    on_audio_command: |
+      uint8_t v = (uint8_t)(args[0] & 0xFFu);
+
+      if ((v & 0x80u) != 0u) {
+          uint8_t ch = (uint8_t)((v >> 5) & 0x03u);
+          uint8_t is_vol = (uint8_t)((v >> 4) & 0x01u);
+          uint8_t nib = (uint8_t)(v & 0x0Fu);
+
+          comp->latched_channel = ch;
+          comp->latched_is_volume = is_vol;
+
+          if (is_vol != 0u) {
+              switch (ch) {
+                  case 0u: comp->vol0 = nib; break;
+                  case 1u: comp->vol1 = nib; break;
+                  case 2u: comp->vol2 = nib; break;
+                  case 3u: comp->vol3 = nib; break;
+                  default: break;
+              }
+          } else if (ch < 3u) {
+              if (ch == 0u) comp->tone0 = (uint16_t)((comp->tone0 & 0x03F0u) | (uint16_t)nib);
+              else if (ch == 1u) comp->tone1 = (uint16_t)((comp->tone1 & 0x03F0u) | (uint16_t)nib);
+              else comp->tone2 = (uint16_t)((comp->tone2 & 0x03F0u) | (uint16_t)nib);
+          } else {
+              comp->noise_reg = (uint8_t)(nib & 0x07u);
+              comp->lfsr = 0x8000u;
+              comp->noise_phase = 0u;
+              comp->noise_out = 0u;
+              comp->noise_ctr = 0u;
+          }
+      } else {
+          uint8_t ch = comp->latched_channel;
+
+          if (comp->latched_is_volume != 0u) {
+              uint8_t nib = (uint8_t)(v & 0x0Fu);
+              switch (ch) {
+                  case 0u: comp->vol0 = nib; break;
+                  case 1u: comp->vol1 = nib; break;
+                  case 2u: comp->vol2 = nib; break;
+                  case 3u: comp->vol3 = nib; break;
+                  default: break;
+              }
+          } else if (ch < 3u) {
+              uint16_t hi = (uint16_t)(v & 0x3Fu);
+              if (ch == 0u) comp->tone0 = (uint16_t)((comp->tone0 & 0x000Fu) | (uint16_t)(hi << 4));
+              else if (ch == 1u) comp->tone1 = (uint16_t)((comp->tone1 & 0x000Fu) | (uint16_t)(hi << 4));
+              else comp->tone2 = (uint16_t)((comp->tone2 & 0x000Fu) | (uint16_t)(hi << 4));
+          } else {
+              comp->noise_reg = (uint8_t)(v & 0x07u);
+              comp->lfsr = 0x8000u;
+              comp->noise_phase = 0u;
+              comp->noise_out = 0u;
+              comp->noise_ctr = 0u;
+          }
+      }
 
 coding:
   headers: []

@@ -59,6 +59,7 @@ components:
     - ula0
   devices:
     - keyboard0
+    - controller_zx48
     - video0
     - speaker0
     - mic0
@@ -74,6 +75,24 @@ connections:
       component: keyboard0
       kind: callback
       name: read_matrix
+
+  - from:
+      component: ula0
+      kind: callback
+      name: kempston_read
+    to:
+      component: controller_zx48
+      kind: callback
+      name: read_kempston
+
+  - from:
+      component: controller_zx48
+      kind: callback
+      name: host_kempston
+    to:
+      component: host_zx48
+      kind: callback
+      name: read_kempston
 
   - from:
       component: keyboard0

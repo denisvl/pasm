@@ -541,6 +541,25 @@ behavior:
               }
           }
 
+          /* Heuristic cursor blink: when the ROM marks the cursor as a single inverse-video cell,
+             render a blinking underline cursor (not full-cell inversion). */
+          uint32_t cursor_idx = 0xFFFFFFFFu;
+          {
+              uint32_t inv_count = 0u;
+              uint32_t last_inv = 0xFFFFFFFFu;
+              for (uint32_t i = 0u; i < cells; ++i) {
+                  if ((video_shadow[i] & 0x80u) != 0u) {
+                      inv_count += 1u;
+                      last_inv = i;
+                      if (inv_count > 1u) break;
+                  }
+              }
+              if (inv_count == 1u) {
+                  cursor_idx = last_inv;
+              }
+          }
+          uint8_t cursor_blink_on = (uint8_t)(((comp->frame_counter / 30u) & 1u) == 0u);
+
           if (fb_w > 640u) fb_w = 640u;
           if (fb_h > 240u) fb_h = 240u;
 
@@ -556,6 +575,11 @@ behavior:
                   uint8_t raw = (idx < cells) ? video_shadow[idx] : 0x20u;
                   uint8_t ch_raw = (uint8_t)(raw & 0x7Fu);
                   uint8_t inv = ((raw & 0x80u) != 0u) ? 1u : 0u;
+                  uint8_t is_cursor = (idx == cursor_idx) ? 1u : 0u;
+                  /* If we're treating this cell as the cursor marker, don't invert the glyph. */
+                  if (is_cursor != 0u) {
+                      inv = 0u;
+                  }
                   char ch;
                   uint32_t cell_x = x * 6u;
                   uint32_t cell_y = y * 8u;
@@ -564,12 +588,21 @@ behavior:
                   } else {
                       ch = (char)ch_raw;
                   }
+                  /* Some TRS-80 ROMs render a literal character (often '0') in the cursor cell while
+                     also marking it inverse. For our heuristic cursor, hide the underlying glyph. */
+                  if (is_cursor != 0u) {
+                      ch = ' ';
+                  }
                   uint32_t ch_fg = (inv != 0u) ? bg : fg;
                   uint32_t ch_bg = (inv != 0u) ? fg : bg;
                   if (inv != 0u) {
                       sms_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, 6, 8, ch_bg);
                   }
                   sms_overlay_draw_char(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, ch, 1, ch_fg);
+                  /* Blink underline cursor on the detected cursor cell. */
+                  if (is_cursor != 0u && cursor_blink_on != 0u) {
+                      sms_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)(cell_y + 7u), 6, 1, fg);
+                  }
               }
           }
 

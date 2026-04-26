@@ -1,0 +1,1360 @@
+system_name: amstrad_cpc464
+image:
+  file: cpc_keyboard.jpg
+  width_px: 1220
+  height_px: 475
+  origin: top-left
+  bbox_format:
+    x: left
+    y: top
+    width: pixels
+    height: pixels
+  approximate: true
+  notes:
+  - This image is a best-effort cropped top-down approximation derived from the provided
+    photo; it is not a true orthographic reconstruction.
+  - Bounding boxes are approximate and were derived from the visible key extents in
+    the provided image.
+  - Legends are listed in visual order when multiple markings appear on the same key.
+  - The field multi_legend is true when a key shows more than one visible legend.
+  - The field legend_combos maps each visible legend to the physical key combination
+    used to produce it.
+  - For ordinary symbol keys, the lower legend was treated as the unmodified key and
+    the upper legend as SHIFT + key.
+  - Some legends on the original photo are small or partially unclear; those entries
+    were transcribed from the visible image as closely as practical.
+  - Cassette transport buttons, cassette switches, power LED, and other non-keyboard
+    controls were not included in this key map.
+keys:
+- id: main_r01_c01
+  section: main
+  row: 1
+  column: 1
+  multi_legend: false
+  legend:
+  - ESC
+  legend_combos:
+    ESC:
+    - ESC
+  bbox:
+    x: 112
+    y: 200
+    width: 35
+    height: 33
+- id: main_r01_c02
+  section: main
+  row: 1
+  column: 2
+  multi_legend: true
+  legend:
+  - '!'
+  - '1'
+  legend_combos:
+    '1':
+    - '1'
+    '!':
+    - SHIFT
+    - '1'
+  bbox:
+    x: 170
+    y: 202
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r01_c03
+  section: main
+  row: 1
+  column: 3
+  multi_legend: true
+  legend:
+  - '"'
+  - '2'
+  legend_combos:
+    '2':
+    - '2'
+    '"':
+    - SHIFT
+    - '2'
+  bbox:
+    x: 227
+    y: 202
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r01_c04
+  section: main
+  row: 1
+  column: 4
+  multi_legend: true
+  legend:
+  - '#'
+  - '3'
+  legend_combos:
+    '3':
+    - '3'
+    '#':
+    - SHIFT
+    - '3'
+  bbox:
+    x: 283
+    y: 202
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r01_c05
+  section: main
+  row: 1
+  column: 5
+  multi_legend: true
+  legend:
+  - $
+  - '4'
+  legend_combos:
+    '4':
+    - '4'
+    $:
+    - SHIFT
+    - '4'
+  bbox:
+    x: 341
+    y: 202
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r01_c06
+  section: main
+  row: 1
+  column: 6
+  multi_legend: true
+  legend:
+  - '%'
+  - '5'
+  legend_combos:
+    '5':
+    - '5'
+    '%':
+    - SHIFT
+    - '5'
+  bbox:
+    x: 398
+    y: 202
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r01_c07
+  section: main
+  row: 1
+  column: 7
+  multi_legend: true
+  legend:
+  - '&'
+  - '6'
+  legend_combos:
+    '6':
+    - '6'
+    '&':
+    - SHIFT
+    - '6'
+  bbox:
+    x: 456
+    y: 201
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r01_c08
+  section: main
+  row: 1
+  column: 8
+  multi_legend: true
+  legend:
+  - ''''
+  - '7'
+  legend_combos:
+    '7':
+    - '7'
+    '''':
+    - SHIFT
+    - '7'
+  bbox:
+    x: 515
+    y: 201
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r01_c09
+  section: main
+  row: 1
+  column: 9
+  multi_legend: true
+  legend:
+  - (
+  - '8'
+  legend_combos:
+    '8':
+    - '8'
+    (:
+    - SHIFT
+    - '8'
+  bbox:
+    x: 574
+    y: 201
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r01_c10
+  section: main
+  row: 1
+  column: 10
+  multi_legend: true
+  legend:
+  - )
+  - '9'
+  legend_combos:
+    '9':
+    - '9'
+    ):
+    - SHIFT
+    - '9'
+  bbox:
+    x: 633
+    y: 201
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r01_c11
+  section: main
+  row: 1
+  column: 11
+  multi_legend: true
+  legend:
+  - '-'
+  - '0'
+  legend_combos:
+    '0':
+    - '0'
+    '-':
+    - SHIFT
+    - '0'
+  bbox:
+    x: 694
+    y: 201
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r01_c12
+  section: main
+  row: 1
+  column: 12
+  multi_legend: true
+  legend:
+  - '='
+  - '-'
+  legend_combos:
+    '-':
+    - '-'
+    '=':
+    - SHIFT
+    - '-'
+  bbox:
+    x: 753
+    y: 201
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r01_c13
+  section: main
+  row: 1
+  column: 13
+  multi_legend: true
+  legend:
+  - "\xA3"
+  - "\u2191"
+  legend_combos:
+    "\u2191":
+    - "\u2191"
+    "\xA3":
+    - SHIFT
+    - "\u2191"
+  bbox:
+    x: 814
+    y: 201
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+  overlay_color:
+  - 0
+  - 180
+  - 120
+  - 0
+  - 180
+  - 120
+- id: main_r01_c14
+  section: main
+  row: 1
+  column: 14
+  multi_legend: false
+  legend:
+  - CLR
+  legend_combos:
+    CLR:
+    - CLR
+  bbox:
+    x: 875
+    y: 202
+    width: 35
+    height: 33
+  overlay_color:
+  - 0
+  - 180
+  - 120
+  - 0
+  - 180
+  - 120
+- id: main_r01_c15
+  section: main
+  row: 1
+  column: 15
+  multi_legend: false
+  legend:
+  - DEL
+  legend_combos:
+    DEL:
+    - DEL
+  bbox:
+    x: 933
+    y: 202
+    width: 68
+    height: 36
+- id: main_r02_c01
+  section: main
+  row: 2
+  column: 1
+  multi_legend: false
+  legend:
+  - TAB
+  legend_combos:
+    TAB:
+    - TAB
+  bbox:
+    x: 116
+    y: 261
+    width: 65
+    height: 34
+- id: main_r02_c02
+  section: main
+  row: 2
+  column: 2
+  multi_legend: false
+  legend:
+  - Q
+  legend_combos:
+    Q:
+    - Q
+  bbox:
+    x: 200
+    y: 260
+    width: 35
+    height: 33
+- id: main_r02_c03
+  section: main
+  row: 2
+  column: 3
+  multi_legend: false
+  legend:
+  - W
+  legend_combos:
+    W:
+    - W
+  bbox:
+    x: 257
+    y: 260
+    width: 35
+    height: 33
+- id: main_r02_c04
+  section: main
+  row: 2
+  column: 4
+  multi_legend: false
+  legend:
+  - E
+  legend_combos:
+    E:
+    - E
+  bbox:
+    x: 313
+    y: 260
+    width: 35
+    height: 33
+- id: main_r02_c05
+  section: main
+  row: 2
+  column: 5
+  multi_legend: false
+  legend:
+  - R
+  legend_combos:
+    R:
+    - R
+  bbox:
+    x: 371
+    y: 260
+    width: 35
+    height: 33
+- id: main_r02_c06
+  section: main
+  row: 2
+  column: 6
+  multi_legend: false
+  legend:
+  - T
+  legend_combos:
+    T:
+    - T
+  bbox:
+    x: 429
+    y: 260
+    width: 35
+    height: 33
+- id: main_r02_c07
+  section: main
+  row: 2
+  column: 7
+  multi_legend: false
+  legend:
+  - Y
+  legend_combos:
+    Y:
+    - Y
+  bbox:
+    x: 487
+    y: 259
+    width: 35
+    height: 33
+- id: main_r02_c08
+  section: main
+  row: 2
+  column: 8
+  multi_legend: false
+  legend:
+  - U
+  legend_combos:
+    U:
+    - U
+  bbox:
+    x: 545
+    y: 260
+    width: 35
+    height: 33
+- id: main_r02_c09
+  section: main
+  row: 2
+  column: 9
+  multi_legend: false
+  legend:
+  - I
+  legend_combos:
+    I:
+    - I
+  bbox:
+    x: 604
+    y: 260
+    width: 35
+    height: 33
+- id: main_r02_c10
+  section: main
+  row: 2
+  column: 10
+  multi_legend: false
+  legend:
+  - O
+  legend_combos:
+    O:
+    - O
+  bbox:
+    x: 664
+    y: 260
+    width: 35
+    height: 33
+- id: main_r02_c11
+  section: main
+  row: 2
+  column: 11
+  multi_legend: false
+  legend:
+  - P
+  legend_combos:
+    P:
+    - P
+  bbox:
+    x: 724
+    y: 260
+    width: 35
+    height: 33
+- id: main_r02_c12
+  section: main
+  row: 2
+  column: 12
+  multi_legend: true
+  legend:
+  - ':'
+  - '@'
+  legend_combos:
+    '@':
+    - '@'
+    ':':
+    - SHIFT
+    - '@'
+  bbox:
+    x: 784
+    y: 261
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+  overlay_color:
+  - 0
+  - 180
+  - 120
+  - 0
+  - 180
+  - 120
+- id: main_r02_c13
+  section: main
+  row: 2
+  column: 13
+  multi_legend: false
+  legend:
+  - '['
+  legend_combos:
+    '[':
+    - '['
+  bbox:
+    x: 845
+    y: 261
+    width: 35
+    height: 33
+- id: main_r02_c14
+  section: main
+  row: 2
+  column: 14
+  multi_legend: false
+  legend:
+  - ENTER
+  legend_combos:
+    ENTER:
+    - ENTER
+  bbox:
+    x: 913
+    y: 258
+    width: 92
+    height: 99
+- id: main_r03_c01
+  section: main
+  row: 3
+  column: 1
+  multi_legend: false
+  legend:
+  - CAPS LOCK
+  legend_combos:
+    CAPS LOCK:
+    - CAPS LOCK
+  bbox:
+    x: 119
+    y: 316
+    width: 78
+    height: 36
+- id: main_r03_c02
+  section: main
+  row: 3
+  column: 2
+  multi_legend: false
+  legend:
+  - A
+  legend_combos:
+    A:
+    - A
+  bbox:
+    x: 217
+    y: 318
+    width: 35
+    height: 33
+- id: main_r03_c03
+  section: main
+  row: 3
+  column: 3
+  multi_legend: false
+  legend:
+  - S
+  legend_combos:
+    S:
+    - S
+  bbox:
+    x: 274
+    y: 318
+    width: 35
+    height: 33
+- id: main_r03_c04
+  section: main
+  row: 3
+  column: 4
+  multi_legend: false
+  legend:
+  - D
+  legend_combos:
+    D:
+    - D
+  bbox:
+    x: 330
+    y: 318
+    width: 35
+    height: 33
+- id: main_r03_c05
+  section: main
+  row: 3
+  column: 5
+  multi_legend: false
+  legend:
+  - F
+  legend_combos:
+    F:
+    - F
+  bbox:
+    x: 387
+    y: 318
+    width: 35
+    height: 33
+- id: main_r03_c06
+  section: main
+  row: 3
+  column: 6
+  multi_legend: false
+  legend:
+  - G
+  legend_combos:
+    G:
+    - G
+  bbox:
+    x: 445
+    y: 318
+    width: 35
+    height: 33
+- id: main_r03_c07
+  section: main
+  row: 3
+  column: 7
+  multi_legend: false
+  legend:
+  - H
+  legend_combos:
+    H:
+    - H
+  bbox:
+    x: 504
+    y: 319
+    width: 35
+    height: 33
+- id: main_r03_c08
+  section: main
+  row: 3
+  column: 8
+  multi_legend: false
+  legend:
+  - J
+  legend_combos:
+    J:
+    - J
+  bbox:
+    x: 562
+    y: 319
+    width: 35
+    height: 33
+- id: main_r03_c09
+  section: main
+  row: 3
+  column: 9
+  multi_legend: false
+  legend:
+  - K
+  legend_combos:
+    K:
+    - K
+  bbox:
+    x: 621
+    y: 320
+    width: 35
+    height: 33
+- id: main_r03_c10
+  section: main
+  row: 3
+  column: 10
+  multi_legend: false
+  legend:
+  - L
+  legend_combos:
+    L:
+    - L
+  bbox:
+    x: 680
+    y: 320
+    width: 35
+    height: 33
+- id: main_r03_c11
+  section: main
+  row: 3
+  column: 11
+  multi_legend: true
+  legend:
+  - '*'
+  - ':'
+  legend_combos:
+    ':':
+    - ':'
+    '*':
+    - SHIFT
+    - ':'
+  bbox:
+    x: 739
+    y: 320
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+  overlay_color:
+  - 0
+  - 180
+  - 120
+  - 0
+  - 180
+  - 120
+- id: main_r03_c12
+  section: main
+  row: 3
+  column: 12
+  multi_legend: true
+  legend:
+  - +
+  - ;
+  legend_combos:
+    ;:
+    - ;
+    +:
+    - SHIFT
+    - ;
+  bbox:
+    x: 799
+    y: 320
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r03_c13
+  section: main
+  row: 3
+  column: 13
+  multi_legend: false
+  legend:
+  - ']'
+  legend_combos:
+    ']':
+    - ']'
+  bbox:
+    x: 859
+    y: 320
+    width: 35
+    height: 33
+- id: main_r04_c01
+  section: main
+  row: 4
+  column: 1
+  multi_legend: false
+  legend:
+  - SHIFT
+  legend_combos:
+    SHIFT:
+    - SHIFT
+  bbox:
+    x: 122
+    y: 373
+    width: 106
+    height: 36
+- id: main_r04_c02
+  section: main
+  row: 4
+  column: 2
+  multi_legend: false
+  legend:
+  - Z
+  legend_combos:
+    Z:
+    - Z
+  bbox:
+    x: 248
+    y: 376
+    width: 35
+    height: 33
+- id: main_r04_c03
+  section: main
+  row: 4
+  column: 3
+  multi_legend: false
+  legend:
+  - X
+  legend_combos:
+    X:
+    - X
+  bbox:
+    x: 305
+    y: 376
+    width: 35
+    height: 33
+- id: main_r04_c04
+  section: main
+  row: 4
+  column: 4
+  multi_legend: false
+  legend:
+  - C
+  legend_combos:
+    C:
+    - C
+  bbox:
+    x: 361
+    y: 376
+    width: 35
+    height: 33
+- id: main_r04_c05
+  section: main
+  row: 4
+  column: 5
+  multi_legend: false
+  legend:
+  - V
+  legend_combos:
+    V:
+    - V
+  bbox:
+    x: 419
+    y: 376
+    width: 35
+    height: 33
+- id: main_r04_c06
+  section: main
+  row: 4
+  column: 6
+  multi_legend: false
+  legend:
+  - B
+  legend_combos:
+    B:
+    - B
+  bbox:
+    x: 476
+    y: 377
+    width: 35
+    height: 33
+- id: main_r04_c07
+  section: main
+  row: 4
+  column: 7
+  multi_legend: false
+  legend:
+  - N
+  legend_combos:
+    N:
+    - N
+  bbox:
+    x: 534
+    y: 377
+    width: 35
+    height: 33
+- id: main_r04_c08
+  section: main
+  row: 4
+  column: 8
+  multi_legend: false
+  legend:
+  - M
+  legend_combos:
+    M:
+    - M
+  bbox:
+    x: 593
+    y: 377
+    width: 35
+    height: 33
+- id: main_r04_c09
+  section: main
+  row: 4
+  column: 9
+  multi_legend: false
+  legend:
+  - <
+  legend_combos:
+    ',':
+    - ','
+    <:
+    - SHIFT
+    - ','
+  bbox:
+    x: 652
+    y: 378
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r04_c10
+  section: main
+  row: 4
+  column: 10
+  multi_legend: true
+  legend:
+  - '>'
+  - .
+  legend_combos:
+    .:
+    - .
+    '>':
+    - SHIFT
+    - .
+  bbox:
+    x: 711
+    y: 378
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r04_c11
+  section: main
+  row: 4
+  column: 11
+  multi_legend: true
+  legend:
+  - '?'
+  - /
+  legend_combos:
+    /:
+    - /
+    '?':
+    - SHIFT
+    - /
+  bbox:
+    x: 770
+    y: 378
+    width: 35
+    height: 33
+  legend_layout: top-to-bottom
+- id: main_r04_c12
+  section: main
+  row: 4
+  column: 12
+  multi_legend: false
+  legend:
+  - \
+  legend_combos:
+    \:
+    - \
+  bbox:
+    x: 830
+    y: 378
+    width: 35
+    height: 33
+- id: main_r04_c13
+  section: main
+  row: 4
+  column: 13
+  multi_legend: false
+  legend:
+  - SHIFT
+  legend_combos:
+    SHIFT:
+    - SHIFT
+  bbox:
+    x: 889
+    y: 378
+    width: 108
+    height: 34
+- id: main_r05_c01
+  section: main
+  row: 5
+  column: 1
+  multi_legend: false
+  legend:
+  - SPACE
+  legend_combos:
+    SPACE:
+    - SPACE
+  bbox:
+    x: 304
+    y: 432
+    width: 505
+    height: 37
+- id: main_r05_c02
+  section: main
+  row: 5
+  column: 2
+  multi_legend: false
+  legend:
+  - CTRL
+  legend_combos:
+    CTRL:
+    - CTRL
+  bbox:
+    x: 828
+    y: 435
+    width: 37
+    height: 34
+- id: cursor_r01_c02
+  section: cursor
+  row: 1
+  column: 2
+  multi_legend: false
+  legend:
+  - "\u2191"
+  legend_combos:
+    "\u2191":
+    - CURSOR-UP
+  bbox:
+    x: 1146
+    y: 64
+    width: 35
+    height: 33
+- id: cursor_r02_c01
+  section: cursor
+  row: 2
+  column: 1
+  multi_legend: false
+  legend:
+  - "\u2190"
+  legend_combos:
+    "\u2190":
+    - CURSOR-LEFT
+  bbox:
+    x: 1085
+    y: 123
+    width: 35
+    height: 33
+- id: cursor_r02_c02
+  section: cursor
+  row: 2
+  column: 2
+  multi_legend: false
+  legend:
+  - COPY
+  legend_combos:
+    COPY:
+    - COPY
+  bbox:
+    x: 1145
+    y: 123
+    width: 35
+    height: 33
+- id: cursor_r02_c03
+  section: cursor
+  row: 2
+  column: 3
+  multi_legend: false
+  legend:
+  - "\u2192"
+  legend_combos:
+    "\u2192":
+    - CURSOR-RIGHT
+  bbox:
+    x: 1206
+    y: 123
+    width: 35
+    height: 33
+- id: cursor_r03_c02
+  section: cursor
+  row: 3
+  column: 2
+  multi_legend: false
+  legend:
+  - "\u2193"
+  legend_combos:
+    "\u2193":
+    - CURSOR-DOWN
+  bbox:
+    x: 1145
+    y: 184
+    width: 35
+    height: 33
+- id: numpad_r01_c01
+  section: numpad
+  row: 1
+  column: 1
+  multi_legend: false
+  legend:
+  - '7'
+  legend_combos:
+    '7':
+    - NUMPAD-7
+  bbox:
+    x: 1084
+    y: 261
+    width: 35
+    height: 33
+- id: numpad_r01_c02
+  section: numpad
+  row: 1
+  column: 2
+  multi_legend: false
+  legend:
+  - '8'
+  legend_combos:
+    '8':
+    - NUMPAD-8
+  bbox:
+    x: 1143
+    y: 261
+    width: 35
+    height: 33
+- id: numpad_r01_c03
+  section: numpad
+  row: 1
+  column: 3
+  multi_legend: false
+  legend:
+  - '9'
+  legend_combos:
+    '9':
+    - NUMPAD-9
+  bbox:
+    x: 1202
+    y: 261
+    width: 35
+    height: 33
+- id: numpad_r02_c01
+  section: numpad
+  row: 2
+  column: 1
+  multi_legend: false
+  legend:
+  - '4'
+  legend_combos:
+    '4':
+    - NUMPAD-4
+  bbox:
+    x: 1083
+    y: 319
+    width: 35
+    height: 33
+- id: numpad_r02_c02
+  section: numpad
+  row: 2
+  column: 2
+  multi_legend: false
+  legend:
+  - '5'
+  legend_combos:
+    '5':
+    - NUMPAD-5
+  bbox:
+    x: 1142
+    y: 320
+    width: 35
+    height: 33
+- id: numpad_r02_c03
+  section: numpad
+  row: 2
+  column: 3
+  multi_legend: false
+  legend:
+  - '6'
+  legend_combos:
+    '6':
+    - NUMPAD-6
+  bbox:
+    x: 1201
+    y: 321
+    width: 35
+    height: 33
+- id: numpad_r03_c01
+  section: numpad
+  row: 3
+  column: 1
+  multi_legend: false
+  legend:
+  - '1'
+  legend_combos:
+    '1':
+    - NUMPAD-1
+  bbox:
+    x: 1081
+    y: 378
+    width: 35
+    height: 33
+- id: numpad_r03_c02
+  section: numpad
+  row: 3
+  column: 2
+  multi_legend: false
+  legend:
+  - '2'
+  legend_combos:
+    '2':
+    - NUMPAD-2
+  bbox:
+    x: 1140
+    y: 378
+    width: 35
+    height: 33
+- id: numpad_r03_c03
+  section: numpad
+  row: 3
+  column: 3
+  multi_legend: false
+  legend:
+  - '3'
+  legend_combos:
+    '3':
+    - NUMPAD-3
+  bbox:
+    x: 1199
+    y: 378
+    width: 35
+    height: 33
+- id: numpad_r04_c01
+  section: numpad
+  row: 4
+  column: 1
+  multi_legend: false
+  legend:
+  - '0'
+  legend_combos:
+    '0':
+    - NUMPAD-0
+  bbox:
+    x: 1081
+    y: 435
+    width: 35
+    height: 33
+- id: numpad_r04_c02
+  section: numpad
+  row: 4
+  column: 2
+  multi_legend: false
+  legend:
+  - .
+  legend_combos:
+    .:
+    - NUMPAD-.
+  bbox:
+    x: 1139
+    y: 435
+    width: 35
+    height: 33
+- id: numpad_r04_c03
+  section: numpad
+  row: 4
+  column: 3
+  multi_legend: false
+  legend:
+  - ENTER
+  legend_combos:
+    ENTER:
+    - NUMPAD-ENTER
+  bbox:
+    x: 1197
+    y: 435
+    width: 35
+    height: 33
+- id: CASSETTE_REC
+  section: system
+  row: 6
+  column: 1
+  multi_legend: false
+  legend:
+  - CASSETTE_REC
+  legend_combos:
+    CASSETTE_REC:
+    - CASSETTE_REC
+  bbox:
+    x: 1339
+    y: 467
+    width: 33
+    height: 31
+- id: CASSETTE_PLAY
+  section: system
+  row: 7
+  column: 1
+  multi_legend: false
+  legend:
+  - CASSETTE_PLAY
+  legend_combos:
+    CASSETTE_PLAY:
+    - CASSETTE_PLAY
+  bbox:
+    x: 1392
+    y: 465
+    width: 33
+    height: 31
+- id: CASSETTE_REWIND
+  section: system
+  row: 8
+  column: 1
+  multi_legend: false
+  legend:
+  - CASSETTE_REWIND
+  legend_combos:
+    CASSETTE_REWIND:
+    - CASSETTE_REWIND
+  bbox:
+    x: 1446
+    y: 465
+    width: 33
+    height: 31
+- id: CASSETTE_FAST_FORWARD
+  section: system
+  row: 9
+  column: 1
+  multi_legend: false
+  legend:
+  - CASSETTE_FAST_FORWARD
+  legend_combos:
+    CASSETTE_FAST_FORWARD:
+    - CASSETTE_FAST_FORWARD
+  bbox:
+    x: 1498
+    y: 463
+    width: 33
+    height: 31
+- id: CASSETTE_PAUSE
+  section: system
+  row: 10
+  column: 1
+  multi_legend: false
+  legend:
+  - CASSETTE_PAUSE
+  legend_combos:
+    CASSETTE_PAUSE:
+    - CASSETTE_PAUSE
+  bbox:
+    x: 1603
+    y: 461
+    width: 33
+    height: 31
+- id: CASSETE_STOP/EJECT
+  section: system
+  row: 11
+  column: 1
+  multi_legend: false
+  legend:
+  - CASSETE_STOP/EJECT
+  legend_combos:
+    CASSETE_STOP/EJECT:
+    - CASSETE_STOP/EJECT
+  bbox:
+    x: 1550
+    y: 463
+    width: 33
+    height: 31
+- id: CASSETE_INSERT_TAPE
+  section: system
+  row: 12
+  column: 1
+  multi_legend: false
+  legend:
+  - CASSETE_INSERT_TAPE
+  legend_combos:
+    CASSETE_INSERT_TAPE:
+    - CASSETE_INSERT_TAPE
+  bbox:
+    x: 1323
+    y: 130
+    width: 343
+    height: 217

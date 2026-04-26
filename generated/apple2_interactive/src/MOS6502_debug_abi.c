@@ -881,6 +881,10 @@ int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path) {
     return mos6502_load_keyboard_map(cpu, path);
 }
 
+int pasm_dbg_load_controller_map(CPUState *cpu, const char *path) {
+    return mos6502_load_controller_map(cpu, path);
+}
+
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {
     return mos6502_dbg_snapshot_counts(cpu, out_counts);
 }

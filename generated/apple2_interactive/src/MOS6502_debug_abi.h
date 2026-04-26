@@ -196,6 +196,7 @@ int pasm_dbg_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int pasm_dbg_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path);
 int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path);
+int pasm_dbg_load_controller_map(CPUState *cpu, const char *path);
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
 int pasm_dbg_snapshot_fill(
     CPUState *cpu,

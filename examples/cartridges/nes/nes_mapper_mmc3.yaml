@@ -1,0 +1,608 @@
+metadata:
+  id: nes_cart0
+  type: cartridge_mapper
+  model: nes_mapper_mmc3_4
+  version: "1.0"
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+  - name: ines_valid
+    type: uint8_t
+    initial: "0"
+  - name: mapper_id
+    type: uint8_t
+    initial: "0"
+  - name: four_screen
+    type: uint8_t
+    initial: "0"
+  - name: mirroring_mode
+    type: uint8_t
+    initial: "0"
+  - name: prg_offset
+    type: uint32_t
+    initial: "0"
+  - name: prg_size
+    type: uint32_t
+    initial: "0"
+  - name: chr_offset
+    type: uint32_t
+    initial: "0"
+  - name: chr_size
+    type: uint32_t
+    initial: "0"
+  - name: chr_ram
+    type: uint8_t *
+    initial: "NULL"
+  - name: chr_ram_size
+    type: uint32_t
+    initial: "0"
+  - name: prg_ram
+    type: uint8_t *
+    initial: "NULL"
+  - name: prg_ram_size
+    type: uint32_t
+    initial: "0"
+  - name: bank_select
+    type: uint8_t
+    initial: "0"
+  - name: prg_mode
+    type: uint8_t
+    initial: "0"
+  - name: chr_mode
+    type: uint8_t
+    initial: "0"
+  - name: reg0
+    type: uint8_t
+    initial: "0"
+  - name: reg1
+    type: uint8_t
+    initial: "2"
+  - name: reg2
+    type: uint8_t
+    initial: "4"
+  - name: reg3
+    type: uint8_t
+    initial: "5"
+  - name: reg4
+    type: uint8_t
+    initial: "6"
+  - name: reg5
+    type: uint8_t
+    initial: "7"
+  - name: reg6
+    type: uint8_t
+    initial: "0"
+  - name: reg7
+    type: uint8_t
+    initial: "1"
+  - name: irq_latch
+    type: uint8_t
+    initial: "0"
+  - name: irq_counter
+    type: uint8_t
+    initial: "0"
+  - name: irq_reload
+    type: uint8_t
+    initial: "0"
+  - name: irq_enable
+    type: uint8_t
+    initial: "0"
+  - name: irq_pending
+    type: uint8_t
+    initial: "0"
+  - name: a12_prev
+    type: uint8_t
+    initial: "0"
+  - name: a12_low_count
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: chr_read
+      args: [u16, u8]
+      returns: u8
+    - name: chr_write
+      args: [u16, u8, u8]
+      returns: u8
+    - name: mirroring
+      args: []
+      returns: u8
+    - name: irq_pending
+      args: []
+      returns: u8
+    - name: irq_clock
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cpu_prg_window
+        start: 0x6000
+        size: 0xA000
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      comp->ines_valid = 0u;
+      comp->mapper_id = 0u;
+      comp->four_screen = 0u;
+      comp->mirroring_mode = 0u;
+      comp->prg_offset = 0u;
+      comp->prg_size = 0u;
+      comp->chr_offset = 0u;
+      comp->chr_size = 0u;
+      comp->bank_select = 0u;
+      comp->prg_mode = 0u;
+      comp->chr_mode = 0u;
+      comp->reg0 = 0u;
+      comp->reg1 = 2u;
+      comp->reg2 = 4u;
+      comp->reg3 = 5u;
+      comp->reg4 = 6u;
+      comp->reg5 = 7u;
+      comp->reg6 = 0u;
+      comp->reg7 = 1u;
+      comp->irq_latch = 0u;
+      comp->irq_counter = 0u;
+      comp->irq_reload = 0u;
+      comp->irq_enable = 0u;
+      comp->irq_pending = 0u;
+      comp->a12_prev = 0u;
+      comp->a12_low_count = 0u;
+
+      if (comp->rom_data != NULL && comp->rom_size >= 16u) {
+          if (comp->rom_data[0] == 'N' && comp->rom_data[1] == 'E' && comp->rom_data[2] == 'S' && comp->rom_data[3] == 0x1Au) {
+              uint8_t prg_banks = comp->rom_data[4];
+              uint8_t chr_banks = comp->rom_data[5];
+              uint8_t flags6 = comp->rom_data[6];
+              uint8_t flags7 = comp->rom_data[7];
+              uint32_t off = 16u;
+              if ((flags6 & 0x04u) != 0u) {
+                  off += 512u;
+              }
+              comp->prg_offset = off;
+              comp->prg_size = (uint32_t)prg_banks * 16384u;
+              if (comp->prg_offset > comp->rom_size) comp->prg_offset = comp->rom_size;
+              if (comp->prg_size > (comp->rom_size - comp->prg_offset)) {
+                  comp->prg_size = comp->rom_size - comp->prg_offset;
+              }
+              comp->chr_offset = comp->prg_offset + comp->prg_size;
+              comp->chr_size = (uint32_t)chr_banks * 8192u;
+              if (comp->chr_offset > comp->rom_size) comp->chr_offset = comp->rom_size;
+              if (comp->chr_size > (comp->rom_size - comp->chr_offset)) {
+                  comp->chr_size = comp->rom_size - comp->chr_offset;
+              }
+              comp->mapper_id = (uint8_t)((flags7 & 0xF0u) | (flags6 >> 4));
+              comp->mirroring_mode = (uint8_t)(flags6 & 0x01u);
+              comp->four_screen = (uint8_t)((flags6 & 0x08u) ? 1u : 0u);
+              comp->ines_valid = (comp->mapper_id == 4u) ? 1u : 0u;
+          }
+      }
+
+      if (comp->chr_ram != NULL) {
+          free(comp->chr_ram);
+          comp->chr_ram = NULL;
+      }
+      comp->chr_ram_size = 0u;
+
+      if (comp->ines_valid != 0u && comp->chr_size == 0u) {
+          comp->chr_ram_size = 8192u;
+          comp->chr_ram = (uint8_t *)calloc(comp->chr_ram_size, sizeof(uint8_t));
+      }
+
+      if (comp->prg_ram == NULL) {
+          comp->prg_ram_size = 8192u;
+          comp->prg_ram = (uint8_t *)calloc(comp->prg_ram_size, sizeof(uint8_t));
+      }
+    reset: |
+      comp->ines_valid = 0u;
+      comp->mapper_id = 0u;
+      comp->four_screen = 0u;
+      comp->mirroring_mode = 0u;
+      comp->prg_offset = 0u;
+      comp->prg_size = 0u;
+      comp->chr_offset = 0u;
+      comp->chr_size = 0u;
+      comp->bank_select = 0u;
+      comp->prg_mode = 0u;
+      comp->chr_mode = 0u;
+      comp->reg0 = 0u;
+      comp->reg1 = 2u;
+      comp->reg2 = 4u;
+      comp->reg3 = 5u;
+      comp->reg4 = 6u;
+      comp->reg5 = 7u;
+      comp->reg6 = 0u;
+      comp->reg7 = 1u;
+      comp->irq_latch = 0u;
+      comp->irq_counter = 0u;
+      comp->irq_reload = 0u;
+      comp->irq_enable = 0u;
+      comp->irq_pending = 0u;
+      comp->a12_prev = 0u;
+      comp->a12_low_count = 0u;
+
+      if (comp->rom_data != NULL && comp->rom_size >= 16u) {
+          if (comp->rom_data[0] == 'N' && comp->rom_data[1] == 'E' && comp->rom_data[2] == 'S' && comp->rom_data[3] == 0x1Au) {
+              uint8_t prg_banks = comp->rom_data[4];
+              uint8_t chr_banks = comp->rom_data[5];
+              uint8_t flags6 = comp->rom_data[6];
+              uint8_t flags7 = comp->rom_data[7];
+              uint32_t off = 16u;
+              if ((flags6 & 0x04u) != 0u) {
+                  off += 512u;
+              }
+              comp->prg_offset = off;
+              comp->prg_size = (uint32_t)prg_banks * 16384u;
+              if (comp->prg_offset > comp->rom_size) comp->prg_offset = comp->rom_size;
+              if (comp->prg_size > (comp->rom_size - comp->prg_offset)) {
+                  comp->prg_size = comp->rom_size - comp->prg_offset;
+              }
+              comp->chr_offset = comp->prg_offset + comp->prg_size;
+              comp->chr_size = (uint32_t)chr_banks * 8192u;
+              if (comp->chr_offset > comp->rom_size) comp->chr_offset = comp->rom_size;
+              if (comp->chr_size > (comp->rom_size - comp->chr_offset)) {
+                  comp->chr_size = comp->rom_size - comp->chr_offset;
+              }
+              comp->mapper_id = (uint8_t)((flags7 & 0xF0u) | (flags6 >> 4));
+              comp->mirroring_mode = (uint8_t)(flags6 & 0x01u);
+              comp->four_screen = (uint8_t)((flags6 & 0x08u) ? 1u : 0u);
+              comp->ines_valid = (comp->mapper_id == 4u) ? 1u : 0u;
+          }
+      }
+
+      if (comp->chr_size > 0u && comp->chr_ram != NULL) {
+          free(comp->chr_ram);
+          comp->chr_ram = NULL;
+          comp->chr_ram_size = 0u;
+      }
+      if (comp->ines_valid != 0u && comp->chr_size == 0u && comp->chr_ram == NULL) {
+          comp->chr_ram_size = 8192u;
+          comp->chr_ram = (uint8_t *)calloc(comp->chr_ram_size, sizeof(uint8_t));
+      }
+      if (comp->prg_ram == NULL) {
+          comp->prg_ram_size = 8192u;
+          comp->prg_ram = (uint8_t *)calloc(comp->prg_ram_size, sizeof(uint8_t));
+      }
+      if (comp->chr_ram != NULL && comp->chr_ram_size > 0u) {
+          memset(comp->chr_ram, 0, comp->chr_ram_size);
+      }
+      if (comp->prg_ram != NULL && comp->prg_ram_size > 0u) {
+          memset(comp->prg_ram, 0, comp->prg_ram_size);
+      }
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      if (comp->chr_ram != NULL) {
+          free(comp->chr_ram);
+          comp->chr_ram = NULL;
+      }
+      if (comp->prg_ram != NULL) {
+          free(comp->prg_ram);
+          comp->prg_ram = NULL;
+      }
+      comp->rom_size = 0u;
+      comp->chr_ram_size = 0u;
+      comp->prg_ram_size = 0u;
+    mem_read_pre: |
+      if (comp->ines_valid == 0u) {
+          if (comp->rom_data != NULL && comp->rom_size >= 16u) {
+              if (comp->rom_data[0] == 'N' && comp->rom_data[1] == 'E' && comp->rom_data[2] == 'S' && comp->rom_data[3] == 0x1Au) {
+                  uint8_t prg_banks = comp->rom_data[4];
+                  uint8_t chr_banks = comp->rom_data[5];
+                  uint8_t flags6 = comp->rom_data[6];
+                  uint8_t flags7 = comp->rom_data[7];
+                  uint32_t off = 16u;
+                  if ((flags6 & 0x04u) != 0u) {
+                      off += 512u;
+                  }
+                  comp->prg_offset = off;
+                  comp->prg_size = (uint32_t)prg_banks * 16384u;
+                  if (comp->prg_offset > comp->rom_size) comp->prg_offset = comp->rom_size;
+                  if (comp->prg_size > (comp->rom_size - comp->prg_offset)) {
+                      comp->prg_size = comp->rom_size - comp->prg_offset;
+                  }
+                  comp->chr_offset = comp->prg_offset + comp->prg_size;
+                  comp->chr_size = (uint32_t)chr_banks * 8192u;
+                  if (comp->chr_offset > comp->rom_size) comp->chr_offset = comp->rom_size;
+                  if (comp->chr_size > (comp->rom_size - comp->chr_offset)) {
+                      comp->chr_size = comp->rom_size - comp->chr_offset;
+                  }
+                  comp->mapper_id = (uint8_t)((flags7 & 0xF0u) | (flags6 >> 4));
+                  comp->mirroring_mode = (uint8_t)(flags6 & 0x01u);
+                  comp->four_screen = (uint8_t)((flags6 & 0x08u) ? 1u : 0u);
+                  comp->ines_valid = (comp->mapper_id == 4u) ? 1u : 0u;
+                  if (comp->ines_valid != 0u && comp->chr_size == 0u && comp->chr_ram == NULL) {
+                      comp->chr_ram_size = 8192u;
+                      comp->chr_ram = (uint8_t *)calloc(comp->chr_ram_size, sizeof(uint8_t));
+                  }
+                  if (comp->prg_ram == NULL) {
+                      comp->prg_ram_size = 8192u;
+                      comp->prg_ram = (uint8_t *)calloc(comp->prg_ram_size, sizeof(uint8_t));
+                  }
+              }
+          }
+      }
+      if (comp->ines_valid == 0u) return 0xFFu;
+
+      if (addr >= 0x6000u && addr < 0x8000u) {
+          if (comp->prg_ram != NULL && comp->prg_ram_size > 0u) {
+              return comp->prg_ram[(uint32_t)(addr - 0x6000u) % comp->prg_ram_size];
+          }
+          return 0xFFu;
+      }
+
+      if (addr >= 0x8000u) {
+          if (comp->prg_size == 0u || comp->rom_data == NULL) return 0xFFu;
+          {
+              static int mmc3_trace_enabled = -1;
+              static FILE *mmc3_trace_fp = NULL;
+              if (mmc3_trace_enabled < 0) {
+                  const char *env = getenv("PASM_NES_MMC3_TRACE");
+                  mmc3_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                  if (mmc3_trace_enabled != 0) {
+                      mmc3_trace_fp = fopen("log/nes_mmc3_trace.log", "a");
+                      if (mmc3_trace_fp == NULL) mmc3_trace_fp = fopen("nes_mmc3_trace.log", "a");
+                  }
+              }
+              uint32_t prg_banks_8k = comp->prg_size / 8192u;
+              if (prg_banks_8k == 0u) return 0xFFu;
+              uint32_t last = prg_banks_8k - 1u;
+              uint32_t second_last = (prg_banks_8k >= 2u) ? (prg_banks_8k - 2u) : last;
+              uint32_t bank6 = (uint32_t)comp->reg6 % prg_banks_8k;
+              uint32_t bank7 = (uint32_t)comp->reg7 % prg_banks_8k;
+              uint32_t rel = (uint32_t)(addr - 0x8000u);
+              uint32_t slot = rel / 0x2000u;
+              uint32_t bank = 0u;
+              if (comp->prg_mode == 0u) {
+                  if (slot == 0u) bank = bank6;
+                  else if (slot == 1u) bank = bank7;
+                  else if (slot == 2u) bank = second_last;
+                  else bank = last;
+              } else {
+                  if (slot == 0u) bank = second_last;
+                  else if (slot == 1u) bank = bank7;
+                  else if (slot == 2u) bank = bank6;
+                  else bank = last;
+              }
+              {
+                  uint32_t off = comp->prg_offset + bank * 8192u + (rel & 0x1FFFu);
+                  if (
+                      mmc3_trace_fp != NULL &&
+                      addr == cpu->pc &&
+                      cpu->pc >= 0x8400u && cpu->pc < 0x8600u
+                  ) {
+                      fprintf(
+                          mmc3_trace_fp,
+                          "fetch pc=%04X addr=%04X slot=%u bank=%u off=%06X pm=%u bs=%u r6=%u r7=%u\n",
+                          (unsigned)cpu->pc,
+                          (unsigned)addr,
+                          (unsigned)slot,
+                          (unsigned)bank,
+                          (unsigned)off,
+                          (unsigned)comp->prg_mode,
+                          (unsigned)comp->bank_select,
+                          (unsigned)comp->reg6,
+                          (unsigned)comp->reg7
+                      );
+                      fflush(mmc3_trace_fp);
+                  }
+                  if (off < comp->rom_size) return comp->rom_data[off];
+              }
+          }
+          return 0xFFu;
+      }
+    mem_write_pre: |
+      if (comp->ines_valid == 0u) return;
+      if (addr >= 0x6000u && addr < 0x8000u) {
+          if (comp->prg_ram != NULL && comp->prg_ram_size > 0u) {
+              comp->prg_ram[(uint32_t)(addr - 0x6000u) % comp->prg_ram_size] = value;
+          }
+          return;
+      }
+      if (addr >= 0x8000u) {
+          if (addr < 0xA000u) {
+              if ((addr & 1u) == 0u) {
+                  comp->bank_select = (uint8_t)(value & 0x07u);
+                  comp->prg_mode = (uint8_t)((value >> 6) & 0x01u);
+                  comp->chr_mode = (uint8_t)((value >> 7) & 0x01u);
+              } else {
+                  switch (comp->bank_select & 0x07u) {
+                      case 0u: comp->reg0 = (uint8_t)(value & 0xFEu); break;
+                      case 1u: comp->reg1 = (uint8_t)(value & 0xFEu); break;
+                      case 2u: comp->reg2 = value; break;
+                      case 3u: comp->reg3 = value; break;
+                      case 4u: comp->reg4 = value; break;
+                      case 5u: comp->reg5 = value; break;
+                      case 6u: comp->reg6 = value; break;
+                      case 7u: comp->reg7 = value; break;
+                      default: break;
+                  }
+              }
+              } else if (addr < 0xC000u) {
+                  if ((addr & 1u) == 0u) {
+                      if (comp->four_screen == 0u) {
+                          /* MMC3 $A000 bit0: 0=vertical, 1=horizontal.
+                           * Runtime mirroring_mode convention: 1=vertical, 0=horizontal.
+                           */
+                          comp->mirroring_mode = (uint8_t)(((value & 0x01u) == 0u) ? 1u : 0u);
+                      }
+                  } else {
+                  /* PRG RAM protect not modeled yet. */
+              }
+          } else if (addr < 0xE000u) {
+              if ((addr & 1u) == 0u) {
+                  comp->irq_latch = value;
+              } else {
+                  comp->irq_reload = 1u;
+              }
+          } else {
+              if ((addr & 1u) == 0u) {
+                  comp->irq_enable = 0u;
+                  comp->irq_pending = 0u;
+              } else {
+                  comp->irq_enable = 1u;
+              }
+          }
+          return;
+      }
+  callback_handlers:
+    chr_read: |
+      uint16_t ppu_addr = (argc > 0) ? (uint16_t)(args[0] & 0x3FFFu) : 0u;
+      uint8_t rendering = (argc > 1) ? (uint8_t)(args[1] & 0x01u) : 1u;
+      if (rendering != 0u) {
+          uint8_t a12 = (uint8_t)((ppu_addr & 0x1000u) ? 1u : 0u);
+          if (a12 == 0u) {
+              if (comp->a12_low_count < 255u) comp->a12_low_count += 1u;
+          } else {
+              /* MMC3 clocks on A12 rising edge only after A12 has stayed low long enough.
+               * In this model, low_count is tracked in PPU fetch accesses, so use >=3 to
+               * suppress per-tile chatter and keep scanline IRQ cadence stable.
+               */
+              if (comp->a12_prev == 0u && comp->a12_low_count >= 3u) {
+                  if (comp->irq_reload != 0u || comp->irq_counter == 0u) {
+                      comp->irq_counter = comp->irq_latch;
+                      comp->irq_reload = 0u;
+                  } else {
+                      comp->irq_counter = (uint8_t)(comp->irq_counter - 1u);
+                  }
+                  if (comp->irq_counter == 0u && comp->irq_enable != 0u) {
+                      comp->irq_pending = 1u;
+                  }
+              }
+              comp->a12_low_count = 0u;
+          }
+          comp->a12_prev = a12;
+      }
+      if (ppu_addr >= 0x2000u) return 0x00u;
+      if (comp->ines_valid == 0u) return 0x00u;
+
+      {
+          uint32_t rel = (uint32_t)ppu_addr;
+          uint32_t slot = rel / 0x0400u;
+          uint32_t in_slot = rel & 0x03FFu;
+          uint32_t bank = 0u;
+          uint32_t r0 = (uint32_t)(comp->reg0 & 0xFEu);
+          uint32_t r1 = (uint32_t)(comp->reg1 & 0xFEu);
+
+          if (comp->chr_mode == 0u) {
+              if (slot == 0u) bank = r0;
+              else if (slot == 1u) bank = r0 + 1u;
+              else if (slot == 2u) bank = r1;
+              else if (slot == 3u) bank = r1 + 1u;
+              else if (slot == 4u) bank = (uint32_t)comp->reg2;
+              else if (slot == 5u) bank = (uint32_t)comp->reg3;
+              else if (slot == 6u) bank = (uint32_t)comp->reg4;
+              else bank = (uint32_t)comp->reg5;
+          } else {
+              if (slot == 0u) bank = (uint32_t)comp->reg2;
+              else if (slot == 1u) bank = (uint32_t)comp->reg3;
+              else if (slot == 2u) bank = (uint32_t)comp->reg4;
+              else if (slot == 3u) bank = (uint32_t)comp->reg5;
+              else if (slot == 4u) bank = r0;
+              else if (slot == 5u) bank = r0 + 1u;
+              else if (slot == 6u) bank = r1;
+              else bank = r1 + 1u;
+          }
+
+          if (comp->chr_size > 0u && comp->rom_data != NULL) {
+              uint32_t chr_banks_1k = comp->chr_size / 1024u;
+              if (chr_banks_1k == 0u) return 0x00u;
+              bank %= chr_banks_1k;
+              {
+                  uint32_t off = comp->chr_offset + bank * 1024u + in_slot;
+                  if (off < comp->rom_size) return comp->rom_data[off];
+              }
+              return 0x00u;
+          }
+          if (comp->chr_ram != NULL && comp->chr_ram_size > 0u) {
+              uint32_t off = ((bank * 1024u) + in_slot) % comp->chr_ram_size;
+              return comp->chr_ram[off];
+          }
+      }
+      return 0x00u;
+    chr_write: |
+      if (argc < 2) return 0u;
+      uint16_t ppu_addr = (uint16_t)(args[0] & 0x3FFFu);
+      uint8_t val = (uint8_t)(args[1] & 0xFFu);
+      uint8_t rendering = (argc > 2) ? (uint8_t)(args[2] & 0x01u) : 1u;
+      if (rendering != 0u && ppu_addr < 0x2000u) {
+          uint8_t a12 = (uint8_t)((ppu_addr & 0x1000u) ? 1u : 0u);
+          if (a12 == 0u) {
+              if (comp->a12_low_count < 255u) comp->a12_low_count += 1u;
+          } else {
+              if (comp->a12_prev == 0u && comp->a12_low_count >= 3u) {
+                  if (comp->irq_reload != 0u || comp->irq_counter == 0u) {
+                      comp->irq_counter = comp->irq_latch;
+                      comp->irq_reload = 0u;
+                  } else {
+                      comp->irq_counter = (uint8_t)(comp->irq_counter - 1u);
+                  }
+                  if (comp->irq_counter == 0u && comp->irq_enable != 0u) {
+                      comp->irq_pending = 1u;
+                  }
+              }
+              comp->a12_low_count = 0u;
+          }
+          comp->a12_prev = a12;
+      }
+      if (ppu_addr < 0x2000u && comp->chr_size == 0u && comp->chr_ram != NULL && comp->chr_ram_size > 0u) {
+          uint32_t rel = (uint32_t)ppu_addr;
+          uint32_t slot = rel / 0x0400u;
+          uint32_t in_slot = rel & 0x03FFu;
+          uint32_t bank = 0u;
+          uint32_t r0 = (uint32_t)(comp->reg0 & 0xFEu);
+          uint32_t r1 = (uint32_t)(comp->reg1 & 0xFEu);
+
+          if (comp->chr_mode == 0u) {
+              if (slot == 0u) bank = r0;
+              else if (slot == 1u) bank = r0 + 1u;
+              else if (slot == 2u) bank = r1;
+              else if (slot == 3u) bank = r1 + 1u;
+              else if (slot == 4u) bank = (uint32_t)comp->reg2;
+              else if (slot == 5u) bank = (uint32_t)comp->reg3;
+              else if (slot == 6u) bank = (uint32_t)comp->reg4;
+              else bank = (uint32_t)comp->reg5;
+          } else {
+              if (slot == 0u) bank = (uint32_t)comp->reg2;
+              else if (slot == 1u) bank = (uint32_t)comp->reg3;
+              else if (slot == 2u) bank = (uint32_t)comp->reg4;
+              else if (slot == 3u) bank = (uint32_t)comp->reg5;
+              else if (slot == 4u) bank = r0;
+              else if (slot == 5u) bank = r0 + 1u;
+              else if (slot == 6u) bank = r1;
+              else bank = r1 + 1u;
+          }
+
+          {
+              uint32_t off = ((bank * 1024u) + in_slot) % comp->chr_ram_size;
+              comp->chr_ram[off] = val;
+          }
+      }
+      return 0u;
+    mirroring: |
+      return (uint64_t)(comp->mirroring_mode & 0x01u);
+    irq_pending: |
+      return (uint64_t)(comp->irq_pending != 0u ? 1u : 0u);
+    irq_clock: |
+      /* MMC3 scanline IRQ is clocked by PPU A12 edges only (CHR fetch path). */
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

@@ -1,308 +1,390 @@
 keyboard:
   kind: matrix
   focus_required: true
+  system_keys:
+  - id: CASSETTE_REC
+    visual_feedback: true
+  - id: CASSETTE_PLAY
+    visual_feedback: true
+  - id: CASSETTE_REWIND
+    visual_feedback: false
+  - id: CASSETTE_FAST_FORWARD
+    visual_feedback: false
+  - id: CASSETTE_PAUSE
+    visual_feedback: true
   bindings:
-  - host_key: '0'
+  - host_scancode: '0'
+    mapper_key_id: main_r01_c11
     presses:
     - row: 4
       bit: 0
-  - host_key: '1'
+  - host_scancode: '1'
+    mapper_key_id: main_r01_c02
     presses:
     - row: 8
       bit: 0
-  - host_key: '2'
+  - host_scancode: '2'
+    mapper_key_id: main_r01_c03
     presses:
     - row: 8
       bit: 1
-  - host_key: '3'
+  - host_scancode: '3'
+    mapper_key_id: main_r01_c04
     presses:
     - row: 7
       bit: 1
-  - host_key: '4'
+  - host_scancode: '4'
+    mapper_key_id: main_r01_c05
     presses:
     - row: 7
       bit: 0
-  - host_key: '5'
+  - host_scancode: '5'
+    mapper_key_id: main_r01_c06
     presses:
     - row: 6
       bit: 1
-  - host_key: '6'
+  - host_scancode: '6'
+    mapper_key_id: main_r01_c07
     presses:
     - row: 6
       bit: 0
-  - host_key: '7'
+  - host_scancode: '7'
+    mapper_key_id: main_r01_c08
     presses:
     - row: 5
       bit: 1
-  - host_key: '8'
+  - host_scancode: '8'
+    mapper_key_id: main_r01_c09
     presses:
     - row: 5
       bit: 0
-  - host_key: '9'
+  - host_scancode: '9'
+    mapper_key_id: main_r01_c10
     presses:
     - row: 4
       bit: 1
-  - host_key: A
+  - host_scancode: A
+    mapper_key_id: main_r03_c02
     presses:
     - row: 8
       bit: 5
-  - host_key: B
+  - host_scancode: B
+    mapper_key_id: main_r04_c06
     presses:
     - row: 6
       bit: 6
-  - host_key: C
+  - host_scancode: C
+    mapper_key_id: main_r04_c04
     presses:
     - row: 7
       bit: 6
-  - host_key: D
+  - host_scancode: D
+    mapper_key_id: main_r03_c04
     presses:
     - row: 7
       bit: 5
-  - host_key: E
+  - host_scancode: E
+    mapper_key_id: main_r02_c04
     presses:
     - row: 7
       bit: 2
-  - host_key: F
+  - host_scancode: F
+    mapper_key_id: main_r03_c05
     presses:
     - row: 6
       bit: 5
-  - host_key: G
+  - host_scancode: G
+    mapper_key_id: main_r03_c06
     presses:
     - row: 6
       bit: 4
-  - host_key: H
+  - host_scancode: H
+    mapper_key_id: main_r03_c07
     presses:
     - row: 5
       bit: 4
-  - host_key: I
+  - host_scancode: I
+    mapper_key_id: main_r02_c09
     presses:
     - row: 4
       bit: 3
-  - host_key: J
+  - host_scancode: J
+    mapper_key_id: main_r03_c08
     presses:
     - row: 5
       bit: 5
-  - host_key: K
+  - host_scancode: K
+    mapper_key_id: main_r03_c09
     presses:
     - row: 4
       bit: 5
-  - host_key: L
+  - host_scancode: L
+    mapper_key_id: main_r03_c10
     presses:
     - row: 4
       bit: 4
-  - host_key: M
+  - host_scancode: M
+    mapper_key_id: main_r04_c08
     presses:
     - row: 4
       bit: 6
-  - host_key: N
+  - host_scancode: N
+    mapper_key_id: main_r04_c07
     presses:
     - row: 5
       bit: 6
-  - host_key: O
+  - host_scancode: O
+    mapper_key_id: main_r02_c10
     presses:
     - row: 4
       bit: 2
-  - host_key: P
+  - host_scancode: P
+    mapper_key_id: main_r02_c11
     presses:
     - row: 3
       bit: 3
-  - host_key: Q
+  - host_scancode: Q
+    mapper_key_id: main_r02_c02
     presses:
     - row: 8
       bit: 3
-  - host_key: R
+  - host_scancode: R
+    mapper_key_id: main_r02_c05
     presses:
     - row: 6
       bit: 2
-  - host_key: S
+  - host_scancode: S
+    mapper_key_id: main_r03_c03
     presses:
     - row: 7
       bit: 4
-  - host_key: T
+  - host_scancode: T
+    mapper_key_id: main_r02_c06
     presses:
     - row: 6
       bit: 3
-  - host_key: U
+  - host_scancode: U
+    mapper_key_id: main_r02_c08
     presses:
     - row: 5
       bit: 2
-  - host_key: V
+  - host_scancode: V
+    mapper_key_id: main_r04_c05
     presses:
     - row: 6
       bit: 7
-  - host_key: W
+  - host_scancode: W
+    mapper_key_id: main_r02_c03
     presses:
     - row: 7
       bit: 3
-  - host_key: X
+  - host_scancode: X
+    mapper_key_id: main_r04_c03
     presses:
     - row: 7
       bit: 7
-  - host_key: Y
+  - host_scancode: Y
+    mapper_key_id: main_r02_c07
     presses:
     - row: 5
       bit: 3
-  - host_key: Z
+  - host_scancode: Z
+    mapper_key_id: main_r04_c02
     presses:
     - row: 8
       bit: 7
-  - host_key: GRAVE
+  - host_scancode: BACKSLASH
+    mapper_key_id: main_r03_c13
     presses:
     - row: 2
-      bit: 6
-  - host_key: BACKSLASH
-    presses:
-    - row: 2
-      bit: 6
-  - host_key: CAPSLOCK
+      bit: 3
+  - host_scancode: CAPSLOCK
+    mapper_key_id: main_r03_c01
     presses:
     - row: 8
       bit: 6
-  - host_key: DELETE
+  - host_scancode: DELETE
+    mapper_key_id: main_r01_c14
     presses:
     - row: 2
       bit: 0
-  - host_key: COMMA
+  - host_scancode: COMMA
+    mapper_key_id: main_r04_c09
     presses:
     - row: 4
       bit: 7
-  - host_key: LCTRL
+  - host_scancode: LCTRL
+    mapper_key_id: main_r05_c02
     presses:
     - row: 2
       bit: 7
-  - host_key: LALT
+  - host_scancode: RCTRL
+    mapper_key_id: main_r05_c02
     presses:
-    - row: 1
-      bit: 1
-  - host_key: DOWN
+    - row: 2
+      bit: 7
+  - host_scancode: DOWN
+    mapper_key_id: cursor_r03_c02
     presses:
     - row: 0
       bit: 2
-  - host_key: LEFT
+  - host_scancode: LEFT
+    mapper_key_id: cursor_r02_c01
     presses:
     - row: 1
       bit: 0
-  - host_key: RIGHT
+  - host_scancode: RIGHT
+    mapper_key_id: cursor_r02_c03
     presses:
     - row: 0
       bit: 1
-  - host_key: UP
+  - host_scancode: UP
+    mapper_key_id: cursor_r01_c02
     presses:
     - row: 0
       bit: 0
-  - host_key: HOME
+  - host_scancode: HOME
+    mapper_key_id: cursor_r02_c02
     presses:
     - row: 1
       bit: 0
-  - host_key: END
+  - host_scancode: END
+    mapper_key_id: cursor_r02_c03
     presses:
     - row: 0
       bit: 1
-  - host_key: BACKSPACE
+  - host_scancode: BACKSPACE
+    mapper_key_id: main_r01_c15
     presses:
     - row: 9
       bit: 7
-  - host_key: KP_ENTER
-    presses:
-    - row: 0
-      bit: 6
-  - host_key: EQUALS
-    presses:
-    - row: 3
-      bit: 1
-  - host_key: ESCAPE
+  - host_scancode: ESCAPE
+    mapper_key_id: main_r01_c01
     presses:
     - row: 8
       bit: 2
-  - host_key: KP_0
+  - host_scancode: KP_0
+    mapper_key_id: numpad_r04_c01
     presses:
     - row: 1
       bit: 7
-  - host_key: KP_1
+  - host_scancode: KP_1
+    mapper_key_id: numpad_r03_c01
     presses:
     - row: 1
       bit: 5
-  - host_key: KP_2
+  - host_scancode: KP_2
+    mapper_key_id: numpad_r03_c02
     presses:
     - row: 1
       bit: 6
-  - host_key: KP_3
+  - host_scancode: KP_3
+    mapper_key_id: numpad_r03_c03
     presses:
     - row: 0
       bit: 5
-  - host_key: KP_4
+  - host_scancode: KP_4
+    mapper_key_id: numpad_r02_c01
     presses:
     - row: 2
       bit: 4
-  - host_key: KP_5
+  - host_scancode: KP_5
+    mapper_key_id: numpad_r02_c02
     presses:
     - row: 1
       bit: 4
-  - host_key: KP_6
+  - host_scancode: KP_6
+    mapper_key_id: numpad_r02_c03
     presses:
     - row: 0
       bit: 4
-  - host_key: KP_7
+  - host_scancode: KP_7
+    mapper_key_id: numpad_r01_c01
     presses:
     - row: 1
       bit: 2
-  - host_key: KP_8
+  - host_scancode: KP_8
+    mapper_key_id: numpad_r01_c02
     presses:
     - row: 1
       bit: 3
-  - host_key: KP_9
+  - host_scancode: KP_9
+    mapper_key_id: numpad_r01_c03
     presses:
     - row: 0
       bit: 3
-  - host_key: KP_PERIOD
+  - host_scancode: KP_PERIOD
+    mapper_key_id: numpad_r04_c02
     presses:
     - row: 0
       bit: 7
-  - host_key: LEFTBRACKET
-    presses:
-    - row: 2
-      bit: 1
-  - host_key: LSHIFT
-    presses:
-    - row: 2
-      bit: 5
-  - host_key: MINUS
+  - host_scancode: LEFTBRACKET
+    mapper_key_id: main_r02_c12
     presses:
     - row: 3
-      bit: 1
-  - host_key: PERIOD
-    presses:
-    - row: 3
-      bit: 7
-  - host_key: APOSTROPHE
-    presses:
-    - row: 5
-      bit: 1
-  - host_key: RIGHTBRACKET
-    presses:
-    - row: 2
-      bit: 3
-  - host_key: RETURN
-    presses:
-    - row: 2
       bit: 2
-  - host_key: RSHIFT
+  - host_scancode: LSHIFT
+    mapper_key_id: main_r04_c01
     presses:
     - row: 2
       bit: 5
-  - host_key: SEMICOLON
+  - host_scancode: PERIOD
+    mapper_key_id: main_r04_c10
+    presses:
+    - row: 3
+      bit: 7
+  - host_scancode: RIGHTBRACKET
+    mapper_key_id: main_r02_c13
+    presses:
+    - row: 2
+      bit: 1
+  - host_scancode: RSHIFT
+    mapper_key_id: main_r04_c13
+    presses:
+    - row: 2
+      bit: 5
+  - host_scancode: SEMICOLON
+    mapper_key_id: main_r03_c11
+    presses:
+    - row: 3
+      bit: 5
+  - host_scancode: NONUSBACKSLASH
+    mapper_key_id: main_r04_c12
+    presses:
+    - row: 2
+      bit: 6
+  - host_scancode: SLASH
+    mapper_key_id: main_r03_c12
     presses:
     - row: 3
       bit: 4
-  - host_key: SLASH
+  - host_scancode: INTERNATIONAL1
+    mapper_key_id: main_r04_c11
     presses:
     - row: 3
       bit: 6
-  - host_key: SPACE
+  - host_scancode: SPACE
+    mapper_key_id: main_r05_c01
     presses:
     - row: 5
       bit: 7
-  - host_key: TAB
+  - host_scancode: TAB
+    mapper_key_id: main_r02_c01
     presses:
     - row: 8
       bit: 4
+  - host_scancode: MINUS
+    mapper_key_id: main_r01_c12
+    presses:
+    - row: 3
+      bit: 1
+  - host_scancode: EQUALS
+    mapper_key_id: main_r01_c13
+    presses:
+    - row: 3
+      bit: 0
+  - host_scancode: RETURN
+    mapper_key_id: main_r02_c14
+    presses:
+    - row: 2
+      bit: 2

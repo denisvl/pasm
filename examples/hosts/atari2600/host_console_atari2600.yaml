@@ -1,0 +1,29 @@
+keyboard:
+  kind: matrix
+  focus_required: true
+  system_keys:
+  - id: SW_POWER
+    visual_feedback: true
+  - id: SW_TV_TYPE
+    visual_feedback: true
+  - id: SW_LEFT_DIFFICULTY
+    visual_feedback: true
+  - id: SW_RIGHT_DIFFICULTY
+    visual_feedback: true
+  - id: SW_GAME_SELECT
+    visual_feedback: true
+  - id: SW_GAME_RESET
+    visual_feedback: true
+  bindings:
+  - host_scancode: F1
+    system_key_id: SW_POWER
+  - host_scancode: F2
+    system_key_id: SW_TV_TYPE
+  - host_scancode: F3
+    system_key_id: SW_LEFT_DIFFICULTY
+  - host_scancode: F4
+    system_key_id: SW_RIGHT_DIFFICULTY
+  - host_scancode: F5
+    system_key_id: SW_GAME_SELECT
+  - host_scancode: F6
+    system_key_id: SW_GAME_RESET

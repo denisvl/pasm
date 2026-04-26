@@ -1,0 +1,101 @@
+controller_map:
+  focus_required: true
+  ports:
+    - port: 1
+      connected: true
+      host_device:
+        kind: any
+    - port: 2
+      connected: false
+      host_device:
+        kind: any
+  bindings:
+    # Joystick 1 defaults (same as legacy keyboard map).
+    - target_control_id: P1_UP
+      host_scancode: UP
+    - target_control_id: P1_DOWN
+      host_scancode: DOWN
+    - target_control_id: P1_LEFT
+      host_scancode: LEFT
+    - target_control_id: P1_RIGHT
+      host_scancode: RIGHT
+    - target_control_id: P1_FIRE
+      host_scancode: SPACE
+    - target_control_id: P1_FIRE
+      host_scancode: LCTRL
+
+    # Gamepad / joystick defaults (any connected device).
+    # D-pad buttons.
+    - target_control_id: P1_UP
+      host_gamepad:
+        control: dpad_up
+    - target_control_id: P1_DOWN
+      host_gamepad:
+        control: dpad_down
+    - target_control_id: P1_LEFT
+      host_gamepad:
+        control: dpad_left
+    - target_control_id: P1_RIGHT
+      host_gamepad:
+        control: dpad_right
+    # Left stick axes.
+    - target_control_id: P1_UP
+      host_gamepad:
+        control: left_y
+        direction: "-"
+        threshold: 0.50
+    - target_control_id: P1_DOWN
+      host_gamepad:
+        control: left_y
+        direction: "+"
+        threshold: 0.50
+    - target_control_id: P1_LEFT
+      host_gamepad:
+        control: left_x
+        direction: "-"
+        threshold: 0.50
+    - target_control_id: P1_RIGHT
+      host_gamepad:
+        control: left_x
+        direction: "+"
+        threshold: 0.50
+    # Fire (bind both A/B for convenience).
+    - target_control_id: P1_FIRE
+      host_gamepad:
+        control: a
+    - target_control_id: P1_FIRE
+      host_gamepad:
+        control: b
+
+    # Raw joystick fallback (hat 0 + button 0).
+    - target_control_id: P1_UP
+      host_joystick:
+        hat: 0
+        hat_dir: up
+    - target_control_id: P1_DOWN
+      host_joystick:
+        hat: 0
+        hat_dir: down
+    - target_control_id: P1_LEFT
+      host_joystick:
+        hat: 0
+        hat_dir: left
+    - target_control_id: P1_RIGHT
+      host_joystick:
+        hat: 0
+        hat_dir: right
+    - target_control_id: P1_FIRE
+      host_joystick:
+        button: 0
+
+    # Joystick 2 defaults (same as legacy keyboard map).
+    - target_control_id: P2_UP
+      host_scancode: I
+    - target_control_id: P2_DOWN
+      host_scancode: K
+    - target_control_id: P2_LEFT
+      host_scancode: J
+    - target_control_id: P2_RIGHT
+      host_scancode: L
+    - target_control_id: P2_FIRE
+      host_scancode: RCTRL

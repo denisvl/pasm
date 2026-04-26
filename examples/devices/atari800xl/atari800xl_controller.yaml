@@ -1,0 +1,77 @@
+metadata:
+  id: controller_atari800xl
+  type: controller
+  model: atari800xl_controller_ports
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: read_consol
+      args: []
+      returns: u8
+    - name: read_porta
+      args: []
+      returns: u8
+    - name: read_trigger0
+      args: []
+      returns: u8
+    - name: read_trigger1
+      args: []
+      returns: u8
+    - name: read_trigger2
+      args: []
+      returns: u8
+    - name: read_trigger3
+      args: []
+      returns: u8
+    - name: host_consol
+      args: []
+      returns: u8
+    - name: host_porta
+      args: []
+      returns: u8
+    - name: host_trigger0
+      args: []
+      returns: u8
+    - name: host_trigger1
+      args: []
+      returns: u8
+    - name: host_trigger2
+      args: []
+      returns: u8
+    - name: host_trigger3
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_consol: |
+      __result = cpu_component_call(cpu, "controller_atari800xl", "host_consol", NULL, 0);
+      return __result;
+    read_porta: |
+      __result = cpu_component_call(cpu, "controller_atari800xl", "host_porta", NULL, 0);
+      return __result;
+    read_trigger0: |
+      __result = cpu_component_call(cpu, "controller_atari800xl", "host_trigger0", NULL, 0);
+      return __result;
+    read_trigger1: |
+      __result = cpu_component_call(cpu, "controller_atari800xl", "host_trigger1", NULL, 0);
+      return __result;
+    read_trigger2: |
+      __result = cpu_component_call(cpu, "controller_atari800xl", "host_trigger2", NULL, 0);
+      return __result;
+    read_trigger3: |
+      __result = cpu_component_call(cpu, "controller_atari800xl", "host_trigger3", NULL, 0);
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

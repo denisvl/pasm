@@ -1,0 +1,311 @@
+metadata:
+  id: video_bbc_micro
+  type: video
+  model: bbc_micro_display_renderer
+  version: "1.0"
+
+state:
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: width
+    type: uint32_t
+    initial: "480"
+  - name: height
+    type: uint32_t
+    initial: "250"
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: on_frame_ready
+      args: [u32, u64, u32, u32]
+  signals:
+    - name: frame_present
+      args: [u32, u64, u32, u32]
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies:
+    on_frame_ready: |
+      comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      {
+          static int vtrace = -1;
+          static FILE *vfp = NULL;
+          if (vtrace < 0) {
+              const char *e = getenv("PASM_BBC_VIDEO_TRACE");
+              vtrace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+              if (vtrace != 0) {
+                  const char *p = getenv("PASM_BBC_VIDEO_TRACE_FILE");
+                  if (p == NULL || p[0] == '\0') p = "log/bbc_micro_video_trace.log";
+                  vfp = fopen(p, "a");
+                  if (vfp != NULL) {
+                      fprintf(vfp, "# frame,cycle,mode,sbase,b0,b1,b2,b3,printable_1k,nonzero_1k\n");
+                      fflush(vfp);
+                  } else {
+                      vtrace = 0;
+                  }
+              }
+          }
+          if (vtrace != 0 && vfp != NULL && (comp->frame_count % 25u) == 0u) {
+              uint8_t mode_t = cpu->comp_bbc_micro_io.video_mode;
+              uint16_t sb_t = cpu->comp_bbc_micro_io.screen_base;
+              uint8_t b0 = ((uint64_t)(sb_t + 0u) < cpu->memory_size) ? cpu->memory[sb_t + 0u] : 0u;
+              uint8_t b1 = ((uint64_t)(sb_t + 1u) < cpu->memory_size) ? cpu->memory[sb_t + 1u] : 0u;
+              uint8_t b2 = ((uint64_t)(sb_t + 2u) < cpu->memory_size) ? cpu->memory[sb_t + 2u] : 0u;
+              uint8_t b3 = ((uint64_t)(sb_t + 3u) < cpu->memory_size) ? cpu->memory[sb_t + 3u] : 0u;
+              uint32_t printable = 0u;
+              uint32_t nonzero = 0u;
+              for (uint32_t i = 0u; i < 1024u; ++i) {
+                  uint16_t a = (uint16_t)(sb_t + i);
+                  if ((uint64_t)a >= cpu->memory_size) break;
+                  uint8_t v = cpu->memory[a];
+                  if (v != 0u) nonzero += 1u;
+                  v = (uint8_t)(v & 0x7Fu);
+                  if (v >= 32u && v <= 126u) printable += 1u;
+              }
+              uint16_t best_base = 0u;
+              uint32_t best_printable = 0u;
+              for (uint32_t base = 0u; base + 1024u <= cpu->memory_size; base += 0x100u) {
+                  uint32_t pcount = 0u;
+                  for (uint32_t i = 0u; i < 1024u; ++i) {
+                      uint8_t v = (uint8_t)(cpu->memory[base + i] & 0x7Fu);
+                      if (v >= 32u && v <= 126u) pcount += 1u;
+                  }
+                  if (pcount > best_printable) {
+                      best_printable = pcount;
+                      best_base = (uint16_t)base;
+                  }
+              }
+              fprintf(
+                  vfp,
+                  "%u,%llu,%u,%04X,%02X,%02X,%02X,%02X,%u,%u,best=%04X/%u\n",
+                  (unsigned)comp->frame_count,
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)mode_t,
+                  (unsigned)sb_t,
+                  (unsigned)b0, (unsigned)b1, (unsigned)b2, (unsigned)b3,
+                  (unsigned)printable,
+                  (unsigned)nonzero,
+                  (unsigned)best_base,
+                  (unsigned)best_printable
+              );
+              fflush(vfp);
+          }
+      }
+
+      /* Keep headroom for wide text paths (e.g. 80x25 cells at 12px ~= 960px). */
+      static uint32_t framebuf[1024u * 512u];
+      static const uint8_t glyph[96][8] = {
+          {0,0,0,0,0,0,0,0}, {24,24,24,24,24,0,24,0}, {54,54,20,0,0,0,0,0}, {54,54,127,54,127,54,54,0},
+          {8,62,40,62,11,62,8,0}, {99,103,6,12,24,49,99,0}, {28,54,28,59,102,102,59,0}, {12,12,24,0,0,0,0,0},
+          {6,12,24,24,24,12,6,0}, {48,24,12,12,12,24,48,0}, {0,20,8,62,8,20,0,0}, {0,8,8,62,8,8,0,0},
+          {0,0,0,0,0,12,12,24}, {0,0,0,62,0,0,0,0}, {0,0,0,0,0,24,24,0}, {3,6,12,24,48,96,64,0},
+          {62,99,107,107,99,99,62,0}, {24,56,24,24,24,24,126,0}, {62,99,3,14,24,48,127,0}, {62,99,3,30,3,99,62,0},
+          {14,30,54,102,127,6,15,0}, {127,96,126,3,3,99,62,0}, {30,48,96,126,99,99,62,0}, {127,99,6,12,24,24,24,0},
+          {62,99,99,62,99,99,62,0}, {62,99,99,63,3,6,60,0}, {0,24,24,0,0,24,24,0}, {0,24,24,0,0,24,24,48},
+          {6,12,24,48,24,12,6,0}, {0,0,62,0,62,0,0,0}, {48,24,12,6,12,24,48,0}, {62,99,6,12,24,0,24,0},
+          {62,99,123,123,123,96,62,0}, {24,60,102,102,126,102,102,0}, {124,102,102,124,102,102,124,0},
+          {60,102,96,96,96,102,60,0}, {120,108,102,102,102,108,120,0}, {126,96,96,124,96,96,126,0},
+          {126,96,96,124,96,96,96,0}, {60,102,96,110,102,102,62,0}, {102,102,102,126,102,102,102,0},
+          {60,24,24,24,24,24,60,0}, {30,12,12,12,12,108,56,0}, {102,108,120,112,120,108,102,0},
+          {96,96,96,96,96,96,126,0}, {99,119,127,107,99,99,99,0}, {102,118,126,126,110,102,102,0},
+          {60,102,102,102,102,102,60,0}, {124,102,102,124,96,96,96,0}, {60,102,102,102,110,60,14,0},
+          {124,102,102,124,120,108,102,0}, {62,96,96,60,6,6,124,0}, {126,90,24,24,24,24,60,0},
+          {102,102,102,102,102,102,60,0}, {102,102,102,102,102,60,24,0}, {99,99,99,107,127,119,99,0},
+          {99,99,54,28,54,99,99,0}, {102,102,102,60,24,24,60,0}, {127,7,14,28,56,112,127,0},
+          {30,24,24,24,24,24,30,0}, {64,96,48,24,12,6,2,0}, {30,6,6,6,6,6,30,0}, {8,28,54,99,0,0,0,0},
+          {0,0,0,0,0,0,0,255}, {24,24,12,0,0,0,0,0}, {0,0,60,6,62,102,59,0}, {96,96,108,118,102,102,124,0},
+          {0,0,60,102,96,102,60,0}, {6,6,54,110,102,102,62,0}, {0,0,60,102,126,96,60,0}, {14,24,24,62,24,24,24,0},
+          {0,0,62,102,102,62,6,124}, {96,96,108,118,102,102,102,0}, {24,0,56,24,24,24,60,0},
+          {6,0,6,6,6,6,102,60}, {96,96,102,108,120,108,102,0}, {56,24,24,24,24,24,60,0},
+          {0,0,118,127,107,107,99,0}, {0,0,108,118,102,102,102,0}, {0,0,60,102,102,102,60,0},
+          {0,0,124,102,102,124,96,96}, {0,0,62,102,102,62,6,6}, {0,0,108,118,96,96,96,0},
+          {0,0,62,96,60,6,124,0}, {24,24,126,24,24,24,14,0}, {0,0,102,102,102,102,62,0},
+          {0,0,102,102,102,60,24,0}, {0,0,99,99,107,127,54,0}, {0,0,99,54,28,54,99,0},
+          {0,0,102,102,102,62,6,124}, {0,0,126,12,24,48,126,0}, {14,24,24,112,24,24,14,0},
+          {24,24,24,0,24,24,24,0}, {112,24,24,14,24,24,112,0}, {51,110,0,0,0,0,0,0}, {0,8,28,54,99,99,127,0}
+      };
+
+      static const uint32_t pal2[2] = {
+          0xFF000000u, 0xFFFFFFFFu
+      };
+      static const uint32_t pal4[4] = {
+          0xFF000000u, 0xFFFF0000u, 0xFF00FF00u, 0xFFFFFF00u
+      };
+      static const uint32_t pal16[16] = {
+          0xFF000000u, 0xFF0000AAu, 0xFF00AA00u, 0xFF00AAAAu,
+          0xFFAA0000u, 0xFFAA00AAu, 0xFFAA5500u, 0xFFAAAAAAu,
+          0xFF555555u, 0xFF5555FFu, 0xFF55FF55u, 0xFF55FFFFu,
+          0xFFFF5555u, 0xFFFF55FFu, 0xFFFFFF55u, 0xFFFFFFFFu
+      };
+
+      uint8_t mode = cpu->comp_bbc_micro_io.video_mode;
+      uint16_t screen_base = cpu->comp_bbc_micro_io.screen_base;
+      uint16_t crtc_start_addr = cpu->comp_bbc_micro_io.crtc_start_addr;
+
+      if (mode == 7u || mode == 3u) {
+          /* Text memory is fixed-size; do not derive columns/rows from host window size. */
+          uint32_t cols = (mode == 3u) ? 80u : 40u;
+          uint32_t rows = 25u;
+          uint32_t cell_w = 12u;
+          uint32_t cell_h = 10u;
+          comp->width = cols * cell_w;
+          comp->height = rows * cell_h;
+
+          for (uint32_t i = 0u; i < comp->width * comp->height; ++i) framebuf[i] = 0xFF000000u;
+
+          for (uint32_t row = 0u; row < rows; ++row) {
+              for (uint32_t col = 0u; col < cols; ++col) {
+                  uint16_t addr = 0u;
+                  if (mode == 7u) {
+                      /* Mode 7 text fetch is character-addressed from CRTC start. */
+                      uint16_t base = 0x7C00u;
+                      uint16_t start_off = (uint16_t)(crtc_start_addr & 0x03FFu);
+                      uint16_t off = (uint16_t)((start_off + (uint16_t)(row * cols + col)) & 0x03FFu);
+                      addr = (uint16_t)(base + off);
+                  } else {
+                      addr = (uint16_t)(screen_base + row * cols + col);
+                  }
+                  uint8_t ch_raw = ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 32u;
+                  uint8_t ch = (uint8_t)(ch_raw & 0x7Fu);
+                  uint8_t glyph_idx = (uint8_t)((ch >= 32u && ch <= 127u) ? (ch - 32u) : 0u);
+                  uint32_t x0 = col * cell_w;
+                  uint32_t y0 = row * cell_h;
+                  if (ch == 127u) {
+                      for (uint32_t by = 0u; by < cell_h; ++by) {
+                          uint32_t fy = y0 + by;
+                          if (fy >= comp->height) break;
+                          for (uint32_t bx = 0u; bx < cell_w; ++bx) {
+                              uint32_t fx = x0 + bx;
+                              if (fx >= comp->width) break;
+                              framebuf[fy * comp->width + fx] = 0xFFFFFFFFu;
+                          }
+                      }
+                      continue;
+                  }
+                  for (uint32_t gy = 0u; gy < 8u; ++gy) {
+                      uint8_t bits = glyph[glyph_idx][gy];
+                      for (uint32_t gx = 0u; gx < 8u; ++gx) {
+                          if ((bits & (uint8_t)(1u << (7u - gx))) == 0u) continue;
+                          uint32_t fx = x0 + 2u + gx;
+                          uint32_t fy = y0 + 1u + gy;
+                          if (fx < comp->width && fy < comp->height) {
+                              framebuf[fy * comp->width + fx] = 0xFFFFFFFFu;
+                          }
+                      }
+                  }
+              }
+          }
+          {
+              uint8_t cur_start = (uint8_t)(cpu->comp_bbc_micro_io.crtc_cursor_start & 0x1Fu);
+              uint8_t cur_end = (uint8_t)(cpu->comp_bbc_micro_io.crtc_cursor_end & 0x1Fu);
+              uint8_t cur_mode = (uint8_t)((cpu->comp_bbc_micro_io.crtc_cursor_start >> 5u) & 0x03u);
+              uint8_t cur_disabled = (uint8_t)(cur_mode == 1u);
+              uint8_t blink_on = 1u;
+              if (cur_mode == 2u) {
+                  blink_on = (uint8_t)(((comp->frame_count / 16u) & 1u) == 0u);
+              } else if (cur_mode == 3u) {
+                  blink_on = (uint8_t)(((comp->frame_count / 32u) & 1u) == 0u);
+              }
+              if (cur_disabled == 0u && blink_on != 0u) {
+                  uint16_t cur_addr = cpu->comp_bbc_micro_io.crtc_cursor_addr;
+                  uint16_t start_addr = cpu->comp_bbc_micro_io.crtc_start_addr;
+                  uint16_t delta = (uint16_t)(cur_addr - start_addr);
+                  uint32_t cpos = (uint32_t)(delta & 0x3FFFu);
+                  uint32_t crow = (cols > 0u) ? (cpos / cols) : 0u;
+                  uint32_t ccol = (cols > 0u) ? (cpos % cols) : 0u;
+                  if (crow < rows && ccol < cols) {
+                      uint32_t x0 = ccol * cell_w + 2u;
+                      uint32_t y0 = crow * cell_h;
+                      uint32_t gy_max = (cell_h > 0u) ? (cell_h - 1u) : 0u;
+                      uint32_t gy0 = ((uint32_t)cur_start > gy_max) ? gy_max : (uint32_t)cur_start;
+                      uint32_t gy1 = ((uint32_t)cur_end > gy_max) ? gy_max : (uint32_t)cur_end;
+                      if (gy1 < gy0) gy1 = gy0;
+                      for (uint32_t gy = gy0; gy <= gy1; ++gy) {
+                          for (uint32_t gx = 0u; gx < 8u; ++gx) {
+                              uint32_t fx = x0 + gx;
+                              uint32_t fy = y0 + gy;
+                              if (fx < comp->width && fy < comp->height) {
+                                  uint32_t idx = fy * comp->width + fx;
+                                  uint32_t px = framebuf[idx];
+                                  framebuf[idx] = (uint32_t)(0xFF000000u | ((~px) & 0x00FFFFFFu));
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+      } else {
+          uint32_t width = 320u;
+          uint32_t height = 250u;
+          uint32_t bpp = 1u;
+          uint32_t req_w = (argc > 2u) ? (uint32_t)(args[2] & 0xFFFFFFFFu) : 0u;
+          uint32_t req_h = (argc > 3u) ? (uint32_t)(args[3] & 0xFFFFFFFFu) : 0u;
+
+          switch (mode) {
+              case 0u: width = 640u; height = 250u; bpp = 1u; break;
+              case 1u: width = 320u; height = 250u; bpp = 2u; break;
+              case 2u: width = 160u; height = 250u; bpp = 4u; break;
+              case 4u: width = 320u; height = 250u; bpp = 1u; break;
+              case 5u: width = 160u; height = 250u; bpp = 2u; break;
+              case 6u: width = 320u; height = 250u; bpp = 1u; break;
+              default: width = 320u; height = 256u; bpp = 1u; break;
+          }
+
+          if (req_w >= 64u && req_w <= 960u) width = req_w;
+          if (req_h >= 64u && req_h <= 300u) height = req_h;
+          comp->width = width;
+          comp->height = height;
+
+          for (uint32_t i = 0u; i < width * height; ++i) framebuf[i] = 0xFF000000u;
+
+          uint32_t bytes_per_row = (width * bpp) / 8u;
+          uint32_t pixels_per_byte = 8u / bpp;
+          uint32_t raster_h = (uint32_t)cpu->comp_bbc_micro_io.crtc_rmax + 1u;
+          if (raster_h == 0u) raster_h = 8u;
+          if (raster_h > 32u) raster_h = 8u;
+
+          for (uint32_t y = 0u; y < height; ++y) {
+              uint32_t char_row = y / raster_h;
+              uint32_t raster = y % raster_h;
+              for (uint32_t xb = 0u; xb < bytes_per_row; ++xb) {
+                  uint32_t off = (char_row * bytes_per_row + xb) * 8u + raster;
+                  if ((uint64_t)(screen_base + off) >= cpu->memory_size) {
+                      continue;
+                  }
+                  uint8_t raw = cpu->memory[(uint16_t)(screen_base + off)];
+
+                  for (uint32_t p = 0u; p < pixels_per_byte; ++p) {
+                      uint32_t shift = (pixels_per_byte - 1u - p) * bpp;
+                      uint8_t pix = (uint8_t)((raw >> shift) & ((1u << bpp) - 1u));
+                      uint32_t x = xb * pixels_per_byte + p;
+                      if (x >= width) continue;
+
+                      uint32_t c = 0xFF000000u;
+                      if (bpp == 1u) c = pal2[pix & 1u];
+                      else if (bpp == 2u) c = pal4[pix & 3u];
+                      else c = pal16[pix & 15u];
+
+                      framebuf[y * width + x] = c;
+                  }
+              }
+          }
+      }
+
+      {
+          uint64_t out_args[4] = {
+              (uint64_t)comp->frame_count,
+              (uint64_t)(uintptr_t)framebuf,
+              (uint64_t)comp->width,
+              (uint64_t)comp->height
+          };
+          cpu_component_emit_signal(cpu, "video_bbc_micro", "frame_present", out_args, 4);
+      }
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

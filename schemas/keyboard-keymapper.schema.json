@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/keyboard-keymap.schema.json",
+  "title": "Keyboard Keymap With Combos",
+  "description": "Schema for keyboard keymap YAML files that describe a keyboard image and a list of keys with legends, combos, and bounding boxes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["system_name", "image", "keys"],
+  "properties": {
+    "system_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Display name of the target system (shown in mapper UI title)."
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "width_px",
+        "height_px",
+        "origin",
+        "bbox_format",
+        "approximate",
+        "notes"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path or filename of the keyboard image represented by this keymap."
+        },
+        "width_px": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height_px": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "origin": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Coordinate origin for bounding boxes, e.g. top-left."
+        },
+        "bbox_format": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "width", "height"],
+          "properties": {
+            "x": {
+              "type": "string",
+              "minLength": 1
+            },
+            "y": {
+              "type": "string",
+              "minLength": 1
+            },
+            "width": {
+              "type": "string",
+              "minLength": 1
+            },
+            "height": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "approximate": {
+          "type": "boolean"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "keys": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/key"
+      }
+    }
+  },
+  "$defs": {
+    "bbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "combo_sequence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "combos_map": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/combo_sequence"
+      }
+    },
+    "key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "multi_legend",
+        "legend",
+        "legend_combos",
+        "bbox"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "section": {
+          "type": "string",
+          "minLength": 1
+        },
+        "row": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "multi_legend": {
+          "type": "boolean"
+        },
+        "legend": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "legend_combos": {
+          "$ref": "#/$defs/combos_map"
+        },
+        "legend_layout": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bbox": {
+          "$ref": "#/$defs/bbox"
+        },
+        "overlay_color": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          }
+        },
+        "front_graphics_visible": {
+          "type": "boolean"
+        },
+        "graphic_combos": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/combo_sequence"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "multi_legend": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "legend": {
+                "minItems": 2
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["front_graphics_visible"],
+            "properties": {
+              "front_graphics_visible": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": ["graphic_combos"]
+          }
+        }
+      ]
+    }
+  }
+}

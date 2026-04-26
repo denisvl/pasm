@@ -1,0 +1,32 @@
+keyboard:
+  kind: ascii
+  focus_required: false
+  bindings:
+  # Apple II joystick/gameport (digital -> paddle approximation).
+  # Defaults to keypad so regular Apple II cursor keys remain usable.
+  - host_scancode: KP_8
+    emulator_key_id: EMU_JOY_UP
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: KP_2
+    emulator_key_id: EMU_JOY_DOWN
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: KP_4
+    emulator_key_id: EMU_JOY_LEFT
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: KP_6
+    emulator_key_id: EMU_JOY_RIGHT
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: KP_0
+    emulator_key_id: EMU_JOY_FIRE
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+

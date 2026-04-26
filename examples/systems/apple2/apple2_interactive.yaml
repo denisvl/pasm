@@ -44,6 +44,7 @@ components:
     - apple2_io
   devices:
     - keyboard_apple2
+    - gameport_apple2
     - video_apple2
     - speaker_apple2
   hosts:
@@ -67,6 +68,42 @@ connections:
       component: host_apple2
       kind: callback
       name: keyboard_ascii
+
+  - from:
+      component: gameport_apple2
+      kind: callback
+      name: host_paddle0
+    to:
+      component: host_apple2
+      kind: callback
+      name: joystick_paddle0
+
+  - from:
+      component: gameport_apple2
+      kind: callback
+      name: host_paddle1
+    to:
+      component: host_apple2
+      kind: callback
+      name: joystick_paddle1
+
+  - from:
+      component: gameport_apple2
+      kind: callback
+      name: host_button0
+    to:
+      component: host_apple2
+      kind: callback
+      name: joystick_button0
+
+  - from:
+      component: gameport_apple2
+      kind: callback
+      name: host_button1
+    to:
+      component: host_apple2
+      kind: callback
+      name: joystick_button1
 
   - from:
       component: apple2_io

@@ -1,0 +1,34 @@
+metadata:
+  id: joystick_c64
+  type: controller
+  model: c64_joystick_ports
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    # port: 1..2, returns active-low bits: bit0=UP bit1=DOWN bit2=LEFT bit3=RIGHT bit4=FIRE (1=not pressed).
+    - name: read_port
+      args: [u8]
+      returns: u8
+    - name: host_port
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_port: |
+      uint64_t cb_args[1] = { (argc > 0) ? (args[0] & 0xFFu) : 2u };
+      __result = cpu_component_call(cpu, "joystick_c64", "host_port", cb_args, 1);
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

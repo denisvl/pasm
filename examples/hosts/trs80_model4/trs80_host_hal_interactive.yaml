@@ -141,7 +141,7 @@ interfaces:
   signals: []
 behavior:
   snippets:
-    init: "do {\n    if (comp->host_inited != 0u) break;\n    if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO\
+    init: "do {\n    if (comp->host_inited != 0u) break;\n    {\n        const char *disable_dead = cpu_host_hal_getenv(\"PASM_DISABLE_DEADKEYS\");\n        if (disable_dead == NULL || disable_dead[0] != '0') {\n            #if defined(__linux__)\n            /* Keep scancode flow deterministic by disabling XIM dead-key composition for this process. */\n            setenv(\"XMODIFIERS\", \"@im=none\", 1);\n            setenv(\"GTK_IM_MODULE\", \"xim\", 0);\n            setenv(\"QT_IM_MODULE\", \"xim\", 0);\n            #endif\n        }\n    }\n    if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO\
       \ | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) {\n        break;\n  \
       \  }\n    comp->window = cpu_host_hal_create_window(\n        \"PASM TRS-80\
       \ Model 4\",\n        CPU_HOST_WINDOWPOS_CENTERED,\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
@@ -149,7 +149,7 @@ behavior:
       \ if (comp->window == NULL) break;\n    comp->renderer = cpu_host_hal_create_renderer(comp->window,\
       \ -1, CPU_HOST_RENDERER_ACCELERATED);\n    if (comp->renderer == NULL) {\n \
       \       comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);\n\
-      \    }\n    if (comp->renderer == NULL) break;\n    cpu_host_hal_start_text_input();\n\
+      \    }\n    if (comp->renderer == NULL) break;\n    /* Use scancodes only (SDL text-input is layout/dead-key dependent). */\n    cpu_host_hal_stop_text_input();\n\
       \    comp->texture = cpu_host_hal_create_texture(\n        comp->renderer,\n\
       \        CPU_HOST_PIXELFORMAT_ARGB8888,\n        CPU_HOST_TEXTUREACCESS_STREAMING,\n\
       \        256,\n        192\n    );\n    if (comp->texture == NULL) break;\n\

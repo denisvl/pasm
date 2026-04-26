@@ -1,0 +1,62 @@
+metadata:
+  id: gameport_apple2
+  type: input_port
+  model: apple2_gameport
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: read_paddle0
+      args: []
+      returns: u8
+    - name: read_paddle1
+      args: []
+      returns: u8
+    - name: read_button0
+      args: []
+      returns: u8
+    - name: read_button1
+      args: []
+      returns: u8
+
+    # Host-provided sources (wired via connections).
+    - name: host_paddle0
+      args: []
+      returns: u8
+    - name: host_paddle1
+      args: []
+      returns: u8
+    - name: host_button0
+      args: []
+      returns: u8
+    - name: host_button1
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_paddle0: |
+      __result = cpu_component_call(cpu, "gameport_apple2", "host_paddle0", NULL, 0);
+      return __result;
+    read_paddle1: |
+      __result = cpu_component_call(cpu, "gameport_apple2", "host_paddle1", NULL, 0);
+      return __result;
+    read_button0: |
+      __result = cpu_component_call(cpu, "gameport_apple2", "host_button0", NULL, 0);
+      return __result;
+    read_button1: |
+      __result = cpu_component_call(cpu, "gameport_apple2", "host_button1", NULL, 0);
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []
+

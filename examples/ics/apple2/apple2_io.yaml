@@ -32,6 +32,9 @@ state:
   - name: last_frame_cycle
     type: uint64_t
     initial: "0"
+  - name: paddle_strobe_cycle
+    type: uint64_t
+    initial: "0"
 
 interfaces:
   callbacks:
@@ -56,6 +59,35 @@ maps:
 behavior:
   snippets:
     mem_read_pre: |
+      /* Apple II game port (paddles/buttons).
+         We model paddles as RC timers: after a strobe, the read bit becomes 1 once
+         enough cycles have elapsed. Many programs busy-wait on bit7 transitions. */
+      if (addr == 0xC070u) {
+          comp->paddle_strobe_cycle = cpu->total_cycles;
+          return 0u;
+      }
+      if (addr == 0xC061u || addr == 0xC062u) {
+          uint8_t pressed = 0u;
+          if (addr == 0xC061u) {
+              pressed = (uint8_t)(cpu_component_call(cpu, "gameport_apple2", "read_button0", NULL, 0) & 0xFFu);
+          } else {
+              pressed = (uint8_t)(cpu_component_call(cpu, "gameport_apple2", "read_button1", NULL, 0) & 0xFFu);
+          }
+          return (pressed != 0u) ? 0x80u : 0x00u;
+      }
+      if (addr == 0xC064u || addr == 0xC065u) {
+          uint8_t val = 128u;
+          if (addr == 0xC064u) {
+              val = (uint8_t)(cpu_component_call(cpu, "gameport_apple2", "read_paddle0", NULL, 0) & 0xFFu);
+          } else {
+              val = (uint8_t)(cpu_component_call(cpu, "gameport_apple2", "read_paddle1", NULL, 0) & 0xFFu);
+          }
+          /* Calibrate: 0..255 roughly maps to 0..~2805 cycles at ~1MHz. */
+          uint64_t threshold = (uint64_t)val * 11u;
+          uint64_t elapsed = cpu->total_cycles - comp->paddle_strobe_cycle;
+          return (elapsed >= threshold) ? 0x80u : 0x00u;
+      }
+
       if (addr >= 0xC050u && addr <= 0xC057u) {
           switch (addr) {
               case 0xC050u: comp->text_mode = 0u; break;
@@ -109,6 +141,10 @@ behavior:
           return 0u;
       }
     mem_write_pre: |
+      if (addr == 0xC070u) {
+          comp->paddle_strobe_cycle = cpu->total_cycles;
+          return;
+      }
       if (addr >= 0xC050u && addr <= 0xC057u) {
           switch (addr) {
               case 0xC050u: comp->text_mode = 0u; break;

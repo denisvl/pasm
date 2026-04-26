@@ -125,16 +125,23 @@ typedef struct ComponentState_atari_io {
     uint8_t * ram_under_selftest;
 } ComponentState_atari_io;
 
-typedef struct ComponentState_video_sms {
+typedef struct ComponentState_keyboard_atari800xl {
+    uint8_t last_key;
+} ComponentState_keyboard_atari800xl;
+
+typedef struct ComponentState_controller_atari800xl {
+} ComponentState_controller_atari800xl;
+
+typedef struct ComponentState_video_atari800xl {
     uint32_t frame_count;
     uint32_t width;
     uint32_t height;
-} ComponentState_video_sms;
+} ComponentState_video_atari800xl;
 
-typedef struct ComponentState_speaker_sms {
+typedef struct ComponentState_speaker_atari800xl {
     uint8_t level;
     uint64_t last_cycle;
-} ComponentState_speaker_sms;
+} ComponentState_speaker_atari800xl;
 
 typedef struct ComponentState_host_atari800xl {
     uint8_t host_inited;
@@ -170,6 +177,7 @@ typedef struct ComponentState_host_atari800xl {
     uint8_t trig1;
     uint8_t trig2;
     uint8_t trig3;
+    uint8_t break_pressed;
     uint64_t last_event_poll_cycle;
     uint32_t overlay_last_ms;
     uint64_t overlay_last_frame_count;
@@ -239,8 +247,10 @@ struct CPUState {
     const char *active_component_id;
     uint64_t component_last_return;
     ComponentState_atari_io comp_atari_io;
-    ComponentState_video_sms comp_video_sms;
-    ComponentState_speaker_sms comp_speaker_sms;
+    ComponentState_keyboard_atari800xl comp_keyboard_atari800xl;
+    ComponentState_controller_atari800xl comp_controller_atari800xl;
+    ComponentState_video_atari800xl comp_video_atari800xl;
+    ComponentState_speaker_atari800xl comp_speaker_atari800xl;
     ComponentState_host_atari800xl comp_host_atari800xl;
 };
 
@@ -257,7 +267,7 @@ struct CPUState {
 #define CPU_AUDIO_FORMAT "s16le"
 /* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"atari800xl_interactive\"} */
 #define CPU_IC_COUNT 1
-#define CPU_DEVICE_COUNT 2
+#define CPU_DEVICE_COUNT 4
 #define CPU_HOST_COUNT 1
 #define CPU_CARTRIDGE_COUNT 0
 
@@ -290,6 +300,7 @@ int mos6502_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mos6502_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mos6502_load_cartridge_rom(CPUState *cpu, const char *path);
 int mos6502_load_keyboard_map(CPUState *cpu, const char *path);
+int mos6502_load_controller_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int mos6502_step(CPUState *cpu);

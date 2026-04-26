@@ -8,3 +8,10 @@ build/
 tools/debugger_tui/target/
 
 examples/roms/
+
+# Transients
+generated/
+log/
+.tmp_test_work/
+_ptmp*
+imgui.ini

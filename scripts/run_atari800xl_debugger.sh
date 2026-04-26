@@ -46,8 +46,10 @@ mkdir -p "${UV_CACHE_DIR}"
 
 PROCESSOR="examples/processors/mos6502.yaml"
 IC_MAIN="examples/ics/atari800xl/atari800xl_io.yaml"
-DEVICE_VIDEO="examples/devices/sms/sms_video.yaml"
-DEVICE_SPK="examples/devices/sms/sms_speaker.yaml"
+DEVICE_KB="examples/devices/atari800xl/atari800xl_keyboard.yaml"
+DEVICE_CTRL="examples/devices/atari800xl/atari800xl_controller.yaml"
+DEVICE_VIDEO="examples/devices/atari800xl/atari800xl_video.yaml"
+DEVICE_SPK="examples/devices/atari800xl/atari800xl_speaker.yaml"
 case "${PROFILE}" in
   default)
     if [[ "${USE_CARTRIDGE}" != "0" ]]; then
@@ -156,6 +158,8 @@ uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM_FOR_GEN}" \
   --ic "${IC_MAIN}" \
+  --device "${DEVICE_KB}" \
+  --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \

@@ -24,7 +24,7 @@ def _instruction_keys(processor: dict) -> list[tuple[int, int, dict]]:
     return keys
 
 
-@pytest.mark.parametrize("processor_name", ["mos6502", "mos6510", "mos6509", "mc6809"])
+@pytest.mark.parametrize("processor_name", ["mos6502", "mos6510", "mos6509", "ricoh2a03", "mc6809"])
 def test_instruction_entries_have_required_shape(processor_name: str):
     processor = _load_processor(processor_name)
     assert len(processor["instructions"]) > 0
@@ -39,7 +39,7 @@ def test_instruction_entries_have_required_shape(processor_name: str):
         assert behavior.strip(), f"{processor_name}:{inst['name']} has empty behavior"
 
 
-@pytest.mark.parametrize("processor_name", ["mos6502", "mos6510", "mos6509", "mc6809"])
+@pytest.mark.parametrize("processor_name", ["mos6502", "mos6510", "mos6509", "ricoh2a03", "mc6809"])
 def test_instruction_opcode_keys_are_unique(processor_name: str):
     processor = _load_processor(processor_name)
     keys = _instruction_keys(processor)
@@ -53,7 +53,7 @@ def test_instruction_opcode_keys_are_unique(processor_name: str):
     assert not dups, f"{processor_name} duplicate opcode keys: {dups}"
 
 
-@pytest.mark.parametrize("processor_name", ["mos6502", "mos6510", "mos6509"])
+@pytest.mark.parametrize("processor_name", ["mos6502", "mos6510", "mos6509", "ricoh2a03"])
 def test_mos65xx_cover_full_256_opcode_space(processor_name: str):
     processor = _load_processor(processor_name)
     keys = _instruction_keys(processor)
@@ -65,7 +65,7 @@ def test_mos65xx_cover_full_256_opcode_space(processor_name: str):
     assert len(keys) == 256, f"{processor_name} should have exactly 256 instruction entries"
 
 
-@pytest.mark.parametrize("processor_name", ["mos6502", "mos6510", "mos6509"])
+@pytest.mark.parametrize("processor_name", ["mos6502", "mos6510", "mos6509", "ricoh2a03"])
 def test_mos65xx_include_undocumented_opcodes(processor_name: str):
     processor = _load_processor(processor_name)
     undocumented = [
@@ -79,7 +79,7 @@ def test_mos65xx_include_undocumented_opcodes(processor_name: str):
     )
 
 
-@pytest.mark.parametrize("processor_name", ["mos6502", "mos6510", "mos6509", "mc6809"])
+@pytest.mark.parametrize("processor_name", ["mos6502", "mos6510", "mos6509", "ricoh2a03", "mc6809"])
 def test_non_nop_instructions_do_not_use_placeholder_behavior(processor_name: str):
     processor = _load_processor(processor_name)
     for _prefix, _opcode, inst in _instruction_keys(processor):

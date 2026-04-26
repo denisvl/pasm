@@ -71,11 +71,15 @@ typedef struct ComponentState_apple2_io {
     uint8_t speaker_level;
     uint32_t frame_counter;
     uint64_t last_frame_cycle;
+    uint64_t paddle_strobe_cycle;
 } ComponentState_apple2_io;
 
 typedef struct ComponentState_keyboard_apple2 {
     uint8_t last_key;
 } ComponentState_keyboard_apple2;
+
+typedef struct ComponentState_gameport_apple2 {
+} ComponentState_gameport_apple2;
 
 typedef struct ComponentState_video_apple2 {
     uint32_t frame_count;
@@ -110,6 +114,9 @@ typedef struct ComponentState_host_apple2 {
     uint32_t audio_ring_write_idx;
     uint32_t audio_ring_fill;
     uint8_t key_ascii;
+    uint8_t rept_last_ascii;
+    uint8_t rept_held;
+    uint64_t rept_next_cycle;
     uint64_t last_event_poll_cycle;
     uint32_t overlay_last_ms;
     uint64_t overlay_last_frame_count;
@@ -117,6 +124,11 @@ typedef struct ComponentState_host_apple2 {
     uint32_t overlay_fps_x100;
     uint64_t overlay_cpu_hz;
     uint32_t overlay_cpu_pct_x10;
+    uint8_t joy_left;
+    uint8_t joy_right;
+    uint8_t joy_up;
+    uint8_t joy_down;
+    uint8_t joy_fire;
 } ComponentState_host_apple2;
 
 
@@ -180,6 +192,7 @@ struct CPUState {
     uint64_t component_last_return;
     ComponentState_apple2_io comp_apple2_io;
     ComponentState_keyboard_apple2 comp_keyboard_apple2;
+    ComponentState_gameport_apple2 comp_gameport_apple2;
     ComponentState_video_apple2 comp_video_apple2;
     ComponentState_speaker_apple2 comp_speaker_apple2;
     ComponentState_host_apple2 comp_host_apple2;
@@ -198,7 +211,7 @@ struct CPUState {
 #define CPU_AUDIO_FORMAT "s16le"
 /* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"apple2_interactive\"} */
 #define CPU_IC_COUNT 1
-#define CPU_DEVICE_COUNT 3
+#define CPU_DEVICE_COUNT 4
 #define CPU_HOST_COUNT 1
 #define CPU_CARTRIDGE_COUNT 0
 
@@ -231,6 +244,7 @@ int mos6502_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mos6502_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mos6502_load_cartridge_rom(CPUState *cpu, const char *path);
 int mos6502_load_keyboard_map(CPUState *cpu, const char *path);
+int mos6502_load_controller_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int mos6502_step(CPUState *cpu);

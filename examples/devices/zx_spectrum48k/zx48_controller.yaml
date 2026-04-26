@@ -1,0 +1,32 @@
+metadata:
+  id: controller_zx48
+  type: controller
+  model: zx48_joystick_interface
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: read_kempston
+      args: []
+      returns: u8
+    - name: host_kempston
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_kempston: |
+      __result = cpu_component_call(cpu, "controller_zx48", "host_kempston", NULL, 0);
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

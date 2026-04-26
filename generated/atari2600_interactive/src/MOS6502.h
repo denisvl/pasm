@@ -218,6 +218,9 @@ typedef struct ComponentState_atari2600_io {
     uint8_t audio_level;
 } ComponentState_atari2600_io;
 
+typedef struct ComponentState_controller_atari2600 {
+} ComponentState_controller_atari2600;
+
 typedef struct ComponentState_video_atari2600 {
     uint32_t frame_count;
     uint32_t width;
@@ -252,6 +255,15 @@ typedef struct ComponentState_host_atari2600 {
     uint8_t joy1;
     uint8_t joy2;
     uint8_t console_state;
+    uint8_t sw_tv_bw;
+    uint8_t sw_left_diff_b;
+    uint8_t sw_right_diff_b;
+    uint8_t sw_select_held;
+    uint8_t sw_reset_held;
+    uint8_t sw_prev_power;
+    uint8_t sw_prev_tv;
+    uint8_t sw_prev_left_diff;
+    uint8_t sw_prev_right_diff;
     uint8_t joy2_connected;
     uint8_t has_keyboard_focus;
     uint8_t last_focus_state;
@@ -330,6 +342,7 @@ struct CPUState {
     const char *active_component_id;
     uint64_t component_last_return;
     ComponentState_atari2600_io comp_atari2600_io;
+    ComponentState_controller_atari2600 comp_controller_atari2600;
     ComponentState_video_atari2600 comp_video_atari2600;
     ComponentState_speaker_atari2600 comp_speaker_atari2600;
     ComponentState_host_atari2600 comp_host_atari2600;
@@ -349,7 +362,7 @@ struct CPUState {
 #define CPU_AUDIO_FORMAT "s16le"
 /* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"atari2600_interactive\"} */
 #define CPU_IC_COUNT 1
-#define CPU_DEVICE_COUNT 2
+#define CPU_DEVICE_COUNT 3
 #define CPU_HOST_COUNT 1
 #define CPU_CARTRIDGE_COUNT 1
 
@@ -381,7 +394,9 @@ void mos6502_reset(CPUState *cpu);
 int mos6502_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mos6502_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mos6502_load_cartridge_rom(CPUState *cpu, const char *path);
+int mos6502_set_cartridge_dir(CPUState *cpu, const char *path);
 int mos6502_load_keyboard_map(CPUState *cpu, const char *path);
+int mos6502_load_controller_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int mos6502_step(CPUState *cpu);

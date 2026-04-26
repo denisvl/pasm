@@ -1,0 +1,891 @@
+system_name: trs80_coco1
+image:
+  file: trs80_coco1_keyboard.jpg
+  width_px: 1002
+  height_px: 333
+  origin: top-left
+  bbox_format:
+    x: left
+    y: top
+    width: pixels
+    height: pixels
+  approximate: true
+  notes:
+  - Derived from the uploaded TRS-80 Color Computer 1 keyboard photo.
+  - Bounding boxes were rebuilt directly from the provided 1002x333 image.
+  - Legends are listed in visual order when multiple markings appear on the same key.
+  - For two-symbol keys, the lower legend is treated as the unmodified key and the
+    upper legend as SHIFT + key.
+  - Some host-side bindings map modern keys to the nearest physical CoCo key even
+    when the printed legends differ.
+keys:
+- id: K_1
+  section: main
+  row: 1
+  column: 1
+  multi_legend: true
+  legend:
+  - '!'
+  - '1'
+  legend_combos:
+    '1':
+    - '1'
+    '!':
+    - SHIFT
+    - '1'
+  bbox:
+    x: 180
+    y: 62
+    width: 32
+    height: 28
+  legend_layout: top-to-bottom
+- id: K_2
+  section: main
+  row: 1
+  column: 2
+  multi_legend: true
+  legend:
+  - '"'
+  - '2'
+  legend_combos:
+    '2':
+    - '2'
+    '"':
+    - SHIFT
+    - '2'
+  bbox:
+    x: 230
+    y: 61
+    width: 32
+    height: 29
+  legend_layout: top-to-bottom
+- id: K_3
+  section: main
+  row: 1
+  column: 3
+  multi_legend: true
+  legend:
+  - '#'
+  - '3'
+  legend_combos:
+    '3':
+    - '3'
+    '#':
+    - SHIFT
+    - '3'
+  bbox:
+    x: 279
+    y: 61
+    width: 33
+    height: 29
+  legend_layout: top-to-bottom
+- id: K_4
+  section: main
+  row: 1
+  column: 4
+  multi_legend: true
+  legend:
+  - $
+  - '4'
+  legend_combos:
+    '4':
+    - '4'
+    $:
+    - SHIFT
+    - '4'
+  bbox:
+    x: 329
+    y: 61
+    width: 32
+    height: 29
+  legend_layout: top-to-bottom
+- id: K_5
+  section: main
+  row: 1
+  column: 5
+  multi_legend: true
+  legend:
+  - '%'
+  - '5'
+  legend_combos:
+    '5':
+    - '5'
+    '%':
+    - SHIFT
+    - '5'
+  bbox:
+    x: 379
+    y: 60
+    width: 32
+    height: 30
+  legend_layout: top-to-bottom
+- id: K_6
+  section: main
+  row: 1
+  column: 6
+  multi_legend: true
+  legend:
+  - '&'
+  - '6'
+  legend_combos:
+    '6':
+    - '6'
+    '&':
+    - SHIFT
+    - '6'
+  bbox:
+    x: 428
+    y: 60
+    width: 33
+    height: 29
+  legend_layout: top-to-bottom
+- id: K_7
+  section: main
+  row: 1
+  column: 7
+  multi_legend: true
+  legend:
+  - ''''
+  - '7'
+  legend_combos:
+    '7':
+    - '7'
+    '''':
+    - SHIFT
+    - '7'
+  bbox:
+    x: 478
+    y: 60
+    width: 32
+    height: 30
+  legend_layout: top-to-bottom
+- id: K_8
+  section: main
+  row: 1
+  column: 8
+  multi_legend: true
+  legend:
+  - (
+  - '8'
+  legend_combos:
+    '8':
+    - '8'
+    (:
+    - SHIFT
+    - '8'
+  bbox:
+    x: 527
+    y: 59
+    width: 33
+    height: 30
+  legend_layout: top-to-bottom
+- id: K_9
+  section: main
+  row: 1
+  column: 9
+  multi_legend: true
+  legend:
+  - )
+  - '9'
+  legend_combos:
+    '9':
+    - '9'
+    ):
+    - SHIFT
+    - '9'
+  bbox:
+    x: 577
+    y: 59
+    width: 33
+    height: 29
+  legend_layout: top-to-bottom
+- id: K_0
+  section: main
+  row: 1
+  column: 10
+  multi_legend: false
+  legend:
+  - '0'
+  legend_combos:
+    '0':
+    - '0'
+  bbox:
+    x: 626
+    y: 59
+    width: 33
+    height: 29
+- id: K_COLON
+  section: main
+  row: 1
+  column: 11
+  multi_legend: true
+  legend:
+  - '*'
+  - ':'
+  legend_combos:
+    ':':
+    - ':'
+    '*':
+    - SHIFT
+    - ':'
+  bbox:
+    x: 675
+    y: 58
+    width: 34
+    height: 29
+  legend_layout: top-to-bottom
+- id: K_MINUS
+  section: main
+  row: 1
+  column: 12
+  multi_legend: true
+  legend:
+  - '='
+  - '-'
+  legend_combos:
+    '-':
+    - '-'
+    '=':
+    - SHIFT
+    - '-'
+  bbox:
+    x: 724
+    y: 58
+    width: 34
+    height: 29
+  legend_layout: top-to-bottom
+- id: K_BREAK
+  section: main
+  row: 1
+  column: 13
+  multi_legend: false
+  legend:
+  - BREAK
+  legend_combos:
+    BREAK:
+    - BREAK
+  bbox:
+    x: 774
+    y: 56
+    width: 34
+    height: 33
+- id: K_UP
+  section: main
+  row: 2
+  column: 1
+  multi_legend: false
+  legend:
+  - ↑
+  legend_combos:
+    ↑:
+    - UP
+  bbox:
+    x: 152
+    y: 109
+    width: 35
+    height: 34
+- id: K_Q
+  section: main
+  row: 2
+  column: 2
+  multi_legend: false
+  legend:
+  - Q
+  legend_combos:
+    Q:
+    - Q
+  bbox:
+    x: 203
+    y: 109
+    width: 32
+    height: 29
+- id: K_W
+  section: main
+  row: 2
+  column: 3
+  multi_legend: false
+  legend:
+  - W
+  legend_combos:
+    W:
+    - W
+  bbox:
+    x: 253
+    y: 109
+    width: 33
+    height: 29
+- id: K_E
+  section: main
+  row: 2
+  column: 4
+  multi_legend: false
+  legend:
+  - E
+  legend_combos:
+    E:
+    - E
+  bbox:
+    x: 303
+    y: 109
+    width: 32
+    height: 30
+- id: K_R
+  section: main
+  row: 2
+  column: 5
+  multi_legend: false
+  legend:
+  - R
+  legend_combos:
+    R:
+    - R
+  bbox:
+    x: 354
+    y: 108
+    width: 32
+    height: 30
+- id: K_T
+  section: main
+  row: 2
+  column: 6
+  multi_legend: false
+  legend:
+  - T
+  legend_combos:
+    T:
+    - T
+  bbox:
+    x: 403
+    y: 108
+    width: 33
+    height: 30
+- id: K_Y
+  section: main
+  row: 2
+  column: 7
+  multi_legend: false
+  legend:
+  - Y
+  legend_combos:
+    Y:
+    - Y
+  bbox:
+    x: 454
+    y: 107
+    width: 33
+    height: 31
+- id: K_U
+  section: main
+  row: 2
+  column: 8
+  multi_legend: false
+  legend:
+  - U
+  legend_combos:
+    U:
+    - U
+  bbox:
+    x: 504
+    y: 108
+    width: 32
+    height: 30
+- id: K_I
+  section: main
+  row: 2
+  column: 9
+  multi_legend: false
+  legend:
+  - I
+  legend_combos:
+    I:
+    - I
+  bbox:
+    x: 554
+    y: 107
+    width: 33
+    height: 30
+- id: K_O
+  section: main
+  row: 2
+  column: 10
+  multi_legend: false
+  legend:
+  - O
+  legend_combos:
+    O:
+    - O
+  bbox:
+    x: 603
+    y: 107
+    width: 34
+    height: 29
+- id: K_P
+  section: main
+  row: 2
+  column: 11
+  multi_legend: false
+  legend:
+  - P
+  legend_combos:
+    P:
+    - P
+  bbox:
+    x: 653
+    y: 106
+    width: 34
+    height: 30
+- id: K_AT
+  section: main
+  row: 2
+  column: 12
+  multi_legend: false
+  legend:
+  - '@'
+  legend_combos:
+    '@':
+    - '@'
+  bbox:
+    x: 703
+    y: 106
+    width: 34
+    height: 29
+- id: K_LEFT
+  section: main
+  row: 2
+  column: 13
+  multi_legend: false
+  legend:
+  - ←
+  legend_combos:
+    ←:
+    - LEFT
+  bbox:
+    x: 751
+    y: 104
+    width: 36
+    height: 34
+- id: K_RIGHT
+  section: main
+  row: 2
+  column: 14
+  multi_legend: false
+  legend:
+  - →
+  legend_combos:
+    →:
+    - RIGHT
+  bbox:
+    x: 800
+    y: 103
+    width: 36
+    height: 35
+- id: K_DOWN
+  section: main
+  row: 3
+  column: 1
+  multi_legend: false
+  legend:
+  - ↓
+  legend_combos:
+    ↓:
+    - DOWN
+  bbox:
+    x: 162
+    y: 157
+    width: 35
+    height: 34
+- id: K_A
+  section: main
+  row: 3
+  column: 2
+  multi_legend: false
+  legend:
+  - A
+  legend_combos:
+    A:
+    - A
+  bbox:
+    x: 214
+    y: 158
+    width: 33
+    height: 30
+- id: K_S
+  section: main
+  row: 3
+  column: 3
+  multi_legend: false
+  legend:
+  - S
+  legend_combos:
+    S:
+    - S
+  bbox:
+    x: 264
+    y: 158
+    width: 33
+    height: 30
+- id: K_D
+  section: main
+  row: 3
+  column: 4
+  multi_legend: false
+  legend:
+  - D
+  legend_combos:
+    D:
+    - D
+  bbox:
+    x: 315
+    y: 158
+    width: 33
+    height: 30
+- id: K_F
+  section: main
+  row: 3
+  column: 5
+  multi_legend: false
+  legend:
+  - F
+  legend_combos:
+    F:
+    - F
+  bbox:
+    x: 366
+    y: 157
+    width: 32
+    height: 30
+- id: K_G
+  section: main
+  row: 3
+  column: 6
+  multi_legend: false
+  legend:
+  - G
+  legend_combos:
+    G:
+    - G
+  bbox:
+    x: 416
+    y: 157
+    width: 33
+    height: 30
+- id: K_H
+  section: main
+  row: 3
+  column: 7
+  multi_legend: false
+  legend:
+  - H
+  legend_combos:
+    H:
+    - H
+  bbox:
+    x: 467
+    y: 157
+    width: 33
+    height: 30
+- id: K_J
+  section: main
+  row: 3
+  column: 8
+  multi_legend: false
+  legend:
+  - J
+  legend_combos:
+    J:
+    - J
+  bbox:
+    x: 517
+    y: 156
+    width: 33
+    height: 31
+- id: K_K
+  section: main
+  row: 3
+  column: 9
+  multi_legend: false
+  legend:
+  - K
+  legend_combos:
+    K:
+    - K
+  bbox:
+    x: 567
+    y: 156
+    width: 34
+    height: 30
+- id: K_L
+  section: main
+  row: 3
+  column: 10
+  multi_legend: false
+  legend:
+  - L
+  legend_combos:
+    L:
+    - L
+  bbox:
+    x: 618
+    y: 155
+    width: 33
+    height: 30
+- id: K_SEMICOLON
+  section: main
+  row: 3
+  column: 11
+  multi_legend: true
+  legend:
+  - +
+  - ;
+  legend_combos:
+    ;:
+    - ;
+    +:
+    - SHIFT
+    - ;
+  bbox:
+    x: 668
+    y: 154
+    width: 34
+    height: 30
+  legend_layout: top-to-bottom
+- id: K_ENTER
+  section: main
+  row: 3
+  column: 12
+  multi_legend: false
+  legend:
+  - ENTER
+  legend_combos:
+    ENTER:
+    - ENTER
+  bbox:
+    x: 718
+    y: 152
+    width: 85
+    height: 36
+- id: K_CLEAR
+  section: main
+  row: 3
+  column: 13
+  multi_legend: false
+  legend:
+  - CLEAR
+  legend_combos:
+    CLEAR:
+    - CLEAR
+  bbox:
+    x: 817
+    y: 151
+    width: 36
+    height: 35
+- id: K_LSHIFT
+  section: main
+  row: 4
+  column: 1
+  multi_legend: false
+  legend:
+  - SHIFT
+  legend_combos:
+    SHIFT:
+    - SHIFT
+  bbox:
+    x: 160
+    y: 207
+    width: 60
+    height: 34
+- id: K_Z
+  section: main
+  row: 4
+  column: 2
+  multi_legend: false
+  legend:
+  - Z
+  legend_combos:
+    Z:
+    - Z
+  bbox:
+    x: 237
+    y: 207
+    width: 33
+    height: 30
+- id: K_X
+  section: main
+  row: 4
+  column: 3
+  multi_legend: false
+  legend:
+  - X
+  legend_combos:
+    X:
+    - X
+  bbox:
+    x: 288
+    y: 208
+    width: 33
+    height: 29
+- id: K_C
+  section: main
+  row: 4
+  column: 4
+  multi_legend: false
+  legend:
+  - C
+  legend_combos:
+    C:
+    - C
+  bbox:
+    x: 340
+    y: 207
+    width: 32
+    height: 30
+- id: K_V
+  section: main
+  row: 4
+  column: 5
+  multi_legend: false
+  legend:
+  - V
+  legend_combos:
+    V:
+    - V
+  bbox:
+    x: 391
+    y: 206
+    width: 33
+    height: 31
+- id: K_B
+  section: main
+  row: 4
+  column: 6
+  multi_legend: false
+  legend:
+  - B
+  legend_combos:
+    B:
+    - B
+  bbox:
+    x: 442
+    y: 206
+    width: 33
+    height: 31
+- id: K_N
+  section: main
+  row: 4
+  column: 7
+  multi_legend: false
+  legend:
+  - N
+  legend_combos:
+    N:
+    - N
+  bbox:
+    x: 493
+    y: 206
+    width: 33
+    height: 30
+- id: K_M
+  section: main
+  row: 4
+  column: 8
+  multi_legend: false
+  legend:
+  - M
+  legend_combos:
+    M:
+    - M
+  bbox:
+    x: 544
+    y: 205
+    width: 33
+    height: 31
+- id: K_COMMA
+  section: main
+  row: 4
+  column: 9
+  multi_legend: true
+  legend:
+  - <
+  - ','
+  legend_combos:
+    ',':
+    - ','
+    <:
+    - SHIFT
+    - ','
+  bbox:
+    x: 595
+    y: 204
+    width: 33
+    height: 31
+  legend_layout: top-to-bottom
+- id: K_PERIOD
+  section: main
+  row: 4
+  column: 10
+  multi_legend: true
+  legend:
+  - '>'
+  - .
+  legend_combos:
+    .:
+    - .
+    '>':
+    - SHIFT
+    - .
+  bbox:
+    x: 645
+    y: 204
+    width: 34
+    height: 30
+  legend_layout: top-to-bottom
+- id: K_SLASH
+  section: main
+  row: 4
+  column: 11
+  multi_legend: true
+  legend:
+  - '?'
+  - /
+  legend_combos:
+    /:
+    - /
+    '?':
+    - SHIFT
+    - /
+  bbox:
+    x: 696
+    y: 204
+    width: 34
+    height: 30
+  legend_layout: top-to-bottom
+- id: K_RSHIFT
+  section: main
+  row: 4
+  column: 12
+  multi_legend: false
+  legend:
+  - SHIFT
+  legend_combos:
+    SHIFT:
+    - SHIFT
+  bbox:
+    x: 746
+    y: 202
+    width: 60
+    height: 35
+- id: K_SPACE
+  section: main
+  row: 5
+  column: 1
+  multi_legend: false
+  legend:
+  - SPACE
+  legend_combos:
+    SPACE:
+    - SPACE
+  bbox:
+    x: 359
+    y: 254
+    width: 276
+    height: 36

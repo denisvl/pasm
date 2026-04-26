@@ -1,0 +1,50 @@
+metadata:
+  id: controller_atari2600
+  type: controller
+  model: atari2600_joystick_console
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: read_joy0
+      args: []
+      returns: u8
+    - name: read_joy1
+      args: []
+      returns: u8
+    - name: read_console
+      args: []
+      returns: u8
+    - name: host_joy0
+      args: []
+      returns: u8
+    - name: host_joy1
+      args: []
+      returns: u8
+    - name: host_console
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_joy0: |
+      __result = cpu_component_call(cpu, "controller_atari2600", "host_joy0", NULL, 0);
+      return __result;
+    read_joy1: |
+      __result = cpu_component_call(cpu, "controller_atari2600", "host_joy1", NULL, 0);
+      return __result;
+    read_console: |
+      __result = cpu_component_call(cpu, "controller_atari2600", "host_console", NULL, 0);
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

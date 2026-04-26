@@ -2,279 +2,359 @@ keyboard:
   kind: matrix
   focus_required: true
   bindings:
-  - host_key: LSHIFT
+  # Row 0: CAPS SHIFT + Z X C V
+  - host_scancode: LSHIFT
+    mapper_key_id: K_CAPS_SHIFT
     presses:
     - row: 0
       bit: 0
-  - host_key: RSHIFT
+  - host_scancode: RSHIFT
+    mapper_key_id: K_CAPS_SHIFT
     presses:
     - row: 0
       bit: 0
-  - host_key: Z
+  - host_scancode: Z
+    mapper_key_id: K_Z
     presses:
     - row: 0
       bit: 1
-  - host_key: X
+  - host_scancode: X
+    mapper_key_id: K_X
     presses:
     - row: 0
       bit: 2
-  - host_key: C
+  - host_scancode: C
+    mapper_key_id: K_C
     presses:
     - row: 0
       bit: 3
-  - host_key: V
+  - host_scancode: V
+    mapper_key_id: K_V
     presses:
     - row: 0
       bit: 4
-  - host_key: A
+
+  # Row 1: A S D F G
+  - host_scancode: A
+    mapper_key_id: K_A
     presses:
     - row: 1
       bit: 0
-  - host_key: S
+  - host_scancode: S
+    mapper_key_id: K_S
     presses:
     - row: 1
       bit: 1
-  - host_key: D
+  - host_scancode: D
+    mapper_key_id: K_D
     presses:
     - row: 1
       bit: 2
-  - host_key: F
+  - host_scancode: F
+    mapper_key_id: K_F
     presses:
     - row: 1
       bit: 3
-  - host_key: G
+  - host_scancode: G
+    mapper_key_id: K_G
     presses:
     - row: 1
       bit: 4
-  - host_key: Q
+
+  # Row 2: Q W E R T
+  - host_scancode: Q
+    mapper_key_id: K_Q
     presses:
     - row: 2
       bit: 0
-  - host_key: W
+  - host_scancode: W
+    mapper_key_id: K_W
     presses:
     - row: 2
       bit: 1
-  - host_key: E
+  - host_scancode: E
+    mapper_key_id: K_E
     presses:
     - row: 2
       bit: 2
-  - host_key: R
+  - host_scancode: R
+    mapper_key_id: K_R
     presses:
     - row: 2
       bit: 3
-  - host_key: T
+  - host_scancode: T
+    mapper_key_id: K_T
     presses:
     - row: 2
       bit: 4
-  - host_key: '1'
+
+  # Row 3: 1 2 3 4 5
+  - host_scancode: '1'
+    mapper_key_id: K_1
     presses:
     - row: 3
       bit: 0
-  - host_key: '2'
+  - host_scancode: '2'
+    mapper_key_id: K_2
     presses:
     - row: 3
       bit: 1
-  - host_key: '3'
+  - host_scancode: '3'
+    mapper_key_id: K_3
     presses:
     - row: 3
       bit: 2
-  - host_key: '4'
+  - host_scancode: '4'
+    mapper_key_id: K_4
     presses:
     - row: 3
       bit: 3
-  - host_key: '5'
+  - host_scancode: '5'
+    mapper_key_id: K_5
     presses:
     - row: 3
       bit: 4
-  - host_key: '0'
+
+  # Row 4: 0 9 8 7 6
+  - host_scancode: '0'
+    mapper_key_id: K_0
     presses:
     - row: 4
       bit: 0
-  - host_key: '9'
+  - host_scancode: '9'
+    mapper_key_id: K_9
     presses:
     - row: 4
       bit: 1
-  - host_key: '8'
+  - host_scancode: '8'
+    mapper_key_id: K_8
     presses:
     - row: 4
       bit: 2
-  - host_key: '7'
+  - host_scancode: '7'
+    mapper_key_id: K_7
     presses:
     - row: 4
       bit: 3
-  - host_key: '6'
+  - host_scancode: '6'
+    mapper_key_id: K_6
     presses:
     - row: 4
       bit: 4
-  - host_key: P
+
+  # Row 5: P O I U Y
+  - host_scancode: P
+    mapper_key_id: K_P
     presses:
     - row: 5
       bit: 0
-  - host_key: O
+  - host_scancode: O
+    mapper_key_id: K_O
     presses:
     - row: 5
       bit: 1
-  - host_key: I
+  - host_scancode: I
+    mapper_key_id: K_I
     presses:
     - row: 5
       bit: 2
-  - host_key: U
+  - host_scancode: U
+    mapper_key_id: K_U
     presses:
     - row: 5
       bit: 3
-  - host_key: Y
+  - host_scancode: Y
+    mapper_key_id: K_Y
     presses:
     - row: 5
       bit: 4
-  - host_key: RETURN
+
+  # Row 6: ENTER L K J H
+  - host_scancode: RETURN
+    mapper_key_id: K_ENTER
     presses:
     - row: 6
       bit: 0
-  - host_key: L
+  - host_scancode: L
+    mapper_key_id: K_L
     presses:
     - row: 6
       bit: 1
-  - host_key: K
+  - host_scancode: K
+    mapper_key_id: K_K
     presses:
     - row: 6
       bit: 2
-  - host_key: J
+  - host_scancode: J
+    mapper_key_id: K_J
     presses:
     - row: 6
       bit: 3
-  - host_key: H
+  - host_scancode: H
+    mapper_key_id: K_H
     presses:
     - row: 6
       bit: 4
-  - host_key: SPACE
+
+  # Row 7: SPACE + SYMBOL SHIFT + M N B
+  - host_scancode: SPACE
+    mapper_key_id: K_BREAK_SPACE
     presses:
     - row: 7
       bit: 0
-  - host_key: RALT
+  - host_scancode: RALT
+    mapper_key_id: K_SYMBOL_SHIFT
     presses:
     - row: 7
       bit: 1
-  - host_key: LALT
+  - host_scancode: LALT
+    mapper_key_id: K_SYMBOL_SHIFT
     presses:
     - row: 7
       bit: 1
-  - host_key: M
+  - host_scancode: M
+    mapper_key_id: K_M
     presses:
     - row: 7
       bit: 2
-  - host_key: N
+  - host_scancode: N
+    mapper_key_id: K_N
     presses:
     - row: 7
       bit: 3
-  - host_key: B
+  - host_scancode: B
+    mapper_key_id: K_B
     presses:
     - row: 7
       bit: 4
-  - host_key: BACKSPACE
+
+  # Convenience host keys (combos)
+  - host_scancode: BACKSPACE   # CAPS SHIFT + 0 (DELETE)
+    mapper_key_id: K_0
     presses:
     - row: 0
       bit: 0
     - row: 4
       bit: 0
-  - host_key: DELETE
+  - host_scancode: DELETE      # CAPS SHIFT + 0 (DELETE)
+    mapper_key_id: K_0
     presses:
     - row: 0
       bit: 0
     - row: 4
       bit: 0
-  - host_key: LEFT
+  - host_scancode: LEFT        # CAPS SHIFT + 5
+    mapper_key_id: K_5
     presses:
     - row: 0
       bit: 0
     - row: 3
       bit: 4
-  - host_key: DOWN
+  - host_scancode: DOWN        # CAPS SHIFT + 6
+    mapper_key_id: K_6
     presses:
     - row: 0
       bit: 0
     - row: 4
       bit: 4
-  - host_key: UP
+  - host_scancode: UP          # CAPS SHIFT + 7
+    mapper_key_id: K_7
     presses:
     - row: 0
       bit: 0
     - row: 4
       bit: 3
-  - host_key: RIGHT
+  - host_scancode: RIGHT       # CAPS SHIFT + 8
+    mapper_key_id: K_8
     presses:
     - row: 0
       bit: 0
     - row: 4
       bit: 2
-  - host_key: ESCAPE
+  - host_scancode: ESCAPE      # CAPS SHIFT + SPACE (BREAK)
+    mapper_key_id: K_BREAK_SPACE
     presses:
     - row: 0
       bit: 0
     - row: 7
       bit: 0
-  - host_key: COMMA
+
+  # Symbol shift combos for punctuation-like keys on modern keyboards.
+  - host_scancode: COMMA       # SYMBOL SHIFT + N
+    mapper_key_id: K_N
     presses:
     - row: 7
       bit: 1
     - row: 7
       bit: 3
-  - host_key: PERIOD
+  - host_scancode: PERIOD      # SYMBOL SHIFT + M
+    mapper_key_id: K_M
     presses:
     - row: 7
       bit: 1
     - row: 7
       bit: 2
-  - host_key: SLASH
+  - host_scancode: SLASH       # SYMBOL SHIFT + V
+    mapper_key_id: K_V
     presses:
     - row: 7
       bit: 1
     - row: 0
       bit: 4
-  - host_key: SEMICOLON
+  - host_scancode: SEMICOLON   # SYMBOL SHIFT + O
+    mapper_key_id: K_O
     presses:
     - row: 7
       bit: 1
     - row: 5
       bit: 1
-  - host_key: APOSTROPHE
+  - host_scancode: APOSTROPHE  # SYMBOL SHIFT + P
+    mapper_key_id: K_P
     presses:
     - row: 7
       bit: 1
     - row: 5
       bit: 0
-  - host_key: MINUS
+  - host_scancode: MINUS       # SYMBOL SHIFT + J
+    mapper_key_id: K_J
     presses:
     - row: 7
       bit: 1
     - row: 6
       bit: 3
-  - host_key: EQUALS
+  - host_scancode: EQUALS      # SYMBOL SHIFT + L
+    mapper_key_id: K_L
     presses:
     - row: 7
       bit: 1
     - row: 6
       bit: 1
-  - host_key: LEFTBRACKET
+  - host_scancode: LEFTBRACKET  # SYMBOL SHIFT + Y
+    mapper_key_id: K_Y
     presses:
     - row: 7
       bit: 1
     - row: 5
       bit: 4
-  - host_key: RIGHTBRACKET
+  - host_scancode: RIGHTBRACKET # SYMBOL SHIFT + U
+    mapper_key_id: K_U
     presses:
     - row: 7
       bit: 1
     - row: 5
       bit: 3
-  - host_key: BACKSLASH
+  - host_scancode: BACKSLASH    # SYMBOL SHIFT + D
+    mapper_key_id: K_D
     presses:
     - row: 7
       bit: 1
     - row: 1
       bit: 2
-  - host_key: GRAVE
+  - host_scancode: GRAVE        # SYMBOL SHIFT + X
+    mapper_key_id: K_X
     presses:
     - row: 7
       bit: 1
     - row: 0
       bit: 2
+

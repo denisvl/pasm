@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# One-shot helper: generate + build + run PASM Rust debugger for NES (MOS6502 + NROM mapper).
+# One-shot helper: generate + build + run PASM Rust debugger for NES.
+# Cartridge mapper is auto-selected from iNES header when CARTRIDGE_MAP is not set.
 #
 # Usage:
 #   scripts/run_nes_debugger.sh [interactive|default]
@@ -14,9 +15,9 @@ set -euo pipefail
 #   CMAKE_BUILD_TYPE=Release
 #   RUN_SPEED=realtime|max
 #   PASM_HOST_AUDIO=1
-#   CARTRIDGE_MAP=examples/cartridges/nes/nes_mapper_gxrom.yaml
-#   CARTRIDGE_ROM_GEN="../../roms/nes/Super Mario Bros. + Duck Hunt (USA).nes"
+#   CARTRIDGE_ROM_GEN="../../roms/nes/Super Mario Bros. 2 (USA) (Rev 1).nes"
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/cart.nes
+#   CARTRIDGE_DIR=examples/roms/nes
 #   PASM_NES_JOY2_CONNECTED=0|1
 
 PROFILE="${1:-interactive}"
@@ -27,9 +28,16 @@ CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 PASM_NES_JOY2_CONNECTED="${PASM_NES_JOY2_CONNECTED:-0}"
-CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/nes/nes_mapper_gxrom.yaml}"
-CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/nes/Super Mario Bros. + Duck Hunt (USA).nes}"
+# Always use auto mapper so cartridge picker can switch across supported mappers
+# (mapper 0/NROM, mapper 4/MMC3, mapper 66/GxROM) in one running session.
+CARTRIDGE_MAP="examples/cartridges/nes/nes_mapper_auto.yaml"
+CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/nes/Super Mario Bros. 2 (USA) (Rev 1).nes}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
+KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/nes/host_console_nes.yaml}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/nes/host_controller_nes.yaml}"
+CARTRIDGE_DIR="${CARTRIDGE_DIR:-examples/roms/nes}"
+PASM_NES_MMC3_TRACE="${PASM_NES_MMC3_TRACE:-0}"
+PASM_NES_IRQ_TRACE="${PASM_NES_IRQ_TRACE:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -37,8 +45,9 @@ cd "${REPO_ROOT}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
 mkdir -p "${UV_CACHE_DIR}"
 
-PROCESSOR="examples/processors/mos6502.yaml"
+PROCESSOR="examples/processors/ricoh2a03.yaml"
 IC_MAIN="examples/ics/nes/nes_ppu_apu_io.yaml"
+DEVICE_CTRL="examples/devices/nes/nes_controller.yaml"
 DEVICE_VIDEO="examples/devices/nes/nes_video.yaml"
 DEVICE_SPK="examples/devices/nes/nes_speaker.yaml"
 
@@ -87,6 +96,7 @@ uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM}" \
   --ic "${IC_MAIN}" \
+  --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
@@ -104,10 +114,38 @@ echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC:-<re
 echo "    cartridge_map=${CARTRIDGE_MAP}"
 echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
 echo "    cartridge_rom_runtime=${ROM_RUNTIME}"
+if [[ "${PROFILE}" == "interactive" ]]; then
+  echo "    keyboard_map=${KEYBOARD_MAP}"
+  echo "    controller_map=${CONTROLLER_MAP}"
+  echo "    cartridge_dir=${CARTRIDGE_DIR}"
+fi
 if [[ -n "${START_PC}" ]]; then
   set -- --start-pc "${START_PC}"
 else
   set --
+fi
+
+if [[ "${PASM_NES_MMC3_TRACE}" != "0" ]]; then
+  rm -f log/nes_mmc3_trace.log nes_mmc3_trace.log
+fi
+if [[ "${PASM_NES_IRQ_TRACE}" != "0" ]]; then
+  rm -f log/nes_irq_trace.log nes_irq_trace.log
+fi
+if [[ "${PASM_NES_PAD_TRACE:-0}" != "0" ]]; then
+  rm -f log/nes_pad_trace.log nes_pad_trace.log
+fi
+if [[ "${PASM_NES_PPUSTATUS_TRACE:-0}" != "0" ]]; then
+  rm -f log/nes_ppu_status_trace.log nes_ppu_status_trace.log
+fi
+if [[ "${PASM_NES_PAD_ZP_TRACE:-0}" != "0" ]]; then
+  rm -f log/nes_pad_zp_trace.log nes_pad_zp_trace.log
+fi
+
+EXTRA_MAP_ARGS=()
+if [[ "${PROFILE}" == "interactive" ]]; then
+  EXTRA_MAP_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
+  EXTRA_MAP_ARGS+=(--controller-map "${CONTROLLER_MAP}")
+  EXTRA_MAP_ARGS+=(--cartridge-dir "${CARTRIDGE_DIR}")
 fi
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
@@ -115,10 +153,14 @@ PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 PASM_NES_JOY2_CONNECTED="${PASM_NES_JOY2_CONNECTED}" \
+PASM_NES_MMC3_TRACE="${PASM_NES_MMC3_TRACE}" \
+PASM_IRQ_TRACE="${PASM_NES_IRQ_TRACE}" \
+PASM_IRQ_TRACE_FILE="log/nes_irq_trace.log" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \
   --system-dir "${SYSTEM_DIR}" \
   --cart-rom "${ROM_RUNTIME}" \
+  "${EXTRA_MAP_ARGS[@]}" \
   "$@" \
   --run-speed "${RUN_SPEED}"

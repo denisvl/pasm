@@ -1,0 +1,104 @@
+controller_map:
+  focus_required: true
+  ports:
+  - port: 1
+    connected: true
+    host_device:
+      kind: any
+  - port: 2
+    connected: false
+    host_device:
+      kind: any
+  bindings:
+  - target_control_id: P1_UP
+    host_scancode: UP
+  - target_control_id: P1_DOWN
+    host_scancode: DOWN
+  - target_control_id: P1_LEFT
+    host_scancode: LEFT
+  - target_control_id: P1_RIGHT
+    host_scancode: RIGHT
+  - target_control_id: P1_B1
+    host_scancode: A
+  - target_control_id: P1_B2
+    host_scancode: S
+  - target_control_id: P2_UP
+    host_scancode: KP_8
+  - target_control_id: P2_DOWN
+    host_scancode: KP_2
+  - target_control_id: P2_LEFT
+    host_scancode: KP_4
+  - target_control_id: P2_RIGHT
+    host_scancode: KP_6
+  - target_control_id: P2_B1
+    host_scancode: KP_1
+  - target_control_id: P2_B2
+    host_scancode: KP_3
+  - target_control_id: P1_UP
+    host_gamepad:
+      device: any
+      control: 'dpad_up'
+  - target_control_id: P1_DOWN
+    host_gamepad:
+      device: any
+      control: 'dpad_down'
+  - target_control_id: P1_LEFT
+    host_gamepad:
+      device: any
+      control: 'dpad_left'
+  - target_control_id: P1_RIGHT
+    host_gamepad:
+      device: any
+      control: 'dpad_right'
+  - target_control_id: P1_UP
+    host_gamepad:
+      device: any
+      control: 'left_y'
+  - target_control_id: P1_DOWN
+    host_gamepad:
+      device: any
+      control: 'left_y'
+  - target_control_id: P1_LEFT
+    host_gamepad:
+      device: any
+      control: 'left_x'
+  - target_control_id: P1_RIGHT
+    host_gamepad:
+      device: any
+      control: 'left_x'
+  - target_control_id: P1_B1
+    host_gamepad:
+      device: any
+      control: 'a'
+  - target_control_id: P1_B2
+    host_gamepad:
+      device: any
+      control: 'b'
+  - target_control_id: P1_UP
+    host_joystick:
+      device: any
+      hat: 0
+      hat_dir: 'up'
+  - target_control_id: P1_DOWN
+    host_joystick:
+      device: any
+      hat: 0
+      hat_dir: 'down'
+  - target_control_id: P1_LEFT
+    host_joystick:
+      device: any
+      hat: 0
+      hat_dir: 'left'
+  - target_control_id: P1_RIGHT
+    host_joystick:
+      device: any
+      hat: 0
+      hat_dir: 'right'
+  - target_control_id: P1_B1
+    host_joystick:
+      device: any
+      button: 0
+  - target_control_id: P1_B2
+    host_joystick:
+      device: any
+      button: 1

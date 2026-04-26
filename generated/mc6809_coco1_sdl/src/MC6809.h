@@ -114,6 +114,9 @@ typedef struct ComponentState_keyboard_coco {
     uint8_t last_row;
 } ComponentState_keyboard_coco;
 
+typedef struct ComponentState_gameport_coco {
+} ComponentState_gameport_coco;
+
 typedef struct ComponentState_video_coco {
     uint32_t frame_count;
     uint32_t width;
@@ -182,6 +185,11 @@ typedef struct ComponentState_host_coco {
     uint8_t active_joy_port;
 } ComponentState_host_coco;
 
+typedef struct ComponentState_coco_cart0 {
+    uint8_t * rom_data;
+    uint32_t rom_size;
+} ComponentState_coco_cart0;
+
 
 /* ===== CPU State ===== */
 struct CPUState {
@@ -247,9 +255,11 @@ struct CPUState {
     uint64_t component_last_return;
     ComponentState_coco1_io comp_coco1_io;
     ComponentState_keyboard_coco comp_keyboard_coco;
+    ComponentState_gameport_coco comp_gameport_coco;
     ComponentState_video_coco comp_video_coco;
     ComponentState_speaker_coco comp_speaker_coco;
     ComponentState_host_coco comp_host_coco;
+    ComponentState_coco_cart0 comp_coco_cart0;
 };
 
 /* ===== Constants ===== */
@@ -265,9 +275,9 @@ struct CPUState {
 #define CPU_AUDIO_FORMAT "s16le"
 /* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"coco1_interactive\"} */
 #define CPU_IC_COUNT 1
-#define CPU_DEVICE_COUNT 3
+#define CPU_DEVICE_COUNT 4
 #define CPU_HOST_COUNT 1
-#define CPU_CARTRIDGE_COUNT 0
+#define CPU_CARTRIDGE_COUNT 1
 
 /* ===== Register Enum ===== */
 typedef enum {
@@ -302,6 +312,7 @@ int mc6809_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mc6809_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mc6809_load_cartridge_rom(CPUState *cpu, const char *path);
 int mc6809_load_keyboard_map(CPUState *cpu, const char *path);
+int mc6809_load_controller_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int mc6809_step(CPUState *cpu);

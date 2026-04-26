@@ -20,14 +20,18 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/c64/host_keyboard_c64.yaml}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/c64/host_controller_c64.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
+mkdir -p "${UV_CACHE_DIR}"
 
 PROCESSOR="examples/processors/mos6510.yaml"
 IC_IO="examples/ics/c64/c64_io.yaml"
 DEVICE_KB="examples/devices/c64/c64_keyboard.yaml"
+DEVICE_JOY="examples/devices/c64/c64_joystick.yaml"
 DEVICE_VIDEO="examples/devices/c64/c64_video.yaml"
 DEVICE_SPK="examples/devices/c64/c64_speaker.yaml"
 HOST_INTERACTIVE="examples/hosts/c64/c64_host_hal_interactive.yaml"
@@ -62,6 +66,7 @@ if [[ "${PROFILE}" == "interactive" ]]; then
     --system "${SYSTEM}" \
     --ic "${IC_IO}" \
     --device "${DEVICE_KB}" \
+    --device "${DEVICE_JOY}" \
     --device "${DEVICE_VIDEO}" \
     --device "${DEVICE_SPK}" \
     --host "${HOST_INTERACTIVE}" \
@@ -90,6 +95,7 @@ RUN_ARGS=(
 )
 if [[ "${PROFILE}" == "interactive" ]]; then
   RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
+  RUN_ARGS+=(--controller-map "${CONTROLLER_MAP}")
 fi
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \

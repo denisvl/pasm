@@ -1,0 +1,67 @@
+system_name: apple2
+max_ports: 2
+
+image:
+  file: apple2_joystick.jpg
+
+controls:
+  - id: P1_UP
+    kind: button
+    port: 1
+    legend: [UP]
+    legend_combos: {}
+    bbox: { x: 623, y: 281, width: 78, height: 70 }
+    overlay_color: [80, 160, 255]
+
+  - id: P1_DOWN
+    kind: button
+    port: 1
+    legend: [DOWN]
+    legend_combos: {}
+    bbox: { x: 623, y: 715, width: 78, height: 70 }
+    overlay_color: [80, 160, 255]
+
+  - id: P1_LEFT
+    kind: button
+    port: 1
+    legend: [LEFT]
+    legend_combos: {}
+    bbox: { x: 388, y: 537, width: 78, height: 70 }
+    overlay_color: [80, 160, 255]
+
+  - id: P1_RIGHT
+    kind: button
+    port: 1
+    legend: [RIGHT]
+    legend_combos: {}
+    bbox: { x: 844, y: 537, width: 78, height: 70 }
+    overlay_color: [80, 160, 255]
+
+  - id: P1_BUTTON0
+    kind: button
+    port: 1
+    legend: [FIRE]
+    legend_combos: {}
+    bbox: { x: 87, y: 244, width: 144, height: 130 }
+    overlay_color: [80, 160, 255]
+
+  - id: P1_BUTTON1
+    kind: button
+    port: 1
+    legend: [BTN2]
+    legend_combos: {}
+    bbox: { x: 299, y: 50, width: 144, height: 130 }
+    overlay_color: [80, 160, 255]
+
+  - id: P1_PADDLE0
+    kind: axis
+    port: 1
+    legend: [PADDLE0]
+    legend_combos: {}
+
+  - id: P1_PADDLE1
+    kind: axis
+    port: 1
+    legend: [PADDLE1]
+    legend_combos: {}
+

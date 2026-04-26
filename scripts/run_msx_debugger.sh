@@ -31,6 +31,7 @@ PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/msx1/host_keyboard_msx.yaml}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/msx1/host_controller_msx1.yaml}"
 USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/msx1/msx_mapper_konami.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-}"
@@ -45,6 +46,7 @@ IC_VDP="examples/ics/msx1/msx1_vdp_tms9918a.yaml"
 IC_PPI="examples/ics/msx1/msx1_ppi_8255.yaml"
 IC_PSG="examples/ics/msx1/msx1_psg_ay8910.yaml"
 DEVICE_KB="examples/devices/msx1/msx_keyboard.yaml"
+DEVICE_CTRL="examples/devices/msx1/msx_controller.yaml"
 DEVICE_VIDEO="examples/devices/msx1/msx_video.yaml"
 DEVICE_SPK="examples/devices/msx1/msx_speaker.yaml"
 
@@ -94,6 +96,7 @@ GEN_ARGS=(
   --ic "${IC_PPI}"
   --ic "${IC_PSG}"
   --device "${DEVICE_KB}"
+  --device "${DEVICE_CTRL}"
   --device "${DEVICE_VIDEO}"
   --device "${DEVICE_SPK}"
   --host "${HOST}"
@@ -113,6 +116,7 @@ if [[ "${USE_CARTRIDGE}" != "0" ]]; then
 fi
 if [[ "${PROFILE}" == "interactive" ]]; then
   RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
+  RUN_ARGS+=(--controller-map "${CONTROLLER_MAP}")
 fi
 uv run python -m src.main generate \
   "${GEN_ARGS[@]}"

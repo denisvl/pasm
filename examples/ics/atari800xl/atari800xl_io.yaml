@@ -196,6 +196,12 @@ interfaces:
     - name: keyboard_ascii
       args: []
       returns: u8
+    - name: keyboard_mods
+      args: []
+      returns: u8
+    - name: break_state
+      args: []
+      returns: u8
     - name: consol_state
       args: []
       returns: u8
@@ -522,13 +528,6 @@ behavior:
           }
       }
     mem_write_pre: |
-      if (addr == 0x02FCu) {
-          /* OS CH shadow (keyboard code), not ATASCII. */
-          comp->keyboard_code = value;
-          if (value == 0xFFu) {
-              comp->keyboard_sticky = 0u;
-          }
-      }
       if (addr >= 0x5000u && addr < 0x5800u) {
           if ((comp->portb & 0x80u) == 0u) {
               return;
@@ -944,86 +943,26 @@ behavior:
       }
       {
           uint8_t key = (uint8_t)cpu_component_call(cpu, "atari_io", "keyboard_ascii", NULL, 0);
+          uint8_t mods = (uint8_t)cpu_component_call(cpu, "atari_io", "keyboard_mods", NULL, 0);
+          uint8_t shift = (uint8_t)(mods & 0x01u);
+          uint8_t ctrl = (uint8_t)((mods & 0x02u) != 0u);
+          uint8_t any_key = (uint8_t)((mods & 0x04u) != 0u);
+
+          /* Update SKSTAT keyboard bits (active-low).
+             - bit 3: SHIFT key (0=pressed)
+             - bit 2: key down (0=any key pressed)
+             Keep other bits (notably serial status bits) intact. */
+          {
+              uint8_t sk = comp->pokey_skstat;
+              sk = (uint8_t)(sk | 0x0Cu); /* default: no shift, no key */
+              if (shift != 0u) sk = (uint8_t)(sk & (uint8_t)~0x08u);
+              if (any_key != 0u) sk = (uint8_t)(sk & (uint8_t)~0x04u);
+              comp->pokey_skstat = sk;
+          }
+
           if (key != 0u) {
-              if (key == 0x1Bu) {
-                  /* Map ESC to Atari BREAK key IRQ source (POKEY IRQST bit 7, active low). */
-                  comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x80u);
-                  if ((comp->pokey_irqen & 0x80u) != 0u) {
-                      cpu->interrupt_vector = 0x00u;
-                      cpu->interrupt_pending = true;
-                  }
-              } else {
-              uint8_t atascii = key;
-              uint8_t base = 0xFFu;
-              uint8_t ctrl = 0u;
-
-              if (atascii == 0x0Du || atascii == 0x0Au) atascii = 0x9Bu;
-
-              if (atascii >= 1u && atascii <= 26u) {
-                  ctrl = 1u;
-                  atascii = (uint8_t)('A' + (atascii - 1u));
-              }
-              if (atascii >= 'a' && atascii <= 'z') atascii = (uint8_t)(atascii - ('a' - 'A'));
-
-              switch (atascii) {
-                  case 'A': base = 0x3Fu; break;
-                  case 'B': base = 0x15u; break;
-                  case 'C': base = 0x12u; break;
-                  case 'D': base = 0x3Au; break;
-                  case 'E': base = 0x2Au; break;
-                  case 'F': base = 0x38u; break;
-                  case 'G': base = 0x3Du; break;
-                  case 'H': base = 0x39u; break;
-                  case 'I': base = 0x0Du; break;
-                  case 'J': base = 0x01u; break;
-                  case 'K': base = 0x05u; break;
-                  case 'L': base = 0x00u; break;
-                  case 'M': base = 0x25u; break;
-                  case 'N': base = 0x23u; break;
-                  case 'O': base = 0x08u; break;
-                  case 'P': base = 0x0Au; break;
-                  case 'Q': base = 0x2Fu; break;
-                  case 'R': base = 0x28u; break;
-                  case 'S': base = 0x3Eu; break;
-                  case 'T': base = 0x2Du; break;
-                  case 'U': base = 0x0Bu; break;
-                  case 'V': base = 0x10u; break;
-                  case 'W': base = 0x2Eu; break;
-                  case 'X': base = 0x16u; break;
-                  case 'Y': base = 0x2Bu; break;
-                  case 'Z': base = 0x17u; break;
-                  case '1': base = 0x1Fu; break;
-                  case '2': base = 0x1Eu; break;
-                  case '3': base = 0x1Au; break;
-                  case '4': base = 0x18u; break;
-                  case '5': base = 0x1Du; break;
-                  case '6': base = 0x1Bu; break;
-                  case '7': base = 0x33u; break;
-                  case '8': base = 0x35u; break;
-                  case '9': base = 0x30u; break;
-                  case '0': base = 0x32u; break;
-                  case ' ': base = 0x21u; break;
-                  case 0x9Bu: base = 0x0Cu; break; /* RETURN */
-                  case 0x7Eu: base = 0x34u; break; /* BACKSPACE */
-                  case 0x1Bu: base = 0x1Cu; break; /* ESC */
-                  case 0x7Fu: base = 0x2Cu; break; /* TAB (DEL key fallback) */
-                  case ',': case '[': base = 0x20u; break;
-                  case '.': case ']': base = 0x22u; break;
-                  case '/': case '?': base = 0x26u; break;
-                  case ';': case ':': base = 0x02u; break;
-                  case '-': case '_': base = 0x0Eu; break;
-                  case '=': case '|': base = 0x0Fu; break;
-                  case '+': case '\\': base = 0x06u; break;
-                  case '*': case '^': base = 0x07u; break;
-                  case '<': base = 0x36u; break;
-                  case '>': base = 0x37u; break;
-                  default: break;
-              }
-
-              comp->keyboard_atascii = atascii;
-              if (base != 0xFFu) {
-                  comp->keyboard_code = (uint8_t)(base | (ctrl != 0u ? 0x80u : 0u));
-              }
+              /* Host queues (KBCODE + 1), with shift/ctrl bits already latched at keydown time. */
+              comp->keyboard_code = (uint8_t)(key - 1u);
               comp->keyboard_sticky = 1u;
               /* Raise keyboard IRQ source (active-low bit 6). */
               comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x40u);
@@ -1031,10 +970,19 @@ behavior:
                   cpu->interrupt_vector = 0x00u;
                   cpu->interrupt_pending = true;
               }
-              if (cpu->memory_size > 0x02FCu) {
-                  cpu->memory[0x02FCu] = comp->keyboard_code; /* CH shadow for OS/BASIC polling paths */
+          }
+      }
+      {
+          /* BREAK key: expose it as a POKEY IRQ source (active-low bit 7), like real hardware. */
+          uint8_t brk = (uint8_t)(cpu_component_call(cpu, "atari_io", "break_state", NULL, 0) & 0x01u);
+          if (brk != 0u) {
+              comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x80u);
+              if ((comp->pokey_irqen & 0x80u) != 0u) {
+                  cpu->interrupt_vector = 0x00u;
+                  cpu->interrupt_pending = true;
               }
-              }
+          } else {
+              comp->pokey_irqst = (uint8_t)(comp->pokey_irqst | 0x80u);
           }
       }
 

@@ -1,0 +1,376 @@
+keyboard:
+  kind: matrix
+  focus_required: true
+  bindings:
+  - host_scancode: ESCAPE
+    mapper_key_id: K_ESCAPE
+    presses:
+    - row: 0
+      bit: 7
+  - host_scancode: PAUSE
+    emulator_key_id: EMU_RESET
+  - host_scancode: '1'
+    mapper_key_id: K_1
+    presses:
+    - row: 0
+      bit: 3
+  - host_scancode: '2'
+    mapper_key_id: K_2
+    presses:
+    - row: 1
+      bit: 3
+  - host_scancode: '3'
+    mapper_key_id: K_3
+    presses:
+    - row: 1
+      bit: 1
+  - host_scancode: '4'
+    mapper_key_id: K_4
+    presses:
+    - row: 2
+      bit: 1
+  - host_scancode: '5'
+    mapper_key_id: K_5
+    presses:
+    - row: 3
+      bit: 1
+  - host_scancode: '6'
+    mapper_key_id: K_6
+    presses:
+    - row: 4
+      bit: 3
+  - host_scancode: '7'
+    mapper_key_id: K_7
+    presses:
+    - row: 4
+      bit: 2
+  - host_scancode: '8'
+    mapper_key_id: K_8
+    presses:
+    - row: 5
+      bit: 1
+  - host_scancode: '9'
+    mapper_key_id: K_9
+    presses:
+    - row: 6
+      bit: 2
+  - host_scancode: '0'
+    mapper_key_id: K_0
+    presses:
+    - row: 7
+      bit: 2
+  - host_scancode: LEFT
+    mapper_key_id: K_LEFT
+    presses:
+    - row: 9
+      bit: 1
+  - host_scancode: RIGHT
+    mapper_key_id: K_RIGHT
+    presses:
+    - row: 9
+      bit: 7
+  - host_scancode: TAB
+    mapper_key_id: K_TAB
+    presses:
+    - row: 0
+      bit: 6
+  - host_scancode: Q
+    mapper_key_id: K_Q
+    presses:
+    - row: 0
+      bit: 1
+  - host_scancode: W
+    mapper_key_id: K_W
+    presses:
+    - row: 1
+      bit: 2
+  - host_scancode: E
+    mapper_key_id: K_E
+    presses:
+    - row: 2
+      bit: 2
+  - host_scancode: R
+    mapper_key_id: K_R
+    presses:
+    - row: 3
+      bit: 3
+  - host_scancode: T
+    mapper_key_id: K_T
+    presses:
+    - row: 3
+      bit: 2
+  - host_scancode: Y
+    mapper_key_id: K_Y
+    presses:
+    - row: 4
+      bit: 4
+  - host_scancode: U
+    mapper_key_id: K_U
+    presses:
+    - row: 5
+      bit: 3
+  - host_scancode: I
+    mapper_key_id: K_I
+    presses:
+    - row: 5
+      bit: 2
+  - host_scancode: O
+    mapper_key_id: K_O
+    presses:
+    - row: 6
+      bit: 3
+  - host_scancode: P
+    mapper_key_id: K_P
+    presses:
+    - row: 7
+      bit: 3
+  - host_scancode: 100
+    mapper_key_id: K_BACKSLASH
+    presses:
+    - row: 8
+      bit: 7
+  - host_scancode: UP
+    mapper_key_id: K_UP
+    presses:
+    - row: 9
+      bit: 3
+  - host_scancode: DOWN
+    mapper_key_id: K_DOWN
+    presses:
+    - row: 9
+      bit: 2
+  - host_scancode: CAPSLOCK
+    mapper_key_id: K_CAPSLOCK
+    presses:
+    - row: 0
+      bit: 4
+  - host_scancode: LCTRL
+    mapper_key_id: K_CTRL
+    presses:
+    - row: 1
+      bit: 0
+  - host_scancode: A
+    mapper_key_id: K_A
+    presses:
+    - row: 1
+      bit: 4
+  - host_scancode: S
+    mapper_key_id: K_S
+    presses:
+    - row: 1
+      bit: 5
+  - host_scancode: D
+    mapper_key_id: K_D
+    presses:
+    - row: 2
+      bit: 3
+  - host_scancode: F
+    mapper_key_id: K_F
+    presses:
+    - row: 3
+      bit: 4
+  - host_scancode: G
+    mapper_key_id: K_G
+    presses:
+    - row: 3
+      bit: 5
+  - host_scancode: H
+    mapper_key_id: K_H
+    presses:
+    - row: 4
+      bit: 5
+  - host_scancode: J
+    mapper_key_id: K_J
+    presses:
+    - row: 5
+      bit: 4
+  - host_scancode: K
+    mapper_key_id: K_K
+    presses:
+    - row: 6
+      bit: 4
+  - host_scancode: L
+    mapper_key_id: K_L
+    presses:
+    - row: 6
+      bit: 5
+  - host_scancode: RETURN
+    mapper_key_id: K_RETURN
+    presses:
+    - row: 9
+      bit: 4
+  - host_scancode: Z
+    mapper_key_id: K_Z
+    presses:
+    - row: 1
+      bit: 6
+  - host_scancode: X
+    mapper_key_id: K_X
+    presses:
+    - row: 2
+      bit: 4
+  - host_scancode: C
+    mapper_key_id: K_C
+    presses:
+    - row: 2
+      bit: 5
+  - host_scancode: V
+    mapper_key_id: K_V
+    presses:
+    - row: 3
+      bit: 6
+  - host_scancode: B
+    mapper_key_id: K_B
+    presses:
+    - row: 4
+      bit: 6
+  - host_scancode: N
+    mapper_key_id: K_N
+    presses:
+    - row: 5
+      bit: 5
+  - host_scancode: M
+    mapper_key_id: K_M
+    presses:
+    - row: 5
+      bit: 6
+  - host_scancode: COMMA
+    mapper_key_id: K_COMMA
+    presses:
+    - row: 6
+      bit: 6
+  - host_scancode: PERIOD
+    mapper_key_id: K_PERIOD
+    presses:
+    - row: 7
+      bit: 6
+  - host_scancode: 56
+    mapper_key_id: K_SEMICOLON
+    presses:
+    - row: 7
+      bit: 5
+  - host_scancode: SPACE
+    mapper_key_id: K_SPACE
+    presses:
+    - row: 2
+      bit: 6
+  - host_scancode: 42
+    mapper_key_id: K_DELETE
+    presses:
+    - row: 9
+      bit: 5
+  - host_scancode: 45
+    mapper_key_id: K_EQUALS
+    presses:
+    - row: 7
+      bit: 1
+  - host_scancode: 52
+    mapper_key_id: K_HAT
+    presses:
+    - row: 8
+      bit: 1
+  - host_scancode: 47
+    mapper_key_id: K_AT
+    presses:
+    - row: 7
+      bit: 4
+  - host_scancode: 48
+    mapper_key_id: K_LBRACKET
+    presses:
+    - row: 8
+      bit: 3
+  - host_scancode: 49
+    mapper_key_id: K_RBRACKET
+    presses:
+    - row: 8
+      bit: 5
+  - host_scancode: 51
+    mapper_key_id: K_COLON
+    presses:
+    - row: 8
+      bit: 4
+  - host_scancode: 135
+    mapper_key_id: K_SLASH
+    presses:
+    - row: 8
+      bit: 6
+  - host_scancode: 225
+    mapper_key_id: K_SHIFT
+    presses:
+    - row: 0
+      bit: 0
+  - host_scancode: 229
+    mapper_key_id: K_RSHIFT
+    presses:
+    - row: 0
+      bit: 0
+  - host_scancode: 226
+    mapper_key_id: K_SHIFTLOCK
+    presses:
+    - row: 0
+      bit: 5
+  - host_scancode: 74
+    mapper_key_id: K_COPY
+    presses:
+    - row: 9
+      bit: 6
+  - host_scancode: 67
+    mapper_key_id: K_F0
+    presses:
+    - row: 0
+      bit: 2
+  - host_scancode: 58
+    mapper_key_id: K_F1
+    presses:
+    - row: 1
+      bit: 7
+  - host_scancode: 61
+    mapper_key_id: K_F4
+    presses:
+    - row: 4
+      bit: 1
+  - host_scancode: 62
+    mapper_key_id: K_F5
+    presses:
+    - row: 4
+      bit: 7
+  - host_scancode: 63
+    mapper_key_id: K_F6
+    presses:
+    - row: 5
+      bit: 7
+  - host_scancode: 64
+    mapper_key_id: K_F7
+    presses:
+    - row: 6
+      bit: 1
+  - host_scancode: 65
+    mapper_key_id: K_F8
+    presses:
+    - row: 6
+      bit: 7
+  - host_scancode: 66
+    mapper_key_id: K_F9
+    presses:
+    - row: 7
+      bit: 7
+  - host_scancode: 59
+    mapper_key_id: K_F2
+    presses:
+    - row: 2
+      bit: 7
+  - host_scancode: 60
+    mapper_key_id: K_F3
+    presses:
+    - row: 3
+      bit: 7
+  - host_scancode: 53
+    mapper_key_id: K_POUND
+    presses:
+    - row: 8
+      bit: 2
+  - host_scancode: 76
+    mapper_key_id: K_DELETE
+    presses:
+    - row: 9
+      bit: 5

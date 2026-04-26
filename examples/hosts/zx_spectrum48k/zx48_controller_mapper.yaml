@@ -1,0 +1,169 @@
+system_name: zx_spectrum48k
+max_ports: 2
+
+image:
+  file: zx_spectrum_48k_joystick.png
+
+controls:
+  # Port 1 (visual)
+  - id: P1_UP
+    kind: button
+    port: 1
+    legend: [UP]
+    legend_combos: {}
+    bbox:
+      x: 377
+      y: 117
+      width: 68
+      height: 63
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend: [DOWN]
+    legend_combos: {}
+    bbox:
+      x: 377
+      y: 117
+      width: 68
+      height: 63
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend: [LEFT]
+    legend_combos: {}
+    bbox:
+      x: 377
+      y: 117
+      width: 68
+      height: 63
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend: [RIGHT]
+    legend_combos: {}
+    bbox:
+      x: 377
+      y: 117
+      width: 68
+      height: 63
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend: [FIRE]
+    legend_combos: {}
+    bbox:
+      x: 377
+      y: 117
+      width: 68
+      height: 63
+    overlay_color:
+      - 80
+      - 160
+      - 255
+  # Port 2 (non-visual by default)
+  - id: P2_UP
+    kind: button
+    port: 2
+    legend: [P2_UP]
+    legend_combos: {}
+  - id: P2_DOWN
+    kind: button
+    port: 2
+    legend: [P2_DOWN]
+    legend_combos: {}
+  - id: P2_LEFT
+    kind: button
+    port: 2
+    legend: [P2_LEFT]
+    legend_combos: {}
+  - id: P2_RIGHT
+    kind: button
+    port: 2
+    legend: [P2_RIGHT]
+    legend_combos: {}
+  - id: P2_FIRE
+    kind: button
+    port: 2
+    legend: [P2_FIRE]
+    legend_combos: {}
+
+  - id: P1_DOWN
+    kind: button
+    port: 1
+    legend:
+    - P1_DOWN
+    legend_combos:
+      P1_DOWN:
+      - P1_DOWN
+    bbox:
+      x: 377
+      y: 484
+      width: 68
+      height: 63
+    overlay_color:
+    - 80
+    - 160
+    - 255
+  - id: P1_LEFT
+    kind: button
+    port: 1
+    legend:
+    - P1_LEFT
+    legend_combos:
+      P1_LEFT:
+      - P1_LEFT
+    bbox:
+      x: 199
+      y: 288
+      width: 68
+      height: 63
+    overlay_color:
+    - 80
+    - 160
+    - 255
+  - id: P1_RIGHT
+    kind: button
+    port: 1
+    legend:
+    - P1_RIGHT
+    legend_combos:
+      P1_RIGHT:
+      - P1_RIGHT
+    bbox:
+      x: 556
+      y: 288
+      width: 68
+      height: 63
+    overlay_color:
+    - 80
+    - 160
+    - 255
+  - id: P1_FIRE
+    kind: button
+    port: 1
+    legend:
+    - P1_FIRE
+    legend_combos:
+      P1_FIRE:
+      - P1_FIRE
+    bbox:
+      x: 60
+      y: 477
+      width: 158
+      height: 142
+    overlay_color:
+    - 255
+    - 80
+    - 80

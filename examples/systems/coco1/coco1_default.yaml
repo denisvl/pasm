@@ -55,6 +55,7 @@ components:
     - coco1_io
   devices:
     - keyboard_coco
+    - gameport_coco
     - video_coco
     - speaker_coco
   hosts:
@@ -85,14 +86,32 @@ connections:
       kind: callback
       name: joystick_read_axis
     to:
-      component: host_coco
+      component: gameport_coco
       kind: callback
-      name: joystick_axis
+      name: read_axis
 
   - from:
       component: coco1_io
       kind: callback
       name: joystick_read_button
+    to:
+      component: gameport_coco
+      kind: callback
+      name: read_button
+
+  - from:
+      component: gameport_coco
+      kind: callback
+      name: host_axis
+    to:
+      component: host_coco
+      kind: callback
+      name: joystick_axis
+
+  - from:
+      component: gameport_coco
+      kind: callback
+      name: host_button
     to:
       component: host_coco
       kind: callback

@@ -94,6 +94,15 @@ static inline const uint8_t *sms_overlay_glyph(char ch) {
     static const uint8_t G_COLON[7] = {0, 0x0C, 0x0C, 0, 0x0C, 0x0C, 0};
     static const uint8_t G_SEMI[7] = {0, 0x0C, 0x0C, 0, 0x0C, 0x08, 0};
     static const uint8_t G_BANG[7] = {0x04, 0x04, 0x04, 0x04, 0x04, 0, 0x04};
+    static const uint8_t G_DQUOTE[7] = {0x0A, 0x0A, 0, 0, 0, 0, 0};
+    static const uint8_t G_APOS[7] = {0x04, 0x04, 0, 0, 0, 0, 0};
+    static const uint8_t G_HASH[7] = {0x0A, 0x0A, 0x1F, 0x0A, 0x1F, 0x0A, 0x0A};
+    static const uint8_t G_DOLLAR[7] = {0x04, 0x0F, 0x14, 0x0E, 0x05, 0x1E, 0x04};
+    static const uint8_t G_AMP[7] = {0x0C, 0x12, 0x14, 0x08, 0x15, 0x12, 0x0D};
+    static const uint8_t G_STAR[7] = {0, 0x04, 0x15, 0x0E, 0x15, 0x04, 0};
+    static const uint8_t G_LT[7] = {0x02, 0x04, 0x08, 0x10, 0x08, 0x04, 0x02};
+    static const uint8_t G_GT[7] = {0x08, 0x04, 0x02, 0x01, 0x02, 0x04, 0x08};
+    static const uint8_t G_AT[7] = {0x0E, 0x11, 0x17, 0x15, 0x17, 0x10, 0x0E};
     static const uint8_t G_QUES[7] = {0x0E, 0x11, 0x01, 0x02, 0x04, 0, 0x04};
     static const uint8_t G_MINUS[7] = {0, 0, 0, 0x1E, 0, 0, 0};
     static const uint8_t G_PLUS[7] = {0, 0x04, 0x04, 0x1F, 0x04, 0x04, 0};
@@ -101,7 +110,7 @@ static inline const uint8_t *sms_overlay_glyph(char ch) {
     static const uint8_t G_EQ[7] = {0, 0x1F, 0, 0x1F, 0, 0, 0};
     static const uint8_t G_LPAREN[7] = {0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02};
     static const uint8_t G_RPAREN[7] = {0x08, 0x04, 0x02, 0x02, 0x02, 0x04, 0x08};
-    static const uint8_t G_SQ[7] = {0x0E, 0x11, 0x01, 0x02, 0x04, 0, 0x04};
+    static const uint8_t G_SQ[7] = {0x1F, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1F};
     static const uint8_t G_PCT[7] = {0x19, 0x19, 0x02, 0x04, 0x08, 0x13, 0x13};
 
     static const uint8_t G_0[7] = {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E};
@@ -158,6 +167,15 @@ static inline const uint8_t *sms_overlay_glyph(char ch) {
         case ':': return G_COLON;
         case ';': return G_SEMI;
         case '!': return G_BANG;
+        case '"': return G_DQUOTE;
+        case '\'': return G_APOS;
+        case '#': return G_HASH;
+        case '$': return G_DOLLAR;
+        case '&': return G_AMP;
+        case '*': return G_STAR;
+        case '<': return G_LT;
+        case '>': return G_GT;
+        case '@': return G_AT;
         case '?': return G_QUES;
         case '-': return G_MINUS;
         case '+': return G_PLUS;

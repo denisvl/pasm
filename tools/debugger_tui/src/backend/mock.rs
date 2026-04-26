@@ -371,6 +371,14 @@ impl DebuggerBackend for MockDebuggerBackend {
         Ok(())
     }
 
+    fn load_cartridge_rom(&mut self, _path: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn supports_cartridge(&mut self) -> Result<bool, String> {
+        Ok(true)
+    }
+
     fn set_overlay_enabled(&mut self, enabled: bool) -> Result<(), String> {
         self.overlay_enabled = enabled;
         Ok(())

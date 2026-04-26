@@ -14,8 +14,9 @@ set -euo pipefail
 #   CMAKE_BUILD_TYPE=Release
 #   RUN_SPEED=realtime|max
 #   PASM_HOST_AUDIO=1
+#   USE_CARTRIDGE=0|1
 #   CARTRIDGE_MAP=examples/cartridges/coco1/coco_mapper_none.yaml
-#   CARTRIDGE_ROM_GEN=../../roms/coco1/Dungeons of Daggorath (1982) (26-3093) (DynaMicro) [!].ccc
+#   CARTRIDGE_ROM_GEN=../../roms/coco1/Downland V1.1 (1983) (26-3046) (Tandy) [a1].ccc
 #   CARTRIDGE_ROM_RUN=/abs/path/to/cart.rom  (optional override)
 
 PROFILE="${1:-interactive}"
@@ -25,9 +26,11 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
+USE_CARTRIDGE="${USE_CARTRIDGE:-0}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/coco1/host_keyboard_coco.yaml}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/coco1/host_controller_coco.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -38,6 +41,7 @@ mkdir -p "${UV_CACHE_DIR}"
 PROCESSOR="examples/processors/mc6809.yaml"
 IC_MAIN="examples/ics/coco1/coco1_peripherals.yaml"
 DEVICE_KB="examples/devices/coco1/coco_keyboard.yaml"
+DEVICE_GP="examples/devices/coco1/coco_gameport.yaml"
 DEVICE_VIDEO="examples/devices/coco1/coco_video.yaml"
 DEVICE_SPK="examples/devices/coco1/coco_speaker.yaml"
 
@@ -66,8 +70,23 @@ OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_D
 SYSTEM_DIR="$(dirname "${SYSTEM}")"
 SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
 
-USE_CARTRIDGE=0
-if [[ -n "${CARTRIDGE_MAP}" || -n "${CARTRIDGE_ROM_GEN}" || -n "${CARTRIDGE_ROM_RUN:-}" ]]; then
+# Cartridge mode can be enabled explicitly (USE_CARTRIDGE=1) or implicitly by setting any
+# cartridge-related env vars (legacy behavior).
+if [[ "${USE_CARTRIDGE}" == "0" ]]; then
+  if [[ -n "${CARTRIDGE_MAP}" || -n "${CARTRIDGE_ROM_GEN}" || -n "${CARTRIDGE_ROM_RUN:-}" ]]; then
+    USE_CARTRIDGE=1
+  fi
+fi
+
+if [[ "${USE_CARTRIDGE}" == "1" ]]; then
+  # Defaults when using cartridges: Downland + no-mapper cart layout, unless overridden.
+  if [[ -z "${CARTRIDGE_MAP}" ]]; then
+    CARTRIDGE_MAP="examples/cartridges/coco1/coco_mapper_none.yaml"
+  fi
+  if [[ -z "${CARTRIDGE_ROM_GEN}" && -z "${CARTRIDGE_ROM_RUN:-}" ]]; then
+    CARTRIDGE_ROM_GEN="../../roms/coco1/Downland V1.1 (1983) (26-3046) (Tandy) [a1].ccc"
+  fi
+
   if [[ -z "${CARTRIDGE_MAP}" ]]; then
     echo "Set CARTRIDGE_MAP when enabling cartridge mode." >&2
     exit 4
@@ -76,7 +95,6 @@ if [[ -n "${CARTRIDGE_MAP}" || -n "${CARTRIDGE_ROM_GEN}" || -n "${CARTRIDGE_ROM_
     echo "Set either CARTRIDGE_ROM_GEN or CARTRIDGE_ROM_RUN when enabling cartridge mode." >&2
     exit 4
   fi
-  USE_CARTRIDGE=1
 fi
 
 GEN_CARTRIDGE_ARGS=()
@@ -108,6 +126,7 @@ fi
 KEYBOARD_ARGS=()
 if [[ "${PROFILE}" == "interactive" ]]; then
   KEYBOARD_ARGS=(--keyboard-map "${KEYBOARD_MAP}")
+  KEYBOARD_ARGS+=(--controller-map "${CONTROLLER_MAP}")
 fi
 
 echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
@@ -116,6 +135,7 @@ uv run python -m src.main generate \
   --system "${SYSTEM}" \
   --ic "${IC_MAIN}" \
   --device "${DEVICE_KB}" \
+  --device "${DEVICE_GP}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \

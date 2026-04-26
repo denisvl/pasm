@@ -50,6 +50,10 @@ interfaces:
     - name: keyboard_row
       args: [u8]
       returns: u8
+    # port: 1..2, returns active-low joystick bits: bit0=UP bit1=DOWN bit2=LEFT bit3=RIGHT bit4=FIRE.
+    - name: joystick_port
+      args: [u8]
+      returns: u8
   handlers: []
   signals:
     - name: frame_ready
@@ -151,12 +155,12 @@ behavior:
                   if (r == 0x00u) {
                       uint8_t sel_cols=(uint8_t)(~comp->cia1_prb); uint8_t k=0xFFu; uint8_t out=(uint8_t)((comp->cia1_pra & comp->cia1_ddra) | (uint8_t)(~comp->cia1_ddra));
                       for (uint8_t rw=0u;rw<8u;++rw){ uint64_t a[1]={(uint64_t)rw}; uint8_t rb=(uint8_t)cpu_component_call(cpu,"c64_io","keyboard_row",a,1); if ((((uint8_t)(~rb)) & sel_cols) != 0u) k=(uint8_t)(k & (uint8_t)~(uint8_t)(1u<<rw)); }
-                      return (uint8_t)(out & k);
+                      { uint64_t ja[1] = { 2u }; uint8_t joy = (uint8_t)cpu_component_call(cpu, "c64_io", "joystick_port", ja, 1); return (uint8_t)(out & k & joy); }
                   }
                   if (r == 0x01u) {
                       uint8_t sel_rows=(uint8_t)(~comp->cia1_pra); uint8_t k=0xFFu; uint8_t out=(uint8_t)((comp->cia1_prb & comp->cia1_ddrb) | (uint8_t)(~comp->cia1_ddrb));
                       for (uint8_t c=0u;c<8u;++c){ uint8_t p=0u; for (uint8_t rw=0u;rw<8u;++rw){ if ((sel_rows & (uint8_t)(1u<<rw))==0u) continue; uint64_t a[1]={(uint64_t)rw}; uint8_t rb=(uint8_t)cpu_component_call(cpu,"c64_io","keyboard_row",a,1); if ((rb & (uint8_t)(1u<<c))==0u){ p=1u; break; } } if (p!=0u) k=(uint8_t)(k & (uint8_t)~(uint8_t)(1u<<c)); }
-                      return (uint8_t)(out & k);
+                      { uint64_t ja[1] = { 1u }; uint8_t joy = (uint8_t)cpu_component_call(cpu, "c64_io", "joystick_port", ja, 1); return (uint8_t)(out & k & joy); }
                   }
                   if (r == 0x02u) return comp->cia1_ddra;
                   if (r == 0x03u) return comp->cia1_ddrb;

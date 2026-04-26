@@ -104,6 +104,9 @@ state:
   - name: trig3
     type: uint8_t
     initial: "1"
+  - name: break_pressed
+    type: uint8_t
+    initial: "0"
   - name: last_event_poll_cycle
     type: uint64_t
     initial: "0u"
@@ -129,6 +132,12 @@ state:
 interfaces:
   callbacks:
     - name: keyboard_ascii
+      args: []
+      returns: u8
+    - name: keyboard_mods
+      args: []
+      returns: u8
+    - name: break_state
       args: []
       returns: u8
     - name: consol_state
@@ -161,7 +170,19 @@ behavior:
     init: |
       do {
           if (comp->host_inited != 0u) break;
+          {
+              const char *disable_dead = cpu_host_hal_getenv("PASM_DISABLE_DEADKEYS");
+              if (disable_dead == NULL || disable_dead[0] != '0') {
+                  #if defined(__linux__)
+                  /* Keep scancode flow deterministic by disabling XIM dead-key composition for this process. */
+                  setenv("XMODIFIERS", "@im=none", 1);
+                  setenv("GTK_IM_MODULE", "xim", 0);
+                  setenv("QT_IM_MODULE", "xim", 0);
+                  #endif
+              }
+          }
           if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_EVENTS) != 0) break;
+          cpu_host_hal_stop_text_input();
           comp->window = cpu_host_hal_create_window(
               "PASM Atari 800XL",
               CPU_HOST_WINDOWPOS_CENTERED,
@@ -292,12 +313,123 @@ behavior:
       }
       CPUHostEvent ev;
       while (cpu_host_hal_poll_event(&ev)) {
+          static int ev_trace_init = 0;
+          static int ev_trace_on = 0;
+          static FILE *ev_trace_fp = NULL;
+          if (ev_trace_init == 0) {
+              const char *env_ev = cpu_host_hal_getenv("PASM_ATARI800XL_KB_EVENTS");
+              ev_trace_on = (env_ev != NULL && env_ev[0] != '\0' && env_ev[0] != '0') ? 1 : 0;
+              ev_trace_init = 1;
+              if (ev_trace_on != 0) {
+                  ev_trace_fp = fopen("log/atari800xl_host_kb_events.log", "w");
+                  if (ev_trace_fp == NULL) ev_trace_fp = stderr;
+                  fprintf(ev_trace_fp, "# cycle,type,scancode,scancode_name,key_name,mods_hex,repeat\n");
+                  fflush(ev_trace_fp);
+              }
+          }
+          if (
+              cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN ||
+              cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYUP
+          ) {
+              int32_t sc_ev = cpu_host_hal_event_scancode(&ev);
+              uint8_t is_down_ev = (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN) ? 1u : 0u;
+              if (ev_trace_on != 0) {
+                  fprintf(
+                      ev_trace_fp,
+                      "%llu,%s,%d,%s,%s,0x%X,%u\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (is_down_ev != 0u) ? "down" : "up",
+                      (int)sc_ev,
+                      cpu_host_hal_scancode_name(sc_ev),
+                      cpu_host_hal_key_name(ev.key.keysym.sym),
+                      (unsigned)cpu_host_hal_event_mod_state(&ev),
+                      (unsigned)cpu_host_hal_event_key_repeat(&ev)
+                  );
+                  fflush(ev_trace_fp);
+              }
+              if (comp->window != NULL) {
+                  int key_count = 0;
+                  const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
+                  uint8_t shifted = 0u;
+                  uint8_t controlled = 0u;
+                  const RuntimeKeyboardBinding *matched = NULL;
+                  char title[256];
+                  if (ks != NULL && key_count > 0) {
+                      size_t kcount = (size_t)key_count;
+                      for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+                          const RuntimeKeyboardBinding *m = &g_runtime_keyboard_map.bindings[i];
+                          if (m->scancode < 0 || (size_t)m->scancode >= kcount) continue;
+                          if (ks[m->scancode] == 0u) continue;
+                          if (m->is_shift_modifier != 0u) shifted = 1u;
+                          if (m->is_ctrl_modifier != 0u) controlled = 1u;
+                      }
+                      for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+                          const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+                          if (b->scancode == sc_ev) {
+                              matched = b;
+                              break;
+                          }
+                      }
+                  }
+                  if (matched != NULL) {
+                      /* For Atari KBCODE accuracy, the host sends the *base* keycode only.
+                         The IC composes shift/ctrl state into KBCODE (bits 6/7). */
+                      uint8_t base = (matched->has_ascii != 0u) ? matched->ascii : 0u;
+                      uint8_t out = base;
+                      uint8_t kb = 0u;
+                      if (base != 0u) {
+                          kb = (uint8_t)(base - 1u);
+                          if (shifted != 0u) kb = (uint8_t)(kb | 0x40u);
+                          if (controlled != 0u) kb = (uint8_t)(kb | 0x80u);
+                      }
+                      snprintf(
+                          title,
+                          sizeof(title),
+                          "PASM Atari 800XL | %s sc=%d (%s) | %s base=%u kb=0x%02X sh=%u ct=%u",
+                          (is_down_ev != 0u) ? "down" : "up",
+                          (int)sc_ev,
+                          cpu_host_hal_scancode_name(sc_ev),
+                          (matched->mapper_key_id[0] != '\0') ? matched->mapper_key_id : "(no-id)",
+                          (unsigned)out,
+                          (unsigned)kb,
+                          (unsigned)shifted,
+                          (unsigned)controlled
+                      );
+                  } else {
+                      snprintf(
+                          title,
+                          sizeof(title),
+                          "PASM Atari 800XL | %s sc=%d (%s) | unmapped",
+                          (is_down_ev != 0u) ? "down" : "up",
+                          (int)sc_ev,
+                          cpu_host_hal_scancode_name(sc_ev)
+                      );
+                  }
+                  cpu_host_hal_set_window_title(comp->window, title);
+              }
+          }
           if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {
               cpu->running = false;
               cpu->halted = true;
               return;
           } else if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN && cpu_host_hal_event_key_repeat(&ev) == 0) {
               int32_t sc = cpu_host_hal_event_scancode(&ev);
+              /* Discover special scancodes from the runtime map by mapper_key_id (layout independent). */
+              {
+                  static int32_t break_sc = -2;
+                  if (break_sc == -2) {
+                      break_sc = -1;
+                      for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+                          const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+                          if (b->mapper_key_id[0] == '\0') continue;
+                          if (strcmp(b->mapper_key_id, "key_break") == 0) break_sc = b->scancode;
+                      }
+                  }
+                  if (break_sc >= 0 && sc == break_sc) {
+                      comp->break_pressed = 1u;
+                      continue;
+                  }
+              }
               {
                   static int key_trace = -1;
                   if (key_trace < 0) {
@@ -364,9 +496,39 @@ behavior:
                   comp->trig2 = 0u;
                   continue;
               }
-              uint8_t controlled = ((cpu_host_hal_event_mod_state(&ev) & CPU_HOST_MOD_CTRL) != 0) ? 1u : 0u;
-              uint8_t shifted = ((cpu_host_hal_event_mod_state(&ev) & CPU_HOST_MOD_SHIFT) != 0) ? 1u : 0u;
-              cpu_component_keyboard_ascii_feed(sc, shifted, controlled, 1u);
+              {
+                  int key_count = 0;
+                  const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
+                  uint8_t shifted = 0u;
+                  uint8_t controlled = 0u;
+                  const RuntimeKeyboardBinding *matched = NULL;
+                  if (ks != NULL && key_count > 0) {
+                      size_t kcount = (size_t)key_count;
+                      for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+                          const RuntimeKeyboardBinding *m = &g_runtime_keyboard_map.bindings[i];
+                          if (m->scancode < 0 || (size_t)m->scancode >= kcount) continue;
+                          if (ks[m->scancode] == 0u) continue;
+                          if (m->is_shift_modifier != 0u) shifted = 1u;
+                          if (m->is_ctrl_modifier != 0u) controlled = 1u;
+                      }
+                      for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+                          const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+                          if (b->scancode == sc) { matched = b; break; }
+                      }
+                  }
+                  if (matched != NULL) {
+                      /* Push base keycode only; modifiers are applied in the IC. */
+                      uint8_t out = 0u;
+                      if (matched->has_ascii != 0u && matched->ascii != 0u) {
+                          uint8_t kb = (uint8_t)(matched->ascii - 1u);
+                          if (shifted != 0u) kb = (uint8_t)(kb | 0x40u);
+                          if (controlled != 0u) kb = (uint8_t)(kb | 0x80u);
+                          /* Queue encoded (KBCODE + 1), so 0 means "no event". */
+                          out = (uint8_t)(kb + 1u);
+                      }
+                      cpu_component_keyboard_ascii_queue_push(out);
+                  }
+              }
           } else if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYUP) {
               int32_t sc = cpu_host_hal_event_scancode(&ev);
               {
@@ -379,40 +541,52 @@ behavior:
                       fprintf(stderr, "[atari800xl-host] keyup   sc=%d\n", (int)sc);
                   }
               }
+              /* Clear special-key pressed state on release. */
+              {
+                  static int32_t break_sc = -2;
+                  if (break_sc == -2) {
+                      break_sc = -1;
+                      for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+                          const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+                          if (b->mapper_key_id[0] == '\0') continue;
+                          if (strcmp(b->mapper_key_id, "key_break") == 0) break_sc = b->scancode;
+                      }
+                  }
+                  if (break_sc >= 0 && sc == break_sc) {
+                      comp->break_pressed = 0u;
+                  }
+              }
               if (sc == CPU_HOST_SCANCODE(F2)) {
                   comp->consol_state = (uint8_t)(comp->consol_state | 0x04u);
               } else if (sc == CPU_HOST_SCANCODE(F3)) {
                   comp->consol_state = (uint8_t)(comp->consol_state | 0x02u);
               } else if (sc == CPU_HOST_SCANCODE(F4)) {
                   comp->consol_state = (uint8_t)(comp->consol_state | 0x01u);
-              } else if (sc == CPU_HOST_SCANCODE(UP) || sc == CPU_HOST_SCANCODE(KP_8)) {
-                  comp->joy0_state = (uint8_t)(comp->joy0_state | 0x01u);
-              } else if (sc == CPU_HOST_SCANCODE(DOWN) || sc == CPU_HOST_SCANCODE(KP_2)) {
-                  comp->joy0_state = (uint8_t)(comp->joy0_state | 0x02u);
-              } else if (sc == CPU_HOST_SCANCODE(LEFT) || sc == CPU_HOST_SCANCODE(KP_4)) {
-                  comp->joy0_state = (uint8_t)(comp->joy0_state | 0x04u);
-              } else if (sc == CPU_HOST_SCANCODE(RIGHT) || sc == CPU_HOST_SCANCODE(KP_6)) {
-                  comp->joy0_state = (uint8_t)(comp->joy0_state | 0x08u);
-              } else if (
-                  sc == CPU_HOST_SCANCODE(RCTRL) ||
-                  sc == CPU_HOST_SCANCODE(RALT) ||
-                  sc == CPU_HOST_SCANCODE(KP_0)
-              ) {
-                  comp->trig0 = 1u;
-              } else if (sc == CPU_HOST_SCANCODE(I)) {
-                  comp->joy1_state = (uint8_t)(comp->joy1_state | 0x01u);
-              } else if (sc == CPU_HOST_SCANCODE(K)) {
-                  comp->joy1_state = (uint8_t)(comp->joy1_state | 0x02u);
-              } else if (sc == CPU_HOST_SCANCODE(J)) {
-                  comp->joy1_state = (uint8_t)(comp->joy1_state | 0x04u);
-              } else if (sc == CPU_HOST_SCANCODE(L)) {
-                  comp->joy1_state = (uint8_t)(comp->joy1_state | 0x08u);
-              } else if (sc == CPU_HOST_SCANCODE(LCTRL)) {
-                  comp->trig1 = 1u;
-              } else if (sc == CPU_HOST_SCANCODE(TAB)) {
-                  comp->trig2 = 1u;
               }
           }
+      }
+      /* Optional controller map: when present, it drives joystick/trigger state (host-abstracted). */
+      if (g_runtime_controller_map.loaded != 0u) {
+          uint8_t focus = (comp->window != NULL) ? cpu_host_hal_window_has_focus(comp->window) : 1u;
+          uint8_t j0 = 0x0Fu;
+          uint8_t j1 = 0x0Fu;
+          uint8_t t0 = 1u;
+          uint8_t t1 = 1u;
+          cpu_component_controller_map_poll(cpu, focus);
+          if (cpu_component_controller_pressed("P1_UP")) j0 = (uint8_t)(j0 & (uint8_t)~0x01u);
+          if (cpu_component_controller_pressed("P1_DOWN")) j0 = (uint8_t)(j0 & (uint8_t)~0x02u);
+          if (cpu_component_controller_pressed("P1_LEFT")) j0 = (uint8_t)(j0 & (uint8_t)~0x04u);
+          if (cpu_component_controller_pressed("P1_RIGHT")) j0 = (uint8_t)(j0 & (uint8_t)~0x08u);
+          if (cpu_component_controller_pressed("P1_BUTTON0")) t0 = 0u;
+          if (cpu_component_controller_pressed("P2_UP")) j1 = (uint8_t)(j1 & (uint8_t)~0x01u);
+          if (cpu_component_controller_pressed("P2_DOWN")) j1 = (uint8_t)(j1 & (uint8_t)~0x02u);
+          if (cpu_component_controller_pressed("P2_LEFT")) j1 = (uint8_t)(j1 & (uint8_t)~0x04u);
+          if (cpu_component_controller_pressed("P2_RIGHT")) j1 = (uint8_t)(j1 & (uint8_t)~0x08u);
+          if (cpu_component_controller_pressed("P2_BUTTON0")) t1 = 0u;
+          comp->joy0_state = j0;
+          comp->joy1_state = j1;
+          comp->trig0 = t0;
+          comp->trig1 = t1;
       }
       {
           sms_overlay_update_perf(
@@ -499,6 +673,28 @@ behavior:
   callback_handlers:
     keyboard_ascii: |
       return (uint64_t)cpu_component_keyboard_ascii_pop();
+    keyboard_mods: |
+      int key_count = 0;
+      const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
+      uint8_t shifted = 0u;
+      uint8_t controlled = 0u;
+      uint8_t any_key = 0u;
+      if (ks != NULL && key_count > 0) {
+          size_t kcount = (size_t)key_count;
+          for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+              const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+              if (b->scancode < 0 || (size_t)b->scancode >= kcount) continue;
+              if (ks[b->scancode] == 0u) continue;
+              if (b->is_shift_modifier != 0u) shifted = 1u;
+              if (b->is_ctrl_modifier != 0u) controlled = 1u;
+              if (b->is_shift_modifier == 0u && b->is_ctrl_modifier == 0u && b->has_ascii != 0u) {
+                  any_key = 1u;
+              }
+          }
+      }
+      return (uint64_t)((shifted ? 0x01u : 0u) | (controlled ? 0x02u : 0u) | (any_key ? 0x04u : 0u));
+    break_state: |
+      return (uint64_t)(comp->break_pressed & 0x01u);
     consol_state: |
       return (uint64_t)(comp->consol_state & 0x07u);
     joystick_porta: |

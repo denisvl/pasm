@@ -1,0 +1,41 @@
+metadata:
+  id: gameport_coco
+  type: input_port
+  model: coco1_gameport
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: read_axis
+      args: [u8]
+      returns: u8
+    - name: read_button
+      args: [u8]
+      returns: u8
+    - name: host_axis
+      args: [u8]
+      returns: u8
+    - name: host_button
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_axis: |
+      __result = cpu_component_call(cpu, "gameport_coco", "host_axis", args, argc);
+      return __result;
+    read_button: |
+      __result = cpu_component_call(cpu, "gameport_coco", "host_button", args, argc);
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

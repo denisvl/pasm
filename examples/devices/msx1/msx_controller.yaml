@@ -1,0 +1,32 @@
+metadata:
+  id: controller_msx
+  type: controller
+  model: msx_joystick_ports
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: read_state
+      args: []
+      returns: u8
+    - name: host_state
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_state: |
+      __result = cpu_component_call(cpu, "controller_msx", "host_state", NULL, 0);
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

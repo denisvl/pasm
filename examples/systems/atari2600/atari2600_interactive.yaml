@@ -28,6 +28,7 @@ components:
   ics:
     - atari2600_io
   devices:
+    - controller_atari2600
     - video_atari2600
     - speaker_atari2600
   hosts:
@@ -40,23 +41,50 @@ connections:
       kind: callback
       name: joy0_read
     to:
-      component: host_atari2600
+      component: controller_atari2600
       kind: callback
-      name: read_joy1
+      name: read_joy0
 
   - from:
       component: atari2600_io
       kind: callback
       name: joy1_read
     to:
-      component: host_atari2600
+      component: controller_atari2600
       kind: callback
-      name: read_joy2
+      name: read_joy1
 
   - from:
       component: atari2600_io
       kind: callback
       name: console_read
+    to:
+      component: controller_atari2600
+      kind: callback
+      name: read_console
+
+  - from:
+      component: controller_atari2600
+      kind: callback
+      name: host_joy0
+    to:
+      component: host_atari2600
+      kind: callback
+      name: read_joy1
+
+  - from:
+      component: controller_atari2600
+      kind: callback
+      name: host_joy1
+    to:
+      component: host_atari2600
+      kind: callback
+      name: read_joy2
+
+  - from:
+      component: controller_atari2600
+      kind: callback
+      name: host_console
     to:
       component: host_atari2600
       kind: callback

@@ -141,6 +141,10 @@ typedef struct {
     uint8_t ascii;
     uint8_t ascii_shift;
     uint8_t ascii_ctrl;
+    uint8_t is_shift_modifier;
+    uint8_t is_ctrl_modifier;
+    char mapper_key_id[128];
+    char emulator_key_id[64];
 } RuntimeKeyboardBinding;
 
 typedef struct {
@@ -158,6 +162,12 @@ typedef struct {
 static RuntimeKeyboardMap g_runtime_keyboard_map = {0};
 
 static int32_t cpu_host_hal_key_from_scancode(int scancode);
+static int32_t cpu_host_hal_scancode_from_key(int32_t keycode);
+
+#define CPU_HOST_HAT_UP 0x01u
+#define CPU_HOST_HAT_RIGHT 0x02u
+#define CPU_HOST_HAT_DOWN 0x04u
+#define CPU_HOST_HAT_LEFT 0x08u
 
 typedef SDL_Event CPUHostEvent;
 typedef SDL_Rect CPUHostRect;
@@ -238,6 +248,143 @@ static void cpu_host_hal_audio_clear(uint32_t dev) {
     if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
     if (dev == 0u) return;
     SDL_ClearQueuedAudio(dev);
+}
+
+/* Controller/joystick input abstraction (SDL2 backend). */
+static int cpu_host_hal_sdl_last_joy_count = -1;
+static SDL_GameController *cpu_host_hal_sdl_gamepads[16];
+static int cpu_host_hal_sdl_gamepad_count = 0;
+static SDL_Joystick *cpu_host_hal_sdl_joysticks[16];
+static int cpu_host_hal_sdl_joystick_count = 0;
+
+static void cpu_host_hal_sdl_refresh_controllers(void) {
+    int n;
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    n = SDL_NumJoysticks();
+    if (n == cpu_host_hal_sdl_last_joy_count) return;
+    cpu_host_hal_sdl_last_joy_count = n;
+    for (int i = 0; i < cpu_host_hal_sdl_gamepad_count; ++i) {
+        if (cpu_host_hal_sdl_gamepads[i]) SDL_GameControllerClose(cpu_host_hal_sdl_gamepads[i]);
+        cpu_host_hal_sdl_gamepads[i] = NULL;
+    }
+    for (int i = 0; i < cpu_host_hal_sdl_joystick_count; ++i) {
+        if (cpu_host_hal_sdl_joysticks[i]) SDL_JoystickClose(cpu_host_hal_sdl_joysticks[i]);
+        cpu_host_hal_sdl_joysticks[i] = NULL;
+    }
+    cpu_host_hal_sdl_gamepad_count = 0;
+    cpu_host_hal_sdl_joystick_count = 0;
+    for (int di = 0; di < n; ++di) {
+        if (SDL_IsGameController(di)) {
+            if (cpu_host_hal_sdl_gamepad_count >= 16) continue;
+            SDL_GameController *gc = SDL_GameControllerOpen(di);
+            if (gc) cpu_host_hal_sdl_gamepads[cpu_host_hal_sdl_gamepad_count++] = gc;
+        } else {
+            if (cpu_host_hal_sdl_joystick_count >= 16) continue;
+            SDL_Joystick *j = SDL_JoystickOpen(di);
+            if (j) cpu_host_hal_sdl_joysticks[cpu_host_hal_sdl_joystick_count++] = j;
+        }
+    }
+}
+
+static int cpu_host_hal_gamepad_count(void) {
+    cpu_host_hal_sdl_refresh_controllers();
+    return cpu_host_hal_sdl_gamepad_count;
+}
+
+static SDL_GameControllerButton cpu_host_hal_sdl_gc_button_from_id(int id) {
+    switch (id) {
+        case 0: return SDL_CONTROLLER_BUTTON_A;
+        case 1: return SDL_CONTROLLER_BUTTON_B;
+        case 2: return SDL_CONTROLLER_BUTTON_X;
+        case 3: return SDL_CONTROLLER_BUTTON_Y;
+        case 4: return SDL_CONTROLLER_BUTTON_BACK;
+        case 5: return SDL_CONTROLLER_BUTTON_GUIDE;
+        case 6: return SDL_CONTROLLER_BUTTON_START;
+        case 7: return SDL_CONTROLLER_BUTTON_LEFTSTICK;
+        case 8: return SDL_CONTROLLER_BUTTON_RIGHTSTICK;
+        case 9: return SDL_CONTROLLER_BUTTON_LEFTSHOULDER;
+        case 10: return SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+        case 11: return SDL_CONTROLLER_BUTTON_DPAD_UP;
+        case 12: return SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+        case 13: return SDL_CONTROLLER_BUTTON_DPAD_LEFT;
+        case 14: return SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+        default: return SDL_CONTROLLER_BUTTON_INVALID;
+    }
+}
+
+static SDL_GameControllerAxis cpu_host_hal_sdl_gc_axis_from_id(int id) {
+    switch (id) {
+        case 0: return SDL_CONTROLLER_AXIS_LEFTX;
+        case 1: return SDL_CONTROLLER_AXIS_LEFTY;
+        case 2: return SDL_CONTROLLER_AXIS_RIGHTX;
+        case 3: return SDL_CONTROLLER_AXIS_RIGHTY;
+        case 4: return SDL_CONTROLLER_AXIS_TRIGGERLEFT;
+        case 5: return SDL_CONTROLLER_AXIS_TRIGGERRIGHT;
+        default: return SDL_CONTROLLER_AXIS_INVALID;
+    }
+}
+
+static int cpu_host_hal_gamepad_button(int pad_index, int button_id) {
+    SDL_GameController *gc;
+    SDL_GameControllerButton b;
+    cpu_host_hal_sdl_refresh_controllers();
+    if (pad_index < 0 || pad_index >= cpu_host_hal_sdl_gamepad_count) return 0;
+    gc = cpu_host_hal_sdl_gamepads[pad_index];
+    if (gc == NULL) return 0;
+    b = cpu_host_hal_sdl_gc_button_from_id(button_id);
+    if (b == SDL_CONTROLLER_BUTTON_INVALID) return 0;
+    return (SDL_GameControllerGetButton(gc, b) != 0) ? 1 : 0;
+}
+
+static int cpu_host_hal_gamepad_axis(int pad_index, int axis_id) {
+    SDL_GameController *gc;
+    SDL_GameControllerAxis a;
+    cpu_host_hal_sdl_refresh_controllers();
+    if (pad_index < 0 || pad_index >= cpu_host_hal_sdl_gamepad_count) return 0;
+    gc = cpu_host_hal_sdl_gamepads[pad_index];
+    if (gc == NULL) return 0;
+    a = cpu_host_hal_sdl_gc_axis_from_id(axis_id);
+    if (a == SDL_CONTROLLER_AXIS_INVALID) return 0;
+    return (int)SDL_GameControllerGetAxis(gc, a);
+}
+
+static int cpu_host_hal_joystick_count(void) {
+    cpu_host_hal_sdl_refresh_controllers();
+    return cpu_host_hal_sdl_joystick_count;
+}
+
+static int cpu_host_hal_joystick_button(int joy_index, int button) {
+    SDL_Joystick *j;
+    cpu_host_hal_sdl_refresh_controllers();
+    if (joy_index < 0 || joy_index >= cpu_host_hal_sdl_joystick_count) return 0;
+    j = cpu_host_hal_sdl_joysticks[joy_index];
+    if (j == NULL) return 0;
+    return (SDL_JoystickGetButton(j, button) != 0) ? 1 : 0;
+}
+
+static int cpu_host_hal_joystick_axis(int joy_index, int axis) {
+    SDL_Joystick *j;
+    cpu_host_hal_sdl_refresh_controllers();
+    if (joy_index < 0 || joy_index >= cpu_host_hal_sdl_joystick_count) return 0;
+    j = cpu_host_hal_sdl_joysticks[joy_index];
+    if (j == NULL) return 0;
+    return (int)SDL_JoystickGetAxis(j, axis);
+}
+
+static uint8_t cpu_host_hal_joystick_hat(int joy_index, int hat) {
+    SDL_Joystick *j;
+    Uint8 hv;
+    uint8_t out = 0u;
+    cpu_host_hal_sdl_refresh_controllers();
+    if (joy_index < 0 || joy_index >= cpu_host_hal_sdl_joystick_count) return 0u;
+    j = cpu_host_hal_sdl_joysticks[joy_index];
+    if (j == NULL) return 0u;
+    hv = SDL_JoystickGetHat(j, hat);
+    if ((hv & SDL_HAT_UP) != 0u) out |= CPU_HOST_HAT_UP;
+    if ((hv & SDL_HAT_RIGHT) != 0u) out |= CPU_HOST_HAT_RIGHT;
+    if ((hv & SDL_HAT_DOWN) != 0u) out |= CPU_HOST_HAT_DOWN;
+    if ((hv & SDL_HAT_LEFT) != 0u) out |= CPU_HOST_HAT_LEFT;
+    return out;
 }
 
 static int cpu_host_hal_renderer_output_size(void *renderer, int *out_w, int *out_h) {
@@ -477,6 +624,12 @@ static int32_t cpu_host_hal_key_from_scancode(int scancode) {
     if (cpu_host_hal_sdl_inited == 0u) return 0;
     if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;
     return (int32_t)SDL_GetKeyFromScancode((SDL_Scancode)scancode);
+}
+
+static int32_t cpu_host_hal_scancode_from_key(int32_t keycode) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return -1;
+    return (int32_t)SDL_GetScancodeFromKey((SDL_Keycode)keycode);
 }
 
 static void cpu_host_hal_start_text_input(void) {
@@ -828,6 +981,38 @@ static int32_t cpu_component_scancode_for_host_key(const char *host_key) {
     return -1;
 #endif
 }
+static int32_t cpu_component_scancode_for_host_token(char *token) {
+    char *s = token;
+    char *end = NULL;
+    char *p = NULL;
+    size_t n = 0u;
+    uint8_t quoted = 0u;
+    long v = -1;
+    if (s == NULL || s[0] == '\0') return -1;
+    n = strlen(s);
+    if (n >= 2u && ((s[0] == '\'' && s[n - 1u] == '\'') || (s[0] == '"' && s[n - 1u] == '"'))) {
+        quoted = 1u;
+        s[n - 1u] = '\0';
+        s = s + 1;
+    }
+    if (quoted == 0u) {
+        if (strncmp(s, "KEY_", 4) == 0) {
+            v = strtol(s + 4, &end, 10);
+            if (end != (s + 4)) {
+                p = end;
+                while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+                if (*p == '\0' && v >= 0 && v <= 4095) return (int32_t)v;
+            }
+        }
+        v = strtol(s, &end, 0);
+        if (end != s) {
+            p = end;
+            while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+            if (*p == '\0' && v >= 0 && v <= 4095) return (int32_t)v;
+        }
+    }
+    return cpu_component_scancode_for_host_key(s);
+}
 
 static void cpu_component_runtime_keyboard_clear(void) {
     if (g_runtime_keyboard_map.bindings != NULL) {
@@ -957,30 +1142,42 @@ int mc6809_load_keyboard_map(CPUState *cpu, const char *path) {
         s = cpu_component_trim(line);
         if (s == NULL || s[0] == '\0') continue;
         if (strcmp(s, "keyboard:") == 0) continue;
+        if (strcmp(s, "system_keys:") == 0) continue;
         if (strcmp(s, "bindings:") == 0) continue;
         if (strcmp(s, "presses:") == 0) continue;
         if (strcmp(s, "-") == 0) continue;
+        /* UI-only metadata entries. */
+        if (strncmp(s, "- id:", 5) == 0 || strncmp(s, "id:", 3) == 0) continue;
+        if (strncmp(s, "visual_feedback:", 16) == 0) continue;
         if (strncmp(s, "kind:", 5) == 0) {
             s = cpu_component_trim(s + 5);
             if (strcmp(s, "matrix") == 0) g_runtime_keyboard_map.kind = 1u;
             else if (strcmp(s, "ascii") == 0) g_runtime_keyboard_map.kind = 2u;
-            else { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            else { fprintf(stderr, "Keyboard map parse error: invalid kind: '%s'\n", s); fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
             continue;
         }
         if (strncmp(s, "focus_required:", 15) == 0) {
             s = cpu_component_trim(s + 15);
             if (strcmp(s, "true") == 0) g_runtime_keyboard_map.focus_required = 1u;
             else if (strcmp(s, "false") == 0) g_runtime_keyboard_map.focus_required = 0u;
-            else { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            else { fprintf(stderr, "Keyboard map parse error: invalid focus_required: '%s'\n", s); fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
             continue;
         }
-        if (strncmp(s, "- host_key:", 11) == 0 || strncmp(s, "host_key:", 9) == 0) {
+        if (strncmp(s, "- host_scancode:", 16) == 0 || strncmp(s, "host_scancode:", 14) == 0 || strncmp(s, "- host_key:", 11) == 0 || strncmp(s, "host_key:", 9) == 0) {
             int32_t sc;
-            s = cpu_component_unquote(cpu_component_trim(s + ((s[0] == '-') ? 11 : 9)));
-            sc = cpu_component_scancode_for_host_key(s);
-            if (sc < 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            const int pref = (strncmp(s, "- host_scancode:", 16) == 0) ? 16 : ((strncmp(s, "host_scancode:", 14) == 0) ? 14 : ((s[0] == '-') ? 11 : 9));
+            s = cpu_component_trim(s + pref);
+            sc = cpu_component_scancode_for_host_token(s);
+            if (sc < 0) { fprintf(stderr, "Keyboard map parse error: unknown host_scancode token: '%s'\n", s); fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
             current = cpu_component_runtime_binding_for_scancode(sc, 1u);
-            if (current == NULL) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            if (current == NULL) { fprintf(stderr, "Keyboard map parse error: duplicate host_scancode token: '%s'\n", s); fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            {
+                const char *n = cpu_component_unquote(s);
+                if (strcmp(n, "LSHIFT") == 0 || strcmp(n, "RSHIFT") == 0) current->is_shift_modifier = 1u;
+                if (strcmp(n, "LCTRL") == 0 || strcmp(n, "RCTRL") == 0) current->is_ctrl_modifier = 1u;
+                if (sc == (int32_t)CPU_HOST_SCANCODE(LSHIFT) || sc == (int32_t)CPU_HOST_SCANCODE(RSHIFT)) current->is_shift_modifier = 1u;
+                if (sc == (int32_t)CPU_HOST_SCANCODE(LCTRL) || sc == (int32_t)CPU_HOST_SCANCODE(RCTRL)) current->is_ctrl_modifier = 1u;
+            }
             continue;
         }
         if (current == NULL) continue;
@@ -1020,6 +1217,25 @@ int mc6809_load_keyboard_map(CPUState *cpu, const char *path) {
             current->has_ascii_ctrl = 1u;
             continue;
         }
+        if (strncmp(s, "mapper_key_id:", 14) == 0) {
+            const char *mid = cpu_component_unquote(cpu_component_trim(s + 14));
+            if (mid == NULL || mid[0] == '\0') { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            (void)snprintf(current->mapper_key_id, sizeof(current->mapper_key_id), "%s", mid);
+            continue;
+        }
+        if (strncmp(s, "emulator_key_id:", 15) == 0) {
+            const char *eid = cpu_component_unquote(cpu_component_trim(s + 15));
+            if (eid == NULL || eid[0] == '\0') { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            (void)snprintf(current->emulator_key_id, sizeof(current->emulator_key_id), "%s", eid);
+            continue;
+        }
+        if (strncmp(s, "system_key_id:", 14) == 0) {
+            const char *eid = cpu_component_unquote(cpu_component_trim(s + 14));
+            if (eid == NULL || eid[0] == '\0') { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            (void)snprintf(current->emulator_key_id, sizeof(current->emulator_key_id), "%s", eid);
+            continue;
+        }
+        fprintf(stderr, "Keyboard map parse error: unrecognized line: '%s'\n", s);
         fclose(f);
         cpu_component_runtime_keyboard_clear();
         return -1;
@@ -1031,28 +1247,457 @@ int mc6809_load_keyboard_map(CPUState *cpu, const char *path) {
     }
     for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
         RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+        uint8_t has_mapper = (b->mapper_key_id[0] != '\0') ? 1u : 0u;
+        uint8_t has_emulator = (b->emulator_key_id[0] != '\0') ? 1u : 0u;
+        if ((uint8_t)(has_mapper + has_emulator) != 1u) {
+            cpu_component_runtime_keyboard_clear();
+            return -1;
+        }
         if (g_runtime_keyboard_map.kind == 1u) {
-            if (b->has_ascii != 0u || b->has_ascii_shift != 0u || b->has_ascii_ctrl != 0u) {
-                cpu_component_runtime_keyboard_clear();
-                return -1;
-            }
-            if (b->press_count == 0u) { cpu_component_runtime_keyboard_clear(); return -1; }
-            for (uint8_t p = 0u; p < b->press_count; ++p) {
-                if (b->presses[p].bit > 7u) { cpu_component_runtime_keyboard_clear(); return -1; }
+            if (has_mapper != 0u) {
+                if (b->has_ascii != 0u || b->has_ascii_shift != 0u || b->has_ascii_ctrl != 0u) {
+                    cpu_component_runtime_keyboard_clear();
+                    return -1;
+                }
+                if (b->press_count == 0u) { cpu_component_runtime_keyboard_clear(); return -1; }
+                for (uint8_t p = 0u; p < b->press_count; ++p) {
+                    if (b->presses[p].bit > 7u) { cpu_component_runtime_keyboard_clear(); return -1; }
+                }
             }
         } else {
-            if (b->press_count != 0u) {
-                cpu_component_runtime_keyboard_clear();
-                return -1;
-            }
-            if (b->has_ascii == 0u && b->has_ascii_shift == 0u && b->has_ascii_ctrl == 0u) {
-                cpu_component_runtime_keyboard_clear();
-                return -1;
+            if (has_mapper != 0u) {
+                if (b->press_count != 0u) {
+                    cpu_component_runtime_keyboard_clear();
+                    return -1;
+                }
+                if (b->has_ascii == 0u && b->has_ascii_shift == 0u && b->has_ascii_ctrl == 0u) {
+                    cpu_component_runtime_keyboard_clear();
+                    return -1;
+                }
+            } else {
+                /* emulator bindings don't require ascii payload */
             }
         }
     }
     g_runtime_keyboard_map.loaded = 1u;
     return 0;
+}
+
+typedef struct {
+    uint8_t port;
+    char id[64];
+    uint8_t pressed;
+    float axis;
+} RuntimeControllerTarget;
+
+typedef struct {
+    uint8_t port;
+    char target_id[64];
+    uint8_t source_kind; /* 1=scancode 2=pad_btn 3=pad_axis 4=joy_btn 5=joy_axis 6=joy_hat */
+    int32_t scancode;
+    int16_t control;
+    int16_t extra;
+    float threshold;
+    float deadzone;
+    float scale;
+    uint8_t invert;
+} RuntimeControllerBinding;
+
+typedef struct {
+    uint8_t loaded;
+    uint8_t focus_required;
+    uint8_t port_connected[16];
+    uint8_t port_count;
+    RuntimeControllerBinding *bindings;
+    size_t binding_count;
+    size_t binding_cap;
+    RuntimeControllerTarget *targets;
+    size_t target_count;
+    size_t target_cap;
+} RuntimeControllerMap;
+
+static RuntimeControllerMap g_runtime_controller_map = {0};
+
+static void cpu_component_runtime_controller_clear(void) {
+    if (g_runtime_controller_map.bindings != NULL) {
+        free(g_runtime_controller_map.bindings);
+        g_runtime_controller_map.bindings = NULL;
+    }
+    if (g_runtime_controller_map.targets != NULL) {
+        free(g_runtime_controller_map.targets);
+        g_runtime_controller_map.targets = NULL;
+    }
+    memset(&g_runtime_controller_map, 0, sizeof(g_runtime_controller_map));
+}
+
+static uint8_t cpu_component_controller_port_from_target(const char *id) {
+    if (id == NULL || id[0] == '\0') return 1u;
+    if (id[0] == 'P' && id[1] >= '1' && id[1] <= '9' && id[2] == '_') {
+        return (uint8_t)(id[1] - '0');
+    }
+    return 1u;
+}
+
+static RuntimeControllerTarget *cpu_component_controller_target_get(const char *id, uint8_t create) {
+    if (id == NULL || id[0] == '\0') return NULL;
+    for (size_t i = 0; i < g_runtime_controller_map.target_count; ++i) {
+        if (strncmp(g_runtime_controller_map.targets[i].id, id, sizeof(g_runtime_controller_map.targets[i].id)) == 0) {
+            return &g_runtime_controller_map.targets[i];
+        }
+    }
+    if (create == 0u) return NULL;
+    if (g_runtime_controller_map.target_count >= g_runtime_controller_map.target_cap) {
+        size_t new_cap = (g_runtime_controller_map.target_cap == 0u) ? 32u : (g_runtime_controller_map.target_cap * 2u);
+        RuntimeControllerTarget *nt = (RuntimeControllerTarget *)realloc(g_runtime_controller_map.targets, new_cap * sizeof(RuntimeControllerTarget));
+        if (nt == NULL) return NULL;
+        memset(nt + g_runtime_controller_map.target_cap, 0, (new_cap - g_runtime_controller_map.target_cap) * sizeof(RuntimeControllerTarget));
+        g_runtime_controller_map.targets = nt;
+        g_runtime_controller_map.target_cap = new_cap;
+    }
+    {
+        RuntimeControllerTarget *t = &g_runtime_controller_map.targets[g_runtime_controller_map.target_count++];
+        memset(t, 0, sizeof(*t));
+        t->port = cpu_component_controller_port_from_target(id);
+        snprintf(t->id, sizeof(t->id), "%s", id);
+        t->pressed = 0u;
+        t->axis = 0.0f;
+        return t;
+    }
+}
+
+static RuntimeControllerBinding *cpu_component_controller_binding_add(void) {
+    if (g_runtime_controller_map.binding_count >= g_runtime_controller_map.binding_cap) {
+        size_t new_cap = (g_runtime_controller_map.binding_cap == 0u) ? 64u : (g_runtime_controller_map.binding_cap * 2u);
+        RuntimeControllerBinding *nb = (RuntimeControllerBinding *)realloc(g_runtime_controller_map.bindings, new_cap * sizeof(RuntimeControllerBinding));
+        if (nb == NULL) return NULL;
+        memset(nb + g_runtime_controller_map.binding_cap, 0, (new_cap - g_runtime_controller_map.binding_cap) * sizeof(RuntimeControllerBinding));
+        g_runtime_controller_map.bindings = nb;
+        g_runtime_controller_map.binding_cap = new_cap;
+    }
+    return &g_runtime_controller_map.bindings[g_runtime_controller_map.binding_count++];
+}
+
+static int cpu_component_parse_bool(const char *s, uint8_t *out) {
+    if (!s || !out) return -1;
+    if (strcmp(s, "true") == 0) { *out = 1u; return 0; }
+    if (strcmp(s, "false") == 0) { *out = 0u; return 0; }
+    return -1;
+}
+
+/* Canonical gamepad control IDs (backend-agnostic). */
+enum {
+    CPU_HOST_GAMEPAD_BTN_A = 0,
+    CPU_HOST_GAMEPAD_BTN_B = 1,
+    CPU_HOST_GAMEPAD_BTN_X = 2,
+    CPU_HOST_GAMEPAD_BTN_Y = 3,
+    CPU_HOST_GAMEPAD_BTN_BACK = 4,
+    CPU_HOST_GAMEPAD_BTN_GUIDE = 5,
+    CPU_HOST_GAMEPAD_BTN_START = 6,
+    CPU_HOST_GAMEPAD_BTN_LEFTSTICK = 7,
+    CPU_HOST_GAMEPAD_BTN_RIGHTSTICK = 8,
+    CPU_HOST_GAMEPAD_BTN_LEFTSHOULDER = 9,
+    CPU_HOST_GAMEPAD_BTN_RIGHTSHOULDER = 10,
+    CPU_HOST_GAMEPAD_BTN_DPAD_UP = 11,
+    CPU_HOST_GAMEPAD_BTN_DPAD_DOWN = 12,
+    CPU_HOST_GAMEPAD_BTN_DPAD_LEFT = 13,
+    CPU_HOST_GAMEPAD_BTN_DPAD_RIGHT = 14
+};
+enum {
+    CPU_HOST_GAMEPAD_AXIS_LEFTX = 0,
+    CPU_HOST_GAMEPAD_AXIS_LEFTY = 1,
+    CPU_HOST_GAMEPAD_AXIS_RIGHTX = 2,
+    CPU_HOST_GAMEPAD_AXIS_RIGHTY = 3,
+    CPU_HOST_GAMEPAD_AXIS_TRIGGERLEFT = 4,
+    CPU_HOST_GAMEPAD_AXIS_TRIGGERRIGHT = 5
+};
+
+static int cpu_component_strieq(const char *a, const char *b) {
+    if (!a || !b) return 0;
+    while (*a && *b) {
+        char ca = *a; char cb = *b;
+        if (ca >= 'A' && ca <= 'Z') ca = (char)(ca - 'A' + 'a');
+        if (cb >= 'A' && cb <= 'Z') cb = (char)(cb - 'A' + 'a');
+        if (ca != cb) return 0;
+        ++a; ++b;
+    }
+    return (*a == '\0' && *b == '\0') ? 1 : 0;
+}
+
+static int cpu_component_gamepad_button_from_string(const char *s) {
+    if (!s) return -1;
+    if (cpu_component_strieq(s, "a")) return CPU_HOST_GAMEPAD_BTN_A;
+    if (cpu_component_strieq(s, "b")) return CPU_HOST_GAMEPAD_BTN_B;
+    if (cpu_component_strieq(s, "x")) return CPU_HOST_GAMEPAD_BTN_X;
+    if (cpu_component_strieq(s, "y")) return CPU_HOST_GAMEPAD_BTN_Y;
+    if (cpu_component_strieq(s, "back")) return CPU_HOST_GAMEPAD_BTN_BACK;
+    if (cpu_component_strieq(s, "guide") || cpu_component_strieq(s, "home")) return CPU_HOST_GAMEPAD_BTN_GUIDE;
+    if (cpu_component_strieq(s, "start")) return CPU_HOST_GAMEPAD_BTN_START;
+    if (cpu_component_strieq(s, "leftstick") || cpu_component_strieq(s, "left_thumb")) return CPU_HOST_GAMEPAD_BTN_LEFTSTICK;
+    if (cpu_component_strieq(s, "rightstick") || cpu_component_strieq(s, "right_thumb")) return CPU_HOST_GAMEPAD_BTN_RIGHTSTICK;
+    if (cpu_component_strieq(s, "leftshoulder") || cpu_component_strieq(s, "leftbumper") || cpu_component_strieq(s, "left_shoulder")) return CPU_HOST_GAMEPAD_BTN_LEFTSHOULDER;
+    if (cpu_component_strieq(s, "rightshoulder") || cpu_component_strieq(s, "rightbumper") || cpu_component_strieq(s, "right_shoulder")) return CPU_HOST_GAMEPAD_BTN_RIGHTSHOULDER;
+    if (cpu_component_strieq(s, "dpup") || cpu_component_strieq(s, "dpad_up")) return CPU_HOST_GAMEPAD_BTN_DPAD_UP;
+    if (cpu_component_strieq(s, "dpdown") || cpu_component_strieq(s, "dpad_down")) return CPU_HOST_GAMEPAD_BTN_DPAD_DOWN;
+    if (cpu_component_strieq(s, "dpleft") || cpu_component_strieq(s, "dpad_left")) return CPU_HOST_GAMEPAD_BTN_DPAD_LEFT;
+    if (cpu_component_strieq(s, "dpright") || cpu_component_strieq(s, "dpad_right")) return CPU_HOST_GAMEPAD_BTN_DPAD_RIGHT;
+    return -1;
+}
+
+static int cpu_component_gamepad_axis_from_string(const char *s) {
+    if (!s) return -1;
+    if (cpu_component_strieq(s, "leftx") || cpu_component_strieq(s, "left_x")) return CPU_HOST_GAMEPAD_AXIS_LEFTX;
+    if (cpu_component_strieq(s, "lefty") || cpu_component_strieq(s, "left_y")) return CPU_HOST_GAMEPAD_AXIS_LEFTY;
+    if (cpu_component_strieq(s, "rightx") || cpu_component_strieq(s, "right_x")) return CPU_HOST_GAMEPAD_AXIS_RIGHTX;
+    if (cpu_component_strieq(s, "righty") || cpu_component_strieq(s, "right_y")) return CPU_HOST_GAMEPAD_AXIS_RIGHTY;
+    if (cpu_component_strieq(s, "triggerleft") || cpu_component_strieq(s, "lefttrigger") || cpu_component_strieq(s, "left_trigger")) return CPU_HOST_GAMEPAD_AXIS_TRIGGERLEFT;
+    if (cpu_component_strieq(s, "triggerright") || cpu_component_strieq(s, "righttrigger") || cpu_component_strieq(s, "right_trigger")) return CPU_HOST_GAMEPAD_AXIS_TRIGGERRIGHT;
+    return -1;
+}
+
+int mc6809_load_controller_map(CPUState *cpu, const char *path) {
+    FILE *f;
+    char line[512];
+    RuntimeControllerBinding *current = NULL;
+    uint8_t in_ports = 0u;
+    uint8_t in_bindings = 0u;
+    uint8_t in_host_gamepad = 0u;
+    uint8_t in_host_joystick = 0u;
+    uint8_t current_port = 1u;
+    uint8_t current_port_connected = 1u;
+    (void)cpu;
+    if (path == NULL || path[0] == '\0') return -1;
+    f = fopen(path, "r");
+    if (f == NULL) return -1;
+    cpu_component_runtime_controller_clear();
+    g_runtime_controller_map.focus_required = 0u;
+    for (size_t i = 0; i < 16u; ++i) g_runtime_controller_map.port_connected[i] = 1u;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char *hash = strchr(line, '#');
+        char *s;
+        if (hash) *hash = '\0';
+        s = cpu_component_trim(line);
+        if (s == NULL || s[0] == '\0') continue;
+        if (strcmp(s, "controller_map:") == 0) continue;
+        if (strcmp(s, "ports:") == 0) { in_ports = 1u; in_bindings = 0u; continue; }
+        if (strcmp(s, "bindings:") == 0) { in_ports = 0u; in_bindings = 1u; continue; }
+        if (strncmp(s, "focus_required:", 15) == 0) {
+            uint8_t b = 0u;
+            s = cpu_component_trim(s + 15);
+            if (cpu_component_parse_bool(s, &b) != 0) { fclose(f); cpu_component_runtime_controller_clear(); return -1; }
+            g_runtime_controller_map.focus_required = b;
+            continue;
+        }
+        if (in_ports) {
+            if (strncmp(s, "- port:", 7) == 0 || strncmp(s, "port:", 5) == 0) {
+                uint8_t p = 1u;
+                const char *pt = cpu_component_trim(s + ((s[0] == '-') ? 7 : 5));
+                if (cpu_component_parse_u8(pt, &p) != 0) continue;
+                current_port = p;
+                current_port_connected = 1u;
+                if (p >= 1u && p <= 16u) {
+                    if (p > g_runtime_controller_map.port_count) g_runtime_controller_map.port_count = p;
+                }
+                continue;
+            }
+            if (strncmp(s, "connected:", 10) == 0) {
+                uint8_t b = 1u;
+                s = cpu_component_trim(s + 10);
+                if (cpu_component_parse_bool(s, &b) != 0) continue;
+                current_port_connected = b;
+                if (current_port >= 1u && current_port <= 16u) g_runtime_controller_map.port_connected[current_port - 1u] = b;
+                continue;
+            }
+            continue;
+        }
+        if (!in_bindings) continue;
+        if (strncmp(s, "- target_control_id:", 20) == 0 || strncmp(s, "target_control_id:", 18) == 0) {
+            const int pref = (s[0] == '-') ? 20 : 18;
+            s = cpu_component_unquote(cpu_component_trim(s + pref));
+            current = cpu_component_controller_binding_add();
+            if (current == NULL) { fclose(f); cpu_component_runtime_controller_clear(); return -1; }
+            memset(current, 0, sizeof(*current));
+            snprintf(current->target_id, sizeof(current->target_id), "%s", s);
+            current->port = cpu_component_controller_port_from_target(current->target_id);
+            current->threshold = 0.5f;
+            current->deadzone = 0.15f;
+            current->scale = 1.0f;
+            current->invert = 0u;
+            in_host_gamepad = 0u;
+            in_host_joystick = 0u;
+            continue;
+        }
+        if (current == NULL) continue;
+        if (strncmp(s, "- host_scancode:", 16) == 0 || strncmp(s, "host_scancode:", 14) == 0 || strncmp(s, "- host_key:", 11) == 0 || strncmp(s, "host_key:", 9) == 0) {
+            const int pref = (strncmp(s, "- host_scancode:", 16) == 0) ? 16 : ((strncmp(s, "host_scancode:", 14) == 0) ? 14 : ((s[0] == '-') ? 11 : 9));
+            s = cpu_component_unquote(cpu_component_trim(s + pref));
+            current->source_kind = 1u;
+            current->scancode = cpu_component_scancode_for_host_token(s);
+            if (current->scancode < 0) { fprintf(stderr, "Controller map parse error: unknown host_scancode token: '%s'\n", s); fclose(f); cpu_component_runtime_controller_clear(); return -1; }
+            continue;
+        }
+        if (strcmp(s, "host_gamepad:") == 0 || strcmp(s, "- host_gamepad:") == 0) { in_host_gamepad = 1u; in_host_joystick = 0u; continue; }
+        if (strcmp(s, "host_joystick:") == 0 || strcmp(s, "- host_joystick:") == 0) { in_host_gamepad = 0u; in_host_joystick = 1u; continue; }
+        if (in_host_gamepad) {
+            if (strncmp(s, "control:", 8) == 0) {
+                char *ct = cpu_component_unquote(cpu_component_trim(s + 8));
+                int btn = cpu_component_gamepad_button_from_string(ct);
+                int ax = cpu_component_gamepad_axis_from_string(ct);
+                if (btn >= 0) { current->source_kind = 2u; current->control = (int16_t)btn; }
+                else if (ax >= 0) { current->source_kind = 3u; current->control = (int16_t)ax; }
+                else { current->source_kind = 2u; current->control = (int16_t)atoi(ct); }
+                continue;
+            }
+            if (strncmp(s, "direction:", 10) == 0) {
+                char *dt = cpu_component_unquote(cpu_component_trim(s + 10));
+                if (dt && dt[0] == '+') current->extra = 1;
+                else if (dt && dt[0] == '-') current->extra = -1;
+                current->source_kind = 3u;
+                continue;
+            }
+            if (strncmp(s, "threshold:", 10) == 0) { current->threshold = (float)atof(cpu_component_trim(s + 10)); continue; }
+            if (strncmp(s, "deadzone:", 9) == 0) { current->deadzone = (float)atof(cpu_component_trim(s + 9)); continue; }
+            if (strncmp(s, "scale:", 6) == 0) { current->scale = (float)atof(cpu_component_trim(s + 6)); continue; }
+            if (strncmp(s, "invert:", 7) == 0) { uint8_t b=0u; if (cpu_component_parse_bool(cpu_component_trim(s+7), &b)==0) current->invert=b; continue; }
+        }
+        if (in_host_joystick) {
+            if (strncmp(s, "button:", 7) == 0) { current->source_kind = 4u; current->control = (int16_t)atoi(cpu_component_trim(s + 7)); continue; }
+            if (strncmp(s, "axis:", 5) == 0) { current->source_kind = 5u; current->control = (int16_t)atoi(cpu_component_trim(s + 5)); continue; }
+            if (strncmp(s, "hat:", 4) == 0) { current->source_kind = 6u; current->control = (int16_t)atoi(cpu_component_trim(s + 4)); continue; }
+            if (strncmp(s, "hat_dir:", 8) == 0) {
+                char *dt = cpu_component_unquote(cpu_component_trim(s + 8));
+                if (strcmp(dt, "up") == 0) current->extra = (int16_t)CPU_HOST_HAT_UP;
+                else if (strcmp(dt, "down") == 0) current->extra = (int16_t)CPU_HOST_HAT_DOWN;
+                else if (strcmp(dt, "left") == 0) current->extra = (int16_t)CPU_HOST_HAT_LEFT;
+                else if (strcmp(dt, "right") == 0) current->extra = (int16_t)CPU_HOST_HAT_RIGHT;
+                continue;
+            }
+            if (strncmp(s, "direction:", 10) == 0) {
+                char *dt = cpu_component_unquote(cpu_component_trim(s + 10));
+                if (dt && dt[0] == '+') current->extra = 1;
+                else if (dt && dt[0] == '-') current->extra = -1;
+                continue;
+            }
+            if (strncmp(s, "threshold:", 10) == 0) { current->threshold = (float)atof(cpu_component_trim(s + 10)); continue; }
+            if (strncmp(s, "deadzone:", 9) == 0) { current->deadzone = (float)atof(cpu_component_trim(s + 9)); continue; }
+            if (strncmp(s, "scale:", 6) == 0) { current->scale = (float)atof(cpu_component_trim(s + 6)); continue; }
+            if (strncmp(s, "invert:", 7) == 0) { uint8_t b=0u; if (cpu_component_parse_bool(cpu_component_trim(s+7), &b)==0) current->invert=b; continue; }
+        }
+    }
+    fclose(f);
+    for (size_t i = 0; i < g_runtime_controller_map.binding_count; ++i) {
+        if (g_runtime_controller_map.bindings[i].source_kind == 0u) {
+            fprintf(stderr, "Controller map parse error: binding '%s' is missing host source (need host_scancode/host_gamepad/host_joystick)\n", g_runtime_controller_map.bindings[i].target_id);
+            cpu_component_runtime_controller_clear();
+            return -1;
+        }
+    }
+    for (size_t i = 0; i < g_runtime_controller_map.binding_count; ++i) {
+        cpu_component_controller_target_get(g_runtime_controller_map.bindings[i].target_id, 1u);
+    }
+    g_runtime_controller_map.loaded = 1u;
+    return 0;
+}
+
+static float cpu_component_norm_axis_s16(int v) {
+    if (v >= 0) return (float)v / 32767.0f;
+    return (float)v / 32768.0f;
+}
+
+static float cpu_component_axis_apply(const RuntimeControllerBinding *b, float v) {
+    if (b->invert != 0u) v = -v;
+    if (v > -b->deadzone && v < b->deadzone) v = 0.0f;
+    v *= b->scale;
+    if (v > 1.0f) v = 1.0f;
+    if (v < -1.0f) v = -1.0f;
+    return v;
+}
+
+static void cpu_component_controller_map_poll(CPUState *cpu, uint8_t has_focus) {
+    (void)cpu;
+    if (g_runtime_controller_map.loaded == 0u) return;
+    if (g_runtime_controller_map.focus_required != 0u && has_focus == 0u) return;
+    for (size_t i = 0; i < g_runtime_controller_map.target_count; ++i) {
+        g_runtime_controller_map.targets[i].pressed = 0u;
+        g_runtime_controller_map.targets[i].axis = 0.0f;
+    }
+    {
+        int key_count = 0;
+        const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
+        for (size_t i = 0; i < g_runtime_controller_map.binding_count; ++i) {
+            const RuntimeControllerBinding *b = &g_runtime_controller_map.bindings[i];
+            uint8_t port_ok = 1u;
+            RuntimeControllerTarget *t;
+            uint8_t active = 0u;
+            float av = 0.0f;
+            if (b->port >= 1u && b->port <= 16u) port_ok = g_runtime_controller_map.port_connected[b->port - 1u];
+            if (port_ok == 0u) continue;
+            t = cpu_component_controller_target_get(b->target_id, 0u);
+            if (t == NULL) continue;
+            if (b->source_kind == 1u) {
+                if (ks && key_count > 0 && b->scancode >= 0 && b->scancode < key_count) {
+                    if (ks[b->scancode] != 0u) active = 1u;
+                }
+            } else if (b->source_kind == 2u || b->source_kind == 3u) {
+                int n = cpu_host_hal_gamepad_count();
+                for (int di = 0; di < n; ++di) {
+                    if (b->source_kind == 2u) {
+                        if (cpu_host_hal_gamepad_button(di, (int)b->control) != 0) { active = 1u; break; }
+                    } else {
+                        int v = cpu_host_hal_gamepad_axis(di, (int)b->control);
+                        float nv = cpu_component_axis_apply(b, cpu_component_norm_axis_s16(v));
+                        av = nv;
+                        if (b->extra > 0) { if (nv >= b->threshold) { active = 1u; break; } }
+                        else if (b->extra < 0) { if (nv <= -b->threshold) { active = 1u; break; } }
+                        else { if (nv >= b->threshold || nv <= -b->threshold) { active = 1u; break; } }
+                    }
+                }
+            } else if (b->source_kind == 4u || b->source_kind == 5u || b->source_kind == 6u) {
+                int n = cpu_host_hal_joystick_count();
+                for (int di = 0; di < n; ++di) {
+                    if (b->source_kind == 4u) {
+                        if (cpu_host_hal_joystick_button(di, (int)b->control) != 0) active = 1u;
+                    } else if (b->source_kind == 5u) {
+                        int v = cpu_host_hal_joystick_axis(di, (int)b->control);
+                        float nv = cpu_component_axis_apply(b, cpu_component_norm_axis_s16(v));
+                        av = nv;
+                        if (b->extra > 0) { if (nv >= b->threshold) active = 1u; }
+                        else if (b->extra < 0) { if (nv <= -b->threshold) active = 1u; }
+                        else { if (nv >= b->threshold || nv <= -b->threshold) active = 1u; }
+                    } else {
+                        uint8_t hv = cpu_host_hal_joystick_hat(di, (int)b->control);
+                        if ((hv & (uint8_t)b->extra) != 0u) active = 1u;
+                    }
+                    if (active != 0u) break;
+                }
+            }
+            if (active != 0u) {
+                t->pressed = 1u;
+                if (b->source_kind == 3u || b->source_kind == 5u) {
+                    if (fabsf(av) > fabsf(t->axis)) t->axis = av;
+                }
+            }
+        }
+    }
+}
+
+static uint8_t cpu_component_controller_pressed(const char *target_id) {
+    RuntimeControllerTarget *t = cpu_component_controller_target_get(target_id, 0u);
+    if (t == NULL) return 0u;
+    return (uint8_t)(t->pressed != 0u ? 1u : 0u);
+}
+
+static uint8_t cpu_component_controller_axis_u8(const char *target_id) {
+    RuntimeControllerTarget *t = cpu_component_controller_target_get(target_id, 0u);
+    float v;
+    int out;
+    if (t == NULL) return 128u;
+    v = t->axis;
+    if (v > 1.0f) v = 1.0f;
+    if (v < -1.0f) v = -1.0f;
+    out = (int)(((v + 1.0f) * 0.5f) * 255.0f);
+    if (out < 0) out = 0;
+    if (out > 255) out = 255;
+    return (uint8_t)out;
 }
 
 static void cpu_component_apply_declared_keymap(
@@ -1083,12 +1728,22 @@ static void cpu_component_apply_declared_keymap(
 
 static void cpu_component_keyboard_ascii_feed(
     int32_t scancode,
-    uint8_t shifted,
-    uint8_t controlled,
+    const uint8_t *host_keys,
+    size_t host_key_count,
     uint8_t has_focus
 ) {
+    uint8_t shifted = 0u;
+    uint8_t controlled = 0u;
     if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return;
+    if (!host_keys || host_key_count == 0u) return;
     if (g_runtime_keyboard_map.focus_required && has_focus == 0u) return;
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        const RuntimeKeyboardBinding *m = &g_runtime_keyboard_map.bindings[i];
+        if (m->scancode < 0 || (size_t)m->scancode >= host_key_count) continue;
+        if (host_keys[m->scancode] == 0u) continue;
+        if (m->is_shift_modifier != 0u) shifted = 1u;
+        if (m->is_ctrl_modifier != 0u) controlled = 1u;
+    }
     for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
         const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
         uint8_t out = 0u;
@@ -1109,8 +1764,10 @@ static uint8_t cpu_component_keyboard_ascii_pop(void) {
 static const ComponentConnection g_component_connections[] = {
     { "coco1_io", "callback", "keyboard_read_row", "keyboard_coco", "callback", "read_row" },
     { "keyboard_coco", "callback", "host_matrix", "host_coco", "callback", "keyboard_matrix" },
-    { "coco1_io", "callback", "joystick_read_axis", "host_coco", "callback", "joystick_axis" },
-    { "coco1_io", "callback", "joystick_read_button", "host_coco", "callback", "joystick_button" },
+    { "coco1_io", "callback", "joystick_read_axis", "gameport_coco", "callback", "read_axis" },
+    { "coco1_io", "callback", "joystick_read_button", "gameport_coco", "callback", "read_button" },
+    { "gameport_coco", "callback", "host_axis", "host_coco", "callback", "joystick_axis" },
+    { "gameport_coco", "callback", "host_button", "host_coco", "callback", "joystick_button" },
     { "coco1_io", "signal", "frame_ready", "video_coco", "handler", "on_frame_ready" },
     { "video_coco", "signal", "frame_present", "host_coco", "handler", "video_frame" },
     { "coco1_io", "signal", "irq_edge", "host_coco", "handler", "irq_edge" },
@@ -1157,6 +1814,42 @@ static uint64_t component_keyboard_coco_callback_host_matrix(CPUState *cpu, cons
     (void)argc;
     ComponentState_keyboard_coco *comp = &cpu->comp_keyboard_coco;
     cpu->active_component_id = "keyboard_coco";
+    uint64_t __result = 0;
+    return __result;
+}
+
+static uint64_t component_gameport_coco_callback_read_axis(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_gameport_coco *comp = &cpu->comp_gameport_coco;
+    cpu->active_component_id = "gameport_coco";
+    uint64_t __result = 0;
+    __result = cpu_component_call(cpu, "gameport_coco", "host_axis", args, argc);
+    return __result;
+    return __result;
+}
+
+static uint64_t component_gameport_coco_callback_read_button(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_gameport_coco *comp = &cpu->comp_gameport_coco;
+    cpu->active_component_id = "gameport_coco";
+    uint64_t __result = 0;
+    __result = cpu_component_call(cpu, "gameport_coco", "host_button", args, argc);
+    return __result;
+    return __result;
+}
+
+static uint64_t component_gameport_coco_callback_host_axis(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_gameport_coco *comp = &cpu->comp_gameport_coco;
+    cpu->active_component_id = "gameport_coco";
+    uint64_t __result = 0;
+    return __result;
+}
+
+static uint64_t component_gameport_coco_callback_host_button(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_gameport_coco *comp = &cpu->comp_gameport_coco;
+    cpu->active_component_id = "gameport_coco";
     uint64_t __result = 0;
     return __result;
 }
@@ -1222,6 +1915,10 @@ static uint64_t cpu_component_dispatch_callback(
     if (strcmp(component_id, "coco1_io") == 0 && strcmp(callback_name, "joystick_read_button") == 0) return component_coco1_io_callback_joystick_read_button(cpu, args, argc);
     if (strcmp(component_id, "keyboard_coco") == 0 && strcmp(callback_name, "read_row") == 0) return component_keyboard_coco_callback_read_row(cpu, args, argc);
     if (strcmp(component_id, "keyboard_coco") == 0 && strcmp(callback_name, "host_matrix") == 0) return component_keyboard_coco_callback_host_matrix(cpu, args, argc);
+    if (strcmp(component_id, "gameport_coco") == 0 && strcmp(callback_name, "read_axis") == 0) return component_gameport_coco_callback_read_axis(cpu, args, argc);
+    if (strcmp(component_id, "gameport_coco") == 0 && strcmp(callback_name, "read_button") == 0) return component_gameport_coco_callback_read_button(cpu, args, argc);
+    if (strcmp(component_id, "gameport_coco") == 0 && strcmp(callback_name, "host_axis") == 0) return component_gameport_coco_callback_host_axis(cpu, args, argc);
+    if (strcmp(component_id, "gameport_coco") == 0 && strcmp(callback_name, "host_button") == 0) return component_gameport_coco_callback_host_button(cpu, args, argc);
     if (strcmp(component_id, "host_coco") == 0 && strcmp(callback_name, "keyboard_matrix") == 0) return component_host_coco_callback_keyboard_matrix(cpu, args, argc);
     if (strcmp(component_id, "host_coco") == 0 && strcmp(callback_name, "joystick_axis") == 0) return component_host_coco_callback_joystick_axis(cpu, args, argc);
     if (strcmp(component_id, "host_coco") == 0 && strcmp(callback_name, "joystick_button") == 0) return component_host_coco_callback_joystick_button(cpu, args, argc);
@@ -2221,7 +2918,43 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             uint8_t joy2_y = (comp->joy2_connected != 0u) ? 0x20u : 0xFFu;
             uint8_t joy1_btn = 0u;
             uint8_t joy2_btn = 0u;
-            {
+            /* Prefer controller-map when loaded; otherwise keep legacy keypad joystick controls. */
+            if (g_runtime_controller_map.loaded != 0u) {
+                cpu_component_controller_map_poll(cpu, comp->has_keyboard_focus);
+                {
+                    uint8_t c1 = (g_runtime_controller_map.port_count >= 1u) ? g_runtime_controller_map.port_connected[0] : 1u;
+                    uint8_t c2 = (g_runtime_controller_map.port_count >= 2u) ? g_runtime_controller_map.port_connected[1] : 0u;
+                    comp->joy1_connected = c1;
+                    comp->joy2_connected = c2;
+                }
+                joy1_x = (comp->joy1_connected != 0u) ? 0x20u : 0xFFu;
+                joy1_y = (comp->joy1_connected != 0u) ? 0x20u : 0xFFu;
+                joy2_x = (comp->joy2_connected != 0u) ? 0x20u : 0xFFu;
+                joy2_y = (comp->joy2_connected != 0u) ? 0x20u : 0xFFu;
+                if (comp->joy1_connected != 0u) {
+                    uint8_t left = cpu_component_controller_pressed("P1_LEFT");
+                    uint8_t right = cpu_component_controller_pressed("P1_RIGHT");
+                    uint8_t up = cpu_component_controller_pressed("P1_UP");
+                    uint8_t down = cpu_component_controller_pressed("P1_DOWN");
+                    if (left != 0u && right == 0u) joy1_x = 0u;
+                    else if (right != 0u && left == 0u) joy1_x = 63u;
+                    if (up != 0u && down == 0u) joy1_y = 0u;
+                    else if (down != 0u && up == 0u) joy1_y = 63u;
+                    joy1_btn = cpu_component_controller_pressed("P1_FIRE");
+                }
+                if (comp->joy2_connected != 0u) {
+                    uint8_t left = cpu_component_controller_pressed("P2_LEFT");
+                    uint8_t right = cpu_component_controller_pressed("P2_RIGHT");
+                    uint8_t up = cpu_component_controller_pressed("P2_UP");
+                    uint8_t down = cpu_component_controller_pressed("P2_DOWN");
+                    if (left != 0u && right == 0u) joy2_x = 0u;
+                    else if (right != 0u && left == 0u) joy2_x = 63u;
+                    if (up != 0u && down == 0u) joy2_y = 0u;
+                    else if (down != 0u && up == 0u) joy2_y = 63u;
+                    joy2_btn = cpu_component_controller_pressed("P2_FIRE");
+                }
+            } else {
+                {
                 uint8_t kp1 = ((size_t)CPU_HOST_SCANCODE(KP_1) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_1)] != 0u) ? 1u : 0u;
                 uint8_t kp2 = ((size_t)CPU_HOST_SCANCODE(KP_2) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_2)] != 0u) ? 1u : 0u;
                 uint8_t kp3 = ((size_t)CPU_HOST_SCANCODE(KP_3) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_3)] != 0u) ? 1u : 0u;
@@ -2263,6 +2996,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                     else if (down != 0u && up == 0u) joy2_y = 63u;
                     joy2_btn = fire;
                 }
+            }
             }
             comp->joy1_axis_x = joy1_x;
             comp->joy1_axis_y = joy1_y;
@@ -15311,9 +16045,21 @@ CPUState *mc6809_create(size_t memory_size) {
         cpu->active_component_id = "host_coco";
         do {
             if (comp->host_inited != 0u) break;
+            {
+                const char *disable_dead = cpu_host_hal_getenv("PASM_DISABLE_DEADKEYS");
+                if (disable_dead == NULL || disable_dead[0] != '0') {
+                    #if defined(__linux__)
+                    /* Keep scancode flow deterministic by disabling XIM dead-key composition for this process. */
+                    setenv("XMODIFIERS", "@im=none", 1);
+                    setenv("GTK_IM_MODULE", "xim", 0);
+                    setenv("QT_IM_MODULE", "xim", 0);
+                    #endif
+                }
+            }
             if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) {
                 break;
             }
+            cpu_host_hal_stop_text_input();
             comp->window = cpu_host_hal_create_window(
                 "PASM TRS-80 Color Computer 1",
                 CPU_HOST_WINDOWPOS_CENTERED,
@@ -15328,7 +16074,6 @@ CPUState *mc6809_create(size_t memory_size) {
                 comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);
             }
             if (comp->renderer == NULL) break;
-            cpu_host_hal_start_text_input();
             comp->texture = cpu_host_hal_create_texture(
                 comp->renderer,
                 CPU_HOST_PIXELFORMAT_ARGB8888,
@@ -15396,6 +16141,8 @@ CPUState *mc6809_create(size_t memory_size) {
             comp->host_inited = 1u;
         } while (0);
     }
+    cpu->comp_coco_cart0.rom_data = NULL;
+    cpu->comp_coco_cart0.rom_size = 0;
     
     mc6809_reset(cpu);
     return cpu;
@@ -15450,6 +16197,15 @@ void mc6809_destroy(CPUState *cpu) {
                 cpu_host_hal_quit();
                 comp->host_inited = 0u;
             }
+        }
+        {
+            ComponentState_coco_cart0 *comp = &cpu->comp_coco_cart0;
+            cpu->active_component_id = "coco_cart0";
+            if (comp->rom_data != NULL) {
+                free(comp->rom_data);
+                comp->rom_data = NULL;
+            }
+            comp->rom_size = 0u;
         }
         free(cpu->memory);
         free(cpu->port_memory);
@@ -15732,9 +16488,38 @@ int mc6809_load_system_roms(CPUState *cpu, const char *system_base_dir) {
 }
 
 int mc6809_load_cartridge_rom(CPUState *cpu, const char *path) {
-    (void)cpu;
-    (void)path;
-    return -1;
+    FILE *f;
+    long file_size;
+    uint8_t *buf;
+    ComponentState_coco_cart0 *comp;
+    size_t read_len;
+
+    if (!cpu || !path || !path[0]) return -1;
+    comp = &cpu->comp_coco_cart0;
+    f = fopen(path, "rb");
+    if (!f) return -1;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    file_size = ftell(f);
+    if (file_size < 0) { fclose(f); return -1; }
+    if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+    buf = (uint8_t *)malloc((size_t)file_size);
+    if (!buf) { fclose(f); return -1; }
+    read_len = fread(buf, 1, (size_t)file_size, f);
+    fclose(f);
+    if (read_len != (size_t)file_size) { free(buf); return -1; }
+    if (comp->rom_data != NULL) {
+        free(comp->rom_data);
+        comp->rom_data = NULL;
+    }
+    comp->rom_data = buf;
+    comp->rom_size = (uint32_t)file_size;
+    snprintf(
+        cpu->loaded_rom_debug,
+        sizeof(cpu->loaded_rom_debug),
+        "name=coco_cart0 path=%s",
+        path
+    );
+    return 0;
 }
 
 
@@ -15910,6 +16695,15 @@ uint8_t mc6809_read_byte(CPUState *cpu, uint16_t addr) {
                     return comp->sam_rom_e000[(uint16_t)(addr - 0xE000u)];
                 }
             }
+        }
+    }
+    {
+        ComponentState_coco_cart0 *comp = &cpu->comp_coco_cart0;
+        cpu->active_component_id = "coco_cart0";
+        if (addr >= 0xC000u && addr < 0xE000u && comp->rom_data != NULL && comp->rom_size > 0u) {
+            uint32_t off = (uint32_t)(addr - 0xC000u);
+            if (off < comp->rom_size) return comp->rom_data[off];
+            return 0xFFu;
         }
     }
     if (addr >= cpu->memory_size) {
@@ -16088,6 +16882,13 @@ void mc6809_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
             return;
         }
         if (addr >= 0xFF00u) {
+            return;
+        }
+    }
+    {
+        ComponentState_coco_cart0 *comp = &cpu->comp_coco_cart0;
+        cpu->active_component_id = "coco_cart0";
+        if (addr >= 0xC000u && addr < 0xE000u && comp->rom_data != NULL && comp->rom_size > 0u) {
             return;
         }
     }

@@ -62,6 +62,9 @@ interfaces:
     - name: mirroring
       args: []
       returns: u8
+    - name: irq_pending
+      args: []
+      returns: u8
   handlers: []
   signals: []
 
@@ -310,6 +313,8 @@ behavior:
       return 0u;
     mirroring: |
       return (uint64_t)(comp->mirroring_mode & 0x01u);
+    irq_pending: |
+      return 0u;
   handler_bodies: {}
 
 coding:

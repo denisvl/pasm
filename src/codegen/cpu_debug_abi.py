@@ -90,6 +90,7 @@ def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, st
         if isinstance(host, dict)
     )
     keyboard_map_required = interactive_host_backend and has_keyboard_callbacks
+    has_cartridge = bool(isa_data.get("cartridge"))
     focus_host_blocks: List[str] = []
     for host in hosts:
         comp_id = str(host.get("metadata", {}).get("id", "")).strip()
@@ -184,6 +185,7 @@ def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, st
         sdl_include_block=sdl_include_block,
         focus_impl=focus_impl,
         keyboard_map_required=keyboard_map_required,
+        has_cartridge=has_cartridge,
     )
     return header, impl
 
@@ -392,7 +394,9 @@ void pasm_dbg_reset(CPUState *cpu);
 int pasm_dbg_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int pasm_dbg_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path);
+int pasm_dbg_set_cartridge_dir(CPUState *cpu, const char *path);
 int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path);
+int pasm_dbg_load_controller_map(CPUState *cpu, const char *path);
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
 int pasm_dbg_snapshot_fill(
     CPUState *cpu,
@@ -427,6 +431,7 @@ int pasm_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
 int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
 int pasm_dbg_focus_host_window(CPUState *cpu);
 uint8_t pasm_dbg_requires_keyboard_map(void);
+uint8_t pasm_dbg_supports_cartridge(void);
 const char *pasm_dbg_processor_name(void);
 const char *pasm_dbg_system_name(void);
 uint8_t pasm_dbg_architecture(void);
@@ -467,6 +472,7 @@ def _generate_impl(
     sdl_include_block: str,
     focus_impl: str,
     keyboard_map_required: bool,
+    has_cartridge: bool,
 ) -> str:
     explicit_prefixes = sorted(
         {
@@ -932,8 +938,11 @@ int {cpu_prefix}_dbg_snapshot_fill(
     if (stack_rows && stack_cap > 0) {{
         for (i = 0; i < stack_cap && i < 32u; i++) {{
             PASMDebugStackRow *row = &stack_rows[i];
+            uint8_t sp8 = (uint8_t)cpu->sp;
+            uint8_t top = (uint8_t)(sp8 + 1u);
+            uint8_t off = (uint8_t)(top + (uint8_t)(i * 2u));
             memset(row, 0, sizeof(*row));
-            row->address = (uint64_t)((uint16_t)(cpu->sp + (uint16_t)(i * 2u)));
+            row->address = (uint64_t)((uint16_t)(0x0100u | off));
             row->value = (uint64_t){cpu_prefix}_read_word(cpu, (uint16_t)row->address);
             row->is_sp = (i == 0u) ? 1u : 0u;
             row->changed = 0u;
@@ -1309,8 +1318,16 @@ int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path) {{
     return {cpu_prefix}_load_cartridge_rom(cpu, path);
 }}
 
+int pasm_dbg_set_cartridge_dir(CPUState *cpu, const char *path) {{
+    return {cpu_prefix}_set_cartridge_dir(cpu, path);
+}}
+
 int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path) {{
     return {cpu_prefix}_load_keyboard_map(cpu, path);
+}}
+
+int pasm_dbg_load_controller_map(CPUState *cpu, const char *path) {{
+    return {cpu_prefix}_load_controller_map(cpu, path);
 }}
 
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {{
@@ -1419,6 +1436,10 @@ int pasm_dbg_focus_host_window(CPUState *cpu) {{
 
 uint8_t pasm_dbg_requires_keyboard_map(void) {{
     return {"1u" if keyboard_map_required else "0u"};
+}}
+
+uint8_t pasm_dbg_supports_cartridge(void) {{
+    return {"1u" if has_cartridge else "0u"};
 }}
 
 const char *pasm_dbg_processor_name(void) {{

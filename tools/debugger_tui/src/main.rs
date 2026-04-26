@@ -53,13 +53,17 @@ fn build_backend() -> Result<Box<dyn DebuggerBackend>, String> {
                 .unwrap_or(65536);
             let system_dir = parse_arg("--system-dir");
             let cart_rom = parse_arg("--cart-rom");
+            let cartridge_dir = parse_arg("--cartridge-dir");
             let keyboard_map = parse_arg("--keyboard-map");
+            let controller_map = parse_arg("--controller-map");
             let start_pc = parse_u64_arg("--start-pc");
             let backend = backend::linked_emulator::LinkedEmulatorBackend::new(
                 memory_size,
                 system_dir.as_deref(),
                 cart_rom.as_deref(),
+                cartridge_dir.as_deref(),
                 keyboard_map.as_deref(),
+                controller_map.as_deref(),
                 start_pc,
             )?;
             return Ok(Box::new(backend));

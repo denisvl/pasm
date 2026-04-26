@@ -41,6 +41,7 @@ components:
   ics:
     - nes_io
   devices:
+    - controller_nes
     - video_nes
     - speaker_nes
   hosts:
@@ -78,9 +79,27 @@ connections:
   - from:
       component: nes_io
       kind: callback
+      name: cart_irq_pending
+    to:
+      component: nes_cart0
+      kind: callback
+      name: irq_pending
+
+  - from:
+      component: nes_io
+      kind: callback
+      name: cart_irq_clock
+    to:
+      component: nes_cart0
+      kind: callback
+      name: irq_clock
+
+  - from:
+      component: nes_io
+      kind: callback
       name: joy1_read
     to:
-      component: host_nes
+      component: controller_nes
       kind: callback
       name: read_joy1
 
@@ -88,6 +107,24 @@ connections:
       component: nes_io
       kind: callback
       name: joy2_read
+    to:
+      component: controller_nes
+      kind: callback
+      name: read_joy2
+
+  - from:
+      component: controller_nes
+      kind: callback
+      name: host_joy1
+    to:
+      component: host_nes
+      kind: callback
+      name: read_joy1
+
+  - from:
+      component: controller_nes
+      kind: callback
+      name: host_joy2
     to:
       component: host_nes
       kind: callback

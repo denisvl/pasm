@@ -91,8 +91,11 @@ typedef struct ComponentState_nes_io {
     uint32_t frame_counter;
     uint64_t cycle_accum;
     uint64_t ppu_dot_accum;
+    uint64_t ppu_abs_tick;
     uint8_t odd_frame;
     uint8_t vblank_set_this_frame;
+    uint8_t ppu_prevent_vbl_flag;
+    uint8_t ppu_prevent_nmi_flag;
     uint8_t sprite0_hit_pending;
     uint64_t sprite0_hit_cycle;
     uint8_t apu_level;
@@ -175,6 +178,9 @@ typedef struct ComponentState_nes_io {
     uint8_t apu_dmc_output;
 } ComponentState_nes_io;
 
+typedef struct ComponentState_controller_nes {
+} ComponentState_controller_nes;
+
 typedef struct ComponentState_video_nes {
     uint32_t frame_count;
     uint32_t width;
@@ -225,6 +231,7 @@ typedef struct ComponentState_nes_cart0 {
     uint32_t rom_size;
     uint8_t ines_valid;
     uint8_t mapper_id;
+    uint8_t four_screen;
     uint8_t mirroring_mode;
     uint32_t prg_offset;
     uint32_t prg_size;
@@ -234,8 +241,25 @@ typedef struct ComponentState_nes_cart0 {
     uint32_t chr_ram_size;
     uint8_t * prg_ram;
     uint32_t prg_ram_size;
-    uint8_t prg_bank;
-    uint8_t chr_bank;
+    uint8_t bank_select;
+    uint8_t prg_mode;
+    uint8_t chr_mode;
+    uint8_t reg0;
+    uint8_t reg1;
+    uint8_t reg2;
+    uint8_t reg3;
+    uint8_t reg4;
+    uint8_t reg5;
+    uint8_t reg6;
+    uint8_t reg7;
+    uint8_t irq_latch;
+    uint8_t irq_counter;
+    uint8_t irq_reload;
+    uint8_t irq_enable;
+    uint8_t irq_pending;
+    uint8_t a12_prev;
+    uint8_t a12_low_count;
+    uint64_t a12_last_tick;
 } ComponentState_nes_cart0;
 
 
@@ -278,6 +302,8 @@ struct CPUState {
     int error_code;
     uint64_t total_cycles;
     bool pc_modified;
+    uint8_t current_instruction_cycles;
+    uint16_t io_read_phase_ppu_dots;
     uint16_t hook_pc;
     uint8_t hook_prefix;
     uint8_t hook_opcode;
@@ -298,6 +324,7 @@ struct CPUState {
     const char *active_component_id;
     uint64_t component_last_return;
     ComponentState_nes_io comp_nes_io;
+    ComponentState_controller_nes comp_controller_nes;
     ComponentState_video_nes comp_video_nes;
     ComponentState_speaker_nes comp_speaker_nes;
     ComponentState_host_nes comp_host_nes;
@@ -317,7 +344,7 @@ struct CPUState {
 #define CPU_AUDIO_FORMAT "s16le"
 /* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"nes_interactive\"} */
 #define CPU_IC_COUNT 1
-#define CPU_DEVICE_COUNT 2
+#define CPU_DEVICE_COUNT 3
 #define CPU_HOST_COUNT 1
 #define CPU_CARTRIDGE_COUNT 1
 
@@ -349,6 +376,9 @@ void mos6502_reset(CPUState *cpu);
 int mos6502_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mos6502_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mos6502_load_cartridge_rom(CPUState *cpu, const char *path);
+int mos6502_set_cartridge_dir(CPUState *cpu, const char *path);
+int mos6502_load_keyboard_map(CPUState *cpu, const char *path);
+int mos6502_load_controller_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int mos6502_step(CPUState *cpu);

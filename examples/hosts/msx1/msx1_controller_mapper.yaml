@@ -1,0 +1,396 @@
+system_name: msx1
+max_ports: 2
+
+image:
+  file: msx_joystick.png
+
+controls:
+  # Port 1 (visual)
+  - id: P1_UP
+    kind: button
+    port: 1
+    legend: [P1_UP]
+    legend_combos: {}
+    bbox:
+      x: 257
+      y: 186
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend: [P1_DOWN]
+    legend_combos: {}
+    bbox:
+      x: 257
+      y: 186
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend: [P1_LEFT]
+    legend_combos: {}
+    bbox:
+      x: 257
+      y: 186
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend: [P1_RIGHT]
+    legend_combos: {}
+    bbox:
+      x: 257
+      y: 186
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend: [BTN1]
+    legend_combos: {}
+    bbox:
+      x: 257
+      y: 186
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend: [BTN2]
+    legend_combos: {}
+    bbox:
+      x: 257
+      y: 186
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+  # Port 2 (non-visual by default)
+  - id: P2_UP
+    kind: button
+    port: 2
+    legend: [P2_UP]
+    legend_combos: {}
+  - id: P2_DOWN
+    kind: button
+    port: 2
+    legend: [P2_DOWN]
+    legend_combos: {}
+  - id: P2_LEFT
+    kind: button
+    port: 2
+    legend: [P2_LEFT]
+    legend_combos: {}
+  - id: P2_RIGHT
+    kind: button
+    port: 2
+    legend: [P2_RIGHT]
+    legend_combos: {}
+  - id: P2_FIRE
+    kind: button
+    port: 2
+    legend: [P2_FIRE]
+    legend_combos: {}
+  - id: P2_FIRE2
+    kind: button
+    port: 2
+    legend: [P2_FIRE2]
+    legend_combos: {}
+
+  - id: P1_DOWN
+    kind: button
+    port: 1
+    legend:
+    - P1_DOWN
+    legend_combos:
+      P1_DOWN:
+      - P1_DOWN
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_LEFT
+    legend_combos:
+      P1_LEFT:
+      - P1_LEFT
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_RIGHT
+    legend_combos:
+      P1_RIGHT:
+      - P1_RIGHT
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_FIRE
+    legend_combos:
+      P1_FIRE:
+      - P1_FIRE
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_FIRE2
+    legend_combos:
+      P1_FIRE2:
+      - P1_FIRE2
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_LEFT
+    legend_combos:
+      P1_LEFT:
+      - P1_LEFT
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_RIGHT
+    legend_combos:
+      P1_RIGHT:
+      - P1_RIGHT
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_FIRE
+    legend_combos:
+      P1_FIRE:
+      - P1_FIRE
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_FIRE2
+    legend_combos:
+      P1_FIRE2:
+      - P1_FIRE2
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_LEFT
+    legend_combos:
+      P1_LEFT:
+      - P1_LEFT
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_RIGHT
+    legend_combos:
+      P1_RIGHT:
+      - P1_RIGHT
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_FIRE
+    legend_combos:
+      P1_FIRE:
+      - P1_FIRE
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+    kind: button
+    port: 1
+    legend:
+    - P1_FIRE2
+    legend_combos:
+      P1_FIRE2:
+      - P1_FIRE2
+    bbox:
+      x: 257
+      y: 611
+      width: 100
+      height: 100
+    overlay_color:
+      - 80
+      - 160
+      - 255
+  - id: P1_LEFT
+    kind: button
+    port: 1
+    legend:
+    - P1_LEFT
+    legend_combos:
+      P1_LEFT:
+      - P1_LEFT
+    bbox:
+      x: 48
+      y: 399
+      width: 100
+      height: 100
+    overlay_color:
+    - 80
+    - 160
+    - 255
+  - id: P1_RIGHT
+    kind: button
+    port: 1
+    legend:
+    - P1_RIGHT
+    legend_combos:
+      P1_RIGHT:
+      - P1_RIGHT
+    bbox:
+      x: 475
+      y: 399
+      width: 100
+      height: 100
+    overlay_color:
+    - 80
+    - 160
+    - 255
+  - id: P1_FIRE
+    kind: button
+    port: 1
+    legend:
+    - P1_FIRE
+    legend_combos:
+      P1_FIRE:
+      - P1_FIRE
+    bbox:
+      x: 45
+      y: 36
+      width: 126
+      height: 81
+    overlay_color:
+    - 80
+    - 160
+    - 255
+  - id: P1_FIRE2
+    kind: button
+    port: 1
+    legend:
+    - P1_FIRE2
+    legend_combos:
+      P1_FIRE2:
+      - P1_FIRE2
+    bbox:
+      x: 455
+      y: 36
+      width: 126
+      height: 81
+    overlay_color:
+    - 80
+    - 160
+    - 255

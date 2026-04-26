@@ -25,6 +25,8 @@ pub trait DebuggerBackend {
     fn read_memory(&mut self, address: u64, size: usize) -> Result<Vec<u8>, String>;
     fn disassembly_window(&mut self, anchor_address: u64) -> Result<Vec<DisasmRow>, String>;
     fn clear_history(&mut self) -> Result<(), String>;
+    fn load_cartridge_rom(&mut self, path: &str) -> Result<(), String>;
+    fn supports_cartridge(&mut self) -> Result<bool, String>;
     fn set_overlay_enabled(&mut self, enabled: bool) -> Result<(), String>;
     fn overlay_enabled(&mut self) -> Result<bool, String>;
     fn focus_emulator_window(&mut self) -> Result<(), String>;

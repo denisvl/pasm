@@ -1,0 +1,179 @@
+system_name: atari_2600_console
+image:
+  file: atari2600_console.jpg
+  width_px: 1064
+  height_px: 648
+  origin: top-left
+  bbox_format:
+    x: left
+    y: top
+    width: pixels
+    height: pixels
+  approximate: true
+  notes:
+  - Derived from the uploaded Atari Video Computer System / Atari 2600 front-panel
+    photo.
+  - Bounding boxes mark the six top-panel switches and are best-effort estimates from
+    the perspective image.
+  - Filenames use console instead of keyboard, as requested.
+keys:
+- id: SW_POWER
+  section: top_panel
+  row: 1
+  column: 1
+  multi_legend: true
+  legend:
+  - POWER
+  - 'ON'
+  - 'OFF'
+  legend_combos:
+    POWER:
+    - SW_POWER
+    'ON':
+    - SW_POWER
+    'OFF':
+    - SW_POWER
+  legend_layout: top-to-bottom
+  bbox:
+    x: 150
+    y: 130
+    width: 39
+    height: 74
+  overlay_color:
+  - 255
+  - 90
+  - 90
+  - 255
+  - 90
+  - 90
+- id: SW_TV_TYPE
+  section: top_panel
+  row: 1
+  column: 2
+  multi_legend: true
+  legend:
+  - TV TYPE
+  - COLOR
+  - B-W
+  legend_combos:
+    TV TYPE:
+    - SW_TV_TYPE
+    COLOR:
+    - SW_TV_TYPE
+    B-W:
+    - SW_TV_TYPE
+  legend_layout: top-to-bottom
+  bbox:
+    x: 236
+    y: 130
+    width: 39
+    height: 74
+  overlay_color:
+  - 255
+  - 180
+  - 60
+  - 255
+  - 180
+  - 60
+- id: SW_LEFT_DIFFICULTY
+  section: top_panel
+  row: 1
+  column: 3
+  multi_legend: true
+  legend:
+  - LEFT DIFFICULTY
+  - A
+  - B
+  legend_combos:
+    LEFT DIFFICULTY:
+    - SW_LEFT_DIFFICULTY
+    A:
+    - SW_LEFT_DIFFICULTY
+    B:
+    - SW_LEFT_DIFFICULTY
+  legend_layout: top-to-bottom
+  bbox:
+    x: 331
+    y: 130
+    width: 39
+    height: 74
+  overlay_color:
+  - 255
+  - 220
+  - 80
+  - 255
+  - 220
+  - 80
+- id: SW_RIGHT_DIFFICULTY
+  section: top_panel
+  row: 1
+  column: 4
+  multi_legend: true
+  legend:
+  - RIGHT DIFFICULTY
+  - A
+  - B
+  legend_combos:
+    RIGHT DIFFICULTY:
+    - SW_RIGHT_DIFFICULTY
+    A:
+    - SW_RIGHT_DIFFICULTY
+    B:
+    - SW_RIGHT_DIFFICULTY
+  legend_layout: top-to-bottom
+  bbox:
+    x: 699
+    y: 130
+    width: 39
+    height: 74
+  overlay_color:
+  - 120
+  - 220
+  - 120
+  - 120
+  - 220
+  - 120
+- id: SW_GAME_SELECT
+  section: top_panel
+  row: 1
+  column: 5
+  multi_legend: false
+  legend:
+  - GAME SELECT
+  legend_combos:
+    GAME SELECT:
+    - SW_GAME_SELECT
+  bbox:
+    x: 789
+    y: 130
+    width: 39
+    height: 74
+  overlay_color:
+  - 80
+  - 200
+  - 255
+  - 80
+  - 200
+  - 255
+- id: SW_GAME_RESET
+  section: top_panel
+  row: 1
+  column: 6
+  multi_legend: false
+  legend:
+  - GAME RESET
+  legend_combos:
+    GAME RESET:
+    - SW_GAME_RESET
+  bbox:
+    x: 879
+    y: 130
+    width: 39
+    height: 74
+  overlay_color:
+  - 180
+  - 120
+  - 255
+  - 180
+  - 120
+  - 255

@@ -14,7 +14,7 @@ void print_usage(const char *prog) {
     printf("  --system-dir <dir>  Load system ROM manifests relative to this directory\n");
     printf("  --keyboard-map <file>  Load runtime keyboard map YAML\n");
     printf("  --rom <file>    Load ROM file\n");
-
+    printf("  --cart-rom <file>  Load cartridge ROM file (overrides generated default)\n");
     printf("  --addr <addr>   Load address (default: 0x0000)\n");
     printf("  --run           Run emulator\n");
     printf("  --cycles <n>    Run for n cycles\n");
@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
     const char *system_dir = NULL;
     const char *keyboard_map_file = NULL;
     const char *rom_file = NULL;
-
+    const char *cart_rom_file = "/home/dvlop/projects/pasm/examples/roms/coco1/Downland V1.1 (1983) (26-3046) (Tandy) [a1].ccc";
     uint16_t load_addr = 0;
     const char *test_name = NULL;
     
@@ -45,6 +45,8 @@ int main(int argc, char *argv[]) {
             keyboard_map_file = argv[++i];
         } else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {
             rom_file = argv[++i];
+        } else if (strcmp(argv[i], "--cart-rom") == 0 && i + 1 < argc) {
+            cart_rom_file = argv[++i];
         } else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
         } else if (strcmp(argv[i], "--run") == 0) {
@@ -79,6 +81,14 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         printf("Loaded keyboard map: %s\n", keyboard_map_file);
+    }
+    if (cart_rom_file && cart_rom_file[0]) {
+        if (mc6809_load_cartridge_rom(cpu, cart_rom_file) != 0) {
+            fprintf(stderr, "Failed to load cartridge ROM: %s\n", cart_rom_file);
+            return 1;
+        }
+        mc6809_reset(cpu);
+        printf("Loaded cartridge ROM: %s\n", cart_rom_file);
     }
     if (rom_file) {
         if (mc6809_load_rom(cpu, rom_file, load_addr) != 0) {

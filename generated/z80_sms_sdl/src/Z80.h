@@ -127,6 +127,9 @@ typedef struct ComponentState_sms_psg0 {
     uint8_t last_mix;
 } ComponentState_sms_psg0;
 
+typedef struct ComponentState_controller_sms {
+} ComponentState_controller_sms;
+
 typedef struct ComponentState_video_sms {
     uint32_t frame_count;
     uint32_t width;
@@ -272,6 +275,7 @@ struct CPUState {
     ComponentState_sms_vdp0 comp_sms_vdp0;
     ComponentState_sms_joy0 comp_sms_joy0;
     ComponentState_sms_psg0 comp_sms_psg0;
+    ComponentState_controller_sms comp_controller_sms;
     ComponentState_video_sms comp_video_sms;
     ComponentState_speaker_sms comp_speaker_sms;
     ComponentState_host_sms comp_host_sms;
@@ -291,7 +295,7 @@ struct CPUState {
 #define CPU_AUDIO_FORMAT "s16le"
 /* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"sms_interactive\"} */
 #define CPU_IC_COUNT 3
-#define CPU_DEVICE_COUNT 2
+#define CPU_DEVICE_COUNT 3
 #define CPU_HOST_COUNT 1
 #define CPU_CARTRIDGE_COUNT 1
 
@@ -339,6 +343,9 @@ void z80_reset(CPUState *cpu);
 int z80_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int z80_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int z80_load_cartridge_rom(CPUState *cpu, const char *path);
+int z80_set_cartridge_dir(CPUState *cpu, const char *path);
+int z80_load_keyboard_map(CPUState *cpu, const char *path);
+int z80_load_controller_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int z80_step(CPUState *cpu);

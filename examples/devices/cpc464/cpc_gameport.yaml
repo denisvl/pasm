@@ -1,0 +1,33 @@
+metadata:
+  id: gameport_cpc
+  type: input_port
+  model: amstrad_cpc_gameport
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: read_row
+      args: [u8]
+      returns: u8
+    - name: host_matrix
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    read_row: |
+      __result = cpu_component_call(cpu, "gameport_cpc", "host_matrix", args, argc);
+      if (__result == 0u) __result = 0xFFu;
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

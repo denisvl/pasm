@@ -254,7 +254,7 @@ int mos6502_dbg_snapshot_fill(
     memset(out_core, 0, sizeof(*out_core));
     dbg_copy(out_core->target_name, sizeof(out_core->target_name), "MOS6502");
     out_core->mode = dbg_mode(cpu);
-    out_core->architecture = PASM_ARCH_MOS6502;
+    out_core->architecture = PASM_ARCH_RICOH2A03;
     out_core->system_clock_hz = (uint64_t)CPU_SYSTEM_CLOCK_HZ;
     out_core->selected_thread_id = 0u;
     out_core->pc = (uint64_t)cpu->pc;
@@ -481,8 +481,11 @@ int mos6502_dbg_snapshot_fill(
     if (stack_rows && stack_cap > 0) {
         for (i = 0; i < stack_cap && i < 32u; i++) {
             PASMDebugStackRow *row = &stack_rows[i];
+            uint8_t sp8 = (uint8_t)cpu->sp;
+            uint8_t top = (uint8_t)(sp8 + 1u);
+            uint8_t off = (uint8_t)(top + (uint8_t)(i * 2u));
             memset(row, 0, sizeof(*row));
-            row->address = (uint64_t)((uint16_t)(cpu->sp + (uint16_t)(i * 2u)));
+            row->address = (uint64_t)((uint16_t)(0x0100u | off));
             row->value = (uint64_t)mos6502_read_word(cpu, (uint16_t)row->address);
             row->is_sp = (i == 0u) ? 1u : 0u;
             row->changed = 0u;
@@ -879,6 +882,18 @@ int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path) {
     return mos6502_load_cartridge_rom(cpu, path);
 }
 
+int pasm_dbg_set_cartridge_dir(CPUState *cpu, const char *path) {
+    return mos6502_set_cartridge_dir(cpu, path);
+}
+
+int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path) {
+    return mos6502_load_keyboard_map(cpu, path);
+}
+
+int pasm_dbg_load_controller_map(CPUState *cpu, const char *path) {
+    return mos6502_load_controller_map(cpu, path);
+}
+
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {
     return mos6502_dbg_snapshot_counts(cpu, out_counts);
 }
@@ -983,6 +998,14 @@ int pasm_dbg_focus_host_window(CPUState *cpu) {
     return mos6502_dbg_focus_host_window(cpu);
 }
 
+uint8_t pasm_dbg_requires_keyboard_map(void) {
+    return 0u;
+}
+
+uint8_t pasm_dbg_supports_cartridge(void) {
+    return 1u;
+}
+
 const char *pasm_dbg_processor_name(void) {
     return "MOS6502";
 }
@@ -992,5 +1015,5 @@ const char *pasm_dbg_system_name(void) {
 }
 
 uint8_t pasm_dbg_architecture(void) {
-    return (uint8_t)PASM_ARCH_MOS6502;
+    return (uint8_t)PASM_ARCH_RICOH2A03;
 }

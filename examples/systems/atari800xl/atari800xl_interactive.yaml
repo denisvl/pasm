@@ -74,8 +74,10 @@ components:
   ics:
     - atari_io
   devices:
-    - video_sms
-    - speaker_sms
+    - keyboard_atari800xl
+    - controller_atari800xl
+    - video_atari800xl
+    - speaker_atari800xl
   hosts:
     - host_atari800xl
 
@@ -85,59 +87,134 @@ connections:
       kind: callback
       name: keyboard_ascii
     to:
-      component: host_atari800xl
+      component: keyboard_atari800xl
       kind: callback
-      name: keyboard_ascii
+      name: read_ascii
+
+  - from:
+      component: atari_io
+      kind: callback
+      name: break_state
+    to:
+      component: keyboard_atari800xl
+      kind: callback
+      name: read_break
 
   - from:
       component: atari_io
       kind: callback
       name: consol_state
     to:
-      component: host_atari800xl
+      component: controller_atari800xl
       kind: callback
-      name: consol_state
+      name: read_consol
 
   - from:
       component: atari_io
       kind: callback
       name: joystick_porta
     to:
-      component: host_atari800xl
+      component: controller_atari800xl
       kind: callback
-      name: joystick_porta
+      name: read_porta
 
   - from:
       component: atari_io
       kind: callback
       name: trigger0
     to:
-      component: host_atari800xl
+      component: controller_atari800xl
       kind: callback
-      name: trigger0
+      name: read_trigger0
 
   - from:
       component: atari_io
       kind: callback
       name: trigger1
     to:
-      component: host_atari800xl
+      component: controller_atari800xl
       kind: callback
-      name: trigger1
+      name: read_trigger1
 
   - from:
       component: atari_io
       kind: callback
       name: trigger2
     to:
-      component: host_atari800xl
+      component: controller_atari800xl
       kind: callback
-      name: trigger2
+      name: read_trigger2
 
   - from:
       component: atari_io
       kind: callback
       name: trigger3
+    to:
+      component: controller_atari800xl
+      kind: callback
+      name: read_trigger3
+
+  - from:
+      component: keyboard_atari800xl
+      kind: callback
+      name: host_ascii
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: keyboard_ascii
+  - from:
+      component: keyboard_atari800xl
+      kind: callback
+      name: host_break
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: break_state
+
+  - from:
+      component: controller_atari800xl
+      kind: callback
+      name: host_consol
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: consol_state
+  - from:
+      component: controller_atari800xl
+      kind: callback
+      name: host_porta
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: joystick_porta
+  - from:
+      component: controller_atari800xl
+      kind: callback
+      name: host_trigger0
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: trigger0
+  - from:
+      component: controller_atari800xl
+      kind: callback
+      name: host_trigger1
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: trigger1
+  - from:
+      component: controller_atari800xl
+      kind: callback
+      name: host_trigger2
+    to:
+      component: host_atari800xl
+      kind: callback
+      name: trigger2
+  - from:
+      component: controller_atari800xl
+      kind: callback
+      name: host_trigger3
     to:
       component: host_atari800xl
       kind: callback
@@ -148,12 +225,12 @@ connections:
       kind: signal
       name: frame_ready
     to:
-      component: video_sms
+      component: video_atari800xl
       kind: handler
       name: on_frame_ready
 
   - from:
-      component: video_sms
+      component: video_atari800xl
       kind: signal
       name: frame_present
     to:
@@ -166,12 +243,12 @@ connections:
       kind: signal
       name: audio_level
     to:
-      component: speaker_sms
+      component: speaker_atari800xl
       kind: handler
       name: on_audio_level
 
   - from:
-      component: speaker_sms
+      component: speaker_atari800xl
       kind: signal
       name: pcm_sample
     to:

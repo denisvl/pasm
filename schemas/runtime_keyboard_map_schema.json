@@ -26,19 +26,90 @@
         "focus_required": {
           "type": "boolean"
         },
+        "system_keys": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "visual_feedback": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            ]
+          },
+          "uniqueItems": true
+        },
         "bindings": {
           "type": "array",
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": [
-              "host_key"
+            "anyOf": [
+              {
+                "required": [
+                  "host_scancode"
+                ]
+              },
+              {
+                "required": [
+                  "host_key"
+                ]
+              }
             ],
             "additionalProperties": false,
             "properties": {
+              "host_scancode": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[A-Z0-9_]+$"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4095
+                  }
+                ]
+              },
               "host_key": {
                 "type": "string",
                 "pattern": "^[A-Z0-9_]+$"
+              },
+              "mapper_key_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "emulator_key_id": {
+                "type": "string",
+                "enum": [
+                  "EMU_POWER_TOGGLE",
+                  "EMU_RESET",
+                  "EMU_PAUSE_TOGGLE",
+                  "EMU_SAVE_SNAPSHOT",
+                  "EMU_LOAD_SNAPSHOT",
+                  "EMU_MUTE_TOGGLE",
+                  "EMU_VOLUME_UP",
+                  "EMU_VOLUME_DOWN"
+                ]
+              },
+              "system_key_id": {
+                "type": "string",
+                "minLength": 1
               },
               "presses": {
                 "type": "array",

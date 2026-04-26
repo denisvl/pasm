@@ -1,4 +1,5 @@
 use std::ffi::{c_char, c_int, c_uchar, c_uint, c_ulonglong, CString};
+use std::fs;
 
 use crate::backend::ffi_types::*;
 use crate::backend::DebuggerBackend;
@@ -15,8 +16,11 @@ unsafe extern "C" {
     fn pasm_dbg_clear_memory(cpu: *mut CPUState) -> c_int;
     fn pasm_dbg_load_system_roms(cpu: *mut CPUState, system_base_dir: *const c_char) -> c_int;
     fn pasm_dbg_load_cartridge_rom(cpu: *mut CPUState, path: *const c_char) -> c_int;
+    fn pasm_dbg_set_cartridge_dir(cpu: *mut CPUState, path: *const c_char) -> c_int;
     fn pasm_dbg_load_keyboard_map(cpu: *mut CPUState, path: *const c_char) -> c_int;
+    fn pasm_dbg_load_controller_map(cpu: *mut CPUState, path: *const c_char) -> c_int;
     fn pasm_dbg_requires_keyboard_map() -> c_uchar;
+    fn pasm_dbg_supports_cartridge() -> c_uchar;
     fn pasm_dbg_snapshot_counts(cpu: *mut CPUState, out_counts: *mut PASMDebugCounts) -> c_int;
     fn pasm_dbg_snapshot_fill(
         cpu: *mut CPUState,
@@ -76,15 +80,225 @@ pub struct LinkedEmulatorBackend {
     start_pc: Option<u64>,
     system_dir: Option<String>,
     cart_rom: Option<String>,
+    cartridge_dir: Option<String>,
     keyboard_map: Option<String>,
+    controller_map: Option<String>,
 }
 
 impl LinkedEmulatorBackend {
+    fn keyboard_map_diagnostic(path: &str) -> Option<String> {
+        fn flush_binding(
+            kind: &str,
+            host: &Option<String>,
+            has_mapper_id: bool,
+            has_emulator_id: bool,
+            has_ascii: bool,
+            has_ascii_shift: bool,
+            has_ascii_ctrl: bool,
+            has_presses: bool,
+        ) -> Option<String> {
+            if host.is_none() {
+                return None;
+            }
+            let host_id = host.as_deref().unwrap_or("<unknown>");
+            if (has_mapper_id as u8 + has_emulator_id as u8) != 1 {
+                return Some(format!(
+                    "binding '{host_id}' must specify exactly one of mapper_key_id or emulator_key_id"
+                ));
+            }
+            if has_emulator_id {
+                // Emulator bindings can be payload-less; they are handled by host/system logic.
+                return None;
+            }
+            if kind == "ascii" && !(has_ascii || has_ascii_shift || has_ascii_ctrl) {
+                return Some(format!(
+                    "binding '{host_id}' is missing payload for kind=ascii (need ascii/ascii_shift/ascii_ctrl)"
+                ));
+            }
+            if kind == "matrix" && !has_presses {
+                return Some(format!(
+                    "binding '{host_id}' is missing payload for kind=matrix (need presses row/bit)"
+                ));
+            }
+            None
+        }
+
+        let text = fs::read_to_string(path).ok()?;
+        let mut kind = String::new();
+        let mut current_host: Option<String> = None;
+        let mut has_mapper_id = false;
+        let mut has_emulator_id = false;
+        let mut has_ascii = false;
+        let mut has_ascii_shift = false;
+        let mut has_ascii_ctrl = false;
+        let mut has_presses = false;
+
+        for raw in text.lines() {
+            let line_no_comment = raw.split('#').next().unwrap_or("").trim();
+            if line_no_comment.is_empty() {
+                continue;
+            }
+            if let Some(rest) = line_no_comment.strip_prefix("kind:") {
+                kind = rest.trim().to_string();
+                continue;
+            }
+            if line_no_comment.starts_with("- host_scancode:")
+                || line_no_comment.starts_with("host_scancode:")
+                || line_no_comment.starts_with("- host_key:")
+                || line_no_comment.starts_with("host_key:")
+            {
+                if let Some(err) = flush_binding(
+                    &kind,
+                    &current_host,
+                    has_mapper_id,
+                    has_emulator_id,
+                    has_ascii,
+                    has_ascii_shift,
+                    has_ascii_ctrl,
+                    has_presses,
+                ) {
+                    return Some(err);
+                }
+                let host_val = line_no_comment
+                    .split_once(':')
+                    .map(|(_, rhs)| rhs.trim().trim_matches('"').trim_matches('\'').to_string())
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                current_host = Some(host_val);
+                has_mapper_id = false;
+                has_emulator_id = false;
+                has_ascii = false;
+                has_ascii_shift = false;
+                has_ascii_ctrl = false;
+                has_presses = false;
+                continue;
+            }
+            if line_no_comment.starts_with("mapper_key_id:") {
+                has_mapper_id = true;
+            } else if line_no_comment.starts_with("emulator_key_id:") {
+                has_emulator_id = true;
+            } else if line_no_comment.starts_with("ascii:") {
+                has_ascii = true;
+            } else if line_no_comment.starts_with("ascii_shift:") {
+                has_ascii_shift = true;
+            } else if line_no_comment.starts_with("ascii_ctrl:") {
+                has_ascii_ctrl = true;
+            } else if line_no_comment.starts_with("presses:")
+                || line_no_comment.starts_with("- row:")
+                || line_no_comment.starts_with("row:")
+                || line_no_comment.starts_with("bit:")
+            {
+                has_presses = true;
+            }
+        }
+        flush_binding(
+            &kind,
+            &current_host,
+            has_mapper_id,
+            has_emulator_id,
+            has_ascii,
+            has_ascii_shift,
+            has_ascii_ctrl,
+            has_presses,
+        )
+    }
+
+    fn controller_map_diagnostic(path: &str) -> Option<String> {
+        fn flush_binding(
+            target: &Option<String>,
+            has_target: bool,
+            has_host_source: bool,
+        ) -> Option<String> {
+            if !has_target && target.is_none() {
+                return None;
+            }
+            let tid = target.as_deref().unwrap_or("<unknown>");
+            if !has_target {
+                return Some(format!("binding is missing target_control_id (got host source for '{tid}')"));
+            }
+            if !has_host_source {
+                return Some(format!(
+                    "binding '{tid}' is missing host source (need host_scancode/host_key/host_gamepad/host_joystick)"
+                ));
+            }
+            None
+        }
+
+        let text = fs::read_to_string(path).ok()?;
+        let mut in_controller_map = false;
+        let mut in_bindings = false;
+
+        let mut target: Option<String> = None;
+        let mut has_target = false;
+        let mut has_host_source = false;
+
+        for raw in text.lines() {
+            let line_no_comment = raw.split('#').next().unwrap_or("").trim();
+            if line_no_comment.is_empty() {
+                continue;
+            }
+            if line_no_comment == "controller_map:" {
+                in_controller_map = true;
+                in_bindings = false;
+                continue;
+            }
+            if !in_controller_map {
+                continue;
+            }
+            if line_no_comment == "bindings:" {
+                in_bindings = true;
+                // Reset any prior binding state when entering the bindings block.
+                target = None;
+                has_target = false;
+                has_host_source = false;
+                continue;
+            }
+            if !in_bindings {
+                continue;
+            }
+
+            if let Some(rest) = line_no_comment.strip_prefix("- target_control_id:") {
+                if let Some(err) = flush_binding(&target, has_target, has_host_source) {
+                    return Some(err);
+                }
+                target = Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
+                has_target = true;
+                has_host_source = false;
+                continue;
+            }
+            if let Some(rest) = line_no_comment.strip_prefix("target_control_id:") {
+                if let Some(err) = flush_binding(&target, has_target, has_host_source) {
+                    return Some(err);
+                }
+                target = Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
+                has_target = true;
+                has_host_source = false;
+                continue;
+            }
+
+            if line_no_comment.starts_with("- host_scancode:")
+                || line_no_comment.starts_with("host_scancode:")
+                || line_no_comment.starts_with("- host_key:")
+                || line_no_comment.starts_with("host_key:")
+                || line_no_comment == "host_gamepad:"
+                || line_no_comment == "- host_gamepad:"
+                || line_no_comment == "host_joystick:"
+                || line_no_comment == "- host_joystick:"
+            {
+                has_host_source = true;
+                continue;
+            }
+        }
+
+        flush_binding(&target, has_target, has_host_source)
+    }
+
     pub fn new(
         memory_size: usize,
         system_dir: Option<&str>,
         cart_rom: Option<&str>,
+        cartridge_dir: Option<&str>,
         keyboard_map: Option<&str>,
+        controller_map: Option<&str>,
         start_pc: Option<u64>,
     ) -> Result<Self, String> {
         // SAFETY: FFI constructor from generated emulator.
@@ -97,7 +311,9 @@ impl LinkedEmulatorBackend {
             start_pc,
             system_dir: system_dir.map(ToOwned::to_owned),
             cart_rom: cart_rom.map(ToOwned::to_owned),
+            cartridge_dir: cartridge_dir.map(ToOwned::to_owned),
             keyboard_map: keyboard_map.map(ToOwned::to_owned),
+            controller_map: controller_map.map(ToOwned::to_owned),
         };
         if let Some(dir) = system_dir {
             let c_dir = CString::new(dir).map_err(|_| "invalid system path")?;
@@ -119,6 +335,27 @@ Use the directory that contains your system YAML (for example: examples/systems)
                 ));
             }
         }
+        let supports_cartridge = unsafe { pasm_dbg_supports_cartridge() } != 0;
+        if let Some(dir) = cartridge_dir {
+            if !supports_cartridge {
+                return Err(format!(
+                    "system does not support cartridges, but --cartridge-dir was provided ('{dir}')"
+                ));
+            }
+            let md = fs::metadata(dir).map_err(|e| {
+                format!("invalid --cartridge-dir '{dir}': {e}")
+            })?;
+            if !md.is_dir() {
+                return Err(format!("invalid --cartridge-dir '{dir}': not a directory"));
+            }
+            let c_dir = CString::new(dir).map_err(|_| "invalid cartridge dir path")?;
+            let rc = unsafe { pasm_dbg_set_cartridge_dir(backend.cpu, c_dir.as_ptr()) };
+            if rc != 0 {
+                return Err(format!(
+                    "failed to set cartridge dir '{dir}' (code {rc})"
+                ));
+            }
+        }
         let keyboard_required = unsafe { pasm_dbg_requires_keyboard_map() } != 0;
         if keyboard_required && keyboard_map.is_none() {
             return Err("missing required --keyboard-map <file>".to_string());
@@ -127,12 +364,27 @@ Use the directory that contains your system YAML (for example: examples/systems)
             let c_path = CString::new(path).map_err(|_| "invalid keyboard map path")?;
             let rc = unsafe { pasm_dbg_load_keyboard_map(backend.cpu, c_path.as_ptr()) };
             if rc != 0 {
+                let hint = Self::keyboard_map_diagnostic(path)
+                    .map(|s| format!("; hint: {s}"))
+                    .unwrap_or_default();
                 return Err(format!(
-                    "failed to load keyboard map from '{path}' (code {rc})"
+                    "failed to load keyboard map from '{path}' (code {rc}){hint}"
                 ));
             }
         }
-        if system_dir.is_some() || cart_rom.is_some() || keyboard_map.is_some() {
+        if let Some(path) = controller_map {
+            let c_path = CString::new(path).map_err(|_| "invalid controller map path")?;
+            let rc = unsafe { pasm_dbg_load_controller_map(backend.cpu, c_path.as_ptr()) };
+            if rc != 0 {
+                let hint = Self::controller_map_diagnostic(path)
+                    .map(|s| format!("; hint: {s}"))
+                    .unwrap_or_default();
+                return Err(format!(
+                    "failed to load controller map from '{path}' (code {rc}){hint}"
+                ));
+            }
+        }
+        if system_dir.is_some() || cart_rom.is_some() || keyboard_map.is_some() || controller_map.is_some() {
             unsafe { pasm_dbg_reset(backend.cpu) };
         }
         if let Some(pc) = start_pc {
@@ -429,6 +681,15 @@ impl DebuggerBackend for LinkedEmulatorBackend {
                 ));
             }
         }
+        if let Some(dir) = self.cartridge_dir.as_deref() {
+            let c_dir = CString::new(dir).map_err(|_| "invalid cartridge dir path")?;
+            let rc = unsafe { pasm_dbg_set_cartridge_dir(self.cpu, c_dir.as_ptr()) };
+            if rc != 0 {
+                return Err(format!(
+                    "failed to set cartridge dir '{dir}' during reset (code {rc})"
+                ));
+            }
+        }
         let keyboard_required = unsafe { pasm_dbg_requires_keyboard_map() } != 0;
         if keyboard_required && self.keyboard_map.is_none() {
             return Err("missing required --keyboard-map <file>".to_string());
@@ -437,12 +698,27 @@ impl DebuggerBackend for LinkedEmulatorBackend {
             let c_path = CString::new(path).map_err(|_| "invalid keyboard map path")?;
             let rc = unsafe { pasm_dbg_load_keyboard_map(self.cpu, c_path.as_ptr()) };
             if rc != 0 {
+                let hint = Self::keyboard_map_diagnostic(path)
+                    .map(|s| format!("; hint: {s}"))
+                    .unwrap_or_default();
                 return Err(format!(
-                    "failed to reload keyboard map from '{path}' during reset (code {rc})"
+                    "failed to reload keyboard map from '{path}' during reset (code {rc}){hint}"
                 ));
             }
         }
-        if self.system_dir.is_some() || self.cart_rom.is_some() || self.keyboard_map.is_some() {
+        if let Some(path) = self.controller_map.as_deref() {
+            let c_path = CString::new(path).map_err(|_| "invalid controller map path")?;
+            let rc = unsafe { pasm_dbg_load_controller_map(self.cpu, c_path.as_ptr()) };
+            if rc != 0 {
+                let hint = Self::controller_map_diagnostic(path)
+                    .map(|s| format!("; hint: {s}"))
+                    .unwrap_or_default();
+                return Err(format!(
+                    "failed to reload controller map from '{path}' during reset (code {rc}){hint}"
+                ));
+            }
+        }
+        if self.system_dir.is_some() || self.cart_rom.is_some() || self.keyboard_map.is_some() || self.controller_map.is_some() {
             unsafe { pasm_dbg_reset(self.cpu) };
         }
         if let Some(pc) = self.start_pc {
@@ -514,6 +790,20 @@ impl DebuggerBackend for LinkedEmulatorBackend {
 
     fn clear_history(&mut self) -> Result<(), String> {
         self.check(unsafe { pasm_dbg_clear_history(self.cpu) })
+    }
+
+    fn load_cartridge_rom(&mut self, path: &str) -> Result<(), String> {
+        let c_path = CString::new(path).map_err(|_| "invalid cartridge ROM path")?;
+        let rc = unsafe { pasm_dbg_load_cartridge_rom(self.cpu, c_path.as_ptr()) };
+        if rc != 0 {
+            return Err(format!("failed to load cartridge ROM from '{path}' (code {rc})"));
+        }
+        self.cart_rom = Some(path.to_string());
+        Ok(())
+    }
+
+    fn supports_cartridge(&mut self) -> Result<bool, String> {
+        Ok(unsafe { pasm_dbg_supports_cartridge() } != 0)
     }
 
     fn set_overlay_enabled(&mut self, enabled: bool) -> Result<(), String> {

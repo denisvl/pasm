@@ -122,6 +122,9 @@ typedef struct ComponentState_keyboard_cpc {
     uint8_t last_row;
 } ComponentState_keyboard_cpc;
 
+typedef struct ComponentState_gameport_cpc {
+} ComponentState_gameport_cpc;
+
 typedef struct ComponentState_video_cpc {
     uint32_t frame_count;
     uint32_t width;
@@ -252,6 +255,7 @@ struct CPUState {
     uint64_t component_last_return;
     ComponentState_cpc_io comp_cpc_io;
     ComponentState_keyboard_cpc comp_keyboard_cpc;
+    ComponentState_gameport_cpc comp_gameport_cpc;
     ComponentState_video_cpc comp_video_cpc;
     ComponentState_speaker_cpc comp_speaker_cpc;
     ComponentState_host_cpc comp_host_cpc;
@@ -270,7 +274,7 @@ struct CPUState {
 #define CPU_AUDIO_FORMAT "s16le"
 /* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"amstrad_cpc464_interactive\"} */
 #define CPU_IC_COUNT 1
-#define CPU_DEVICE_COUNT 3
+#define CPU_DEVICE_COUNT 4
 #define CPU_HOST_COUNT 1
 #define CPU_CARTRIDGE_COUNT 0
 
@@ -319,6 +323,7 @@ int z80_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int z80_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int z80_load_cartridge_rom(CPUState *cpu, const char *path);
 int z80_load_keyboard_map(CPUState *cpu, const char *path);
+int z80_load_controller_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int z80_step(CPUState *cpu);

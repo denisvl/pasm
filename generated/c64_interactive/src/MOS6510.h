@@ -107,6 +107,9 @@ typedef struct ComponentState_keyboard_c64 {
     uint8_t last_row;
 } ComponentState_keyboard_c64;
 
+typedef struct ComponentState_joystick_c64 {
+} ComponentState_joystick_c64;
+
 typedef struct ComponentState_video_c64 {
     uint32_t frame_count;
     uint32_t width;
@@ -147,6 +150,8 @@ typedef struct ComponentState_host_c64 {
     uint64_t overlay_cpu_hz;
     uint32_t overlay_cpu_pct_x10;
     uint8_t swap_semicolon_slash;
+    uint8_t joy_port1;
+    uint8_t joy_port2;
     uint8_t row0;
     uint8_t row1;
     uint8_t row2;
@@ -220,6 +225,7 @@ struct CPUState {
     uint64_t component_last_return;
     ComponentState_c64_io comp_c64_io;
     ComponentState_keyboard_c64 comp_keyboard_c64;
+    ComponentState_joystick_c64 comp_joystick_c64;
     ComponentState_video_c64 comp_video_c64;
     ComponentState_speaker_c64 comp_speaker_c64;
     ComponentState_host_c64 comp_host_c64;
@@ -238,7 +244,7 @@ struct CPUState {
 #define CPU_AUDIO_FORMAT "s16le"
 /* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"c64_interactive\"} */
 #define CPU_IC_COUNT 1
-#define CPU_DEVICE_COUNT 3
+#define CPU_DEVICE_COUNT 4
 #define CPU_HOST_COUNT 1
 #define CPU_CARTRIDGE_COUNT 0
 
@@ -273,6 +279,7 @@ int mos6510_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mos6510_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mos6510_load_cartridge_rom(CPUState *cpu, const char *path);
 int mos6510_load_keyboard_map(CPUState *cpu, const char *path);
+int mos6510_load_controller_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int mos6510_step(CPUState *cpu);

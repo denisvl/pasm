@@ -316,28 +316,57 @@ behavior:
       \    case 7u: value = comp->row7; break;\n    case 8u: value = comp->row8; break;\n\
       \    case 9u: value = comp->row9; break;\n    case 10u: value = comp->row10;\
       \ break;\n    default: value = 0xFFu; break;\n}\nreturn (uint64_t)value;\n"
-    joystick_state: "if (comp->host_inited == 0u) return 0xFFu;\ncpu_host_hal_pump_events();\n\
-      comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);\nif\
-      \ (comp->has_keyboard_focus == 0u) return 0xFFu;\n\nint key_count = 0;\nconst\
-      \ uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\nif (ks == NULL ||\
-      \ key_count <= 0) return 0xFFu;\n\nuint8_t up = ((int)CPU_HOST_SCANCODE(UP)\
-      \ < key_count && ks[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;\nuint8_t down =\
-      \ ((int)CPU_HOST_SCANCODE(DOWN) < key_count && ks[CPU_HOST_SCANCODE(DOWN)] !=\
-      \ 0u) ? 1u : 0u;\nuint8_t left = ((int)CPU_HOST_SCANCODE(LEFT) < key_count &&\
-      \ ks[CPU_HOST_SCANCODE(LEFT)] != 0u) ? 1u : 0u;\nuint8_t right = ((int)CPU_HOST_SCANCODE(RIGHT)\
-      \ < key_count && ks[CPU_HOST_SCANCODE(RIGHT)] != 0u) ? 1u : 0u;\n\nuint8_t btn1\
-      \ = 0u;\nuint8_t btn2 = 0u;\nif (comp->joy_buttons_profile == 0u) {\n    btn1\
-      \ = ((int)CPU_HOST_SCANCODE(KP_0) < key_count && ks[CPU_HOST_SCANCODE(KP_0)]\
-      \ != 0u) ? 1u : 0u;\n    btn2 = ((int)CPU_HOST_SCANCODE(KP_ENTER) < key_count\
-      \ && ks[CPU_HOST_SCANCODE(KP_ENTER)] != 0u) ? 1u : 0u;\n} else {\n    btn1 =\
-      \ ((int)CPU_HOST_SCANCODE(KP_1) < key_count && ks[CPU_HOST_SCANCODE(KP_1)] !=\
-      \ 0u) ? 1u : 0u;\n    btn2 = ((int)CPU_HOST_SCANCODE(KP_2) < key_count && ks[CPU_HOST_SCANCODE(KP_2)]\
-      \ != 0u) ? 1u : 0u;\n}\n\nuint8_t joy = 0xFFu;\nif (up != 0u && down == 0u)\
-      \ joy = (uint8_t)(joy & (uint8_t)~0x01u);\nif (down != 0u && up == 0u) joy =\
-      \ (uint8_t)(joy & (uint8_t)~0x02u);\nif (left != 0u && right == 0u) joy = (uint8_t)(joy\
-      \ & (uint8_t)~0x04u);\nif (right != 0u && left == 0u) joy = (uint8_t)(joy &\
-      \ (uint8_t)~0x08u);\nif (btn1 != 0u) joy = (uint8_t)(joy & (uint8_t)~0x10u);\n\
-      if (btn2 != 0u) joy = (uint8_t)(joy & (uint8_t)~0x20u);\nreturn (uint64_t)joy;\n"
+    joystick_state: "if (comp->host_inited == 0u) return 0xFFu;\n\
+cpu_host_hal_pump_events();\n\
+comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);\n\
+if (comp->has_keyboard_focus == 0u) return 0xFFu;\n\
+\n\
+/* Prefer controller-map when loaded (host_controller_msx1.yaml); otherwise keep legacy keyboard joystick keys. */\n\
+if (g_runtime_controller_map.loaded != 0u) {\n\
+    cpu_component_controller_map_poll(cpu, comp->has_keyboard_focus);\n\
+    uint8_t joy = 0xFFu;\n\
+    uint8_t up = cpu_component_controller_pressed(\"P1_UP\");\n\
+    uint8_t down = cpu_component_controller_pressed(\"P1_DOWN\");\n\
+    uint8_t left = cpu_component_controller_pressed(\"P1_LEFT\");\n\
+    uint8_t right = cpu_component_controller_pressed(\"P1_RIGHT\");\n\
+    uint8_t btn1 = cpu_component_controller_pressed(\"P1_FIRE\");\n\
+    uint8_t btn2 = cpu_component_controller_pressed(\"P1_FIRE2\");\n\
+    if (up != 0u && down == 0u) joy = (uint8_t)(joy & (uint8_t)~0x01u);\n\
+    if (down != 0u && up == 0u) joy = (uint8_t)(joy & (uint8_t)~0x02u);\n\
+    if (left != 0u && right == 0u) joy = (uint8_t)(joy & (uint8_t)~0x04u);\n\
+    if (right != 0u && left == 0u) joy = (uint8_t)(joy & (uint8_t)~0x08u);\n\
+    if (btn1 != 0u) joy = (uint8_t)(joy & (uint8_t)~0x10u);\n\
+    if (btn2 != 0u) joy = (uint8_t)(joy & (uint8_t)~0x20u);\n\
+    return (uint64_t)joy;\n\
+}\n\
+\n\
+int key_count = 0;\n\
+const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n\
+if (ks == NULL || key_count <= 0) return 0xFFu;\n\
+\n\
+uint8_t up = ((int)CPU_HOST_SCANCODE(UP) < key_count && ks[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;\n\
+uint8_t down = ((int)CPU_HOST_SCANCODE(DOWN) < key_count && ks[CPU_HOST_SCANCODE(DOWN)] != 0u) ? 1u : 0u;\n\
+uint8_t left = ((int)CPU_HOST_SCANCODE(LEFT) < key_count && ks[CPU_HOST_SCANCODE(LEFT)] != 0u) ? 1u : 0u;\n\
+uint8_t right = ((int)CPU_HOST_SCANCODE(RIGHT) < key_count && ks[CPU_HOST_SCANCODE(RIGHT)] != 0u) ? 1u : 0u;\n\
+\n\
+uint8_t btn1 = 0u;\n\
+uint8_t btn2 = 0u;\n\
+if (comp->joy_buttons_profile == 0u) {\n\
+    btn1 = ((int)CPU_HOST_SCANCODE(KP_0) < key_count && ks[CPU_HOST_SCANCODE(KP_0)] != 0u) ? 1u : 0u;\n\
+    btn2 = ((int)CPU_HOST_SCANCODE(KP_ENTER) < key_count && ks[CPU_HOST_SCANCODE(KP_ENTER)] != 0u) ? 1u : 0u;\n\
+} else {\n\
+    btn1 = ((int)CPU_HOST_SCANCODE(KP_1) < key_count && ks[CPU_HOST_SCANCODE(KP_1)] != 0u) ? 1u : 0u;\n\
+    btn2 = ((int)CPU_HOST_SCANCODE(KP_2) < key_count && ks[CPU_HOST_SCANCODE(KP_2)] != 0u) ? 1u : 0u;\n\
+}\n\
+\n\
+uint8_t joy = 0xFFu;\n\
+if (up != 0u && down == 0u) joy = (uint8_t)(joy & (uint8_t)~0x01u);\n\
+if (down != 0u && up == 0u) joy = (uint8_t)(joy & (uint8_t)~0x02u);\n\
+if (left != 0u && right == 0u) joy = (uint8_t)(joy & (uint8_t)~0x04u);\n\
+if (right != 0u && left == 0u) joy = (uint8_t)(joy & (uint8_t)~0x08u);\n\
+if (btn1 != 0u) joy = (uint8_t)(joy & (uint8_t)~0x10u);\n\
+if (btn2 != 0u) joy = (uint8_t)(joy & (uint8_t)~0x20u);\n\
+return (uint64_t)joy;\n"
   handler_bodies:
     video_frame: "if (comp->host_inited == 0u || argc < 4) return;\nvoid *renderer\
       \ = comp->renderer;\nvoid *texture = comp->texture;\nuint32_t frame = (uint32_t)(args[0]\

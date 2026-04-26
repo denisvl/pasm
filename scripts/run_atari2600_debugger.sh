@@ -30,6 +30,9 @@ USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/atari2600/atari2600_mapper_none.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/atari2600/Pitfall! (1982) (Activision) [!].a26}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
+# Atari 2600 has no keyboard; we use the console switch map as the keyboard-map.
+KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/atari2600/host_console_atari2600.yaml}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/atari2600/host_controller_atari2600.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -39,6 +42,7 @@ mkdir -p "${UV_CACHE_DIR}"
 
 PROCESSOR="examples/processors/mos6502.yaml"
 IC_MAIN="examples/ics/atari2600/atari2600_tia_riot.yaml"
+DEVICE_CTRL="examples/devices/atari2600/atari2600_controller.yaml"
 DEVICE_VIDEO="examples/devices/atari2600/atari2600_video.yaml"
 DEVICE_SPK="examples/devices/atari2600/atari2600_speaker.yaml"
 case "${PROFILE}" in
@@ -92,6 +96,7 @@ uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM}" \
   --ic "${IC_MAIN}" \
+  --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
@@ -105,6 +110,8 @@ cmake --build "${BUILD_DIR}" --config "${CMAKE_BUILD_TYPE}"
 
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC:-<reset-vector>} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE} use_cartridge=${USE_CARTRIDGE}"
+echo "    keyboard_map=${KEYBOARD_MAP}"
+echo "    controller_map=${CONTROLLER_MAP}"
 if [[ "${USE_CARTRIDGE}" != "0" ]]; then
   echo "    cartridge_map=${CARTRIDGE_MAP}"
   echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
@@ -125,6 +132,8 @@ cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --fe
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \
   --system-dir "${SYSTEM_DIR}" \
+  --keyboard-map "${KEYBOARD_MAP}" \
+  --controller-map "${CONTROLLER_MAP}" \
   "${RUN_CARTRIDGE_ARGS[@]}" \
   "$@" \
   --run-speed "${RUN_SPEED}"

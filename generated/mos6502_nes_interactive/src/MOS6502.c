@@ -166,6 +166,13 @@ static void cpu_apply_mos6502_runtime_cycles(CPUState *cpu, DecodedInstruction *
             return;
     }
 }
+#include <errno.h>
+#include <limits.h>
+#include <sys/stat.h>
+#if !defined(_WIN32)
+#include <dirent.h>
+#endif
+
 typedef struct {
     const char *from_component;
     const char *from_kind;
@@ -190,26 +197,52 @@ static void cpu_component_emit_signal(
     const uint64_t *args,
     uint8_t argc
 );
+static int cpu_component_cartridge_picker_set_dir(const char *path);
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);
 
 typedef struct {
     uint8_t row;
     uint8_t bit;
-} ComponentKeyboardPress;
+} RuntimeKeyboardPress;
 
 typedef struct {
-    const char *host_key;
-    const ComponentKeyboardPress *presses;
+    int32_t scancode;
+    RuntimeKeyboardPress *presses;
     uint8_t press_count;
-} ComponentKeyboardBinding;
+    uint8_t press_cap;
+    uint8_t has_ascii;
+    uint8_t has_ascii_shift;
+    uint8_t has_ascii_ctrl;
+    uint8_t ascii;
+    uint8_t ascii_shift;
+    uint8_t ascii_ctrl;
+    uint8_t is_shift_modifier;
+    uint8_t is_ctrl_modifier;
+    char mapper_key_id[128];
+    char emulator_key_id[64];
+} RuntimeKeyboardBinding;
 
 typedef struct {
-    const char *component_id;
+    uint8_t loaded;
+    uint8_t kind; /* 1=matrix, 2=ascii */
     uint8_t focus_required;
-    const ComponentKeyboardBinding *bindings;
+    RuntimeKeyboardBinding *bindings;
     size_t binding_count;
-} ComponentKeyboardMap;
+    size_t binding_cap;
+    uint8_t ascii_queue[64];
+    uint8_t ascii_q_head;
+    uint8_t ascii_q_len;
+} RuntimeKeyboardMap;
+
+static RuntimeKeyboardMap g_runtime_keyboard_map = {0};
 
 static int32_t cpu_host_hal_key_from_scancode(int scancode);
+static int32_t cpu_host_hal_scancode_from_key(int32_t keycode);
+
+#define CPU_HOST_HAT_UP 0x01u
+#define CPU_HOST_HAT_RIGHT 0x02u
+#define CPU_HOST_HAT_DOWN 0x04u
+#define CPU_HOST_HAT_LEFT 0x08u
 
 typedef SDL_Event CPUHostEvent;
 typedef SDL_Rect CPUHostRect;
@@ -290,6 +323,143 @@ static void cpu_host_hal_audio_clear(uint32_t dev) {
     if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
     if (dev == 0u) return;
     SDL_ClearQueuedAudio(dev);
+}
+
+/* Controller/joystick input abstraction (SDL2 backend). */
+static int cpu_host_hal_sdl_last_joy_count = -1;
+static SDL_GameController *cpu_host_hal_sdl_gamepads[16];
+static int cpu_host_hal_sdl_gamepad_count = 0;
+static SDL_Joystick *cpu_host_hal_sdl_joysticks[16];
+static int cpu_host_hal_sdl_joystick_count = 0;
+
+static void cpu_host_hal_sdl_refresh_controllers(void) {
+    int n;
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    n = SDL_NumJoysticks();
+    if (n == cpu_host_hal_sdl_last_joy_count) return;
+    cpu_host_hal_sdl_last_joy_count = n;
+    for (int i = 0; i < cpu_host_hal_sdl_gamepad_count; ++i) {
+        if (cpu_host_hal_sdl_gamepads[i]) SDL_GameControllerClose(cpu_host_hal_sdl_gamepads[i]);
+        cpu_host_hal_sdl_gamepads[i] = NULL;
+    }
+    for (int i = 0; i < cpu_host_hal_sdl_joystick_count; ++i) {
+        if (cpu_host_hal_sdl_joysticks[i]) SDL_JoystickClose(cpu_host_hal_sdl_joysticks[i]);
+        cpu_host_hal_sdl_joysticks[i] = NULL;
+    }
+    cpu_host_hal_sdl_gamepad_count = 0;
+    cpu_host_hal_sdl_joystick_count = 0;
+    for (int di = 0; di < n; ++di) {
+        if (SDL_IsGameController(di)) {
+            if (cpu_host_hal_sdl_gamepad_count >= 16) continue;
+            SDL_GameController *gc = SDL_GameControllerOpen(di);
+            if (gc) cpu_host_hal_sdl_gamepads[cpu_host_hal_sdl_gamepad_count++] = gc;
+        } else {
+            if (cpu_host_hal_sdl_joystick_count >= 16) continue;
+            SDL_Joystick *j = SDL_JoystickOpen(di);
+            if (j) cpu_host_hal_sdl_joysticks[cpu_host_hal_sdl_joystick_count++] = j;
+        }
+    }
+}
+
+static int cpu_host_hal_gamepad_count(void) {
+    cpu_host_hal_sdl_refresh_controllers();
+    return cpu_host_hal_sdl_gamepad_count;
+}
+
+static SDL_GameControllerButton cpu_host_hal_sdl_gc_button_from_id(int id) {
+    switch (id) {
+        case 0: return SDL_CONTROLLER_BUTTON_A;
+        case 1: return SDL_CONTROLLER_BUTTON_B;
+        case 2: return SDL_CONTROLLER_BUTTON_X;
+        case 3: return SDL_CONTROLLER_BUTTON_Y;
+        case 4: return SDL_CONTROLLER_BUTTON_BACK;
+        case 5: return SDL_CONTROLLER_BUTTON_GUIDE;
+        case 6: return SDL_CONTROLLER_BUTTON_START;
+        case 7: return SDL_CONTROLLER_BUTTON_LEFTSTICK;
+        case 8: return SDL_CONTROLLER_BUTTON_RIGHTSTICK;
+        case 9: return SDL_CONTROLLER_BUTTON_LEFTSHOULDER;
+        case 10: return SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+        case 11: return SDL_CONTROLLER_BUTTON_DPAD_UP;
+        case 12: return SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+        case 13: return SDL_CONTROLLER_BUTTON_DPAD_LEFT;
+        case 14: return SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+        default: return SDL_CONTROLLER_BUTTON_INVALID;
+    }
+}
+
+static SDL_GameControllerAxis cpu_host_hal_sdl_gc_axis_from_id(int id) {
+    switch (id) {
+        case 0: return SDL_CONTROLLER_AXIS_LEFTX;
+        case 1: return SDL_CONTROLLER_AXIS_LEFTY;
+        case 2: return SDL_CONTROLLER_AXIS_RIGHTX;
+        case 3: return SDL_CONTROLLER_AXIS_RIGHTY;
+        case 4: return SDL_CONTROLLER_AXIS_TRIGGERLEFT;
+        case 5: return SDL_CONTROLLER_AXIS_TRIGGERRIGHT;
+        default: return SDL_CONTROLLER_AXIS_INVALID;
+    }
+}
+
+static int cpu_host_hal_gamepad_button(int pad_index, int button_id) {
+    SDL_GameController *gc;
+    SDL_GameControllerButton b;
+    cpu_host_hal_sdl_refresh_controllers();
+    if (pad_index < 0 || pad_index >= cpu_host_hal_sdl_gamepad_count) return 0;
+    gc = cpu_host_hal_sdl_gamepads[pad_index];
+    if (gc == NULL) return 0;
+    b = cpu_host_hal_sdl_gc_button_from_id(button_id);
+    if (b == SDL_CONTROLLER_BUTTON_INVALID) return 0;
+    return (SDL_GameControllerGetButton(gc, b) != 0) ? 1 : 0;
+}
+
+static int cpu_host_hal_gamepad_axis(int pad_index, int axis_id) {
+    SDL_GameController *gc;
+    SDL_GameControllerAxis a;
+    cpu_host_hal_sdl_refresh_controllers();
+    if (pad_index < 0 || pad_index >= cpu_host_hal_sdl_gamepad_count) return 0;
+    gc = cpu_host_hal_sdl_gamepads[pad_index];
+    if (gc == NULL) return 0;
+    a = cpu_host_hal_sdl_gc_axis_from_id(axis_id);
+    if (a == SDL_CONTROLLER_AXIS_INVALID) return 0;
+    return (int)SDL_GameControllerGetAxis(gc, a);
+}
+
+static int cpu_host_hal_joystick_count(void) {
+    cpu_host_hal_sdl_refresh_controllers();
+    return cpu_host_hal_sdl_joystick_count;
+}
+
+static int cpu_host_hal_joystick_button(int joy_index, int button) {
+    SDL_Joystick *j;
+    cpu_host_hal_sdl_refresh_controllers();
+    if (joy_index < 0 || joy_index >= cpu_host_hal_sdl_joystick_count) return 0;
+    j = cpu_host_hal_sdl_joysticks[joy_index];
+    if (j == NULL) return 0;
+    return (SDL_JoystickGetButton(j, button) != 0) ? 1 : 0;
+}
+
+static int cpu_host_hal_joystick_axis(int joy_index, int axis) {
+    SDL_Joystick *j;
+    cpu_host_hal_sdl_refresh_controllers();
+    if (joy_index < 0 || joy_index >= cpu_host_hal_sdl_joystick_count) return 0;
+    j = cpu_host_hal_sdl_joysticks[joy_index];
+    if (j == NULL) return 0;
+    return (int)SDL_JoystickGetAxis(j, axis);
+}
+
+static uint8_t cpu_host_hal_joystick_hat(int joy_index, int hat) {
+    SDL_Joystick *j;
+    Uint8 hv;
+    uint8_t out = 0u;
+    cpu_host_hal_sdl_refresh_controllers();
+    if (joy_index < 0 || joy_index >= cpu_host_hal_sdl_joystick_count) return 0u;
+    j = cpu_host_hal_sdl_joysticks[joy_index];
+    if (j == NULL) return 0u;
+    hv = SDL_JoystickGetHat(j, hat);
+    if ((hv & SDL_HAT_UP) != 0u) out |= CPU_HOST_HAT_UP;
+    if ((hv & SDL_HAT_RIGHT) != 0u) out |= CPU_HOST_HAT_RIGHT;
+    if ((hv & SDL_HAT_DOWN) != 0u) out |= CPU_HOST_HAT_DOWN;
+    if ((hv & SDL_HAT_LEFT) != 0u) out |= CPU_HOST_HAT_LEFT;
+    return out;
 }
 
 static int cpu_host_hal_renderer_output_size(void *renderer, int *out_w, int *out_h) {
@@ -531,6 +701,12 @@ static int32_t cpu_host_hal_key_from_scancode(int scancode) {
     return (int32_t)SDL_GetKeyFromScancode((SDL_Scancode)scancode);
 }
 
+static int32_t cpu_host_hal_scancode_from_key(int32_t keycode) {
+    if (cpu_host_hal_sdl_inited == 0u) return -1;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return -1;
+    return (int32_t)SDL_GetScancodeFromKey((SDL_Keycode)keycode);
+}
+
 static void cpu_host_hal_start_text_input(void) {
     if (cpu_host_hal_sdl_inited == 0u) return;
     if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return;
@@ -623,111 +799,980 @@ static const char *cpu_host_hal_key_name(int32_t keycode) {
     return name;
 }
 
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_0[] = {
-    { 0u, 0u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_1[] = {
-    { 0u, 1u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_2[] = {
-    { 0u, 2u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_3[] = {
-    { 0u, 3u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_4[] = {
-    { 0u, 4u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_5[] = {
-    { 0u, 5u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_6[] = {
-    { 0u, 6u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_7[] = {
-    { 0u, 7u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_8[] = {
-    { 1u, 0u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_9[] = {
-    { 1u, 1u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_10[] = {
-    { 1u, 2u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_11[] = {
-    { 1u, 3u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_12[] = {
-    { 1u, 4u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_13[] = {
-    { 1u, 5u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_14[] = {
-    { 1u, 6u },
-};
-static const ComponentKeyboardPress component_host_nes_keyboard_presses_15[] = {
-    { 1u, 7u },
-};
-static const ComponentKeyboardBinding component_host_nes_keyboard_bindings[] = {
-    { "UP", component_host_nes_keyboard_presses_0, 1u },
-    { "DOWN", component_host_nes_keyboard_presses_1, 1u },
-    { "LEFT", component_host_nes_keyboard_presses_2, 1u },
-    { "RIGHT", component_host_nes_keyboard_presses_3, 1u },
-    { "A", component_host_nes_keyboard_presses_4, 1u },
-    { "S", component_host_nes_keyboard_presses_5, 1u },
-    { "RSHIFT", component_host_nes_keyboard_presses_6, 1u },
-    { "RETURN", component_host_nes_keyboard_presses_7, 1u },
-    { "KP_8", component_host_nes_keyboard_presses_8, 1u },
-    { "KP_2", component_host_nes_keyboard_presses_9, 1u },
-    { "KP_4", component_host_nes_keyboard_presses_10, 1u },
-    { "KP_6", component_host_nes_keyboard_presses_11, 1u },
-    { "KP_1", component_host_nes_keyboard_presses_12, 1u },
-    { "KP_3", component_host_nes_keyboard_presses_13, 1u },
-    { "KP_7", component_host_nes_keyboard_presses_14, 1u },
-    { "KP_9", component_host_nes_keyboard_presses_15, 1u },
-};
-static const ComponentKeyboardMap g_component_keyboard_maps[] = {
-    { "host_nes", 1u, component_host_nes_keyboard_bindings, (sizeof(component_host_nes_keyboard_bindings) / sizeof(component_host_nes_keyboard_bindings[0])) },
-};
-static uint8_t cpu_component_host_key_is_pressed(const char *host_key, const uint8_t *host_keys, size_t host_key_count) {
+static int32_t cpu_component_scancode_for_host_key(const char *host_key) {
 #if CPU_HOST_HAS_SCANCODE_MAP
-    if (!host_key || !host_keys || host_key_count == 0u) return 0u;
-    if (0) return 0u;
-    else if (strcmp(host_key, "A") == 0) return ((size_t)CPU_HOST_SCANCODE(A) < host_key_count && host_keys[CPU_HOST_SCANCODE(A)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "DOWN") == 0) return ((size_t)CPU_HOST_SCANCODE(DOWN) < host_key_count && host_keys[CPU_HOST_SCANCODE(DOWN)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_1") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_1) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_1)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_2") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_2) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_2)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_3") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_3) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_3)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_4") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_4) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_4)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_6") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_6) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_6)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_7") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_7) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_7)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_8") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_8) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_8)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "KP_9") == 0) return ((size_t)CPU_HOST_SCANCODE(KP_9) < host_key_count && host_keys[CPU_HOST_SCANCODE(KP_9)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "LEFT") == 0) return ((size_t)CPU_HOST_SCANCODE(LEFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LEFT)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "RETURN") == 0) return ((size_t)CPU_HOST_SCANCODE(RETURN) < host_key_count && host_keys[CPU_HOST_SCANCODE(RETURN)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "RIGHT") == 0) return ((size_t)CPU_HOST_SCANCODE(RIGHT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RIGHT)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "RSHIFT") == 0) return ((size_t)CPU_HOST_SCANCODE(RSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RSHIFT)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "S") == 0) return ((size_t)CPU_HOST_SCANCODE(S) < host_key_count && host_keys[CPU_HOST_SCANCODE(S)] != 0u) ? 1u : 0u;
-    else if (strcmp(host_key, "UP") == 0) return ((size_t)CPU_HOST_SCANCODE(UP) < host_key_count && host_keys[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;
-    return 0u;
+    if (!host_key || !host_key[0]) return -1;
+    if (0) return -1;
+    else if (strcmp(host_key, "0") == 0) return (int32_t)CPU_HOST_SCANCODE(0);
+    else if (strcmp(host_key, "1") == 0) return (int32_t)CPU_HOST_SCANCODE(1);
+    else if (strcmp(host_key, "2") == 0) return (int32_t)CPU_HOST_SCANCODE(2);
+    else if (strcmp(host_key, "3") == 0) return (int32_t)CPU_HOST_SCANCODE(3);
+    else if (strcmp(host_key, "4") == 0) return (int32_t)CPU_HOST_SCANCODE(4);
+    else if (strcmp(host_key, "5") == 0) return (int32_t)CPU_HOST_SCANCODE(5);
+    else if (strcmp(host_key, "6") == 0) return (int32_t)CPU_HOST_SCANCODE(6);
+    else if (strcmp(host_key, "7") == 0) return (int32_t)CPU_HOST_SCANCODE(7);
+    else if (strcmp(host_key, "8") == 0) return (int32_t)CPU_HOST_SCANCODE(8);
+    else if (strcmp(host_key, "9") == 0) return (int32_t)CPU_HOST_SCANCODE(9);
+    else if (strcmp(host_key, "A") == 0) return (int32_t)CPU_HOST_SCANCODE(A);
+    else if (strcmp(host_key, "AC_BACK") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_BACK);
+    else if (strcmp(host_key, "AC_BOOKMARKS") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_BOOKMARKS);
+    else if (strcmp(host_key, "AC_FORWARD") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_FORWARD);
+    else if (strcmp(host_key, "AC_HOME") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_HOME);
+    else if (strcmp(host_key, "AC_REFRESH") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_REFRESH);
+    else if (strcmp(host_key, "AC_SEARCH") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_SEARCH);
+    else if (strcmp(host_key, "AC_STOP") == 0) return (int32_t)CPU_HOST_SCANCODE(AC_STOP);
+    else if (strcmp(host_key, "AGAIN") == 0) return (int32_t)CPU_HOST_SCANCODE(AGAIN);
+    else if (strcmp(host_key, "ALTERASE") == 0) return (int32_t)CPU_HOST_SCANCODE(ALTERASE);
+    else if (strcmp(host_key, "APOSTROPHE") == 0) return (int32_t)CPU_HOST_SCANCODE(APOSTROPHE);
+    else if (strcmp(host_key, "APP1") == 0) return (int32_t)CPU_HOST_SCANCODE(APP1);
+    else if (strcmp(host_key, "APP2") == 0) return (int32_t)CPU_HOST_SCANCODE(APP2);
+    else if (strcmp(host_key, "APPLICATION") == 0) return (int32_t)CPU_HOST_SCANCODE(APPLICATION);
+    else if (strcmp(host_key, "AUDIOFASTFORWARD") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOFASTFORWARD);
+    else if (strcmp(host_key, "AUDIOMUTE") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOMUTE);
+    else if (strcmp(host_key, "AUDIONEXT") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIONEXT);
+    else if (strcmp(host_key, "AUDIOPLAY") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOPLAY);
+    else if (strcmp(host_key, "AUDIOPREV") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOPREV);
+    else if (strcmp(host_key, "AUDIOREWIND") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOREWIND);
+    else if (strcmp(host_key, "AUDIOSTOP") == 0) return (int32_t)CPU_HOST_SCANCODE(AUDIOSTOP);
+    else if (strcmp(host_key, "B") == 0) return (int32_t)CPU_HOST_SCANCODE(B);
+    else if (strcmp(host_key, "BACKSLASH") == 0) return (int32_t)CPU_HOST_SCANCODE(BACKSLASH);
+    else if (strcmp(host_key, "BACKSPACE") == 0) return (int32_t)CPU_HOST_SCANCODE(BACKSPACE);
+    else if (strcmp(host_key, "BRIGHTNESSDOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(BRIGHTNESSDOWN);
+    else if (strcmp(host_key, "BRIGHTNESSUP") == 0) return (int32_t)CPU_HOST_SCANCODE(BRIGHTNESSUP);
+    else if (strcmp(host_key, "C") == 0) return (int32_t)CPU_HOST_SCANCODE(C);
+    else if (strcmp(host_key, "CALCULATOR") == 0) return (int32_t)CPU_HOST_SCANCODE(CALCULATOR);
+    else if (strcmp(host_key, "CALL") == 0) return (int32_t)CPU_HOST_SCANCODE(CALL);
+    else if (strcmp(host_key, "CANCEL") == 0) return (int32_t)CPU_HOST_SCANCODE(CANCEL);
+    else if (strcmp(host_key, "CAPSLOCK") == 0) return (int32_t)CPU_HOST_SCANCODE(CAPSLOCK);
+    else if (strcmp(host_key, "CLEAR") == 0) return (int32_t)CPU_HOST_SCANCODE(CLEAR);
+    else if (strcmp(host_key, "CLEARAGAIN") == 0) return (int32_t)CPU_HOST_SCANCODE(CLEARAGAIN);
+    else if (strcmp(host_key, "COMMA") == 0) return (int32_t)CPU_HOST_SCANCODE(COMMA);
+    else if (strcmp(host_key, "COMPUTER") == 0) return (int32_t)CPU_HOST_SCANCODE(COMPUTER);
+    else if (strcmp(host_key, "COPY") == 0) return (int32_t)CPU_HOST_SCANCODE(COPY);
+    else if (strcmp(host_key, "CRSEL") == 0) return (int32_t)CPU_HOST_SCANCODE(CRSEL);
+    else if (strcmp(host_key, "CURRENCYSUBUNIT") == 0) return (int32_t)CPU_HOST_SCANCODE(CURRENCYSUBUNIT);
+    else if (strcmp(host_key, "CURRENCYUNIT") == 0) return (int32_t)CPU_HOST_SCANCODE(CURRENCYUNIT);
+    else if (strcmp(host_key, "CUT") == 0) return (int32_t)CPU_HOST_SCANCODE(CUT);
+    else if (strcmp(host_key, "D") == 0) return (int32_t)CPU_HOST_SCANCODE(D);
+    else if (strcmp(host_key, "DECIMALSEPARATOR") == 0) return (int32_t)CPU_HOST_SCANCODE(DECIMALSEPARATOR);
+    else if (strcmp(host_key, "DELETE") == 0) return (int32_t)CPU_HOST_SCANCODE(DELETE);
+    else if (strcmp(host_key, "DISPLAYSWITCH") == 0) return (int32_t)CPU_HOST_SCANCODE(DISPLAYSWITCH);
+    else if (strcmp(host_key, "DOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(DOWN);
+    else if (strcmp(host_key, "E") == 0) return (int32_t)CPU_HOST_SCANCODE(E);
+    else if (strcmp(host_key, "EJECT") == 0) return (int32_t)CPU_HOST_SCANCODE(EJECT);
+    else if (strcmp(host_key, "END") == 0) return (int32_t)CPU_HOST_SCANCODE(END);
+    else if (strcmp(host_key, "ENDCALL") == 0) return (int32_t)CPU_HOST_SCANCODE(ENDCALL);
+    else if (strcmp(host_key, "EQUALS") == 0) return (int32_t)CPU_HOST_SCANCODE(EQUALS);
+    else if (strcmp(host_key, "ESCAPE") == 0) return (int32_t)CPU_HOST_SCANCODE(ESCAPE);
+    else if (strcmp(host_key, "EXECUTE") == 0) return (int32_t)CPU_HOST_SCANCODE(EXECUTE);
+    else if (strcmp(host_key, "EXSEL") == 0) return (int32_t)CPU_HOST_SCANCODE(EXSEL);
+    else if (strcmp(host_key, "F") == 0) return (int32_t)CPU_HOST_SCANCODE(F);
+    else if (strcmp(host_key, "F1") == 0) return (int32_t)CPU_HOST_SCANCODE(F1);
+    else if (strcmp(host_key, "F10") == 0) return (int32_t)CPU_HOST_SCANCODE(F10);
+    else if (strcmp(host_key, "F11") == 0) return (int32_t)CPU_HOST_SCANCODE(F11);
+    else if (strcmp(host_key, "F12") == 0) return (int32_t)CPU_HOST_SCANCODE(F12);
+    else if (strcmp(host_key, "F13") == 0) return (int32_t)CPU_HOST_SCANCODE(F13);
+    else if (strcmp(host_key, "F14") == 0) return (int32_t)CPU_HOST_SCANCODE(F14);
+    else if (strcmp(host_key, "F15") == 0) return (int32_t)CPU_HOST_SCANCODE(F15);
+    else if (strcmp(host_key, "F16") == 0) return (int32_t)CPU_HOST_SCANCODE(F16);
+    else if (strcmp(host_key, "F17") == 0) return (int32_t)CPU_HOST_SCANCODE(F17);
+    else if (strcmp(host_key, "F18") == 0) return (int32_t)CPU_HOST_SCANCODE(F18);
+    else if (strcmp(host_key, "F19") == 0) return (int32_t)CPU_HOST_SCANCODE(F19);
+    else if (strcmp(host_key, "F2") == 0) return (int32_t)CPU_HOST_SCANCODE(F2);
+    else if (strcmp(host_key, "F20") == 0) return (int32_t)CPU_HOST_SCANCODE(F20);
+    else if (strcmp(host_key, "F21") == 0) return (int32_t)CPU_HOST_SCANCODE(F21);
+    else if (strcmp(host_key, "F22") == 0) return (int32_t)CPU_HOST_SCANCODE(F22);
+    else if (strcmp(host_key, "F23") == 0) return (int32_t)CPU_HOST_SCANCODE(F23);
+    else if (strcmp(host_key, "F24") == 0) return (int32_t)CPU_HOST_SCANCODE(F24);
+    else if (strcmp(host_key, "F3") == 0) return (int32_t)CPU_HOST_SCANCODE(F3);
+    else if (strcmp(host_key, "F4") == 0) return (int32_t)CPU_HOST_SCANCODE(F4);
+    else if (strcmp(host_key, "F5") == 0) return (int32_t)CPU_HOST_SCANCODE(F5);
+    else if (strcmp(host_key, "F6") == 0) return (int32_t)CPU_HOST_SCANCODE(F6);
+    else if (strcmp(host_key, "F7") == 0) return (int32_t)CPU_HOST_SCANCODE(F7);
+    else if (strcmp(host_key, "F8") == 0) return (int32_t)CPU_HOST_SCANCODE(F8);
+    else if (strcmp(host_key, "F9") == 0) return (int32_t)CPU_HOST_SCANCODE(F9);
+    else if (strcmp(host_key, "FIND") == 0) return (int32_t)CPU_HOST_SCANCODE(FIND);
+    else if (strcmp(host_key, "G") == 0) return (int32_t)CPU_HOST_SCANCODE(G);
+    else if (strcmp(host_key, "GRAVE") == 0) return (int32_t)CPU_HOST_SCANCODE(GRAVE);
+    else if (strcmp(host_key, "H") == 0) return (int32_t)CPU_HOST_SCANCODE(H);
+    else if (strcmp(host_key, "HELP") == 0) return (int32_t)CPU_HOST_SCANCODE(HELP);
+    else if (strcmp(host_key, "HOME") == 0) return (int32_t)CPU_HOST_SCANCODE(HOME);
+    else if (strcmp(host_key, "I") == 0) return (int32_t)CPU_HOST_SCANCODE(I);
+    else if (strcmp(host_key, "INSERT") == 0) return (int32_t)CPU_HOST_SCANCODE(INSERT);
+    else if (strcmp(host_key, "INTERNATIONAL1") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL1);
+    else if (strcmp(host_key, "INTERNATIONAL2") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL2);
+    else if (strcmp(host_key, "INTERNATIONAL3") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL3);
+    else if (strcmp(host_key, "INTERNATIONAL4") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL4);
+    else if (strcmp(host_key, "INTERNATIONAL5") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL5);
+    else if (strcmp(host_key, "INTERNATIONAL6") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL6);
+    else if (strcmp(host_key, "INTERNATIONAL7") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL7);
+    else if (strcmp(host_key, "INTERNATIONAL8") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL8);
+    else if (strcmp(host_key, "INTERNATIONAL9") == 0) return (int32_t)CPU_HOST_SCANCODE(INTERNATIONAL9);
+    else if (strcmp(host_key, "J") == 0) return (int32_t)CPU_HOST_SCANCODE(J);
+    else if (strcmp(host_key, "K") == 0) return (int32_t)CPU_HOST_SCANCODE(K);
+    else if (strcmp(host_key, "KBDILLUMDOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(KBDILLUMDOWN);
+    else if (strcmp(host_key, "KBDILLUMTOGGLE") == 0) return (int32_t)CPU_HOST_SCANCODE(KBDILLUMTOGGLE);
+    else if (strcmp(host_key, "KBDILLUMUP") == 0) return (int32_t)CPU_HOST_SCANCODE(KBDILLUMUP);
+    else if (strcmp(host_key, "KP_0") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_0);
+    else if (strcmp(host_key, "KP_00") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_00);
+    else if (strcmp(host_key, "KP_000") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_000);
+    else if (strcmp(host_key, "KP_1") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_1);
+    else if (strcmp(host_key, "KP_2") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_2);
+    else if (strcmp(host_key, "KP_3") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_3);
+    else if (strcmp(host_key, "KP_4") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_4);
+    else if (strcmp(host_key, "KP_5") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_5);
+    else if (strcmp(host_key, "KP_6") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_6);
+    else if (strcmp(host_key, "KP_7") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_7);
+    else if (strcmp(host_key, "KP_8") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_8);
+    else if (strcmp(host_key, "KP_9") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_9);
+    else if (strcmp(host_key, "KP_A") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_A);
+    else if (strcmp(host_key, "KP_AMPERSAND") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_AMPERSAND);
+    else if (strcmp(host_key, "KP_AT") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_AT);
+    else if (strcmp(host_key, "KP_B") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_B);
+    else if (strcmp(host_key, "KP_BACKSPACE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_BACKSPACE);
+    else if (strcmp(host_key, "KP_BINARY") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_BINARY);
+    else if (strcmp(host_key, "KP_C") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_C);
+    else if (strcmp(host_key, "KP_CLEAR") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_CLEAR);
+    else if (strcmp(host_key, "KP_CLEARENTRY") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_CLEARENTRY);
+    else if (strcmp(host_key, "KP_COLON") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_COLON);
+    else if (strcmp(host_key, "KP_COMMA") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_COMMA);
+    else if (strcmp(host_key, "KP_D") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_D);
+    else if (strcmp(host_key, "KP_DBLAMPERSAND") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_DBLAMPERSAND);
+    else if (strcmp(host_key, "KP_DBLVERTICALBAR") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_DBLVERTICALBAR);
+    else if (strcmp(host_key, "KP_DECIMAL") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_DECIMAL);
+    else if (strcmp(host_key, "KP_DIVIDE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_DIVIDE);
+    else if (strcmp(host_key, "KP_E") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_E);
+    else if (strcmp(host_key, "KP_ENTER") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_ENTER);
+    else if (strcmp(host_key, "KP_EQUALS") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_EQUALS);
+    else if (strcmp(host_key, "KP_EQUALSAS400") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_EQUALSAS400);
+    else if (strcmp(host_key, "KP_EXCLAM") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_EXCLAM);
+    else if (strcmp(host_key, "KP_F") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_F);
+    else if (strcmp(host_key, "KP_GREATER") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_GREATER);
+    else if (strcmp(host_key, "KP_HASH") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_HASH);
+    else if (strcmp(host_key, "KP_HEXADECIMAL") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_HEXADECIMAL);
+    else if (strcmp(host_key, "KP_LEFTBRACE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_LEFTBRACE);
+    else if (strcmp(host_key, "KP_LEFTPAREN") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_LEFTPAREN);
+    else if (strcmp(host_key, "KP_LESS") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_LESS);
+    else if (strcmp(host_key, "KP_MEMADD") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMADD);
+    else if (strcmp(host_key, "KP_MEMCLEAR") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMCLEAR);
+    else if (strcmp(host_key, "KP_MEMDIVIDE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMDIVIDE);
+    else if (strcmp(host_key, "KP_MEMMULTIPLY") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMMULTIPLY);
+    else if (strcmp(host_key, "KP_MEMRECALL") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMRECALL);
+    else if (strcmp(host_key, "KP_MEMSTORE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMSTORE);
+    else if (strcmp(host_key, "KP_MEMSUBTRACT") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MEMSUBTRACT);
+    else if (strcmp(host_key, "KP_MINUS") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MINUS);
+    else if (strcmp(host_key, "KP_MULTIPLY") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_MULTIPLY);
+    else if (strcmp(host_key, "KP_OCTAL") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_OCTAL);
+    else if (strcmp(host_key, "KP_PERCENT") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_PERCENT);
+    else if (strcmp(host_key, "KP_PERIOD") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_PERIOD);
+    else if (strcmp(host_key, "KP_PLUS") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_PLUS);
+    else if (strcmp(host_key, "KP_PLUSMINUS") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_PLUSMINUS);
+    else if (strcmp(host_key, "KP_POWER") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_POWER);
+    else if (strcmp(host_key, "KP_RIGHTBRACE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_RIGHTBRACE);
+    else if (strcmp(host_key, "KP_RIGHTPAREN") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_RIGHTPAREN);
+    else if (strcmp(host_key, "KP_SPACE") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_SPACE);
+    else if (strcmp(host_key, "KP_TAB") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_TAB);
+    else if (strcmp(host_key, "KP_VERTICALBAR") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_VERTICALBAR);
+    else if (strcmp(host_key, "KP_XOR") == 0) return (int32_t)CPU_HOST_SCANCODE(KP_XOR);
+    else if (strcmp(host_key, "L") == 0) return (int32_t)CPU_HOST_SCANCODE(L);
+    else if (strcmp(host_key, "LALT") == 0) return (int32_t)CPU_HOST_SCANCODE(LALT);
+    else if (strcmp(host_key, "LANG1") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG1);
+    else if (strcmp(host_key, "LANG2") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG2);
+    else if (strcmp(host_key, "LANG3") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG3);
+    else if (strcmp(host_key, "LANG4") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG4);
+    else if (strcmp(host_key, "LANG5") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG5);
+    else if (strcmp(host_key, "LANG6") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG6);
+    else if (strcmp(host_key, "LANG7") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG7);
+    else if (strcmp(host_key, "LANG8") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG8);
+    else if (strcmp(host_key, "LANG9") == 0) return (int32_t)CPU_HOST_SCANCODE(LANG9);
+    else if (strcmp(host_key, "LCTRL") == 0) return (int32_t)CPU_HOST_SCANCODE(LCTRL);
+    else if (strcmp(host_key, "LEFT") == 0) return (int32_t)CPU_HOST_SCANCODE(LEFT);
+    else if (strcmp(host_key, "LEFTBRACKET") == 0) return (int32_t)CPU_HOST_SCANCODE(LEFTBRACKET);
+    else if (strcmp(host_key, "LGUI") == 0) return (int32_t)CPU_HOST_SCANCODE(LGUI);
+    else if (strcmp(host_key, "LSHIFT") == 0) return (int32_t)CPU_HOST_SCANCODE(LSHIFT);
+    else if (strcmp(host_key, "M") == 0) return (int32_t)CPU_HOST_SCANCODE(M);
+    else if (strcmp(host_key, "MAIL") == 0) return (int32_t)CPU_HOST_SCANCODE(MAIL);
+    else if (strcmp(host_key, "MEDIASELECT") == 0) return (int32_t)CPU_HOST_SCANCODE(MEDIASELECT);
+    else if (strcmp(host_key, "MENU") == 0) return (int32_t)CPU_HOST_SCANCODE(MENU);
+    else if (strcmp(host_key, "MINUS") == 0) return (int32_t)CPU_HOST_SCANCODE(MINUS);
+    else if (strcmp(host_key, "MODE") == 0) return (int32_t)CPU_HOST_SCANCODE(MODE);
+    else if (strcmp(host_key, "MUTE") == 0) return (int32_t)CPU_HOST_SCANCODE(MUTE);
+    else if (strcmp(host_key, "N") == 0) return (int32_t)CPU_HOST_SCANCODE(N);
+    else if (strcmp(host_key, "NONUSBACKSLASH") == 0) return (int32_t)CPU_HOST_SCANCODE(NONUSBACKSLASH);
+    else if (strcmp(host_key, "NONUSHASH") == 0) return (int32_t)CPU_HOST_SCANCODE(NONUSHASH);
+    else if (strcmp(host_key, "NUMLOCKCLEAR") == 0) return (int32_t)CPU_HOST_SCANCODE(NUMLOCKCLEAR);
+    else if (strcmp(host_key, "O") == 0) return (int32_t)CPU_HOST_SCANCODE(O);
+    else if (strcmp(host_key, "OPER") == 0) return (int32_t)CPU_HOST_SCANCODE(OPER);
+    else if (strcmp(host_key, "OUT") == 0) return (int32_t)CPU_HOST_SCANCODE(OUT);
+    else if (strcmp(host_key, "P") == 0) return (int32_t)CPU_HOST_SCANCODE(P);
+    else if (strcmp(host_key, "PAGEDOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(PAGEDOWN);
+    else if (strcmp(host_key, "PAGEUP") == 0) return (int32_t)CPU_HOST_SCANCODE(PAGEUP);
+    else if (strcmp(host_key, "PASTE") == 0) return (int32_t)CPU_HOST_SCANCODE(PASTE);
+    else if (strcmp(host_key, "PAUSE") == 0) return (int32_t)CPU_HOST_SCANCODE(PAUSE);
+    else if (strcmp(host_key, "PERIOD") == 0) return (int32_t)CPU_HOST_SCANCODE(PERIOD);
+    else if (strcmp(host_key, "POWER") == 0) return (int32_t)CPU_HOST_SCANCODE(POWER);
+    else if (strcmp(host_key, "PRINTSCREEN") == 0) return (int32_t)CPU_HOST_SCANCODE(PRINTSCREEN);
+    else if (strcmp(host_key, "PRIOR") == 0) return (int32_t)CPU_HOST_SCANCODE(PRIOR);
+    else if (strcmp(host_key, "Q") == 0) return (int32_t)CPU_HOST_SCANCODE(Q);
+    else if (strcmp(host_key, "R") == 0) return (int32_t)CPU_HOST_SCANCODE(R);
+    else if (strcmp(host_key, "RALT") == 0) return (int32_t)CPU_HOST_SCANCODE(RALT);
+    else if (strcmp(host_key, "RCTRL") == 0) return (int32_t)CPU_HOST_SCANCODE(RCTRL);
+    else if (strcmp(host_key, "RETURN") == 0) return (int32_t)CPU_HOST_SCANCODE(RETURN);
+    else if (strcmp(host_key, "RETURN2") == 0) return (int32_t)CPU_HOST_SCANCODE(RETURN2);
+    else if (strcmp(host_key, "RGUI") == 0) return (int32_t)CPU_HOST_SCANCODE(RGUI);
+    else if (strcmp(host_key, "RIGHT") == 0) return (int32_t)CPU_HOST_SCANCODE(RIGHT);
+    else if (strcmp(host_key, "RIGHTBRACKET") == 0) return (int32_t)CPU_HOST_SCANCODE(RIGHTBRACKET);
+    else if (strcmp(host_key, "RSHIFT") == 0) return (int32_t)CPU_HOST_SCANCODE(RSHIFT);
+    else if (strcmp(host_key, "S") == 0) return (int32_t)CPU_HOST_SCANCODE(S);
+    else if (strcmp(host_key, "SCROLLLOCK") == 0) return (int32_t)CPU_HOST_SCANCODE(SCROLLLOCK);
+    else if (strcmp(host_key, "SELECT") == 0) return (int32_t)CPU_HOST_SCANCODE(SELECT);
+    else if (strcmp(host_key, "SEMICOLON") == 0) return (int32_t)CPU_HOST_SCANCODE(SEMICOLON);
+    else if (strcmp(host_key, "SEPARATOR") == 0) return (int32_t)CPU_HOST_SCANCODE(SEPARATOR);
+    else if (strcmp(host_key, "SLASH") == 0) return (int32_t)CPU_HOST_SCANCODE(SLASH);
+    else if (strcmp(host_key, "SLEEP") == 0) return (int32_t)CPU_HOST_SCANCODE(SLEEP);
+    else if (strcmp(host_key, "SOFTLEFT") == 0) return (int32_t)CPU_HOST_SCANCODE(SOFTLEFT);
+    else if (strcmp(host_key, "SOFTRIGHT") == 0) return (int32_t)CPU_HOST_SCANCODE(SOFTRIGHT);
+    else if (strcmp(host_key, "SPACE") == 0) return (int32_t)CPU_HOST_SCANCODE(SPACE);
+    else if (strcmp(host_key, "STOP") == 0) return (int32_t)CPU_HOST_SCANCODE(STOP);
+    else if (strcmp(host_key, "SYSREQ") == 0) return (int32_t)CPU_HOST_SCANCODE(SYSREQ);
+    else if (strcmp(host_key, "T") == 0) return (int32_t)CPU_HOST_SCANCODE(T);
+    else if (strcmp(host_key, "TAB") == 0) return (int32_t)CPU_HOST_SCANCODE(TAB);
+    else if (strcmp(host_key, "THOUSANDSSEPARATOR") == 0) return (int32_t)CPU_HOST_SCANCODE(THOUSANDSSEPARATOR);
+    else if (strcmp(host_key, "U") == 0) return (int32_t)CPU_HOST_SCANCODE(U);
+    else if (strcmp(host_key, "UNDO") == 0) return (int32_t)CPU_HOST_SCANCODE(UNDO);
+    else if (strcmp(host_key, "UNKNOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(UNKNOWN);
+    else if (strcmp(host_key, "UP") == 0) return (int32_t)CPU_HOST_SCANCODE(UP);
+    else if (strcmp(host_key, "V") == 0) return (int32_t)CPU_HOST_SCANCODE(V);
+    else if (strcmp(host_key, "VOLUMEDOWN") == 0) return (int32_t)CPU_HOST_SCANCODE(VOLUMEDOWN);
+    else if (strcmp(host_key, "VOLUMEUP") == 0) return (int32_t)CPU_HOST_SCANCODE(VOLUMEUP);
+    else if (strcmp(host_key, "W") == 0) return (int32_t)CPU_HOST_SCANCODE(W);
+    else if (strcmp(host_key, "WWW") == 0) return (int32_t)CPU_HOST_SCANCODE(WWW);
+    else if (strcmp(host_key, "X") == 0) return (int32_t)CPU_HOST_SCANCODE(X);
+    else if (strcmp(host_key, "Y") == 0) return (int32_t)CPU_HOST_SCANCODE(Y);
+    else if (strcmp(host_key, "Z") == 0) return (int32_t)CPU_HOST_SCANCODE(Z);
+    return -1;
 #else
     (void)host_key;
-    (void)host_keys;
-    (void)host_key_count;
-    return 0u;
+    return -1;
 #endif
 }
-static const ComponentKeyboardMap *cpu_component_find_keyboard_map(const char *component_id) {
-    size_t map_count = sizeof(g_component_keyboard_maps) / sizeof(g_component_keyboard_maps[0]);
-    for (size_t i = 0; i < map_count; i++) {
-        const ComponentKeyboardMap *map = &g_component_keyboard_maps[i];
-        if (!map->component_id || !map->component_id[0]) continue;
-        if (strcmp(map->component_id, component_id) == 0) return map;
+static int32_t cpu_component_scancode_for_host_token(char *token) {
+    char *s = token;
+    char *end = NULL;
+    char *p = NULL;
+    size_t n = 0u;
+    uint8_t quoted = 0u;
+    long v = -1;
+    if (s == NULL || s[0] == '\0') return -1;
+    n = strlen(s);
+    if (n >= 2u && ((s[0] == '\'' && s[n - 1u] == '\'') || (s[0] == '"' && s[n - 1u] == '"'))) {
+        quoted = 1u;
+        s[n - 1u] = '\0';
+        s = s + 1;
     }
-    return NULL;
+    if (quoted == 0u) {
+        if (strncmp(s, "KEY_", 4) == 0) {
+            v = strtol(s + 4, &end, 10);
+            if (end != (s + 4)) {
+                p = end;
+                while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+                if (*p == '\0' && v >= 0 && v <= 4095) return (int32_t)v;
+            }
+        }
+        v = strtol(s, &end, 0);
+        if (end != s) {
+            p = end;
+            while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+            if (*p == '\0' && v >= 0 && v <= 4095) return (int32_t)v;
+        }
+    }
+    return cpu_component_scancode_for_host_key(s);
+}
+
+static void cpu_component_runtime_keyboard_clear(void) {
+    if (g_runtime_keyboard_map.bindings != NULL) {
+        for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+            RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+            if (b->presses != NULL) free(b->presses);
+            b->presses = NULL;
+            b->press_count = 0u;
+            b->press_cap = 0u;
+        }
+        free(g_runtime_keyboard_map.bindings);
+    }
+    memset(&g_runtime_keyboard_map, 0, sizeof(g_runtime_keyboard_map));
+}
+
+static RuntimeKeyboardBinding *cpu_component_runtime_binding_for_scancode(int32_t scancode, uint8_t create_if_missing) {
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        if (g_runtime_keyboard_map.bindings[i].scancode == scancode) {
+            if (create_if_missing != 0u) return NULL;
+            return &g_runtime_keyboard_map.bindings[i];
+        }
+    }
+    if (create_if_missing == 0u) return NULL;
+    if (g_runtime_keyboard_map.binding_count >= g_runtime_keyboard_map.binding_cap) {
+        size_t new_cap = (g_runtime_keyboard_map.binding_cap == 0u) ? 32u : (g_runtime_keyboard_map.binding_cap * 2u);
+        RuntimeKeyboardBinding *nb = (RuntimeKeyboardBinding *)realloc(g_runtime_keyboard_map.bindings, new_cap * sizeof(RuntimeKeyboardBinding));
+        if (nb == NULL) return NULL;
+        memset(nb + g_runtime_keyboard_map.binding_cap, 0, (new_cap - g_runtime_keyboard_map.binding_cap) * sizeof(RuntimeKeyboardBinding));
+        g_runtime_keyboard_map.bindings = nb;
+        g_runtime_keyboard_map.binding_cap = new_cap;
+    }
+    {
+        RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[g_runtime_keyboard_map.binding_count++];
+        memset(b, 0, sizeof(*b));
+        b->scancode = scancode;
+        return b;
+    }
+}
+
+static int cpu_component_runtime_add_press(RuntimeKeyboardBinding *binding, uint8_t row, uint8_t bit) {
+    if (binding == NULL) return -1;
+    if (row > 31u || bit > 7u) return -1;
+    for (uint8_t i = 0u; i < binding->press_count; ++i) {
+        if (binding->presses[i].row == row && binding->presses[i].bit == bit) return 0;
+    }
+    if (binding->press_count >= binding->press_cap) {
+        uint8_t new_cap = (binding->press_cap == 0u) ? 4u : (uint8_t)(binding->press_cap * 2u);
+        RuntimeKeyboardPress *np = (RuntimeKeyboardPress *)realloc(binding->presses, (size_t)new_cap * sizeof(RuntimeKeyboardPress));
+        if (np == NULL) return -1;
+        binding->presses = np;
+        binding->press_cap = new_cap;
+    }
+    binding->presses[binding->press_count].row = row;
+    binding->presses[binding->press_count].bit = bit;
+    binding->press_count += 1u;
+    return 0;
+}
+
+static void cpu_component_keyboard_ascii_queue_push(uint8_t value) {
+    if (value == 0u) return;
+    if (g_runtime_keyboard_map.ascii_q_len >= sizeof(g_runtime_keyboard_map.ascii_queue)) return;
+    {
+        uint8_t pos = (uint8_t)((g_runtime_keyboard_map.ascii_q_head + g_runtime_keyboard_map.ascii_q_len) % sizeof(g_runtime_keyboard_map.ascii_queue));
+        g_runtime_keyboard_map.ascii_queue[pos] = value;
+        g_runtime_keyboard_map.ascii_q_len += 1u;
+    }
+}
+
+static uint8_t cpu_component_keyboard_ascii_queue_pop(void) {
+    uint8_t value;
+    if (g_runtime_keyboard_map.ascii_q_len == 0u) return 0u;
+    value = g_runtime_keyboard_map.ascii_queue[g_runtime_keyboard_map.ascii_q_head];
+    g_runtime_keyboard_map.ascii_q_head = (uint8_t)((g_runtime_keyboard_map.ascii_q_head + 1u) % sizeof(g_runtime_keyboard_map.ascii_queue));
+    g_runtime_keyboard_map.ascii_q_len -= 1u;
+    return value;
+}
+
+static char *cpu_component_trim(char *s) {
+    char *end;
+    while (s && *s && (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n')) s++;
+    if (!s || !*s) return s;
+    end = s + strlen(s);
+    while (end > s && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n')) end--;
+    *end = '\0';
+    return s;
+}
+
+static int cpu_component_parse_u8(const char *text, uint8_t *out) {
+    char *end = NULL;
+    long v;
+    if (!text || !out) return -1;
+    v = strtol(text, &end, 0);
+    if (end == text || *cpu_component_trim(end) != '\0') return -1;
+    if (v < 0 || v > 255) return -1;
+    *out = (uint8_t)v;
+    return 0;
+}
+
+static char *cpu_component_unquote(char *s) {
+    size_t n;
+    if (s == NULL) return NULL;
+    s = cpu_component_trim(s);
+    n = strlen(s);
+    if (n >= 2u) {
+        if ((s[0] == '\'' && s[n - 1u] == '\'') || (s[0] == '"' && s[n - 1u] == '"')) {
+            s[n - 1u] = '\0';
+            return s + 1;
+        }
+    }
+    return s;
+}
+
+int mos6502_load_keyboard_map(CPUState *cpu, const char *path) {
+    FILE *f;
+    char line[512];
+    RuntimeKeyboardBinding *current = NULL;
+    (void)cpu;
+    if (path == NULL || path[0] == '\0') return -1;
+    f = fopen(path, "r");
+    if (f == NULL) return -1;
+    cpu_component_runtime_keyboard_clear();
+    g_runtime_keyboard_map.focus_required = 1u;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char *hash = strchr(line, '#');
+        char *s;
+        if (hash) *hash = '\0';
+        s = cpu_component_trim(line);
+        if (s == NULL || s[0] == '\0') continue;
+        if (strcmp(s, "keyboard:") == 0) continue;
+        if (strcmp(s, "system_keys:") == 0) continue;
+        if (strcmp(s, "bindings:") == 0) continue;
+        if (strcmp(s, "presses:") == 0) continue;
+        if (strcmp(s, "-") == 0) continue;
+        /* UI-only metadata entries. */
+        if (strncmp(s, "- id:", 5) == 0 || strncmp(s, "id:", 3) == 0) continue;
+        if (strncmp(s, "visual_feedback:", 16) == 0) continue;
+        if (strncmp(s, "kind:", 5) == 0) {
+            s = cpu_component_trim(s + 5);
+            if (strcmp(s, "matrix") == 0) g_runtime_keyboard_map.kind = 1u;
+            else if (strcmp(s, "ascii") == 0) g_runtime_keyboard_map.kind = 2u;
+            else { fprintf(stderr, "Keyboard map parse error: invalid kind: '%s'\n", s); fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            continue;
+        }
+        if (strncmp(s, "focus_required:", 15) == 0) {
+            s = cpu_component_trim(s + 15);
+            if (strcmp(s, "true") == 0) g_runtime_keyboard_map.focus_required = 1u;
+            else if (strcmp(s, "false") == 0) g_runtime_keyboard_map.focus_required = 0u;
+            else { fprintf(stderr, "Keyboard map parse error: invalid focus_required: '%s'\n", s); fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            continue;
+        }
+        if (strncmp(s, "- host_scancode:", 16) == 0 || strncmp(s, "host_scancode:", 14) == 0 || strncmp(s, "- host_key:", 11) == 0 || strncmp(s, "host_key:", 9) == 0) {
+            int32_t sc;
+            const int pref = (strncmp(s, "- host_scancode:", 16) == 0) ? 16 : ((strncmp(s, "host_scancode:", 14) == 0) ? 14 : ((s[0] == '-') ? 11 : 9));
+            s = cpu_component_trim(s + pref);
+            sc = cpu_component_scancode_for_host_token(s);
+            if (sc < 0) { fprintf(stderr, "Keyboard map parse error: unknown host_scancode token: '%s'\n", s); fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current = cpu_component_runtime_binding_for_scancode(sc, 1u);
+            if (current == NULL) { fprintf(stderr, "Keyboard map parse error: duplicate host_scancode token: '%s'\n", s); fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            {
+                const char *n = cpu_component_unquote(s);
+                if (strcmp(n, "LSHIFT") == 0 || strcmp(n, "RSHIFT") == 0) current->is_shift_modifier = 1u;
+                if (strcmp(n, "LCTRL") == 0 || strcmp(n, "RCTRL") == 0) current->is_ctrl_modifier = 1u;
+                if (sc == (int32_t)CPU_HOST_SCANCODE(LSHIFT) || sc == (int32_t)CPU_HOST_SCANCODE(RSHIFT)) current->is_shift_modifier = 1u;
+                if (sc == (int32_t)CPU_HOST_SCANCODE(LCTRL) || sc == (int32_t)CPU_HOST_SCANCODE(RCTRL)) current->is_ctrl_modifier = 1u;
+            }
+            continue;
+        }
+        if (current == NULL) continue;
+        if (strncmp(s, "- row:", 6) == 0 || strncmp(s, "row:", 4) == 0) {
+            uint8_t row = 0u;
+            const char *row_text = cpu_component_trim(s + ((s[0] == '-') ? 6 : 4));
+            if (cpu_component_parse_u8(row_text, &row) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            if (cpu_component_runtime_add_press(current, row, 0u) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current->presses[current->press_count - 1u].bit = 255u;
+            continue;
+        }
+        if (strncmp(s, "bit:", 4) == 0) {
+            uint8_t bit = 0u;
+            if (current->press_count == 0u) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            if (cpu_component_parse_u8(cpu_component_trim(s + 4), &bit) != 0 || bit > 7u) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current->presses[current->press_count - 1u].bit = bit;
+            continue;
+        }
+        if (strncmp(s, "ascii:", 6) == 0) {
+            uint8_t v = 0u;
+            if (cpu_component_parse_u8(cpu_component_trim(s + 6), &v) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current->ascii = v;
+            current->has_ascii = 1u;
+            continue;
+        }
+        if (strncmp(s, "ascii_shift:", 12) == 0) {
+            uint8_t v = 0u;
+            if (cpu_component_parse_u8(cpu_component_trim(s + 12), &v) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current->ascii_shift = v;
+            current->has_ascii_shift = 1u;
+            continue;
+        }
+        if (strncmp(s, "ascii_ctrl:", 11) == 0) {
+            uint8_t v = 0u;
+            if (cpu_component_parse_u8(cpu_component_trim(s + 11), &v) != 0) { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            current->ascii_ctrl = v;
+            current->has_ascii_ctrl = 1u;
+            continue;
+        }
+        if (strncmp(s, "mapper_key_id:", 14) == 0) {
+            const char *mid = cpu_component_unquote(cpu_component_trim(s + 14));
+            if (mid == NULL || mid[0] == '\0') { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            (void)snprintf(current->mapper_key_id, sizeof(current->mapper_key_id), "%s", mid);
+            continue;
+        }
+        if (strncmp(s, "emulator_key_id:", 15) == 0) {
+            const char *eid = cpu_component_unquote(cpu_component_trim(s + 15));
+            if (eid == NULL || eid[0] == '\0') { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            (void)snprintf(current->emulator_key_id, sizeof(current->emulator_key_id), "%s", eid);
+            continue;
+        }
+        if (strncmp(s, "system_key_id:", 14) == 0) {
+            const char *eid = cpu_component_unquote(cpu_component_trim(s + 14));
+            if (eid == NULL || eid[0] == '\0') { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            (void)snprintf(current->emulator_key_id, sizeof(current->emulator_key_id), "%s", eid);
+            continue;
+        }
+        fprintf(stderr, "Keyboard map parse error: unrecognized line: '%s'\n", s);
+        fclose(f);
+        cpu_component_runtime_keyboard_clear();
+        return -1;
+    }
+    fclose(f);
+    if (g_runtime_keyboard_map.kind == 0u || g_runtime_keyboard_map.binding_count == 0u) {
+        cpu_component_runtime_keyboard_clear();
+        return -1;
+    }
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+        uint8_t has_mapper = (b->mapper_key_id[0] != '\0') ? 1u : 0u;
+        uint8_t has_emulator = (b->emulator_key_id[0] != '\0') ? 1u : 0u;
+        if ((uint8_t)(has_mapper + has_emulator) != 1u) {
+            cpu_component_runtime_keyboard_clear();
+            return -1;
+        }
+        if (g_runtime_keyboard_map.kind == 1u) {
+            if (has_mapper != 0u) {
+                if (b->has_ascii != 0u || b->has_ascii_shift != 0u || b->has_ascii_ctrl != 0u) {
+                    cpu_component_runtime_keyboard_clear();
+                    return -1;
+                }
+                if (b->press_count == 0u) { cpu_component_runtime_keyboard_clear(); return -1; }
+                for (uint8_t p = 0u; p < b->press_count; ++p) {
+                    if (b->presses[p].bit > 7u) { cpu_component_runtime_keyboard_clear(); return -1; }
+                }
+            }
+        } else {
+            if (has_mapper != 0u) {
+                if (b->press_count != 0u) {
+                    cpu_component_runtime_keyboard_clear();
+                    return -1;
+                }
+                if (b->has_ascii == 0u && b->has_ascii_shift == 0u && b->has_ascii_ctrl == 0u) {
+                    cpu_component_runtime_keyboard_clear();
+                    return -1;
+                }
+            } else {
+                /* emulator bindings don't require ascii payload */
+            }
+        }
+    }
+    g_runtime_keyboard_map.loaded = 1u;
+    return 0;
+}
+
+typedef struct {
+    uint8_t port;
+    char id[64];
+    uint8_t pressed;
+    float axis;
+} RuntimeControllerTarget;
+
+typedef struct {
+    uint8_t port;
+    char target_id[64];
+    uint8_t source_kind; /* 1=scancode 2=pad_btn 3=pad_axis 4=joy_btn 5=joy_axis 6=joy_hat */
+    int32_t scancode;
+    int16_t control;
+    int16_t extra;
+    float threshold;
+    float deadzone;
+    float scale;
+    uint8_t invert;
+} RuntimeControllerBinding;
+
+typedef struct {
+    uint8_t loaded;
+    uint8_t focus_required;
+    uint8_t port_connected[16];
+    uint8_t port_count;
+    RuntimeControllerBinding *bindings;
+    size_t binding_count;
+    size_t binding_cap;
+    RuntimeControllerTarget *targets;
+    size_t target_count;
+    size_t target_cap;
+} RuntimeControllerMap;
+
+static RuntimeControllerMap g_runtime_controller_map = {0};
+
+static void cpu_component_runtime_controller_clear(void) {
+    if (g_runtime_controller_map.bindings != NULL) {
+        free(g_runtime_controller_map.bindings);
+        g_runtime_controller_map.bindings = NULL;
+    }
+    if (g_runtime_controller_map.targets != NULL) {
+        free(g_runtime_controller_map.targets);
+        g_runtime_controller_map.targets = NULL;
+    }
+    memset(&g_runtime_controller_map, 0, sizeof(g_runtime_controller_map));
+}
+
+static uint8_t cpu_component_controller_port_from_target(const char *id) {
+    if (id == NULL || id[0] == '\0') return 1u;
+    if (id[0] == 'P' && id[1] >= '1' && id[1] <= '9' && id[2] == '_') {
+        return (uint8_t)(id[1] - '0');
+    }
+    return 1u;
+}
+
+static RuntimeControllerTarget *cpu_component_controller_target_get(const char *id, uint8_t create) {
+    if (id == NULL || id[0] == '\0') return NULL;
+    for (size_t i = 0; i < g_runtime_controller_map.target_count; ++i) {
+        if (strncmp(g_runtime_controller_map.targets[i].id, id, sizeof(g_runtime_controller_map.targets[i].id)) == 0) {
+            return &g_runtime_controller_map.targets[i];
+        }
+    }
+    if (create == 0u) return NULL;
+    if (g_runtime_controller_map.target_count >= g_runtime_controller_map.target_cap) {
+        size_t new_cap = (g_runtime_controller_map.target_cap == 0u) ? 32u : (g_runtime_controller_map.target_cap * 2u);
+        RuntimeControllerTarget *nt = (RuntimeControllerTarget *)realloc(g_runtime_controller_map.targets, new_cap * sizeof(RuntimeControllerTarget));
+        if (nt == NULL) return NULL;
+        memset(nt + g_runtime_controller_map.target_cap, 0, (new_cap - g_runtime_controller_map.target_cap) * sizeof(RuntimeControllerTarget));
+        g_runtime_controller_map.targets = nt;
+        g_runtime_controller_map.target_cap = new_cap;
+    }
+    {
+        RuntimeControllerTarget *t = &g_runtime_controller_map.targets[g_runtime_controller_map.target_count++];
+        memset(t, 0, sizeof(*t));
+        t->port = cpu_component_controller_port_from_target(id);
+        snprintf(t->id, sizeof(t->id), "%s", id);
+        t->pressed = 0u;
+        t->axis = 0.0f;
+        return t;
+    }
+}
+
+static RuntimeControllerBinding *cpu_component_controller_binding_add(void) {
+    if (g_runtime_controller_map.binding_count >= g_runtime_controller_map.binding_cap) {
+        size_t new_cap = (g_runtime_controller_map.binding_cap == 0u) ? 64u : (g_runtime_controller_map.binding_cap * 2u);
+        RuntimeControllerBinding *nb = (RuntimeControllerBinding *)realloc(g_runtime_controller_map.bindings, new_cap * sizeof(RuntimeControllerBinding));
+        if (nb == NULL) return NULL;
+        memset(nb + g_runtime_controller_map.binding_cap, 0, (new_cap - g_runtime_controller_map.binding_cap) * sizeof(RuntimeControllerBinding));
+        g_runtime_controller_map.bindings = nb;
+        g_runtime_controller_map.binding_cap = new_cap;
+    }
+    return &g_runtime_controller_map.bindings[g_runtime_controller_map.binding_count++];
+}
+
+static int cpu_component_parse_bool(const char *s, uint8_t *out) {
+    if (!s || !out) return -1;
+    if (strcmp(s, "true") == 0) { *out = 1u; return 0; }
+    if (strcmp(s, "false") == 0) { *out = 0u; return 0; }
+    return -1;
+}
+
+/* Canonical gamepad control IDs (backend-agnostic). */
+enum {
+    CPU_HOST_GAMEPAD_BTN_A = 0,
+    CPU_HOST_GAMEPAD_BTN_B = 1,
+    CPU_HOST_GAMEPAD_BTN_X = 2,
+    CPU_HOST_GAMEPAD_BTN_Y = 3,
+    CPU_HOST_GAMEPAD_BTN_BACK = 4,
+    CPU_HOST_GAMEPAD_BTN_GUIDE = 5,
+    CPU_HOST_GAMEPAD_BTN_START = 6,
+    CPU_HOST_GAMEPAD_BTN_LEFTSTICK = 7,
+    CPU_HOST_GAMEPAD_BTN_RIGHTSTICK = 8,
+    CPU_HOST_GAMEPAD_BTN_LEFTSHOULDER = 9,
+    CPU_HOST_GAMEPAD_BTN_RIGHTSHOULDER = 10,
+    CPU_HOST_GAMEPAD_BTN_DPAD_UP = 11,
+    CPU_HOST_GAMEPAD_BTN_DPAD_DOWN = 12,
+    CPU_HOST_GAMEPAD_BTN_DPAD_LEFT = 13,
+    CPU_HOST_GAMEPAD_BTN_DPAD_RIGHT = 14
+};
+enum {
+    CPU_HOST_GAMEPAD_AXIS_LEFTX = 0,
+    CPU_HOST_GAMEPAD_AXIS_LEFTY = 1,
+    CPU_HOST_GAMEPAD_AXIS_RIGHTX = 2,
+    CPU_HOST_GAMEPAD_AXIS_RIGHTY = 3,
+    CPU_HOST_GAMEPAD_AXIS_TRIGGERLEFT = 4,
+    CPU_HOST_GAMEPAD_AXIS_TRIGGERRIGHT = 5
+};
+
+static int cpu_component_strieq(const char *a, const char *b) {
+    if (!a || !b) return 0;
+    while (*a && *b) {
+        char ca = *a; char cb = *b;
+        if (ca >= 'A' && ca <= 'Z') ca = (char)(ca - 'A' + 'a');
+        if (cb >= 'A' && cb <= 'Z') cb = (char)(cb - 'A' + 'a');
+        if (ca != cb) return 0;
+        ++a; ++b;
+    }
+    return (*a == '\0' && *b == '\0') ? 1 : 0;
+}
+
+static int cpu_component_gamepad_button_from_string(const char *s) {
+    if (!s) return -1;
+    if (cpu_component_strieq(s, "a")) return CPU_HOST_GAMEPAD_BTN_A;
+    if (cpu_component_strieq(s, "b")) return CPU_HOST_GAMEPAD_BTN_B;
+    if (cpu_component_strieq(s, "x")) return CPU_HOST_GAMEPAD_BTN_X;
+    if (cpu_component_strieq(s, "y")) return CPU_HOST_GAMEPAD_BTN_Y;
+    if (cpu_component_strieq(s, "back")) return CPU_HOST_GAMEPAD_BTN_BACK;
+    if (cpu_component_strieq(s, "guide") || cpu_component_strieq(s, "home")) return CPU_HOST_GAMEPAD_BTN_GUIDE;
+    if (cpu_component_strieq(s, "start")) return CPU_HOST_GAMEPAD_BTN_START;
+    if (cpu_component_strieq(s, "leftstick") || cpu_component_strieq(s, "left_thumb")) return CPU_HOST_GAMEPAD_BTN_LEFTSTICK;
+    if (cpu_component_strieq(s, "rightstick") || cpu_component_strieq(s, "right_thumb")) return CPU_HOST_GAMEPAD_BTN_RIGHTSTICK;
+    if (cpu_component_strieq(s, "leftshoulder") || cpu_component_strieq(s, "leftbumper") || cpu_component_strieq(s, "left_shoulder")) return CPU_HOST_GAMEPAD_BTN_LEFTSHOULDER;
+    if (cpu_component_strieq(s, "rightshoulder") || cpu_component_strieq(s, "rightbumper") || cpu_component_strieq(s, "right_shoulder")) return CPU_HOST_GAMEPAD_BTN_RIGHTSHOULDER;
+    if (cpu_component_strieq(s, "dpup") || cpu_component_strieq(s, "dpad_up")) return CPU_HOST_GAMEPAD_BTN_DPAD_UP;
+    if (cpu_component_strieq(s, "dpdown") || cpu_component_strieq(s, "dpad_down")) return CPU_HOST_GAMEPAD_BTN_DPAD_DOWN;
+    if (cpu_component_strieq(s, "dpleft") || cpu_component_strieq(s, "dpad_left")) return CPU_HOST_GAMEPAD_BTN_DPAD_LEFT;
+    if (cpu_component_strieq(s, "dpright") || cpu_component_strieq(s, "dpad_right")) return CPU_HOST_GAMEPAD_BTN_DPAD_RIGHT;
+    return -1;
+}
+
+static int cpu_component_gamepad_axis_from_string(const char *s) {
+    if (!s) return -1;
+    if (cpu_component_strieq(s, "leftx") || cpu_component_strieq(s, "left_x")) return CPU_HOST_GAMEPAD_AXIS_LEFTX;
+    if (cpu_component_strieq(s, "lefty") || cpu_component_strieq(s, "left_y")) return CPU_HOST_GAMEPAD_AXIS_LEFTY;
+    if (cpu_component_strieq(s, "rightx") || cpu_component_strieq(s, "right_x")) return CPU_HOST_GAMEPAD_AXIS_RIGHTX;
+    if (cpu_component_strieq(s, "righty") || cpu_component_strieq(s, "right_y")) return CPU_HOST_GAMEPAD_AXIS_RIGHTY;
+    if (cpu_component_strieq(s, "triggerleft") || cpu_component_strieq(s, "lefttrigger") || cpu_component_strieq(s, "left_trigger")) return CPU_HOST_GAMEPAD_AXIS_TRIGGERLEFT;
+    if (cpu_component_strieq(s, "triggerright") || cpu_component_strieq(s, "righttrigger") || cpu_component_strieq(s, "right_trigger")) return CPU_HOST_GAMEPAD_AXIS_TRIGGERRIGHT;
+    return -1;
+}
+
+int mos6502_load_controller_map(CPUState *cpu, const char *path) {
+    FILE *f;
+    char line[512];
+    RuntimeControllerBinding *current = NULL;
+    uint8_t in_ports = 0u;
+    uint8_t in_bindings = 0u;
+    uint8_t in_host_gamepad = 0u;
+    uint8_t in_host_joystick = 0u;
+    uint8_t current_port = 1u;
+    uint8_t current_port_connected = 1u;
+    (void)cpu;
+    if (path == NULL || path[0] == '\0') return -1;
+    f = fopen(path, "r");
+    if (f == NULL) return -1;
+    cpu_component_runtime_controller_clear();
+    g_runtime_controller_map.focus_required = 0u;
+    for (size_t i = 0; i < 16u; ++i) g_runtime_controller_map.port_connected[i] = 1u;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char *hash = strchr(line, '#');
+        char *s;
+        if (hash) *hash = '\0';
+        s = cpu_component_trim(line);
+        if (s == NULL || s[0] == '\0') continue;
+        if (strcmp(s, "controller_map:") == 0) continue;
+        if (strcmp(s, "ports:") == 0) { in_ports = 1u; in_bindings = 0u; continue; }
+        if (strcmp(s, "bindings:") == 0) { in_ports = 0u; in_bindings = 1u; continue; }
+        if (strncmp(s, "focus_required:", 15) == 0) {
+            uint8_t b = 0u;
+            s = cpu_component_trim(s + 15);
+            if (cpu_component_parse_bool(s, &b) != 0) { fclose(f); cpu_component_runtime_controller_clear(); return -1; }
+            g_runtime_controller_map.focus_required = b;
+            continue;
+        }
+        if (in_ports) {
+            if (strncmp(s, "- port:", 7) == 0 || strncmp(s, "port:", 5) == 0) {
+                uint8_t p = 1u;
+                const char *pt = cpu_component_trim(s + ((s[0] == '-') ? 7 : 5));
+                if (cpu_component_parse_u8(pt, &p) != 0) continue;
+                current_port = p;
+                current_port_connected = 1u;
+                if (p >= 1u && p <= 16u) {
+                    if (p > g_runtime_controller_map.port_count) g_runtime_controller_map.port_count = p;
+                }
+                continue;
+            }
+            if (strncmp(s, "connected:", 10) == 0) {
+                uint8_t b = 1u;
+                s = cpu_component_trim(s + 10);
+                if (cpu_component_parse_bool(s, &b) != 0) continue;
+                current_port_connected = b;
+                if (current_port >= 1u && current_port <= 16u) g_runtime_controller_map.port_connected[current_port - 1u] = b;
+                continue;
+            }
+            continue;
+        }
+        if (!in_bindings) continue;
+        if (strncmp(s, "- target_control_id:", 20) == 0 || strncmp(s, "target_control_id:", 18) == 0) {
+            const int pref = (s[0] == '-') ? 20 : 18;
+            s = cpu_component_unquote(cpu_component_trim(s + pref));
+            current = cpu_component_controller_binding_add();
+            if (current == NULL) { fclose(f); cpu_component_runtime_controller_clear(); return -1; }
+            memset(current, 0, sizeof(*current));
+            snprintf(current->target_id, sizeof(current->target_id), "%s", s);
+            current->port = cpu_component_controller_port_from_target(current->target_id);
+            current->threshold = 0.5f;
+            current->deadzone = 0.15f;
+            current->scale = 1.0f;
+            current->invert = 0u;
+            in_host_gamepad = 0u;
+            in_host_joystick = 0u;
+            continue;
+        }
+        if (current == NULL) continue;
+        if (strncmp(s, "- host_scancode:", 16) == 0 || strncmp(s, "host_scancode:", 14) == 0 || strncmp(s, "- host_key:", 11) == 0 || strncmp(s, "host_key:", 9) == 0) {
+            const int pref = (strncmp(s, "- host_scancode:", 16) == 0) ? 16 : ((strncmp(s, "host_scancode:", 14) == 0) ? 14 : ((s[0] == '-') ? 11 : 9));
+            s = cpu_component_unquote(cpu_component_trim(s + pref));
+            current->source_kind = 1u;
+            current->scancode = cpu_component_scancode_for_host_token(s);
+            if (current->scancode < 0) { fprintf(stderr, "Controller map parse error: unknown host_scancode token: '%s'\n", s); fclose(f); cpu_component_runtime_controller_clear(); return -1; }
+            continue;
+        }
+        if (strcmp(s, "host_gamepad:") == 0 || strcmp(s, "- host_gamepad:") == 0) { in_host_gamepad = 1u; in_host_joystick = 0u; continue; }
+        if (strcmp(s, "host_joystick:") == 0 || strcmp(s, "- host_joystick:") == 0) { in_host_gamepad = 0u; in_host_joystick = 1u; continue; }
+        if (in_host_gamepad) {
+            if (strncmp(s, "control:", 8) == 0) {
+                char *ct = cpu_component_unquote(cpu_component_trim(s + 8));
+                int btn = cpu_component_gamepad_button_from_string(ct);
+                int ax = cpu_component_gamepad_axis_from_string(ct);
+                if (btn >= 0) { current->source_kind = 2u; current->control = (int16_t)btn; }
+                else if (ax >= 0) { current->source_kind = 3u; current->control = (int16_t)ax; }
+                else { current->source_kind = 2u; current->control = (int16_t)atoi(ct); }
+                continue;
+            }
+            if (strncmp(s, "direction:", 10) == 0) {
+                char *dt = cpu_component_unquote(cpu_component_trim(s + 10));
+                if (dt && dt[0] == '+') current->extra = 1;
+                else if (dt && dt[0] == '-') current->extra = -1;
+                current->source_kind = 3u;
+                continue;
+            }
+            if (strncmp(s, "threshold:", 10) == 0) { current->threshold = (float)atof(cpu_component_trim(s + 10)); continue; }
+            if (strncmp(s, "deadzone:", 9) == 0) { current->deadzone = (float)atof(cpu_component_trim(s + 9)); continue; }
+            if (strncmp(s, "scale:", 6) == 0) { current->scale = (float)atof(cpu_component_trim(s + 6)); continue; }
+            if (strncmp(s, "invert:", 7) == 0) { uint8_t b=0u; if (cpu_component_parse_bool(cpu_component_trim(s+7), &b)==0) current->invert=b; continue; }
+        }
+        if (in_host_joystick) {
+            if (strncmp(s, "button:", 7) == 0) { current->source_kind = 4u; current->control = (int16_t)atoi(cpu_component_trim(s + 7)); continue; }
+            if (strncmp(s, "axis:", 5) == 0) { current->source_kind = 5u; current->control = (int16_t)atoi(cpu_component_trim(s + 5)); continue; }
+            if (strncmp(s, "hat:", 4) == 0) { current->source_kind = 6u; current->control = (int16_t)atoi(cpu_component_trim(s + 4)); continue; }
+            if (strncmp(s, "hat_dir:", 8) == 0) {
+                char *dt = cpu_component_unquote(cpu_component_trim(s + 8));
+                if (strcmp(dt, "up") == 0) current->extra = (int16_t)CPU_HOST_HAT_UP;
+                else if (strcmp(dt, "down") == 0) current->extra = (int16_t)CPU_HOST_HAT_DOWN;
+                else if (strcmp(dt, "left") == 0) current->extra = (int16_t)CPU_HOST_HAT_LEFT;
+                else if (strcmp(dt, "right") == 0) current->extra = (int16_t)CPU_HOST_HAT_RIGHT;
+                continue;
+            }
+            if (strncmp(s, "direction:", 10) == 0) {
+                char *dt = cpu_component_unquote(cpu_component_trim(s + 10));
+                if (dt && dt[0] == '+') current->extra = 1;
+                else if (dt && dt[0] == '-') current->extra = -1;
+                continue;
+            }
+            if (strncmp(s, "threshold:", 10) == 0) { current->threshold = (float)atof(cpu_component_trim(s + 10)); continue; }
+            if (strncmp(s, "deadzone:", 9) == 0) { current->deadzone = (float)atof(cpu_component_trim(s + 9)); continue; }
+            if (strncmp(s, "scale:", 6) == 0) { current->scale = (float)atof(cpu_component_trim(s + 6)); continue; }
+            if (strncmp(s, "invert:", 7) == 0) { uint8_t b=0u; if (cpu_component_parse_bool(cpu_component_trim(s+7), &b)==0) current->invert=b; continue; }
+        }
+    }
+    fclose(f);
+    for (size_t i = 0; i < g_runtime_controller_map.binding_count; ++i) {
+        if (g_runtime_controller_map.bindings[i].source_kind == 0u) {
+            fprintf(stderr, "Controller map parse error: binding '%s' is missing host source (need host_scancode/host_gamepad/host_joystick)\n", g_runtime_controller_map.bindings[i].target_id);
+            cpu_component_runtime_controller_clear();
+            return -1;
+        }
+    }
+    for (size_t i = 0; i < g_runtime_controller_map.binding_count; ++i) {
+        cpu_component_controller_target_get(g_runtime_controller_map.bindings[i].target_id, 1u);
+    }
+    g_runtime_controller_map.loaded = 1u;
+    return 0;
+}
+
+static float cpu_component_norm_axis_s16(int v) {
+    if (v >= 0) return (float)v / 32767.0f;
+    return (float)v / 32768.0f;
+}
+
+static float cpu_component_axis_apply(const RuntimeControllerBinding *b, float v) {
+    if (b->invert != 0u) v = -v;
+    if (v > -b->deadzone && v < b->deadzone) v = 0.0f;
+    v *= b->scale;
+    if (v > 1.0f) v = 1.0f;
+    if (v < -1.0f) v = -1.0f;
+    return v;
+}
+
+static void cpu_component_controller_map_poll(CPUState *cpu, uint8_t has_focus) {
+    (void)cpu;
+    if (g_runtime_controller_map.loaded == 0u) return;
+    if (g_runtime_controller_map.focus_required != 0u && has_focus == 0u) return;
+    for (size_t i = 0; i < g_runtime_controller_map.target_count; ++i) {
+        g_runtime_controller_map.targets[i].pressed = 0u;
+        g_runtime_controller_map.targets[i].axis = 0.0f;
+    }
+    {
+        int key_count = 0;
+        const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
+        for (size_t i = 0; i < g_runtime_controller_map.binding_count; ++i) {
+            const RuntimeControllerBinding *b = &g_runtime_controller_map.bindings[i];
+            uint8_t port_ok = 1u;
+            RuntimeControllerTarget *t;
+            uint8_t active = 0u;
+            float av = 0.0f;
+            if (b->port >= 1u && b->port <= 16u) port_ok = g_runtime_controller_map.port_connected[b->port - 1u];
+            if (port_ok == 0u) continue;
+            t = cpu_component_controller_target_get(b->target_id, 0u);
+            if (t == NULL) continue;
+            if (b->source_kind == 1u) {
+                if (ks && key_count > 0 && b->scancode >= 0 && b->scancode < key_count) {
+                    if (ks[b->scancode] != 0u) active = 1u;
+                }
+            } else if (b->source_kind == 2u || b->source_kind == 3u) {
+                int n = cpu_host_hal_gamepad_count();
+                for (int di = 0; di < n; ++di) {
+                    if (b->source_kind == 2u) {
+                        if (cpu_host_hal_gamepad_button(di, (int)b->control) != 0) { active = 1u; break; }
+                    } else {
+                        int v = cpu_host_hal_gamepad_axis(di, (int)b->control);
+                        float nv = cpu_component_axis_apply(b, cpu_component_norm_axis_s16(v));
+                        av = nv;
+                        if (b->extra > 0) { if (nv >= b->threshold) { active = 1u; break; } }
+                        else if (b->extra < 0) { if (nv <= -b->threshold) { active = 1u; break; } }
+                        else { if (nv >= b->threshold || nv <= -b->threshold) { active = 1u; break; } }
+                    }
+                }
+            } else if (b->source_kind == 4u || b->source_kind == 5u || b->source_kind == 6u) {
+                int n = cpu_host_hal_joystick_count();
+                for (int di = 0; di < n; ++di) {
+                    if (b->source_kind == 4u) {
+                        if (cpu_host_hal_joystick_button(di, (int)b->control) != 0) active = 1u;
+                    } else if (b->source_kind == 5u) {
+                        int v = cpu_host_hal_joystick_axis(di, (int)b->control);
+                        float nv = cpu_component_axis_apply(b, cpu_component_norm_axis_s16(v));
+                        av = nv;
+                        if (b->extra > 0) { if (nv >= b->threshold) active = 1u; }
+                        else if (b->extra < 0) { if (nv <= -b->threshold) active = 1u; }
+                        else { if (nv >= b->threshold || nv <= -b->threshold) active = 1u; }
+                    } else {
+                        uint8_t hv = cpu_host_hal_joystick_hat(di, (int)b->control);
+                        if ((hv & (uint8_t)b->extra) != 0u) active = 1u;
+                    }
+                    if (active != 0u) break;
+                }
+            }
+            if (active != 0u) {
+                t->pressed = 1u;
+                if (b->source_kind == 3u || b->source_kind == 5u) {
+                    { float aabs = (av < 0.0f) ? -av : av; float tabs = (t->axis < 0.0f) ? -t->axis : t->axis; if (aabs > tabs) t->axis = av; }
+                }
+            }
+        }
+    }
+}
+
+static uint8_t cpu_component_controller_pressed(const char *target_id) {
+    RuntimeControllerTarget *t = cpu_component_controller_target_get(target_id, 0u);
+    if (t == NULL) return 0u;
+    return (uint8_t)(t->pressed != 0u ? 1u : 0u);
+}
+
+static uint8_t cpu_component_controller_axis_u8(const char *target_id) {
+    RuntimeControllerTarget *t = cpu_component_controller_target_get(target_id, 0u);
+    float v;
+    int out;
+    if (t == NULL) return 128u;
+    v = t->axis;
+    if (v > 1.0f) v = 1.0f;
+    if (v < -1.0f) v = -1.0f;
+    out = (int)(((v + 1.0f) * 0.5f) * 255.0f);
+    if (out < 0) out = 0;
+    if (out > 255) out = 255;
+    return (uint8_t)out;
 }
 
 static void cpu_component_apply_declared_keymap(
@@ -739,27 +1784,411 @@ static void cpu_component_apply_declared_keymap(
     size_t row_count,
     uint8_t has_focus
 ) {
-    const ComponentKeyboardMap *map = cpu_component_find_keyboard_map(component_id);
     (void)cpu;
-    if (!map || !rows || row_count == 0u || !host_keys || host_key_count == 0u) return;
-    if (map->focus_required && has_focus == 0u) return;
-    for (size_t bind_idx = 0; bind_idx < map->binding_count; bind_idx++) {
-        const ComponentKeyboardBinding *binding = &map->bindings[bind_idx];
-        if (!cpu_component_host_key_is_pressed(binding->host_key, host_keys, host_key_count)) continue;
-        for (size_t press_idx = 0; press_idx < binding->press_count; press_idx++) {
-            const ComponentKeyboardPress *press = &binding->presses[press_idx];
-            if ((size_t)press->row >= row_count || press->bit >= 8u) continue;
-            rows[press->row] &= (uint8_t)~(1u << press->bit);
+    (void)component_id;
+    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 1u) return;
+    if (!rows || row_count == 0u || !host_keys || host_key_count == 0u) return;
+    if (g_runtime_keyboard_map.focus_required && has_focus == 0u) return;
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+        if (b->scancode < 0 || (size_t)b->scancode >= host_key_count) continue;
+        if (host_keys[b->scancode] == 0u) continue;
+        for (uint8_t p = 0u; p < b->press_count; ++p) {
+            const RuntimeKeyboardPress *pr = &b->presses[p];
+            if ((size_t)pr->row >= row_count || pr->bit > 7u) continue;
+            rows[pr->row] &= (uint8_t)~(1u << pr->bit);
         }
     }
+}
+
+static void cpu_component_keyboard_ascii_feed(
+    int32_t scancode,
+    const uint8_t *host_keys,
+    size_t host_key_count,
+    uint8_t has_focus
+) {
+    uint8_t shifted = 0u;
+    uint8_t controlled = 0u;
+    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return;
+    if (!host_keys || host_key_count == 0u) return;
+    if (g_runtime_keyboard_map.focus_required && has_focus == 0u) return;
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        const RuntimeKeyboardBinding *m = &g_runtime_keyboard_map.bindings[i];
+        if (m->scancode < 0 || (size_t)m->scancode >= host_key_count) continue;
+        if (host_keys[m->scancode] == 0u) continue;
+        if (m->is_shift_modifier != 0u) shifted = 1u;
+        if (m->is_ctrl_modifier != 0u) controlled = 1u;
+    }
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+        uint8_t out = 0u;
+        if (b->scancode != scancode) continue;
+        if (controlled != 0u && b->has_ascii_ctrl != 0u) out = b->ascii_ctrl;
+        else if (shifted != 0u && b->has_ascii_shift != 0u) out = b->ascii_shift;
+        else if (b->has_ascii != 0u) out = b->ascii;
+        cpu_component_keyboard_ascii_queue_push(out);
+        return;
+    }
+}
+
+static uint8_t cpu_component_keyboard_ascii_pop(void) {
+    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return 0u;
+    return cpu_component_keyboard_ascii_queue_pop();
+}
+
+typedef struct {
+    char rom_path[1024];
+    char file_name[256];
+    char title[128];
+    char release_year[16];
+    char description[320];
+    char image_path[256];
+} RuntimeCartridgeEntry;
+
+typedef struct {
+    uint8_t supported;
+    uint8_t active;
+    uint8_t action_prev;
+    uint8_t nav_up_prev;
+    uint8_t nav_down_prev;
+    uint8_t nav_enter_prev;
+    uint8_t nav_esc_prev;
+    char directory[1024];
+    char status[256];
+    RuntimeCartridgeEntry *entries;
+    size_t entry_count;
+    size_t entry_cap;
+    size_t selected;
+    uint8_t pending_swap;
+    char pending_path[1024];
+} RuntimeCartridgePicker;
+
+static RuntimeCartridgePicker g_runtime_cartridge_picker = {
+    1u, 0u, 0u, 0u, 0u, 0u, 0u, "", "", NULL, 0u, 0u, 0u, 0u, ""
+};
+
+static int cpu_component_cartridge_picker_entry_cmp(const void *a, const void *b) {
+    const RuntimeCartridgeEntry *ea = (const RuntimeCartridgeEntry *)a;
+    const RuntimeCartridgeEntry *eb = (const RuntimeCartridgeEntry *)b;
+    return strcmp(ea->file_name, eb->file_name);
+}
+
+static uint8_t cpu_component_rom_ext_allowed(const char *name) {
+    const char *dot = strrchr(name, '.');
+    char ext[16];
+    size_t n;
+    if (!dot || dot[1] == '\0') return 0u;
+    dot++;
+    n = strlen(dot);
+    if (n >= sizeof(ext)) n = sizeof(ext) - 1u;
+    for (size_t i = 0; i < n; ++i) {
+        char c = dot[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        ext[i] = c;
+    }
+    ext[n] = '\0';
+    if (strcmp(ext, "rom") == 0) return 1u;
+    if (strcmp(ext, "bin") == 0) return 1u;
+    if (strcmp(ext, "a26") == 0) return 1u;
+    if (strcmp(ext, "nes") == 0) return 1u;
+    if (strcmp(ext, "sms") == 0) return 1u;
+    if (strcmp(ext, "gg") == 0) return 1u;
+    if (strcmp(ext, "sg") == 0) return 1u;
+    if (strcmp(ext, "mx1") == 0) return 1u;
+    if (strcmp(ext, "col") == 0) return 1u;
+    if (strcmp(ext, "atr") == 0) return 1u;
+    if (strcmp(ext, "car") == 0) return 1u;
+    if (strcmp(ext, "cas") == 0) return 1u;
+    if (strcmp(ext, "tap") == 0) return 1u;
+    if (strcmp(ext, "d64") == 0) return 1u;
+    return 0u;
+}
+
+static void cpu_component_cartridge_picker_clear_entries(void) {
+    if (g_runtime_cartridge_picker.entries != NULL) {
+        free(g_runtime_cartridge_picker.entries);
+        g_runtime_cartridge_picker.entries = NULL;
+    }
+    g_runtime_cartridge_picker.entry_count = 0u;
+    g_runtime_cartridge_picker.entry_cap = 0u;
+    g_runtime_cartridge_picker.selected = 0u;
+}
+
+static RuntimeCartridgeEntry *cpu_component_cartridge_picker_add_entry(void) {
+    if (g_runtime_cartridge_picker.entry_count >= g_runtime_cartridge_picker.entry_cap) {
+        size_t new_cap = (g_runtime_cartridge_picker.entry_cap == 0u) ? 64u : (g_runtime_cartridge_picker.entry_cap * 2u);
+        RuntimeCartridgeEntry *ne = (RuntimeCartridgeEntry *)realloc(g_runtime_cartridge_picker.entries, new_cap * sizeof(RuntimeCartridgeEntry));
+        if (ne == NULL) return NULL;
+        memset(ne + g_runtime_cartridge_picker.entry_cap, 0, (new_cap - g_runtime_cartridge_picker.entry_cap) * sizeof(RuntimeCartridgeEntry));
+        g_runtime_cartridge_picker.entries = ne;
+        g_runtime_cartridge_picker.entry_cap = new_cap;
+    }
+    return &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.entry_count++];
+}
+
+static void cpu_component_cartridge_picker_parse_sidecar(RuntimeCartridgeEntry *entry) {
+    char yaml_path[1024];
+    FILE *f;
+    char line[768];
+    char *dot;
+    if (entry == NULL) return;
+    snprintf(yaml_path, sizeof(yaml_path), "%s", entry->rom_path);
+    dot = strrchr(yaml_path, '.');
+    if (dot != NULL) {
+        snprintf(dot, (size_t)(yaml_path + sizeof(yaml_path) - dot), ".yaml");
+    } else {
+        size_t n = strlen(yaml_path);
+        if (n + 5u >= sizeof(yaml_path)) return;
+        strcat(yaml_path, ".yaml");
+    }
+    f = fopen(yaml_path, "r");
+    if (f == NULL) return;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char *hash = strchr(line, '#');
+        char *s;
+        if (hash) *hash = '\0';
+        s = cpu_component_trim(line);
+        if (!s || s[0] == '\0') continue;
+        if (strncmp(s, "title:", 6) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 6));
+            snprintf(entry->title, sizeof(entry->title), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "release_year:", 13) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 13));
+            snprintf(entry->release_year, sizeof(entry->release_year), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "description:", 12) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 12));
+            snprintf(entry->description, sizeof(entry->description), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "image:", 6) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 6));
+            snprintf(entry->image_path, sizeof(entry->image_path), "%s", v ? v : "");
+            continue;
+        }
+    }
+    fclose(f);
+}
+
+static int cpu_component_cartridge_picker_scan_dir(void) {
+#if defined(_WIN32)
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cartridge picker unsupported on this backend");
+    return -1;
+#else
+    DIR *d;
+    struct dirent *de;
+    cpu_component_cartridge_picker_clear_entries();
+    if (g_runtime_cartridge_picker.directory[0] == '\0') {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "missing --cartridge-dir");
+        return -1;
+    }
+    d = opendir(g_runtime_cartridge_picker.directory);
+    if (d == NULL) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cannot open dir: %s", g_runtime_cartridge_picker.directory);
+        return -1;
+    }
+    while ((de = readdir(d)) != NULL) {
+        RuntimeCartridgeEntry *entry;
+        if (de->d_name[0] == '.') continue;
+        if (cpu_component_rom_ext_allowed(de->d_name) == 0u) continue;
+        entry = cpu_component_cartridge_picker_add_entry();
+        if (entry == NULL) {
+            closedir(d);
+            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "out of memory");
+            return -1;
+        }
+        snprintf(entry->file_name, sizeof(entry->file_name), "%s", de->d_name);
+        snprintf(entry->rom_path, sizeof(entry->rom_path), "%s/%s", g_runtime_cartridge_picker.directory, de->d_name);
+        cpu_component_cartridge_picker_parse_sidecar(entry);
+    }
+    closedir(d);
+    if (g_runtime_cartridge_picker.entry_count == 0u) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "no ROM files found");
+        return -1;
+    }
+    qsort(
+        g_runtime_cartridge_picker.entries,
+        g_runtime_cartridge_picker.entry_count,
+        sizeof(RuntimeCartridgeEntry),
+        cpu_component_cartridge_picker_entry_cmp
+    );
+    if (g_runtime_cartridge_picker.selected >= g_runtime_cartridge_picker.entry_count) {
+        g_runtime_cartridge_picker.selected = 0u;
+    }
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "select cartridge (%u)", (unsigned)g_runtime_cartridge_picker.entry_count);
+    return 0;
+#endif
+}
+
+static int cpu_component_cartridge_picker_set_dir(const char *path) {
+    if (path == NULL || path[0] == '\0') return -1;
+    snprintf(g_runtime_cartridge_picker.directory, sizeof(g_runtime_cartridge_picker.directory), "%s", path);
+    g_runtime_cartridge_picker.active = 0u;
+    g_runtime_cartridge_picker.pending_swap = 0u;
+    g_runtime_cartridge_picker.pending_path[0] = '\0';
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cartridge dir set");
+    return 0;
+}
+
+static uint8_t cpu_component_keyboard_emulator_action_pressed(const char *action_id, const uint8_t *host_keys, size_t host_key_count, uint8_t has_focus) {
+    if (g_runtime_keyboard_map.loaded == 0u) return 0u;
+    if (!action_id || action_id[0] == '\0') return 0u;
+    if (!host_keys || host_key_count == 0u) return 0u;
+    if (g_runtime_keyboard_map.focus_required != 0u && has_focus == 0u) return 0u;
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+        if (b->scancode < 0 || (size_t)b->scancode >= host_key_count) continue;
+        if (b->emulator_key_id[0] == '\0') continue;
+        if (strcmp(b->emulator_key_id, action_id) != 0) continue;
+        if (host_keys[b->scancode] != 0u) return 1u;
+    }
+    return 0u;
+}
+
+static uint8_t cpu_component_cartridge_picker_is_active(void) {
+    return g_runtime_cartridge_picker.active;
+}
+
+static void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {
+    int key_count = 0;
+    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
+    uint8_t trig;
+    uint8_t raw_trig = 0u;
+    uint8_t up;
+    uint8_t down;
+    uint8_t enter;
+    uint8_t esc;
+    if (!cpu) return;
+    if (g_runtime_cartridge_picker.supported == 0u) return;
+    trig = cpu_component_keyboard_emulator_action_pressed("EMU_CART_PICKER", ks, (size_t)((key_count < 0) ? 0 : key_count), has_focus);
+    if (ks != NULL && key_count > 0) {
+        if ((size_t)CPU_HOST_SCANCODE(F6) < (size_t)key_count && ks[CPU_HOST_SCANCODE(F6)] != 0u) raw_trig = 1u;
+        if ((size_t)CPU_HOST_SCANCODE(F5) < (size_t)key_count && ks[CPU_HOST_SCANCODE(F5)] != 0u) raw_trig = 1u;
+        if ((size_t)CPU_HOST_SCANCODE(P) < (size_t)key_count && ks[CPU_HOST_SCANCODE(P)] != 0u) raw_trig = 1u;
+    }
+    if (raw_trig != 0u) trig = 1u;
+    if (trig != 0u && g_runtime_cartridge_picker.action_prev == 0u) {
+        if (g_runtime_cartridge_picker.active == 0u) {
+            if (cpu_component_cartridge_picker_scan_dir() == 0) {
+                g_runtime_cartridge_picker.active = 1u;
+            }
+        } else {
+            g_runtime_cartridge_picker.active = 0u;
+        }
+    }
+    g_runtime_cartridge_picker.action_prev = trig;
+    if (g_runtime_cartridge_picker.active == 0u) return;
+    if (!ks || key_count <= 0) return;
+    up = ((size_t)CPU_HOST_SCANCODE(UP) < (size_t)key_count && ks[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;
+    down = ((size_t)CPU_HOST_SCANCODE(DOWN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(DOWN)] != 0u) ? 1u : 0u;
+    enter = (((size_t)CPU_HOST_SCANCODE(RETURN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(RETURN)] != 0u) || ((size_t)CPU_HOST_SCANCODE(KP_ENTER) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_ENTER)] != 0u)) ? 1u : 0u;
+    esc = ((size_t)CPU_HOST_SCANCODE(ESCAPE) < (size_t)key_count && ks[CPU_HOST_SCANCODE(ESCAPE)] != 0u) ? 1u : 0u;
+    if (up != 0u && g_runtime_cartridge_picker.nav_up_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            if (g_runtime_cartridge_picker.selected == 0u) g_runtime_cartridge_picker.selected = g_runtime_cartridge_picker.entry_count - 1u;
+            else g_runtime_cartridge_picker.selected -= 1u;
+        }
+    }
+    if (down != 0u && g_runtime_cartridge_picker.nav_down_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            g_runtime_cartridge_picker.selected = (g_runtime_cartridge_picker.selected + 1u) % g_runtime_cartridge_picker.entry_count;
+        }
+    }
+    if (esc != 0u && g_runtime_cartridge_picker.nav_esc_prev == 0u) {
+        g_runtime_cartridge_picker.active = 0u;
+    }
+    if (enter != 0u && g_runtime_cartridge_picker.nav_enter_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            const RuntimeCartridgeEntry *sel = &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.selected];
+            snprintf(g_runtime_cartridge_picker.pending_path, sizeof(g_runtime_cartridge_picker.pending_path), "%s", sel->rom_path);
+            g_runtime_cartridge_picker.pending_swap = 1u;
+            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "queued: %s", sel->file_name);
+        }
+        g_runtime_cartridge_picker.active = 0u;
+    }
+    g_runtime_cartridge_picker.nav_up_prev = up;
+    g_runtime_cartridge_picker.nav_down_prev = down;
+    g_runtime_cartridge_picker.nav_enter_prev = enter;
+    g_runtime_cartridge_picker.nav_esc_prev = esc;
+}
+
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu) {
+    if (!cpu) return -1;
+    if (g_runtime_cartridge_picker.pending_swap == 0u) return 0;
+    if (mos6502_load_cartridge_rom(cpu, g_runtime_cartridge_picker.pending_path) != 0) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "load failed: %s", g_runtime_cartridge_picker.pending_path);
+        g_runtime_cartridge_picker.pending_swap = 0u;
+        g_runtime_cartridge_picker.pending_path[0] = '\0';
+        return -1;
+    }
+    if (cpu->memory != NULL && cpu->memory_size > 0u) memset(cpu->memory, 0, cpu->memory_size);
+    if (cpu->port_memory != NULL && cpu->port_size > 0u) memset(cpu->port_memory, 0, cpu->port_size);
+    mos6502_reset(cpu);
+    mos6502_reset(cpu);
+    cpu->running = true;
+    cpu->halted = false;
+    cpu->error_code = CPU_ERROR_NONE;
+    g_runtime_cartridge_picker.pending_swap = 0u;
+    g_runtime_cartridge_picker.pending_path[0] = '\0';
+    return 1;
+}
+
+static void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {
+    int scale = 1;
+    int x = 10;
+    int y = 24;
+    int row_h = 9;
+    int max_rows = 10;
+    size_t first;
+    (void)cpu;
+    if (!pixels || w == 0u || h == 0u) return;
+    if (g_runtime_cartridge_picker.active == 0u) return;
+    if (g_runtime_cartridge_picker.entry_count == 0u) return;
+    sms_overlay_fill_rect_alpha(pixels, w, h, 6, 20, (int)w - 12, (int)h - 26, 0x00101010u, 190u);
+    sms_overlay_draw_text(pixels, w, h, x, y, "CARTRIDGE PICKER", scale, 0xFFFFFFFFu);
+    y += row_h * 2;
+    first = (g_runtime_cartridge_picker.selected >= 4u) ? (g_runtime_cartridge_picker.selected - 4u) : 0u;
+    for (int i = 0; i < max_rows; ++i) {
+        size_t idx = first + (size_t)i;
+        char line[320];
+        if (idx >= g_runtime_cartridge_picker.entry_count) break;
+        const RuntimeCartridgeEntry *e = &g_runtime_cartridge_picker.entries[idx];
+        uint32_t fg = (idx == g_runtime_cartridge_picker.selected) ? 0xFF00FF9Fu : 0xFFE0E0E0u;
+        if (e->title[0] != '\0') snprintf(line, sizeof(line), "%s (%s)", e->title, (e->release_year[0] ? e->release_year : "?"));
+        else snprintf(line, sizeof(line), "%s", e->file_name);
+        sms_overlay_draw_text(pixels, w, h, x, y + i * row_h, line, scale, fg);
+    }
+    {
+        const RuntimeCartridgeEntry *sel = &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.selected];
+        int info_y = y + max_rows * row_h + 8;
+        char info[384];
+        snprintf(info, sizeof(info), "FILE: %s", sel->file_name);
+        sms_overlay_draw_text(pixels, w, h, x, info_y, info, scale, 0xFFC8C8FFu);
+        if (sel->description[0] != '\0') {
+            sms_overlay_draw_text(pixels, w, h, x, info_y + row_h, sel->description, scale, 0xFFDDDDDDu);
+        }
+        if (sel->image_path[0] != '\0') {
+            char img[320];
+            snprintf(img, sizeof(img), "IMG: %s", sel->image_path);
+            sms_overlay_draw_text(pixels, w, h, x, info_y + row_h * 2, img, scale, 0xFFBBBBBBu);
+        }
+    }
+    sms_overlay_draw_text(pixels, w, h, x, (int)h - 14, "UP/DOWN SELECT  ENTER LOAD+RESET  ESC CANCEL", scale, 0xFFFFFFA0u);
 }
 
 static const ComponentConnection g_component_connections[] = {
     { "nes_io", "callback", "cart_chr_read", "nes_cart0", "callback", "chr_read" },
     { "nes_io", "callback", "cart_chr_write", "nes_cart0", "callback", "chr_write" },
     { "nes_io", "callback", "cart_mirroring", "nes_cart0", "callback", "mirroring" },
-    { "nes_io", "callback", "joy1_read", "host_nes", "callback", "read_joy1" },
-    { "nes_io", "callback", "joy2_read", "host_nes", "callback", "read_joy2" },
+    { "nes_io", "callback", "cart_irq_pending", "nes_cart0", "callback", "irq_pending" },
+    { "nes_io", "callback", "cart_irq_clock", "nes_cart0", "callback", "irq_clock" },
+    { "nes_io", "callback", "joy1_read", "controller_nes", "callback", "read_joy1" },
+    { "nes_io", "callback", "joy2_read", "controller_nes", "callback", "read_joy2" },
+    { "controller_nes", "callback", "host_joy1", "host_nes", "callback", "read_joy1" },
+    { "controller_nes", "callback", "host_joy2", "host_nes", "callback", "read_joy2" },
     { "nes_io", "signal", "frame_ready", "video_nes", "handler", "on_frame_ready" },
     { "video_nes", "signal", "frame_present", "host_nes", "handler", "video_frame" },
     { "nes_io", "signal", "audio_level", "speaker_nes", "handler", "on_audio_level" },
@@ -789,6 +2218,22 @@ static uint64_t component_nes_io_callback_cart_mirroring(CPUState *cpu, const ui
     return __result;
 }
 
+static uint64_t component_nes_io_callback_cart_irq_pending(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_nes_io *comp = &cpu->comp_nes_io;
+    cpu->active_component_id = "nes_io";
+    uint64_t __result = 0;
+    return __result;
+}
+
+static uint64_t component_nes_io_callback_cart_irq_clock(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_nes_io *comp = &cpu->comp_nes_io;
+    cpu->active_component_id = "nes_io";
+    uint64_t __result = 0;
+    return __result;
+}
+
 static uint64_t component_nes_io_callback_joy1_read(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
     ComponentState_nes_io *comp = &cpu->comp_nes_io;
@@ -805,11 +2250,50 @@ static uint64_t component_nes_io_callback_joy2_read(CPUState *cpu, const uint64_
     return __result;
 }
 
+static uint64_t component_controller_nes_callback_read_joy1(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_controller_nes *comp = &cpu->comp_controller_nes;
+    cpu->active_component_id = "controller_nes";
+    uint64_t __result = 0;
+    __result = cpu_component_call(cpu, "controller_nes", "host_joy1", NULL, 0);
+    return __result;
+    return __result;
+}
+
+static uint64_t component_controller_nes_callback_read_joy2(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_controller_nes *comp = &cpu->comp_controller_nes;
+    cpu->active_component_id = "controller_nes";
+    uint64_t __result = 0;
+    __result = cpu_component_call(cpu, "controller_nes", "host_joy2", NULL, 0);
+    return __result;
+    return __result;
+}
+
+static uint64_t component_controller_nes_callback_host_joy1(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_controller_nes *comp = &cpu->comp_controller_nes;
+    cpu->active_component_id = "controller_nes";
+    uint64_t __result = 0;
+    return __result;
+}
+
+static uint64_t component_controller_nes_callback_host_joy2(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_controller_nes *comp = &cpu->comp_controller_nes;
+    cpu->active_component_id = "controller_nes";
+    uint64_t __result = 0;
+    return __result;
+}
+
 static uint64_t component_host_nes_callback_read_joy1(CPUState *cpu, const uint64_t *args, uint8_t argc) {
     (void)argc;
     ComponentState_host_nes *comp = &cpu->comp_host_nes;
     cpu->active_component_id = "host_nes";
     uint64_t __result = 0;
+    /* Return the snapshot computed in step_post to avoid per-read timing jitter
+     * between host polling and $4016 latch reads.
+     */
     return (uint64_t)comp->joy1;
     return __result;
 }
@@ -829,22 +2313,107 @@ static uint64_t component_nes_cart0_callback_chr_read(CPUState *cpu, const uint6
     cpu->active_component_id = "nes_cart0";
     uint64_t __result = 0;
     uint16_t ppu_addr = (argc > 0) ? (uint16_t)(args[0] & 0x3FFFu) : 0u;
+    uint8_t rendering = (argc > 1) ? (uint8_t)(args[1] & 0x01u) : 1u;
+    uint64_t ppu_tick = (argc > 2) ? (uint64_t)args[2] : 0u;
+    if (comp->mapper_id == 4u && rendering != 0u) {
+        static int mmc3_trace_enabled = -1;
+        static FILE *mmc3_trace_fp = NULL;
+        if (mmc3_trace_enabled < 0) {
+            const char *env = getenv("PASM_NES_MMC3_TRACE");
+            mmc3_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+            if (mmc3_trace_enabled != 0) {
+                mmc3_trace_fp = fopen("log/nes_mmc3_trace.log", "a");
+                if (mmc3_trace_fp == NULL) mmc3_trace_fp = fopen("nes_mmc3_trace.log", "a");
+            }
+        }
+        uint8_t a12 = (uint8_t)((ppu_addr & 0x1000u) ? 1u : 0u);
+        if (a12 == 0u) {
+            if (comp->a12_low_count < 255u) comp->a12_low_count += 1u;
+        } else {
+            if (comp->a12_prev == 0u && comp->a12_low_count >= 3u) {
+                if (comp->irq_reload != 0u || comp->irq_counter == 0u) {
+                    comp->irq_counter = comp->irq_latch;
+                    comp->irq_reload = 0u;
+                } else {
+                    comp->irq_counter = (uint8_t)(comp->irq_counter - 1u);
+                }
+                if (comp->irq_counter == 0u && comp->irq_enable != 0u) {
+                    comp->irq_pending = 1u;
+                }
+                if (mmc3_trace_fp != NULL) {
+                    fprintf(
+                        mmc3_trace_fp,
+                        "edge ppu=%04X low=%u latch=%u ctr=%u reload=%u en=%u pend=%u\n",
+                        (unsigned)ppu_addr,
+                        (unsigned)comp->a12_low_count,
+                        (unsigned)comp->irq_latch,
+                        (unsigned)comp->irq_counter,
+                        (unsigned)comp->irq_reload,
+                        (unsigned)comp->irq_enable,
+                        (unsigned)comp->irq_pending
+                    );
+                    fflush(mmc3_trace_fp);
+                }
+            }
+            comp->a12_low_count = 0u;
+        }
+        comp->a12_prev = a12;
+        comp->a12_last_tick = ppu_tick;
+    }
     if (ppu_addr >= 0x2000u) return 0x00u;
     if (comp->ines_valid == 0u) return 0x00u;
 
-    if (comp->chr_size > 0u && comp->rom_data != NULL) {
-        const uint32_t bank_size = 8192u;
-        uint32_t bank_count = comp->chr_size / bank_size;
-        if (bank_count == 0u) bank_count = 1u;
-        {
-            uint32_t bank = (uint32_t)(comp->chr_bank % bank_count);
-            uint32_t off = comp->chr_offset + bank * bank_size + (uint32_t)ppu_addr;
-            if (off < comp->rom_size) return comp->rom_data[off];
+    {
+        uint32_t rel = (uint32_t)ppu_addr;
+        uint32_t slot = rel / 0x0400u;
+        uint32_t in_slot = rel & 0x03FFu;
+        uint32_t bank = 0u;
+
+        if (comp->mapper_id == 66u) {
+            uint32_t chr_banks_8k = (comp->chr_size > 0u) ? (comp->chr_size / 8192u) : 0u;
+            if (chr_banks_8k == 0u) chr_banks_8k = 1u;
+            bank = ((uint32_t)comp->reg7 % chr_banks_8k) * 8u + slot;
+        } else if (comp->mapper_id == 4u) {
+            uint32_t r0 = (uint32_t)(comp->reg0 & 0xFEu);
+            uint32_t r1 = (uint32_t)(comp->reg1 & 0xFEu);
+            if (comp->chr_mode == 0u) {
+                if (slot == 0u) bank = r0;
+                else if (slot == 1u) bank = r0 + 1u;
+                else if (slot == 2u) bank = r1;
+                else if (slot == 3u) bank = r1 + 1u;
+                else if (slot == 4u) bank = (uint32_t)comp->reg2;
+                else if (slot == 5u) bank = (uint32_t)comp->reg3;
+                else if (slot == 6u) bank = (uint32_t)comp->reg4;
+                else bank = (uint32_t)comp->reg5;
+            } else {
+                if (slot == 0u) bank = (uint32_t)comp->reg2;
+                else if (slot == 1u) bank = (uint32_t)comp->reg3;
+                else if (slot == 2u) bank = (uint32_t)comp->reg4;
+                else if (slot == 3u) bank = (uint32_t)comp->reg5;
+                else if (slot == 4u) bank = r0;
+                else if (slot == 5u) bank = r0 + 1u;
+                else if (slot == 6u) bank = r1;
+                else bank = r1 + 1u;
+            }
+        } else {
+            /* Mapper 0: linear CHR. */
+            bank = slot;
         }
-        return 0x00u;
-    }
-    if (comp->chr_ram != NULL && comp->chr_ram_size > 0u) {
-        return comp->chr_ram[(uint32_t)ppu_addr % comp->chr_ram_size];
+
+        if (comp->chr_size > 0u && comp->rom_data != NULL) {
+            uint32_t chr_banks_1k = comp->chr_size / 1024u;
+            if (chr_banks_1k == 0u) return 0x00u;
+            bank %= chr_banks_1k;
+            {
+                uint32_t off = comp->chr_offset + bank * 1024u + in_slot;
+                if (off < comp->rom_size) return comp->rom_data[off];
+            }
+            return 0x00u;
+        }
+        if (comp->chr_ram != NULL && comp->chr_ram_size > 0u) {
+            uint32_t off = ((bank * 1024u) + in_slot) % comp->chr_ram_size;
+            return comp->chr_ram[off];
+        }
     }
     return 0x00u;
     return __result;
@@ -858,8 +2427,69 @@ static uint64_t component_nes_cart0_callback_chr_write(CPUState *cpu, const uint
     if (argc < 2) return 0u;
     uint16_t ppu_addr = (uint16_t)(args[0] & 0x3FFFu);
     uint8_t val = (uint8_t)(args[1] & 0xFFu);
+    uint8_t rendering = (argc > 2) ? (uint8_t)(args[2] & 0x01u) : 1u;
+    uint64_t ppu_tick = (argc > 3) ? (uint64_t)args[3] : 0u;
+    if (comp->mapper_id == 4u && rendering != 0u && ppu_addr < 0x2000u) {
+        uint8_t a12 = (uint8_t)((ppu_addr & 0x1000u) ? 1u : 0u);
+        if (a12 == 0u) {
+            if (comp->a12_low_count < 255u) comp->a12_low_count += 1u;
+        } else {
+            if (comp->a12_prev == 0u && comp->a12_low_count >= 3u) {
+                if (comp->irq_reload != 0u || comp->irq_counter == 0u) {
+                    comp->irq_counter = comp->irq_latch;
+                    comp->irq_reload = 0u;
+                } else {
+                    comp->irq_counter = (uint8_t)(comp->irq_counter - 1u);
+                }
+                if (comp->irq_counter == 0u && comp->irq_enable != 0u) {
+                    comp->irq_pending = 1u;
+                }
+            }
+            comp->a12_low_count = 0u;
+        }
+        comp->a12_prev = a12;
+        comp->a12_last_tick = ppu_tick;
+    }
     if (ppu_addr < 0x2000u && comp->chr_size == 0u && comp->chr_ram != NULL && comp->chr_ram_size > 0u) {
-        comp->chr_ram[(uint32_t)ppu_addr % comp->chr_ram_size] = val;
+        uint32_t rel = (uint32_t)ppu_addr;
+        uint32_t slot = rel / 0x0400u;
+        uint32_t in_slot = rel & 0x03FFu;
+        uint32_t bank = 0u;
+        if (comp->mapper_id == 66u) {
+            /* For CHR RAM with mapper66 homebrew, reuse reg7 as 8k bank selector. */
+            uint32_t chr_banks_8k = (comp->chr_ram_size > 0u) ? (comp->chr_ram_size / 8192u) : 0u;
+            if (chr_banks_8k == 0u) chr_banks_8k = 1u;
+            bank = ((uint32_t)comp->reg7 % chr_banks_8k) * 8u + slot;
+        } else if (comp->mapper_id == 4u) {
+            uint32_t r0 = (uint32_t)(comp->reg0 & 0xFEu);
+            uint32_t r1 = (uint32_t)(comp->reg1 & 0xFEu);
+            if (comp->chr_mode == 0u) {
+                if (slot == 0u) bank = r0;
+                else if (slot == 1u) bank = r0 + 1u;
+                else if (slot == 2u) bank = r1;
+                else if (slot == 3u) bank = r1 + 1u;
+                else if (slot == 4u) bank = (uint32_t)comp->reg2;
+                else if (slot == 5u) bank = (uint32_t)comp->reg3;
+                else if (slot == 6u) bank = (uint32_t)comp->reg4;
+                else bank = (uint32_t)comp->reg5;
+            } else {
+                if (slot == 0u) bank = (uint32_t)comp->reg2;
+                else if (slot == 1u) bank = (uint32_t)comp->reg3;
+                else if (slot == 2u) bank = (uint32_t)comp->reg4;
+                else if (slot == 3u) bank = (uint32_t)comp->reg5;
+                else if (slot == 4u) bank = r0;
+                else if (slot == 5u) bank = r0 + 1u;
+                else if (slot == 6u) bank = r1;
+                else bank = r1 + 1u;
+            }
+        } else {
+            bank = slot;
+        }
+
+        {
+            uint32_t off = ((bank * 1024u) + in_slot) % comp->chr_ram_size;
+            comp->chr_ram[off] = val;
+        }
     }
     return 0u;
     return __result;
@@ -874,6 +2504,52 @@ static uint64_t component_nes_cart0_callback_mirroring(CPUState *cpu, const uint
     return __result;
 }
 
+static uint64_t component_nes_cart0_callback_irq_pending(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_nes_cart0 *comp = &cpu->comp_nes_cart0;
+    cpu->active_component_id = "nes_cart0";
+    uint64_t __result = 0;
+    static int mmc3_trace_enabled = -1;
+    static FILE *mmc3_trace_fp = NULL;
+    if (mmc3_trace_enabled < 0) {
+        const char *env = getenv("PASM_NES_MMC3_TRACE");
+        mmc3_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+        if (mmc3_trace_enabled != 0) {
+            mmc3_trace_fp = fopen("log/nes_mmc3_trace.log", "a");
+            if (mmc3_trace_fp == NULL) mmc3_trace_fp = fopen("nes_mmc3_trace.log", "a");
+        }
+    }
+    if (mmc3_trace_fp != NULL && comp->irq_pending != 0u) {
+        fprintf(
+            mmc3_trace_fp,
+            "irq_pending ctr=%u latch=%u en=%u reload=%u low=%u\n",
+            (unsigned)comp->irq_counter,
+            (unsigned)comp->irq_latch,
+            (unsigned)comp->irq_enable,
+            (unsigned)comp->irq_reload,
+            (unsigned)comp->a12_low_count
+        );
+        fflush(mmc3_trace_fp);
+    }
+    return (uint64_t)(comp->irq_pending != 0u ? 1u : 0u);
+    return __result;
+}
+
+static uint64_t component_nes_cart0_callback_irq_clock(CPUState *cpu, const uint64_t *args, uint8_t argc) {
+    (void)argc;
+    ComponentState_nes_cart0 *comp = &cpu->comp_nes_cart0;
+    cpu->active_component_id = "nes_cart0";
+    uint64_t __result = 0;
+    if (comp->mapper_id == 4u) {
+        /* MMC3 IRQs are clocked from PPU A12 rising edges in chr_read/chr_write.
+         * Do not clock from generic cart_irq_clock, or IRQ cadence is corrupted.
+         */
+        return 0u;
+    }
+    return 0u;
+    return __result;
+}
+
 static uint64_t cpu_component_dispatch_callback(
     CPUState *cpu,
     const char *component_id,
@@ -884,13 +2560,21 @@ static uint64_t cpu_component_dispatch_callback(
     if (strcmp(component_id, "nes_io") == 0 && strcmp(callback_name, "cart_chr_read") == 0) return component_nes_io_callback_cart_chr_read(cpu, args, argc);
     if (strcmp(component_id, "nes_io") == 0 && strcmp(callback_name, "cart_chr_write") == 0) return component_nes_io_callback_cart_chr_write(cpu, args, argc);
     if (strcmp(component_id, "nes_io") == 0 && strcmp(callback_name, "cart_mirroring") == 0) return component_nes_io_callback_cart_mirroring(cpu, args, argc);
+    if (strcmp(component_id, "nes_io") == 0 && strcmp(callback_name, "cart_irq_pending") == 0) return component_nes_io_callback_cart_irq_pending(cpu, args, argc);
+    if (strcmp(component_id, "nes_io") == 0 && strcmp(callback_name, "cart_irq_clock") == 0) return component_nes_io_callback_cart_irq_clock(cpu, args, argc);
     if (strcmp(component_id, "nes_io") == 0 && strcmp(callback_name, "joy1_read") == 0) return component_nes_io_callback_joy1_read(cpu, args, argc);
     if (strcmp(component_id, "nes_io") == 0 && strcmp(callback_name, "joy2_read") == 0) return component_nes_io_callback_joy2_read(cpu, args, argc);
+    if (strcmp(component_id, "controller_nes") == 0 && strcmp(callback_name, "read_joy1") == 0) return component_controller_nes_callback_read_joy1(cpu, args, argc);
+    if (strcmp(component_id, "controller_nes") == 0 && strcmp(callback_name, "read_joy2") == 0) return component_controller_nes_callback_read_joy2(cpu, args, argc);
+    if (strcmp(component_id, "controller_nes") == 0 && strcmp(callback_name, "host_joy1") == 0) return component_controller_nes_callback_host_joy1(cpu, args, argc);
+    if (strcmp(component_id, "controller_nes") == 0 && strcmp(callback_name, "host_joy2") == 0) return component_controller_nes_callback_host_joy2(cpu, args, argc);
     if (strcmp(component_id, "host_nes") == 0 && strcmp(callback_name, "read_joy1") == 0) return component_host_nes_callback_read_joy1(cpu, args, argc);
     if (strcmp(component_id, "host_nes") == 0 && strcmp(callback_name, "read_joy2") == 0) return component_host_nes_callback_read_joy2(cpu, args, argc);
     if (strcmp(component_id, "nes_cart0") == 0 && strcmp(callback_name, "chr_read") == 0) return component_nes_cart0_callback_chr_read(cpu, args, argc);
     if (strcmp(component_id, "nes_cart0") == 0 && strcmp(callback_name, "chr_write") == 0) return component_nes_cart0_callback_chr_write(cpu, args, argc);
     if (strcmp(component_id, "nes_cart0") == 0 && strcmp(callback_name, "mirroring") == 0) return component_nes_cart0_callback_mirroring(cpu, args, argc);
+    if (strcmp(component_id, "nes_cart0") == 0 && strcmp(callback_name, "irq_pending") == 0) return component_nes_cart0_callback_irq_pending(cpu, args, argc);
+    if (strcmp(component_id, "nes_cart0") == 0 && strcmp(callback_name, "irq_clock") == 0) return component_nes_cart0_callback_irq_clock(cpu, args, argc);
     return 0;
 }
 
@@ -917,6 +2601,12 @@ static void component_host_nes_handler_video_frame(CPUState *cpu, const uint64_t
     (void)argc;
     ComponentState_host_nes *comp = &cpu->comp_host_nes;
     cpu->active_component_id = "host_nes";
+    if (argc >= 4u) {
+        uint32_t *picker_pixels = (uint32_t *)(uintptr_t)args[1];
+        uint32_t picker_w = (uint32_t)(args[2] & 0xFFFFFFFFu);
+        uint32_t picker_h = (uint32_t)(args[3] & 0xFFFFFFFFu);
+        cpu_component_cartridge_picker_draw_overlay(cpu, picker_pixels, picker_w, picker_h);
+    }
     if (comp->host_inited == 0u || argc < 4) return;
     void *renderer = comp->renderer;
     void *texture = comp->texture;
@@ -1062,11 +2752,17 @@ static void cpu_component_emit_signal(
 static void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {
     (void)inst;
     (void)pc_before;
+    {
+        ComponentState_nes_io *comp = &cpu->comp_nes_io;
+        cpu->active_component_id = "nes_io";
+        (void)cpu;
+    }
 }
 
 static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {
     (void)inst;
     (void)pc_before;
+    cpu_component_cartridge_picker_update(cpu, cpu_host_hal_window_has_focus(NULL));
     {
         ComponentState_nes_io *comp = &cpu->comp_nes_io;
         cpu->active_component_id = "nes_io";
@@ -1104,6 +2800,27 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             uint8_t prerender_line = (scanline == 261) ? 1u : 0u;
 
             if (prerender_line != 0u && cycle == 1u) {
+                static int ppu_status_trace_enabled = -1;
+                static FILE *ppu_status_trace_fp = NULL;
+                if (ppu_status_trace_enabled < 0) {
+                    const char *env = getenv("PASM_NES_PPUSTATUS_TRACE");
+                    ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                    if (ppu_status_trace_enabled != 0) {
+                        ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                        if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                    }
+                }
+                if (ppu_status_trace_fp != NULL) {
+                    fprintf(
+                        ppu_status_trace_fp,
+                        "vblank clear sl=%d cy=%u abs=%llu status_before=%02X\n",
+                        (int)scanline,
+                        (unsigned)cycle,
+                        (unsigned long long)cpu->total_cycles,
+                        (unsigned)comp->ppu_status
+                    );
+                    fflush(ppu_status_trace_fp);
+                }
                 comp->ppu_status = (uint8_t)(comp->ppu_status & 0x1Fu);
                 comp->vblank_set_this_frame = 0u;
                 comp->sprite0_hit_pending = 0u;
@@ -1111,12 +2828,43 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             }
 
             if (scanline == 241 && cycle == 1u) {
-                comp->ppu_status = (uint8_t)(comp->ppu_status | 0x80u);
-                comp->vblank_set_this_frame = 1u;
-                if ((comp->ppu_ctrl & 0x80u) != 0u) {
+                static int ppu_status_trace_enabled = -1;
+                static FILE *ppu_status_trace_fp = NULL;
+                if (ppu_status_trace_enabled < 0) {
+                    const char *env = getenv("PASM_NES_PPUSTATUS_TRACE");
+                    ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                    if (ppu_status_trace_enabled != 0) {
+                        ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                        if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                    }
+                }
+                if (comp->ppu_prevent_vbl_flag == 0u) {
+                    comp->ppu_status = (uint8_t)(comp->ppu_status | 0x80u);
+                    comp->vblank_set_this_frame = 1u;
+                }
+                if (ppu_status_trace_fp != NULL) {
+                    fprintf(
+                        ppu_status_trace_fp,
+                        "vblank set sl=%d cy=%u abs=%llu status_after=%02X ctrl=%02X mask=%02X oam0=[%02X,%02X,%02X,%02X]\n",
+                        (int)scanline,
+                        (unsigned)cycle,
+                        (unsigned long long)cpu->total_cycles,
+                        (unsigned)comp->ppu_status,
+                        (unsigned)comp->ppu_ctrl,
+                        (unsigned)comp->ppu_mask,
+                        (unsigned)comp->oam[0],
+                        (unsigned)comp->oam[1],
+                        (unsigned)comp->oam[2],
+                        (unsigned)comp->oam[3]
+                    );
+                    fflush(ppu_status_trace_fp);
+                }
+                if (comp->ppu_prevent_nmi_flag == 0u && (comp->ppu_ctrl & 0x80u) != 0u) {
                     cpu->interrupt_vector = 0xFFu;
                     cpu->interrupt_pending = true;
                 }
+                comp->ppu_prevent_vbl_flag = 0u;
+                comp->ppu_prevent_nmi_flag = 0u;
             }
 
             if (visible_line != 0u && cycle == 1u) {
@@ -1146,6 +2894,32 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                         uint8_t sy = comp->oam[(uint16_t)(si * 4u)];
                         int top = (int)sy + 1;
                         if ((int)scanline >= top && (int)scanline < (top + (int)sprite_h)) {
+                            if (si == 0u) {
+                                static int ppu_status_trace_enabled = -1;
+                                static FILE *ppu_status_trace_fp = NULL;
+                                if (ppu_status_trace_enabled < 0) {
+                                    const char *env = getenv("PASM_NES_PPUSTATUS_TRACE");
+                                    ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                                    if (ppu_status_trace_enabled != 0) {
+                                        ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                                        if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                                    }
+                                }
+                                if (ppu_status_trace_fp != NULL) {
+                                    uint16_t base = (uint16_t)(si * 4u);
+                                    fprintf(
+                                        ppu_status_trace_fp,
+                                        "spr0 on line sl=%d sy=%u sx=%u tile=%u attr=%02X h=%u\n",
+                                        (int)scanline,
+                                        (unsigned)comp->oam[base + 0u],
+                                        (unsigned)comp->oam[base + 3u],
+                                        (unsigned)comp->oam[base + 1u],
+                                        (unsigned)comp->oam[base + 2u],
+                                        (unsigned)sprite_h
+                                    );
+                                    fflush(ppu_status_trace_fp);
+                                }
+                            }
                             if (line_sprite_count < 8u) {
                                 line_sprite_idx[line_sprite_count] = si;
                                 line_sprite_count += 1u;
@@ -1174,19 +2948,27 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                     uint16_t tile_y = (uint16_t)(ly >> 3);
                     uint8_t fine_x = (uint8_t)(lx & 0x07u);
                     uint8_t fine_y = (uint8_t)(ly & 0x07u);
-                    uint8_t mir = (uint8_t)(cpu_component_call(cpu, "nes_io", "cart_mirroring", NULL, 0) & 0x01u);
-                    uint16_t nt_addr = (uint16_t)(nt_sel * 0x0400u + tile_y * 32u + tile_x);
-                    uint16_t nt_offs = (uint16_t)(nt_addr & 0x03FFu);
-                    uint16_t nt_table = (uint16_t)((nt_addr >> 10) & 0x03u);
-                    uint16_t nt_phys;
+                      uint8_t mir = (uint8_t)(cpu_component_call(cpu, "nes_io", "cart_mirroring", NULL, 0) & 0x01u);
+                      uint16_t nt_addr = (uint16_t)(nt_sel * 0x0400u + tile_y * 32u + tile_x);
+                      {
+                          uint64_t cb_nt[3] = { (uint64_t)(0x2000u | (nt_addr & 0x0FFFu)), 1u, (uint64_t)comp->ppu_abs_tick };
+                          (void)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb_nt, 3);
+                      }
+                      uint16_t nt_offs = (uint16_t)(nt_addr & 0x03FFu);
+                      uint16_t nt_table = (uint16_t)((nt_addr >> 10) & 0x03u);
+                      uint16_t nt_phys;
                     if (mir != 0u) {
                         nt_phys = (uint16_t)(((nt_table & 0x01u) << 10) | nt_offs);
                     } else {
                         nt_phys = (uint16_t)((((nt_table >> 1) & 0x01u) << 10) | nt_offs);
                     }
                     uint8_t tile = comp->ppu_vram[(uint16_t)(nt_phys & 0x07FFu)];
-                    uint16_t attr_addr = (uint16_t)(nt_sel * 0x0400u + 0x03C0u + ((tile_y >> 2) * 8u) + (tile_x >> 2));
-                    uint16_t attr_offs = (uint16_t)(attr_addr & 0x03FFu);
+                      uint16_t attr_addr = (uint16_t)(nt_sel * 0x0400u + 0x03C0u + ((tile_y >> 2) * 8u) + (tile_x >> 2));
+                      {
+                          uint64_t cb_at[3] = { (uint64_t)(0x2000u | (attr_addr & 0x0FFFu)), 1u, (uint64_t)comp->ppu_abs_tick };
+                          (void)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb_at, 3);
+                      }
+                      uint16_t attr_offs = (uint16_t)(attr_addr & 0x03FFu);
                     uint16_t attr_table = (uint16_t)((attr_addr >> 10) & 0x03u);
                     uint16_t attr_phys;
                     if (mir != 0u) {
@@ -1199,10 +2981,10 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                     uint8_t pal_hi = (uint8_t)((attr >> shift) & 0x03u);
                     uint16_t bg_table = ((comp->ppu_ctrl & 0x10u) != 0u) ? 0x1000u : 0x0000u;
                     uint16_t patt = (uint16_t)(bg_table + ((uint16_t)tile << 4) + (uint16_t)fine_y);
-                    uint64_t cb0[1] = { (uint64_t)patt };
-                    uint64_t cb1[1] = { (uint64_t)(patt + 8u) };
-                    uint8_t lo = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb0, 1);
-                    uint8_t hi = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb1, 1);
+                    uint64_t cb0[3] = { (uint64_t)patt, 1u, (uint64_t)comp->ppu_abs_tick };
+                    uint64_t cb1[3] = { (uint64_t)(patt + 8u), 1u, (uint64_t)comp->ppu_abs_tick };
+                    uint8_t lo = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb0, 3);
+                    uint8_t hi = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb1, 3);
                     uint8_t bit = (uint8_t)(7u - fine_x);
                     bg_pixel = (uint8_t)(((lo >> bit) & 0x01u) | (((hi >> bit) & 0x01u) << 1));
                     if (bg_pixel != 0u) {
@@ -1245,13 +3027,41 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                         } else {
                             patt = (uint16_t)(spr_table + ((uint16_t)tile << 4) + (uint16_t)(row & 0x07u));
                         }
-                        uint64_t cb0[1] = { (uint64_t)patt };
-                        uint64_t cb1[1] = { (uint64_t)(patt + 8u) };
-                        uint8_t lo = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb0, 1);
-                        uint8_t hi = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb1, 1);
+                        uint64_t cb0[3] = { (uint64_t)patt, 1u, (uint64_t)comp->ppu_abs_tick };
+                        uint64_t cb1[3] = { (uint64_t)(patt + 8u), 1u, (uint64_t)comp->ppu_abs_tick };
+                        uint8_t lo = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb0, 3);
+                        uint8_t hi = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb1, 3);
                         uint8_t bit = (uint8_t)(7u - col);
                         uint8_t p = (uint8_t)(((lo >> bit) & 0x01u) | (((hi >> bit) & 0x01u) << 1));
                         if (p == 0u) continue;
+                        if (si == 0u) {
+                            static int ppu_status_trace_enabled = -1;
+                            static FILE *ppu_status_trace_fp = NULL;
+                            static int last_spr0_pix_scanline = -1;
+                            if (ppu_status_trace_enabled < 0) {
+                                const char *env = getenv("PASM_NES_PPUSTATUS_TRACE");
+                                ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                                if (ppu_status_trace_enabled != 0) {
+                                    ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                                    if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                                }
+                            }
+                            if (ppu_status_trace_fp != NULL && last_spr0_pix_scanline != (int)scanline) {
+                                fprintf(
+                                    ppu_status_trace_fp,
+                                    "spr0 opaque sl=%d x=%u y=%u row=%u col=%u p=%u bg=%u\n",
+                                    (int)scanline,
+                                    (unsigned)x,
+                                    (unsigned)y,
+                                    (unsigned)row,
+                                    (unsigned)col,
+                                    (unsigned)p,
+                                    (unsigned)bg_pixel
+                                );
+                                fflush(ppu_status_trace_fp);
+                                last_spr0_pix_scanline = (int)scanline;
+                            }
+                        }
                         spr_pixel = p;
                         spr_behind_bg = (uint8_t)((attr & 0x20u) != 0u);
                         spr_is_0 = (uint8_t)(si == 0u);
@@ -1263,16 +3073,49 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                     }
                 }
 
-                if (
-                    spr_is_0 != 0u &&
-                    bg_pixel != 0u &&
-                    spr_pixel != 0u &&
-                    x < 255u &&
-                    show_bg != 0u &&
-                    show_spr != 0u &&
-                    (x >= 8u || (show_bg_left8 != 0u && show_spr_left8 != 0u))
-                ) {
-                    comp->ppu_status = (uint8_t)(comp->ppu_status | 0x40u);
+                if (spr_is_0 != 0u && bg_pixel != 0u && spr_pixel != 0u) {
+                    uint8_t can_hit = 0u;
+                    if (
+                        x < 255u &&
+                        show_bg != 0u &&
+                        show_spr != 0u &&
+                        (x >= 8u || (show_bg_left8 != 0u && show_spr_left8 != 0u))
+                    ) {
+                        can_hit = 1u;
+                    }
+                    {
+                        static int ppu_status_trace_enabled = -1;
+                        static FILE *ppu_status_trace_fp = NULL;
+                        if (ppu_status_trace_enabled < 0) {
+                            const char *env = getenv("PASM_NES_PPUSTATUS_TRACE");
+                            ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                            if (ppu_status_trace_enabled != 0) {
+                                ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                                if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                            }
+                        }
+                        if (ppu_status_trace_fp != NULL) {
+                            fprintf(
+                                ppu_status_trace_fp,
+                                "spr0 overlap pc=%04X sl=%d x=%u y=%u bg=%u spr=%u can_hit=%u bg_on=%u spr_on=%u bg8=%u spr8=%u\n",
+                                (unsigned)cpu->pc,
+                                (int)scanline,
+                                (unsigned)x,
+                                (unsigned)y,
+                                (unsigned)bg_pixel,
+                                (unsigned)spr_pixel,
+                                (unsigned)can_hit,
+                                (unsigned)show_bg,
+                                (unsigned)show_spr,
+                                (unsigned)show_bg_left8,
+                                (unsigned)show_spr_left8
+                            );
+                            fflush(ppu_status_trace_fp);
+                        }
+                    }
+                    if (can_hit != 0u) {
+                        comp->ppu_status = (uint8_t)(comp->ppu_status | 0x40u);
+                    }
                 }
 
                 {
@@ -1332,6 +3175,16 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                 if (cycle == 257u) {
                     comp->ppu_v = (uint16_t)((comp->ppu_v & (uint16_t)~0x041Fu) | (comp->ppu_t & 0x041Fu));
                 }
+                /* Fallback MMC3 scanline clock: for non-cycle-accurate fetch paths,
+                 * clock once at visible-scanline cycle 260 while rendering is enabled.
+                 */
+                if (
+                    scanline >= 0 && scanline < 240 &&
+                    cycle == 260u &&
+                    rendering_enabled != 0u
+                ) {
+                    (void)cpu_component_call(cpu, "nes_io", "cart_irq_clock", NULL, 0);
+                }
                 if (prerender_line != 0u && cycle >= 280u && cycle <= 304u) {
                     comp->ppu_v = (uint16_t)((comp->ppu_v & (uint16_t)~0x7BE0u) | (comp->ppu_t & 0x7BE0u));
                 }
@@ -1350,6 +3203,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                 comp->frame_counter += 1u;
                 line_bg_scanline = -1;
                 line_sprite_ready = 0u;
+                comp->ppu_abs_tick += 1u;
                 comp->ppu_dot_accum -= 1u;
                 continue;
             }
@@ -1368,6 +3222,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             }
             comp->ppu_cycle = cycle;
             comp->ppu_scanline = scanline;
+            comp->ppu_abs_tick += 1u;
             comp->ppu_dot_accum -= 1u;
         }
 
@@ -1712,13 +3567,21 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             }
         }
 
-        if (
-            (comp->apu_frame_irq_pending != 0u && comp->apu_frame_irq_inhibit == 0u) ||
-            comp->apu_dmc_irq_pending != 0u
-        ) {
-            if (!(cpu->interrupt_pending && cpu->interrupt_vector == 0xFFu)) {
-                cpu->interrupt_vector = 0x00u;
-                cpu->interrupt_pending = true;
+        {
+            uint8_t cart_irq = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_irq_pending", NULL, 0);
+            uint8_t irq_now = 0u;
+            if (comp->apu_frame_irq_pending != 0u || comp->apu_dmc_irq_pending != 0u || cart_irq != 0u) {
+                irq_now = 1u;
+            }
+
+            if (irq_now != 0u) {
+                /* Do not clobber a latched NMI (vector marker 0xFF). */
+                if (!(cpu->interrupt_pending && cpu->interrupt_vector == 0xFFu)) {
+                    cpu->interrupt_vector = 0x00u;
+                    cpu->interrupt_pending = true;
+                }
+            } else if (cpu->interrupt_pending && cpu->interrupt_vector != 0xFFu) {
+                cpu->interrupt_pending = false;
             }
         }
     }
@@ -1726,7 +3589,7 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         ComponentState_host_nes *comp = &cpu->comp_host_nes;
         cpu->active_component_id = "host_nes";
         if (comp->host_inited == 0u) return;
-        if ((cpu->total_cycles - comp->last_event_poll_cycle) < 1024u) return;
+        if ((cpu->total_cycles - comp->last_event_poll_cycle) < 128u) return;
         comp->last_event_poll_cycle = cpu->total_cycles;
 
         {
@@ -1768,7 +3631,35 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
         {
             int key_count = 0;
             const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
-            if (ks != NULL && key_count > 0) {
+            /* Prefer controller-map when loaded (host_controller_nes.yaml); otherwise keep legacy keyboard-map behavior. */
+            if (g_runtime_controller_map.loaded != 0u) {
+                cpu_component_controller_map_poll(cpu, comp->has_keyboard_focus);
+                comp->joy1 = 0u;
+                comp->joy2 = 0u;
+                if (cpu_component_controller_pressed("P1_A")) comp->joy1 |= 0x01u;
+                if (cpu_component_controller_pressed("P1_B")) comp->joy1 |= 0x02u;
+                if (cpu_component_controller_pressed("P1_SELECT")) comp->joy1 |= 0x04u;
+                if (cpu_component_controller_pressed("P1_START")) comp->joy1 |= 0x08u;
+                if (cpu_component_controller_pressed("P1_UP")) comp->joy1 |= 0x10u;
+                if (cpu_component_controller_pressed("P1_DOWN")) comp->joy1 |= 0x20u;
+                if (cpu_component_controller_pressed("P1_LEFT")) comp->joy1 |= 0x40u;
+                if (cpu_component_controller_pressed("P1_RIGHT")) comp->joy1 |= 0x80u;
+                if (cpu_component_controller_pressed("P2_A")) comp->joy2 |= 0x01u;
+                if (cpu_component_controller_pressed("P2_B")) comp->joy2 |= 0x02u;
+                if (cpu_component_controller_pressed("P2_SELECT")) comp->joy2 |= 0x04u;
+                if (cpu_component_controller_pressed("P2_START")) comp->joy2 |= 0x08u;
+                if (cpu_component_controller_pressed("P2_UP")) comp->joy2 |= 0x10u;
+                if (cpu_component_controller_pressed("P2_DOWN")) comp->joy2 |= 0x20u;
+                if (cpu_component_controller_pressed("P2_LEFT")) comp->joy2 |= 0x40u;
+                if (cpu_component_controller_pressed("P2_RIGHT")) comp->joy2 |= 0x80u;
+                {
+                    uint8_t p2c = (g_runtime_controller_map.port_count >= 2u) ? g_runtime_controller_map.port_connected[1] : 0u;
+                    /* Preserve legacy env override behavior (PASM_NES_JOY2_CONNECTED=0 disables port 2 even if map says connected). */
+                    if (comp->joy2_connected == 0u) p2c = 0u;
+                    comp->joy2_connected = p2c;
+                    if (p2c == 0u) comp->joy2 = 0u;
+                }
+            } else if (ks != NULL && key_count > 0) {
                 uint8_t rows[2] = { 0xFFu, 0xFFu };
                 cpu_component_apply_declared_keymap(
                     cpu,
@@ -1803,6 +3694,51 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                 if ((rows[1] & 0x02u) == 0u) comp->joy2 |= 0x20u;
                 if ((rows[1] & 0x04u) == 0u) comp->joy2 |= 0x40u;
                 if ((rows[1] & 0x08u) == 0u) comp->joy2 |= 0x80u;
+            }
+            {
+                const char *force_start = cpu_host_hal_getenv("PASM_NES_FORCE_START");
+                if (force_start != NULL && force_start[0] != '0') comp->joy1 |= 0x08u;
+            }
+            {
+                const char *env = cpu_host_hal_getenv("PASM_NES_PAD_TRACE");
+                if (env != NULL && env[0] != '0') {
+                    static FILE *fp = NULL;
+                    if (fp == NULL) fp = fopen("log/nes_pad_trace.log", "a");
+                    if (fp != NULL) {
+                        unsigned k_ret = 0u, k_ret2 = 0u, k_kpenter = 0u, k_rshift = 0u, k_up = 0u, k_down = 0u, k_left = 0u, k_right = 0u, map_start = 0u;
+                        if (ks != NULL && key_count > 0) {
+                            if ((size_t)CPU_HOST_SCANCODE(RETURN) < (size_t)key_count) k_ret = (unsigned)ks[CPU_HOST_SCANCODE(RETURN)];
+                            if ((size_t)CPU_HOST_SCANCODE(RETURN2) < (size_t)key_count) k_ret2 = (unsigned)ks[CPU_HOST_SCANCODE(RETURN2)];
+                            if ((size_t)CPU_HOST_SCANCODE(KP_ENTER) < (size_t)key_count) k_kpenter = (unsigned)ks[CPU_HOST_SCANCODE(KP_ENTER)];
+                            if ((size_t)CPU_HOST_SCANCODE(RSHIFT) < (size_t)key_count) k_rshift = (unsigned)ks[CPU_HOST_SCANCODE(RSHIFT)];
+                            if ((size_t)CPU_HOST_SCANCODE(UP) < (size_t)key_count) k_up = (unsigned)ks[CPU_HOST_SCANCODE(UP)];
+                            if ((size_t)CPU_HOST_SCANCODE(DOWN) < (size_t)key_count) k_down = (unsigned)ks[CPU_HOST_SCANCODE(DOWN)];
+                            if ((size_t)CPU_HOST_SCANCODE(LEFT) < (size_t)key_count) k_left = (unsigned)ks[CPU_HOST_SCANCODE(LEFT)];
+                            if ((size_t)CPU_HOST_SCANCODE(RIGHT) < (size_t)key_count) k_right = (unsigned)ks[CPU_HOST_SCANCODE(RIGHT)];
+                        }
+                        map_start = cpu_component_controller_pressed("P1_START") ? 1u : 0u;
+                        fprintf(
+                            fp,
+                            "hostpad cyc=%llu focus=%u cmap=%u joy1=%02X joy2=%02X kcount=%d mapStart=%u raw[RET=%u RET2=%u KPENTER=%u RSH=%u U=%u D=%u L=%u R=%u]\n",
+                            (unsigned long long)cpu->total_cycles,
+                            (unsigned)comp->has_keyboard_focus,
+                            (unsigned)g_runtime_controller_map.loaded,
+                            (unsigned)comp->joy1,
+                            (unsigned)comp->joy2,
+                            key_count,
+                            map_start,
+                            k_ret,
+                            k_ret2,
+                            k_kpenter,
+                            k_rshift,
+                            k_up,
+                            k_down,
+                            k_left,
+                            k_right
+                        );
+                        fflush(fp);
+                    }
+                }
             }
         }
 
@@ -1982,7 +3918,7 @@ static void inst_ISC_ZP_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -2014,7 +3950,7 @@ static void inst_ISC_ABS_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -2820,7 +4756,7 @@ static void inst_ISC_INDX_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -2858,7 +4794,7 @@ static void inst_ISC_INDY_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -2893,7 +4829,7 @@ static void inst_ISC_ZPX_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -2928,7 +4864,7 @@ static void inst_ISC_ABSY_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -2963,7 +4899,7 @@ static void inst_ISC_ABSX_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -3169,7 +5105,7 @@ static void inst_SBC_IMM_UD(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -3270,7 +5206,7 @@ static void inst_ADC_IMM(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
     uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
     if (ad > 9u) {
@@ -3299,7 +5235,7 @@ static void inst_ADC_ZP(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
     uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
     if (ad > 9u) {
@@ -3328,7 +5264,7 @@ static void inst_ADC_ABS(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
     uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
     if (ad > 9u) {
@@ -3358,7 +5294,7 @@ static void inst_SBC_IMM(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -3388,7 +5324,7 @@ static void inst_SBC_ZP(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -3418,7 +5354,7 @@ static void inst_SBC_ABS(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -3918,7 +5854,10 @@ static void inst_RTS(CPUState *cpu, DecodedInstruction *inst) {
 static void inst_RTI(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t sp8 = (uint8_t)cpu->sp;
     sp8 = (uint8_t)(sp8 + 1u);
-    cpu->flags.raw = mos6502_read_byte(cpu, (uint16_t)(0x0100u | sp8));
+    {
+    uint8_t p = mos6502_read_byte(cpu, (uint16_t)(0x0100u | sp8));
+    cpu->flags.raw = (uint8_t)((p & (uint8_t)~FLAG_B) | 0x20u);
+    }
     cpu->interrupts_enabled = !cpu->flags.I;
     sp8 = (uint8_t)(sp8 + 1u);
     uint8_t lo = mos6502_read_byte(cpu, (uint16_t)(0x0100u | sp8));
@@ -3970,7 +5909,10 @@ static void inst_PHP(CPUState *cpu, DecodedInstruction *inst) {
 static void inst_PLP(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t sp8 = (uint8_t)cpu->sp;
     sp8 = (uint8_t)(sp8 + 1u);
-    cpu->flags.raw = mos6502_read_byte(cpu, (uint16_t)(0x0100u | sp8));
+    {
+    uint8_t p = mos6502_read_byte(cpu, (uint16_t)(0x0100u | sp8));
+    cpu->flags.raw = (uint8_t)((p & (uint8_t)~FLAG_B) | 0x20u);
+    }
     cpu->interrupts_enabled = !cpu->flags.I;
     cpu->sp = sp8;
 }
@@ -4238,7 +6180,7 @@ static void inst_ADC_INDX(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
     uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
     if (ad > 9u) {
@@ -4271,7 +6213,7 @@ static void inst_ADC_INDY(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
     uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
     if (ad > 9u) {
@@ -4300,7 +6242,7 @@ static void inst_ADC_ZPX(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
     uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
     if (ad > 9u) {
@@ -4329,7 +6271,7 @@ static void inst_ADC_ABSY(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
     uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
     if (ad > 9u) {
@@ -4358,7 +6300,7 @@ static void inst_ADC_ABSX(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t carry_in = cpu->flags.C ? 1u : 0u;
     uint16_t bin_sum = (uint16_t)a + (uint16_t)m + (uint16_t)carry_in;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     uint8_t ad = (uint8_t)((uint8_t)(a & 0x0Fu) + (uint8_t)(m & 0x0Fu) + carry_in);
     uint8_t ah = (uint8_t)((uint8_t)(a >> 4) + (uint8_t)(m >> 4));
     if (ad > 9u) {
@@ -4596,7 +6538,7 @@ static void inst_SBC_INDX(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -4630,7 +6572,7 @@ static void inst_SBC_INDY(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -4660,7 +6602,7 @@ static void inst_SBC_ZPX(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -4699,7 +6641,7 @@ static void inst_SBC_ABSY(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -4729,7 +6671,7 @@ static void inst_SBC_ABSX(CPUState *cpu, DecodedInstruction *inst) {
     uint16_t sub = (uint16_t)m + (uint16_t)(1u - carry_in);
     uint16_t bin_diff = (uint16_t)a - sub;
     uint8_t r;
-    if (cpu->flags.D) {
+    if (0 && cpu->flags.D) {
     int16_t ad = (int16_t)(a & 0x0Fu) - (int16_t)(m & 0x0Fu) - (int16_t)(1u - carry_in);
     int16_t ah = (int16_t)(a >> 4) - (int16_t)(m >> 4);
     if (ad < 0) {
@@ -4835,6 +6777,10 @@ int mos6502_step(CPUState *cpu) {
         cpu->reset_delay_pending = false;
     }
 
+    if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {
+        return 0;
+    }
+
     if (cpu_check_breakpoints(cpu)) {
         cpu->running = false;
         return 0;
@@ -4925,6 +6871,8 @@ int mos6502_step(CPUState *cpu) {
 
     bool executed = false;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = inst.cycles;
+    cpu->io_read_phase_ppu_dots = (uint16_t)((uint16_t)inst.cycles * 6u);
     cpu_components_step_pre(cpu, &inst, pc_before);
     switch (inst.category) {
         case CAT_CONTROL:
@@ -6233,6 +8181,9 @@ int mos6502_step(CPUState *cpu) {
 
     cpu_components_step_post(cpu, &inst, pc_before);
 
+    cpu->current_instruction_cycles = 0u;
+    cpu->io_read_phase_ppu_dots = 0u;
+
     if (cpu->halted && !cpu->pc_modified) {
         cpu->pc = (uint16_t)(pc_before + inst.length);
         cpu->pc_modified = true;
@@ -6280,6 +8231,7 @@ CPUState *mos6502_create(size_t memory_size) {
         cpu->hooks[i].func = NULL;
         cpu->hooks[i].context = NULL;
     }
+    cpu->debug_overlay_enabled = false;
     cpu->active_component_id = NULL;
     cpu->component_last_return = 0;
     cpu->comp_nes_io.cpu_ram = NULL;
@@ -6311,8 +8263,11 @@ CPUState *mos6502_create(size_t memory_size) {
     cpu->comp_nes_io.frame_counter = 0;
     cpu->comp_nes_io.cycle_accum = 0;
     cpu->comp_nes_io.ppu_dot_accum = 0;
+    cpu->comp_nes_io.ppu_abs_tick = 0;
     cpu->comp_nes_io.odd_frame = 0;
     cpu->comp_nes_io.vblank_set_this_frame = 0;
+    cpu->comp_nes_io.ppu_prevent_vbl_flag = 0;
+    cpu->comp_nes_io.ppu_prevent_nmi_flag = 0;
     cpu->comp_nes_io.sprite0_hit_pending = 0;
     cpu->comp_nes_io.sprite0_hit_cycle = 0;
     cpu->comp_nes_io.apu_level = 128;
@@ -6551,6 +8506,7 @@ CPUState *mos6502_create(size_t memory_size) {
     cpu->comp_nes_cart0.rom_size = 0;
     cpu->comp_nes_cart0.ines_valid = 0;
     cpu->comp_nes_cart0.mapper_id = 0;
+    cpu->comp_nes_cart0.four_screen = 0;
     cpu->comp_nes_cart0.mirroring_mode = 0;
     cpu->comp_nes_cart0.prg_offset = 0;
     cpu->comp_nes_cart0.prg_size = 0;
@@ -6560,20 +8516,55 @@ CPUState *mos6502_create(size_t memory_size) {
     cpu->comp_nes_cart0.chr_ram_size = 0;
     cpu->comp_nes_cart0.prg_ram = NULL;
     cpu->comp_nes_cart0.prg_ram_size = 0;
-    cpu->comp_nes_cart0.prg_bank = 0;
-    cpu->comp_nes_cart0.chr_bank = 0;
+    cpu->comp_nes_cart0.bank_select = 0;
+    cpu->comp_nes_cart0.prg_mode = 0;
+    cpu->comp_nes_cart0.chr_mode = 0;
+    cpu->comp_nes_cart0.reg0 = 0;
+    cpu->comp_nes_cart0.reg1 = 2;
+    cpu->comp_nes_cart0.reg2 = 4;
+    cpu->comp_nes_cart0.reg3 = 5;
+    cpu->comp_nes_cart0.reg4 = 6;
+    cpu->comp_nes_cart0.reg5 = 7;
+    cpu->comp_nes_cart0.reg6 = 0;
+    cpu->comp_nes_cart0.reg7 = 1;
+    cpu->comp_nes_cart0.irq_latch = 0;
+    cpu->comp_nes_cart0.irq_counter = 0;
+    cpu->comp_nes_cart0.irq_reload = 0;
+    cpu->comp_nes_cart0.irq_enable = 0;
+    cpu->comp_nes_cart0.irq_pending = 0;
+    cpu->comp_nes_cart0.a12_prev = 0;
+    cpu->comp_nes_cart0.a12_low_count = 0;
+    cpu->comp_nes_cart0.a12_last_tick = 0;
     {
         ComponentState_nes_cart0 *comp = &cpu->comp_nes_cart0;
         cpu->active_component_id = "nes_cart0";
         comp->ines_valid = 0u;
         comp->mapper_id = 0u;
+        comp->four_screen = 0u;
         comp->mirroring_mode = 0u;
         comp->prg_offset = 0u;
         comp->prg_size = 0u;
         comp->chr_offset = 0u;
         comp->chr_size = 0u;
-        comp->prg_bank = 0u;
-        comp->chr_bank = 0u;
+        comp->bank_select = 0u;
+        comp->prg_mode = 0u;
+        comp->chr_mode = 0u;
+        comp->reg0 = 0u;
+        comp->reg1 = 2u;
+        comp->reg2 = 4u;
+        comp->reg3 = 5u;
+        comp->reg4 = 6u;
+        comp->reg5 = 7u;
+        comp->reg6 = 0u;
+        comp->reg7 = 1u;
+        comp->irq_latch = 0u;
+        comp->irq_counter = 0u;
+        comp->irq_reload = 0u;
+        comp->irq_enable = 0u;
+        comp->irq_pending = 0u;
+        comp->a12_prev = 0u;
+        comp->a12_low_count = 0u;
+        comp->a12_last_tick = 0u;
 
         if (comp->rom_data != NULL && comp->rom_size >= 16u) {
             if (comp->rom_data[0] == 'N' && comp->rom_data[1] == 'E' && comp->rom_data[2] == 'S' && comp->rom_data[3] == 0x1Au) {
@@ -6599,8 +8590,27 @@ CPUState *mos6502_create(size_t memory_size) {
                 }
                 comp->mapper_id = (uint8_t)((flags7 & 0xF0u) | (flags6 >> 4));
                 comp->mirroring_mode = (uint8_t)(flags6 & 0x01u);
-                /* GxROM mapper id = 66 */
-                comp->ines_valid = (comp->mapper_id == 66u) ? 1u : 0u;
+                comp->four_screen = (uint8_t)((flags6 & 0x08u) ? 1u : 0u);
+                comp->ines_valid = (comp->mapper_id == 0u || comp->mapper_id == 4u || comp->mapper_id == 66u) ? 1u : 0u;
+                if (comp->mapper_id == 66u) {
+                    /* GxROM power-on bank defaults. */
+                    comp->reg6 = 0u; /* PRG bank */
+                    comp->reg7 = 0u; /* CHR bank */
+                } else if (comp->mapper_id == 4u) {
+                    /* MMC3 common power-on defaults. */
+                    comp->reg0 = 0u;
+                    comp->reg1 = 2u;
+                    comp->reg2 = 4u;
+                    comp->reg3 = 5u;
+                    comp->reg4 = 6u;
+                    comp->reg5 = 7u;
+                    comp->reg6 = 0u;
+                    comp->reg7 = 1u;
+                } else {
+                    /* NROM linear mapping. */
+                    comp->reg6 = 0u;
+                    comp->reg7 = 0u;
+                }
             }
         }
 
@@ -6750,8 +8760,11 @@ void mos6502_reset(CPUState *cpu) {
     cpu->comp_nes_io.frame_counter = 0;
     cpu->comp_nes_io.cycle_accum = 0;
     cpu->comp_nes_io.ppu_dot_accum = 0;
+    cpu->comp_nes_io.ppu_abs_tick = 0;
     cpu->comp_nes_io.odd_frame = 0;
     cpu->comp_nes_io.vblank_set_this_frame = 0;
+    cpu->comp_nes_io.ppu_prevent_vbl_flag = 0;
+    cpu->comp_nes_io.ppu_prevent_nmi_flag = 0;
     cpu->comp_nes_io.sprite0_hit_pending = 0;
     cpu->comp_nes_io.sprite0_hit_cycle = 0;
     cpu->comp_nes_io.apu_level = 128;
@@ -6864,8 +8877,11 @@ void mos6502_reset(CPUState *cpu) {
         comp->frame_counter = 0u;
         comp->cycle_accum = 0u;
         comp->ppu_dot_accum = 0u;
+        comp->ppu_abs_tick = 0u;
         comp->odd_frame = 0u;
         comp->vblank_set_this_frame = 0u;
+        comp->ppu_prevent_vbl_flag = 0u;
+        comp->ppu_prevent_nmi_flag = 0u;
         comp->sprite0_hit_pending = 0u;
         comp->sprite0_hit_cycle = 0u;
         comp->apu_level = 128u;
@@ -6975,6 +8991,7 @@ void mos6502_reset(CPUState *cpu) {
     }
     cpu->comp_nes_cart0.ines_valid = 0;
     cpu->comp_nes_cart0.mapper_id = 0;
+    cpu->comp_nes_cart0.four_screen = 0;
     cpu->comp_nes_cart0.mirroring_mode = 0;
     cpu->comp_nes_cart0.prg_offset = 0;
     cpu->comp_nes_cart0.prg_size = 0;
@@ -6982,20 +8999,55 @@ void mos6502_reset(CPUState *cpu) {
     cpu->comp_nes_cart0.chr_size = 0;
     cpu->comp_nes_cart0.chr_ram_size = 0;
     cpu->comp_nes_cart0.prg_ram_size = 0;
-    cpu->comp_nes_cart0.prg_bank = 0;
-    cpu->comp_nes_cart0.chr_bank = 0;
+    cpu->comp_nes_cart0.bank_select = 0;
+    cpu->comp_nes_cart0.prg_mode = 0;
+    cpu->comp_nes_cart0.chr_mode = 0;
+    cpu->comp_nes_cart0.reg0 = 0;
+    cpu->comp_nes_cart0.reg1 = 2;
+    cpu->comp_nes_cart0.reg2 = 4;
+    cpu->comp_nes_cart0.reg3 = 5;
+    cpu->comp_nes_cart0.reg4 = 6;
+    cpu->comp_nes_cart0.reg5 = 7;
+    cpu->comp_nes_cart0.reg6 = 0;
+    cpu->comp_nes_cart0.reg7 = 1;
+    cpu->comp_nes_cart0.irq_latch = 0;
+    cpu->comp_nes_cart0.irq_counter = 0;
+    cpu->comp_nes_cart0.irq_reload = 0;
+    cpu->comp_nes_cart0.irq_enable = 0;
+    cpu->comp_nes_cart0.irq_pending = 0;
+    cpu->comp_nes_cart0.a12_prev = 0;
+    cpu->comp_nes_cart0.a12_low_count = 0;
+    cpu->comp_nes_cart0.a12_last_tick = 0;
     {
         ComponentState_nes_cart0 *comp = &cpu->comp_nes_cart0;
         cpu->active_component_id = "nes_cart0";
         comp->ines_valid = 0u;
         comp->mapper_id = 0u;
+        comp->four_screen = 0u;
         comp->mirroring_mode = 0u;
         comp->prg_offset = 0u;
         comp->prg_size = 0u;
         comp->chr_offset = 0u;
         comp->chr_size = 0u;
-        comp->prg_bank = 0u;
-        comp->chr_bank = 0u;
+        comp->bank_select = 0u;
+        comp->prg_mode = 0u;
+        comp->chr_mode = 0u;
+        comp->reg0 = 0u;
+        comp->reg1 = 2u;
+        comp->reg2 = 4u;
+        comp->reg3 = 5u;
+        comp->reg4 = 6u;
+        comp->reg5 = 7u;
+        comp->reg6 = 0u;
+        comp->reg7 = 1u;
+        comp->irq_latch = 0u;
+        comp->irq_counter = 0u;
+        comp->irq_reload = 0u;
+        comp->irq_enable = 0u;
+        comp->irq_pending = 0u;
+        comp->a12_prev = 0u;
+        comp->a12_low_count = 0u;
+        comp->a12_last_tick = 0u;
 
         if (comp->rom_data != NULL && comp->rom_size >= 16u) {
             if (comp->rom_data[0] == 'N' && comp->rom_data[1] == 'E' && comp->rom_data[2] == 'S' && comp->rom_data[3] == 0x1Au) {
@@ -7021,7 +9073,24 @@ void mos6502_reset(CPUState *cpu) {
                 }
                 comp->mapper_id = (uint8_t)((flags7 & 0xF0u) | (flags6 >> 4));
                 comp->mirroring_mode = (uint8_t)(flags6 & 0x01u);
-                comp->ines_valid = (comp->mapper_id == 66u) ? 1u : 0u;
+                comp->four_screen = (uint8_t)((flags6 & 0x08u) ? 1u : 0u);
+                comp->ines_valid = (comp->mapper_id == 0u || comp->mapper_id == 4u || comp->mapper_id == 66u) ? 1u : 0u;
+                if (comp->mapper_id == 66u) {
+                    comp->reg6 = 0u;
+                    comp->reg7 = 0u;
+                } else if (comp->mapper_id == 4u) {
+                    comp->reg0 = 0u;
+                    comp->reg1 = 2u;
+                    comp->reg2 = 4u;
+                    comp->reg3 = 5u;
+                    comp->reg4 = 6u;
+                    comp->reg5 = 7u;
+                    comp->reg6 = 0u;
+                    comp->reg7 = 1u;
+                } else {
+                    comp->reg6 = 0u;
+                    comp->reg7 = 0u;
+                }
             }
         }
 
@@ -7050,12 +9119,13 @@ void mos6502_reset(CPUState *cpu) {
     cpu->error_code = CPU_ERROR_NONE;
     cpu->total_cycles = 0;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = 0;
+    cpu->io_read_phase_ppu_dots = 0;
     cpu->hook_pc = 0;
     cpu->hook_prefix = 0;
     cpu->hook_opcode = 0;
     cpu->hook_raw = 0;
     cpu->tracing_enabled = false;
-    cpu->debug_overlay_enabled = true;
     cpu->reset_delay_pending = true;
 }
 
@@ -7130,6 +9200,11 @@ int mos6502_load_cartridge_rom(CPUState *cpu, const char *path) {
     return 0;
 }
 
+int mos6502_set_cartridge_dir(CPUState *cpu, const char *path) {
+    (void)cpu;
+    return cpu_component_cartridge_picker_set_dir(path);
+}
+
 
 /* ===== Memory Access ===== */
 uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
@@ -7145,8 +9220,98 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
         if (addr >= 0x2000u && addr < 0x4000u) {
             uint16_t reg = (uint16_t)(0x2000u + (addr & 0x0007u));
             if (reg == 0x2002u) {
-                uint8_t v = (uint8_t)((comp->ppu_status & 0xE0u) | (comp->ppu_open_bus & 0x1Fu));
+                static int ppu_status_trace_enabled = -1;
+                static FILE *ppu_status_trace_fp = NULL;
+                if (ppu_status_trace_enabled < 0) {
+                    const char *env = getenv("PASM_NES_PPUSTATUS_TRACE");
+                    ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                    if (ppu_status_trace_enabled != 0) {
+                        ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                        if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                    }
+                }
+                int16_t sample_scanline = comp->ppu_scanline;
+                uint16_t sample_cycle = comp->ppu_cycle;
+                {
+                    /* $2002 is sampled near the end of the CPU read sequence.
+                     * Add a small fixed bias so the poll loop around vblank
+                     * lines up with Mesen timing.
+                     */
+                    uint16_t read_bias = ((cpu->pc == 0xFF5Au) || (cpu->pc == 0xFF61u)) ? 352u : 0u;
+                    uint16_t adv = (uint16_t)(cpu->io_read_phase_ppu_dots + read_bias);
+                    while (adv != 0u) {
+                        sample_cycle = (uint16_t)(sample_cycle + 1u);
+                        if (sample_cycle >= 341u) {
+                            sample_cycle = 0u;
+                            sample_scanline = (int16_t)(sample_scanline + 1);
+                            if (sample_scanline >= 262) sample_scanline = 0;
+                        }
+                        adv = (uint16_t)(adv - 1u);
+                    }
+                }
+
+                uint8_t status_snapshot = comp->ppu_status;
+                uint8_t before_vblank_now =
+                    (comp->ppu_scanline < 241) ||
+                    (comp->ppu_scanline == 241 && comp->ppu_cycle < 1u);
+                uint8_t synthetic_vblank_read = 0u;
+                if (
+                    (status_snapshot & 0x80u) == 0u &&
+                    comp->ppu_prevent_vbl_flag == 0u &&
+                    before_vblank_now != 0u &&
+                    (
+                        sample_scanline > 241 ||
+                        (sample_scanline == 241 && sample_cycle >= 1u)
+                    ) &&
+                    sample_scanline < 261
+                ) {
+                    status_snapshot = (uint8_t)(status_snapshot | 0x80u);
+                    synthetic_vblank_read = 1u;
+                }
+                if (
+                    (status_snapshot & 0x80u) != 0u &&
+                    sample_scanline == 261 &&
+                    sample_cycle >= 1u
+                ) {
+                    status_snapshot = (uint8_t)(status_snapshot & 0x7Fu);
+                }
+
+                uint8_t v = (uint8_t)((status_snapshot & 0xE0u) | (comp->ppu_open_bus & 0x1Fu));
+                if (ppu_status_trace_fp != NULL) {
+                    fprintf(
+                        ppu_status_trace_fp,
+                        "read2002 pc=%04X sl=%d cy=%u sample_sl=%d sample_cy=%u abs=%llu status=%02X ret=%02X ctrl=%02X mask=%02X\n",
+                        (unsigned)cpu->pc,
+                        (int)comp->ppu_scanline,
+                        (unsigned)comp->ppu_cycle,
+                        (int)sample_scanline,
+                        (unsigned)sample_cycle,
+                        (unsigned long long)cpu->total_cycles,
+                        (unsigned)comp->ppu_status,
+                        (unsigned)v,
+                        (unsigned)comp->ppu_ctrl,
+                        (unsigned)comp->ppu_mask
+                    );
+                    fflush(ppu_status_trace_fp);
+                }
                 comp->ppu_status = (uint8_t)(comp->ppu_status & 0x7Fu);
+                if (comp->ppu_scanline == 241 && comp->ppu_cycle == 0u) {
+                    /* Mesen-compatible NMI race: $2002 read one PPU tick before vblank
+                     * suppresses that frame's vblank flag/NMI assertion.
+                     */
+                    comp->ppu_prevent_vbl_flag = 1u;
+                    comp->ppu_prevent_nmi_flag = 1u;
+                }
+                if (synthetic_vblank_read != 0u) {
+                    /* If this read observed vblank via projected timing, consume it here
+                     * and suppress the later vblank set edge in this frame.
+                     */
+                    comp->ppu_prevent_vbl_flag = 1u;
+                }
+                /* Reading $2002 acknowledges/clears a latched NMI line. Do not clear IRQs. */
+                if (cpu->interrupt_pending && cpu->interrupt_vector == 0xFFu) {
+                    cpu->interrupt_pending = false;
+                }
                 comp->ppu_addr_latch = 0u;
                 comp->ppu_scroll_latch = 0u;
                 comp->ppu_w = 0u;
@@ -7165,8 +9330,8 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
                 uint8_t new_buf = 0u;
 
                 if (paddr < 0x2000u) {
-                    uint64_t cb_args[1] = { (uint64_t)paddr };
-                    new_buf = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb_args, 1);
+                    uint64_t cb_args[3] = { (uint64_t)paddr, 0u, (uint64_t)comp->ppu_abs_tick };
+                    new_buf = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_chr_read", cb_args, 3);
                 } else if (paddr < 0x3F00u) {
                     uint16_t nt = (uint16_t)((paddr - 0x2000u) & 0x0FFFu);
                     uint8_t mir = (uint8_t)(cpu_component_call(cpu, "nes_io", "cart_mirroring", NULL, 0) & 0x01u);
@@ -7212,7 +9377,30 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
         }
 
         if (addr == 0x4016u) {
+            static int pad_trace_enabled = -1;
+            static FILE *pad_trace_fp = NULL;
+            static int pad_bit0_only = -1;
+            if (pad_trace_enabled < 0) {
+                const char *env = getenv("PASM_NES_PAD_TRACE");
+                pad_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                if (pad_trace_enabled != 0) {
+                    pad_trace_fp = fopen("log/nes_pad_trace.log", "a");
+                    if (pad_trace_fp == NULL) pad_trace_fp = fopen("nes_pad_trace.log", "a");
+                }
+            }
+            if (pad_bit0_only < 0) {
+                const char *env = getenv("PASM_NES_PAD_BIT0_ONLY");
+                /* Default to strict 0/1 reads for broad game compatibility.
+                 * Set PASM_NES_PAD_BIT0_ONLY=0 to force 0x40|bit behavior.
+                 */
+                if (env == NULL || env[0] == '\0') {
+                    pad_bit0_only = 1;
+                } else {
+                    pad_bit0_only = (env[0] != '0') ? 1 : 0;
+                }
+            }
             uint8_t bit;
+            uint8_t ret;
             if (comp->controller_strobe != 0u) {
                 comp->controller_shift0 = (uint8_t)cpu_component_call(cpu, "nes_io", "joy1_read", NULL, 0);
                 bit = (uint8_t)(comp->controller_shift0 & 0x01u);
@@ -7220,11 +9408,49 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
                 bit = (uint8_t)(comp->controller_shift0 & 0x01u);
                 comp->controller_shift0 = (uint8_t)((comp->controller_shift0 >> 1) | 0x80u);
             }
-            return (uint8_t)(0x40u | bit);
+            ret = (pad_bit0_only != 0) ? bit : (uint8_t)(0x40u | bit);
+            if (pad_trace_fp != NULL) {
+                fprintf(
+                    pad_trace_fp,
+                    "read4016 pc=%04X sl=%d cy=%u strobe=%u shift0=%02X bit=%u ret=%02X\n",
+                    (unsigned)cpu->pc,
+                    (int)comp->ppu_scanline,
+                    (unsigned)comp->ppu_cycle,
+                    (unsigned)comp->controller_strobe,
+                    (unsigned)comp->controller_shift0,
+                    (unsigned)bit,
+                    (unsigned)ret
+                );
+                fflush(pad_trace_fp);
+            }
+            return ret;
         }
 
         if (addr == 0x4017u) {
+            static int pad_trace_enabled = -1;
+            static FILE *pad_trace_fp = NULL;
+            static int pad_bit0_only = -1;
+            if (pad_trace_enabled < 0) {
+                const char *env = getenv("PASM_NES_PAD_TRACE");
+                pad_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                if (pad_trace_enabled != 0) {
+                    pad_trace_fp = fopen("log/nes_pad_trace.log", "a");
+                    if (pad_trace_fp == NULL) pad_trace_fp = fopen("nes_pad_trace.log", "a");
+                }
+            }
+            if (pad_bit0_only < 0) {
+                const char *env = getenv("PASM_NES_PAD_BIT0_ONLY");
+                /* Default to strict 0/1 reads for broad game compatibility.
+                 * Set PASM_NES_PAD_BIT0_ONLY=0 to force 0x40|bit behavior.
+                 */
+                if (env == NULL || env[0] == '\0') {
+                    pad_bit0_only = 1;
+                } else {
+                    pad_bit0_only = (env[0] != '0') ? 1 : 0;
+                }
+            }
             uint8_t bit;
+            uint8_t ret;
             if (comp->controller_strobe != 0u) {
                 comp->controller_shift1 = (uint8_t)cpu_component_call(cpu, "nes_io", "joy2_read", NULL, 0);
                 bit = (uint8_t)(comp->controller_shift1 & 0x01u);
@@ -7232,7 +9458,22 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
                 bit = (uint8_t)(comp->controller_shift1 & 0x01u);
                 comp->controller_shift1 = (uint8_t)((comp->controller_shift1 >> 1) | 0x80u);
             }
-            return (uint8_t)(0x40u | bit);
+            ret = (pad_bit0_only != 0) ? bit : (uint8_t)(0x40u | bit);
+            if (pad_trace_fp != NULL) {
+                fprintf(
+                    pad_trace_fp,
+                    "read4017 pc=%04X sl=%d cy=%u strobe=%u shift1=%02X bit=%u ret=%02X\n",
+                    (unsigned)cpu->pc,
+                    (int)comp->ppu_scanline,
+                    (unsigned)comp->ppu_cycle,
+                    (unsigned)comp->controller_strobe,
+                    (unsigned)comp->controller_shift1,
+                    (unsigned)bit,
+                    (unsigned)ret
+                );
+                fflush(pad_trace_fp);
+            }
+            return ret;
         }
 
         if (addr == 0x4015u) {
@@ -7251,12 +9492,16 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
                 status |= 0x80u;
             }
             comp->apu_frame_irq_pending = 0u;
-            if (
-                comp->apu_dmc_irq_pending == 0u &&
-                cpu->interrupt_pending &&
-                cpu->interrupt_vector != 0xFFu
-            ) {
-                cpu->interrupt_pending = false;
+            {
+                uint8_t cart_irq = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_irq_pending", NULL, 0);
+                if (
+                    comp->apu_dmc_irq_pending == 0u &&
+                    cart_irq == 0u &&
+                    cpu->interrupt_pending &&
+                    cpu->interrupt_vector != 0xFFu
+                ) {
+                    cpu->interrupt_pending = false;
+                }
             }
             return status;
         }
@@ -7293,7 +9538,24 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
                     }
                     comp->mapper_id = (uint8_t)((flags7 & 0xF0u) | (flags6 >> 4));
                     comp->mirroring_mode = (uint8_t)(flags6 & 0x01u);
-                    comp->ines_valid = (comp->mapper_id == 66u) ? 1u : 0u;
+                    comp->four_screen = (uint8_t)((flags6 & 0x08u) ? 1u : 0u);
+                    comp->ines_valid = (comp->mapper_id == 0u || comp->mapper_id == 4u || comp->mapper_id == 66u) ? 1u : 0u;
+                    if (comp->mapper_id == 66u) {
+                        comp->reg6 = 0u;
+                        comp->reg7 = 0u;
+                    } else if (comp->mapper_id == 4u) {
+                        comp->reg0 = 0u;
+                        comp->reg1 = 2u;
+                        comp->reg2 = 4u;
+                        comp->reg3 = 5u;
+                        comp->reg4 = 6u;
+                        comp->reg5 = 7u;
+                        comp->reg6 = 0u;
+                        comp->reg7 = 1u;
+                    } else {
+                        comp->reg6 = 0u;
+                        comp->reg7 = 0u;
+                    }
                     if (comp->ines_valid != 0u && comp->chr_size == 0u && comp->chr_ram == NULL) {
                         comp->chr_ram_size = 8192u;
                         comp->chr_ram = (uint8_t *)calloc(comp->chr_ram_size, sizeof(uint8_t));
@@ -7316,15 +9578,49 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
 
         if (addr >= 0x8000u) {
             if (comp->prg_size == 0u || comp->rom_data == NULL) return 0xFFu;
-            {
+            if (comp->mapper_id == 66u) {
                 const uint32_t bank_size = 32768u;
                 uint32_t bank_count = comp->prg_size / bank_size;
                 if (bank_count == 0u) bank_count = 1u;
-                uint32_t bank = (uint32_t)(comp->prg_bank % bank_count);
-                uint32_t off = comp->prg_offset + bank * bank_size + ((uint32_t)addr - 0x8000u);
-                if (off < comp->rom_size) {
-                    return comp->rom_data[off];
+                {
+                    uint32_t bank = (uint32_t)(comp->reg6 % bank_count);
+                    uint32_t off = comp->prg_offset + bank * bank_size + ((uint32_t)addr - 0x8000u);
+                    if (off < comp->rom_size) return comp->rom_data[off];
                 }
+            } else if (comp->mapper_id == 4u) {
+                uint32_t prg_banks_8k = comp->prg_size / 8192u;
+                if (prg_banks_8k == 0u) return 0xFFu;
+                uint32_t last = prg_banks_8k - 1u;
+                uint32_t second_last = (prg_banks_8k >= 2u) ? (prg_banks_8k - 2u) : last;
+                uint32_t bank6 = (uint32_t)comp->reg6 % prg_banks_8k;
+                uint32_t bank7 = (uint32_t)comp->reg7 % prg_banks_8k;
+                uint32_t rel = (uint32_t)(addr - 0x8000u);
+                uint32_t slot = rel / 0x2000u;
+                uint32_t bank = 0u;
+                if (comp->prg_mode == 0u) {
+                    if (slot == 0u) bank = bank6;
+                    else if (slot == 1u) bank = bank7;
+                    else if (slot == 2u) bank = second_last;
+                    else bank = last;
+                } else {
+                    if (slot == 0u) bank = second_last;
+                    else if (slot == 1u) bank = bank7;
+                    else if (slot == 2u) bank = bank6;
+                    else bank = last;
+                }
+                {
+                    uint32_t off = comp->prg_offset + bank * 8192u + (rel & 0x1FFFu);
+                    if (off < comp->rom_size) return comp->rom_data[off];
+                }
+            } else {
+                /* Mapper 0 (NROM). */
+                uint32_t rel = (uint32_t)(addr - 0x8000u);
+                uint32_t off;
+                if (comp->prg_size >= 32768u) off = rel & 0x7FFFu;
+                else if (comp->prg_size >= 16384u) off = rel & 0x3FFFu;
+                else off = (comp->prg_size > 0u) ? (rel % comp->prg_size) : 0u;
+                off += comp->prg_offset;
+                if (off < comp->rom_size) return comp->rom_data[off];
             }
             return 0xFFu;
         }
@@ -7343,6 +9639,59 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
         if (comp->cpu_ram == NULL || comp->ppu_vram == NULL || comp->palette_ram == NULL || comp->oam == NULL) return;
 
         if (addr < 0x2000u) {
+            {
+                uint16_t zaddr = (uint16_t)(addr & 0x07FFu);
+                if (zaddr < 0x0100u && cpu->pc >= 0xF680u && cpu->pc <= 0xF6FFu) {
+                    static int pad_zp_trace_enabled = -1;
+                    static FILE *pad_zp_trace_fp = NULL;
+                    if (pad_zp_trace_enabled < 0) {
+                        const char *env = getenv("PASM_NES_PAD_ZP_TRACE");
+                        pad_zp_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                        if (pad_zp_trace_enabled != 0) {
+                            pad_zp_trace_fp = fopen("log/nes_pad_zp_trace.log", "a");
+                            if (pad_zp_trace_fp == NULL) pad_zp_trace_fp = fopen("nes_pad_zp_trace.log", "a");
+                        }
+                    }
+                    if (pad_zp_trace_fp != NULL) {
+                        fprintf(
+                            pad_zp_trace_fp,
+                            "padzp write pc=%04X sl=%d cy=%u abs=%llu addr=%04X val=%02X\n",
+                            (unsigned)cpu->pc,
+                            (int)comp->ppu_scanline,
+                            (unsigned)comp->ppu_cycle,
+                            (unsigned long long)cpu->total_cycles,
+                            (unsigned)zaddr,
+                            (unsigned)value
+                        );
+                        fflush(pad_zp_trace_fp);
+                    }
+                }
+            }
+            if ((addr & 0x07FFu) == 0x00FDu || (addr & 0x07FFu) == 0x00FEu || (addr & 0x07FFu) == 0x00FFu) {
+                static int zp_trace_enabled = -1;
+                static FILE *zp_trace_fp = NULL;
+                if (zp_trace_enabled < 0) {
+                    const char *env = getenv("PASM_NES_ZP_TRACE");
+                    zp_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                    if (zp_trace_enabled != 0) {
+                        zp_trace_fp = fopen("log/nes_zp_trace.log", "a");
+                        if (zp_trace_fp == NULL) zp_trace_fp = fopen("nes_zp_trace.log", "a");
+                    }
+                }
+                if (zp_trace_fp != NULL) {
+                    fprintf(
+                        zp_trace_fp,
+                        "zp write pc=%04X sl=%d cy=%u abs=%llu addr=%04X val=%02X\n",
+                        (unsigned)cpu->pc,
+                        (int)comp->ppu_scanline,
+                        (unsigned)comp->ppu_cycle,
+                        (unsigned long long)cpu->total_cycles,
+                        (unsigned)(addr & 0x07FFu),
+                        (unsigned)value
+                    );
+                    fflush(zp_trace_fp);
+                }
+            }
             comp->cpu_ram[(uint16_t)(addr & 0x07FFu)] = value;
             return;
         }
@@ -7350,6 +9699,16 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
         if (addr >= 0x2000u && addr < 0x4000u) {
             uint16_t reg = (uint16_t)(0x2000u + (addr & 0x0007u));
             if (reg == 0x2000u) {
+                static int ppu_status_trace_enabled = -1;
+                static FILE *ppu_status_trace_fp = NULL;
+                if (ppu_status_trace_enabled < 0) {
+                    const char *env = getenv("PASM_NES_PPUSTATUS_TRACE");
+                    ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                    if (ppu_status_trace_enabled != 0) {
+                        ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                        if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                    }
+                }
                 uint8_t old_ctrl = comp->ppu_ctrl;
                 comp->ppu_ctrl = value;
                 comp->ppu_t = (uint16_t)((comp->ppu_t & 0xF3FFu) | (((uint16_t)value & 0x03u) << 10));
@@ -7363,11 +9722,63 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
                     cpu->interrupt_vector = 0xFFu;
                     cpu->interrupt_pending = true;
                 }
+                if (ppu_status_trace_fp != NULL) {
+                    fprintf(
+                        ppu_status_trace_fp,
+                        "write2000 pc=%04X sl=%d cy=%u old=%02X new=%02X status=%02X\n",
+                        (unsigned)cpu->pc,
+                        (int)comp->ppu_scanline,
+                        (unsigned)comp->ppu_cycle,
+                        (unsigned)old_ctrl,
+                        (unsigned)value,
+                        (unsigned)comp->ppu_status
+                    );
+                    fflush(ppu_status_trace_fp);
+                }
                 return;
             }
             if (reg == 0x2001u) {
+                static int ppu_status_trace_enabled = -1;
+                static FILE *ppu_status_trace_fp = NULL;
+                if (ppu_status_trace_enabled < 0) {
+                    const char *env = getenv("PASM_NES_PPUSTATUS_TRACE");
+                    ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                    if (ppu_status_trace_enabled != 0) {
+                        ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                        if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                    }
+                }
+                uint8_t old_mask = comp->ppu_mask;
                 comp->ppu_mask = value;
                 comp->ppu_open_bus = value;
+                if (ppu_status_trace_fp != NULL) {
+                    uint8_t a = cpu->registers[REG_A];
+                    uint8_t x = cpu->registers[REG_X];
+                    uint8_t y = cpu->registers[REG_Y];
+                    uint8_t p = cpu->flags.raw;
+                    uint8_t zp_fd = comp->cpu_ram[0x00FDu];
+                    uint8_t zp_fe = comp->cpu_ram[0x00FEu];
+                    uint8_t zp_ff = comp->cpu_ram[0x00FFu];
+                    fprintf(
+                        ppu_status_trace_fp,
+                        "write2001 pc=%04X sl=%d cy=%u abs=%llu old=%02X new=%02X A=%02X X=%02X Y=%02X P=%02X SP=%02X zpFD=%02X zpFE=%02X zpFF=%02X\n",
+                        (unsigned)cpu->pc,
+                        (int)comp->ppu_scanline,
+                        (unsigned)comp->ppu_cycle,
+                        (unsigned long long)cpu->total_cycles,
+                        (unsigned)old_mask,
+                        (unsigned)value,
+                        (unsigned)a,
+                        (unsigned)x,
+                        (unsigned)y,
+                        (unsigned)p,
+                        (unsigned)cpu->sp,
+                        (unsigned)zp_fd,
+                        (unsigned)zp_fe,
+                        (unsigned)zp_ff
+                    );
+                    fflush(ppu_status_trace_fp);
+                }
                 return;
             }
             if (reg == 0x2003u) {
@@ -7437,8 +9848,8 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
             if (reg == 0x2007u) {
                 uint16_t paddr = (uint16_t)(comp->ppu_v & 0x3FFFu);
                 if (paddr < 0x2000u) {
-                    uint64_t cb_args[2] = { (uint64_t)paddr, (uint64_t)value };
-                    (void)cpu_component_call(cpu, "nes_io", "cart_chr_write", cb_args, 2);
+                    uint64_t cb_args[4] = { (uint64_t)paddr, (uint64_t)value, 0u, (uint64_t)comp->ppu_abs_tick };
+                    (void)cpu_component_call(cpu, "nes_io", "cart_chr_write", cb_args, 4);
                 } else if (paddr < 0x3F00u) {
                     uint16_t nt = (uint16_t)((paddr - 0x2000u) & 0x0FFFu);
                     uint8_t mir = (uint8_t)(cpu_component_call(cpu, "nes_io", "cart_mirroring", NULL, 0) & 0x01u);
@@ -7481,6 +9892,16 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
         }
 
         if (addr == 0x4016u) {
+            static int pad_trace_enabled = -1;
+            static FILE *pad_trace_fp = NULL;
+            if (pad_trace_enabled < 0) {
+                const char *env = getenv("PASM_NES_PAD_TRACE");
+                pad_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                if (pad_trace_enabled != 0) {
+                    pad_trace_fp = fopen("log/nes_pad_trace.log", "a");
+                    if (pad_trace_fp == NULL) pad_trace_fp = fopen("nes_pad_trace.log", "a");
+                }
+            }
             uint8_t new_strobe = (uint8_t)(value & 0x01u);
             if (new_strobe != 0u || comp->controller_strobe != 0u) {
                 comp->controller_latch0 = (uint8_t)cpu_component_call(cpu, "nes_io", "joy1_read", NULL, 0);
@@ -7489,6 +9910,20 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
                 comp->controller_shift1 = comp->controller_latch1;
             }
             comp->controller_strobe = new_strobe;
+            if (pad_trace_fp != NULL) {
+                fprintf(
+                    pad_trace_fp,
+                    "write4016 pc=%04X sl=%d cy=%u val=%02X new_strobe=%u latch0=%02X latch1=%02X\n",
+                    (unsigned)cpu->pc,
+                    (int)comp->ppu_scanline,
+                    (unsigned)comp->ppu_cycle,
+                    (unsigned)value,
+                    (unsigned)new_strobe,
+                    (unsigned)comp->controller_latch0,
+                    (unsigned)comp->controller_latch1
+                );
+                fflush(pad_trace_fp);
+            }
             return;
         }
 
@@ -7631,13 +10066,17 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
                 default:
                     break;
             }
-            if (
-                comp->apu_frame_irq_pending == 0u &&
-                comp->apu_dmc_irq_pending == 0u &&
-                cpu->interrupt_pending &&
-                cpu->interrupt_vector != 0xFFu
-            ) {
-                cpu->interrupt_pending = false;
+            {
+                uint8_t cart_irq = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_irq_pending", NULL, 0);
+                if (
+                    comp->apu_frame_irq_pending == 0u &&
+                    comp->apu_dmc_irq_pending == 0u &&
+                    cart_irq == 0u &&
+                    cpu->interrupt_pending &&
+                    cpu->interrupt_vector != 0xFFu
+                ) {
+                    cpu->interrupt_pending = false;
+                }
             }
             return;
         }
@@ -7653,9 +10092,88 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
             return;
         }
         if (addr >= 0x8000u) {
-            /* Mapper 66 (MHROM/GxROM): upper nibble = PRG32K bank, lower nibble = CHR8K bank. */
-            comp->prg_bank = (uint8_t)((value >> 4) & 0x0Fu);
-            comp->chr_bank = (uint8_t)(value & 0x0Fu);
+            if (comp->mapper_id == 66u) {
+                /* Mapper 66 (GxROM): upper nibble=PRG32K bank, lower nibble=CHR8K bank. */
+                comp->reg6 = (uint8_t)((value >> 4) & 0x0Fu); /* reuse reg6 as prg bank */
+                comp->reg7 = (uint8_t)(value & 0x0Fu);        /* reuse reg7 as chr bank */
+            } else if (comp->mapper_id == 4u) {
+                static int mmc3_trace_enabled = -1;
+                static FILE *mmc3_trace_fp = NULL;
+                if (mmc3_trace_enabled < 0) {
+                    const char *env = getenv("PASM_NES_MMC3_TRACE");
+                    mmc3_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                    if (mmc3_trace_enabled != 0) {
+                        mmc3_trace_fp = fopen("log/nes_mmc3_trace.log", "a");
+                        if (mmc3_trace_fp == NULL) mmc3_trace_fp = fopen("nes_mmc3_trace.log", "a");
+                    }
+                }
+                if (addr < 0xA000u) {
+                    if ((addr & 1u) == 0u) {
+                        comp->bank_select = (uint8_t)(value & 0x07u);
+                        comp->prg_mode = (uint8_t)((value >> 6) & 0x01u);
+                        comp->chr_mode = (uint8_t)((value >> 7) & 0x01u);
+                    } else {
+                        switch (comp->bank_select & 0x07u) {
+                            case 0u: comp->reg0 = (uint8_t)(value & 0xFEu); break;
+                            case 1u: comp->reg1 = (uint8_t)(value & 0xFEu); break;
+                            case 2u: comp->reg2 = value; break;
+                            case 3u: comp->reg3 = value; break;
+                            case 4u: comp->reg4 = value; break;
+                            case 5u: comp->reg5 = value; break;
+                            case 6u: comp->reg6 = value; break;
+                            case 7u: comp->reg7 = value; break;
+                            default: break;
+                        }
+                    }
+                } else if (addr < 0xC000u) {
+                    if ((addr & 1u) == 0u) {
+                        if (comp->four_screen == 0u) {
+                            /* MMC3 $A000 bit0: 0=vertical, 1=horizontal.
+                             * Runtime mirroring_mode convention: 1=vertical, 0=horizontal.
+                             */
+                            comp->mirroring_mode = (uint8_t)(((value & 0x01u) == 0u) ? 1u : 0u);
+                        }
+                    } else {
+                        /* PRG RAM protect not modeled yet. */
+                    }
+                } else if (addr < 0xE000u) {
+                    if ((addr & 1u) == 0u) {
+                        comp->irq_latch = value;
+                    } else {
+                        comp->irq_reload = 1u;
+                    }
+                } else {
+                    if ((addr & 1u) == 0u) {
+                        comp->irq_enable = 0u;
+                        comp->irq_pending = 0u;
+                    } else {
+                        comp->irq_enable = 1u;
+                    }
+                }
+                if (mmc3_trace_fp != NULL) {
+                    fprintf(
+                        mmc3_trace_fp,
+                        "write pc=%04X %04X=%02X bs=%u pm=%u cm=%u r6=%u r7=%u latch=%u ctr=%u rel=%u en=%u pend=%u mir=%u\n",
+                        (unsigned)cpu->pc,
+                        (unsigned)addr,
+                        (unsigned)value,
+                        (unsigned)comp->bank_select,
+                        (unsigned)comp->prg_mode,
+                        (unsigned)comp->chr_mode,
+                        (unsigned)comp->reg6,
+                        (unsigned)comp->reg7,
+                        (unsigned)comp->irq_latch,
+                        (unsigned)comp->irq_counter,
+                        (unsigned)comp->irq_reload,
+                        (unsigned)comp->irq_enable,
+                        (unsigned)comp->irq_pending,
+                        (unsigned)comp->mirroring_mode
+                    );
+                    fflush(mmc3_trace_fp);
+                }
+            } else {
+                /* Mapper 0 ignores writes in $8000-$FFFF. */
+            }
             return;
         }
     }

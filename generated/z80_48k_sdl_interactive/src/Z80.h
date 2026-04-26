@@ -78,6 +78,9 @@ typedef struct ComponentState_keyboard0 {
     uint8_t last_row_mask;
 } ComponentState_keyboard0;
 
+typedef struct ComponentState_controller_zx48 {
+} ComponentState_controller_zx48;
+
 typedef struct ComponentState_video0 {
     uint32_t frame_count;
     uint8_t border_color;
@@ -137,6 +140,7 @@ typedef struct ComponentState_host_zx48 {
     uint8_t debug_enabled;
     uint8_t kb_last_row_mask;
     uint8_t kb_last_result;
+    uint8_t kempston_value;
 } ComponentState_host_zx48;
 
 
@@ -218,6 +222,7 @@ struct CPUState {
     uint64_t component_last_return;
     ComponentState_ula0 comp_ula0;
     ComponentState_keyboard0 comp_keyboard0;
+    ComponentState_controller_zx48 comp_controller_zx48;
     ComponentState_video0 comp_video0;
     ComponentState_speaker0 comp_speaker0;
     ComponentState_mic0 comp_mic0;
@@ -237,7 +242,7 @@ struct CPUState {
 #define CPU_AUDIO_FORMAT "s16le"
 /* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"zx_spectrum_48k_interactive\"} */
 #define CPU_IC_COUNT 1
-#define CPU_DEVICE_COUNT 4
+#define CPU_DEVICE_COUNT 5
 #define CPU_HOST_COUNT 1
 #define CPU_CARTRIDGE_COUNT 0
 
@@ -286,6 +291,7 @@ int z80_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int z80_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int z80_load_cartridge_rom(CPUState *cpu, const char *path);
 int z80_load_keyboard_map(CPUState *cpu, const char *path);
+int z80_load_controller_map(CPUState *cpu, const char *path);
 
 /* ===== Execution ===== */
 int z80_step(CPUState *cpu);

@@ -45,6 +45,7 @@ components:
     - psg0
   devices:
     - keyboard_msx
+    - controller_msx
     - video_msx
     - speaker_msx
   hosts:
@@ -74,6 +75,15 @@ connections:
       component: psg0
       kind: callback
       name: joy_read
+    to:
+      component: controller_msx
+      kind: callback
+      name: read_state
+
+  - from:
+      component: controller_msx
+      kind: callback
+      name: host_state
     to:
       component: host_msx
       kind: callback

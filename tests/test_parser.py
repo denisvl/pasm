@@ -709,7 +709,7 @@ def test_runtime_keyboard_map_schema_accepts_valid_matrix_and_ascii_maps():
         "keyboard": {
             "kind": "matrix",
             "focus_required": True,
-            "bindings": [{"host_key": "A", "presses": [{"row": 1, "bit": 0}]}],
+            "bindings": [{"host_key": "A", "mapper_key_id": "k_a", "presses": [{"row": 1, "bit": 0}]}],
         }
     }
     ascii_map = {
@@ -744,6 +744,23 @@ def test_runtime_keyboard_map_schema_rejects_invalid_host_key_and_out_of_range_p
     errors = [err.message for err in validator.iter_errors(invalid_map)]
     assert errors
     assert any("does not match" in msg or "is greater than the maximum" in msg for msg in errors)
+
+
+def test_runtime_keyboard_map_schema_rejects_empty_mapper_key_id():
+    if yaml_loader.Draft7Validator is None:
+        pytest.skip("jsonschema not available")
+    schema = yaml_loader.load_schema("runtime_keyboard_map")
+    validator = yaml_loader.Draft7Validator(schema)
+
+    invalid_map = {
+        "keyboard": {
+            "kind": "matrix",
+            "bindings": [{"host_key": "A", "mapper_key_id": "", "presses": [{"row": 1, "bit": 0}]}],
+        }
+    }
+    errors = [err.message for err in validator.iter_errors(invalid_map)]
+    assert errors
+    assert any("non-empty" in msg or "is too short" in msg for msg in errors)
 
 
 def test_host_backend_allows_omitted_target():

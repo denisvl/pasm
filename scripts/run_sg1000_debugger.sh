@@ -28,6 +28,7 @@ CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/sg1000/sg1000_mapper_none.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/sg1000/Hang-On II (Japan).sg}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/sg1000/host_controller_sg1000.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -99,6 +100,15 @@ echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run
 echo "    cartridge_map=${CARTRIDGE_MAP}"
 echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
 echo "    cartridge_rom_runtime=${CARTRIDGE_ROM_RUNTIME}"
+if [[ "${PROFILE}" == "interactive" ]]; then
+  echo "    controller_map=${CONTROLLER_MAP}"
+fi
+
+EXTRA_MAP_ARGS=()
+if [[ "${PROFILE}" == "interactive" ]]; then
+  EXTRA_MAP_ARGS+=(--controller-map "${CONTROLLER_MAP}")
+fi
+
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 PASM_SG1000_JOY2_CONNECTED="${PASM_SG1000_JOY2_CONNECTED}" \
@@ -108,4 +118,5 @@ cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --fe
   --system-dir "${SYSTEM_DIR}" \
   --cart-rom "${CARTRIDGE_ROM_RUNTIME}" \
   --start-pc "${START_PC}" \
+  "${EXTRA_MAP_ARGS[@]}" \
   --run-speed "${RUN_SPEED}"

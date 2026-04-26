@@ -1,0 +1,2250 @@
+metadata:
+  id: host_keymapper_tool
+  type: host_adapter
+  model: keymapper_tool_hal_interactive
+  version: '1.0'
+
+state:
+- name: host_inited
+  type: uint8_t
+  initial: '0'
+- name: window
+  type: void *
+  initial: 'NULL'
+- name: renderer
+  type: void *
+  initial: 'NULL'
+- name: has_keyboard_focus
+  type: uint8_t
+  initial: '0'
+- name: last_focus_state
+  type: uint8_t
+  initial: '0'
+- name: title_last_scancode
+  type: int32_t
+  initial: '-1'
+- name: title_last_keycode
+  type: int32_t
+  initial: '0'
+- name: title_last_mods
+  type: uint32_t
+  initial: '0'
+- name: title_last_repeat
+  type: uint8_t
+  initial: '0'
+- name: title_last_is_down
+  type: uint8_t
+  initial: '0'
+- name: mapper_boxes
+  type: void *
+  initial: 'NULL'
+- name: mapper_path
+  type: void *
+  initial: 'NULL'
+- name: image_texture
+  type: void *
+  initial: 'NULL'
+- name: image_surface
+  type: void *
+  initial: 'NULL'
+- name: image_lib_inited
+  type: uint8_t
+  initial: '0'
+- name: image_w
+  type: int32_t
+  initial: '0'
+- name: image_h
+  type: int32_t
+  initial: '0'
+- name: mapper_box_count
+  type: uint32_t
+  initial: '0'
+- name: mapper_box_cap
+  type: uint32_t
+  initial: '0'
+- name: undo_boxes
+  type: void *
+  initial: 'NULL'
+- name: undo_count
+  type: uint32_t
+  initial: '0'
+- name: undo_valid
+  type: uint8_t
+  initial: '0'
+- name: redo_boxes
+  type: void *
+  initial: 'NULL'
+- name: redo_count
+  type: uint32_t
+  initial: '0'
+- name: redo_valid
+  type: uint8_t
+  initial: '0'
+- name: selection_mask
+  type: void *
+  initial: 'NULL'
+- name: selection_count
+  type: uint32_t
+  initial: '0'
+- name: selected_box
+  type: int32_t
+  initial: '-1'
+- name: drag_active
+  type: uint8_t
+  initial: '0'
+- name: resize_active
+  type: uint8_t
+  initial: '0'
+- name: pan_active
+  type: uint8_t
+  initial: '0'
+- name: dirty
+  type: uint8_t
+  initial: '0'
+- name: edit_field
+  type: uint8_t
+  initial: '0'
+- name: view_zoom_q8
+  type: int32_t
+  initial: '256'
+- name: view_off_x
+  type: int32_t
+  initial: '0'
+- name: view_off_y
+  type: int32_t
+  initial: '0'
+- name: last_mouse_x
+  type: int32_t
+  initial: '0'
+- name: last_mouse_y
+  type: int32_t
+  initial: '0'
+- name: quit_prompt_active
+  type: uint8_t
+  initial: '0'
+- name: quit_after_save
+  type: uint8_t
+  initial: '0'
+- name: rename_mode
+  type: uint8_t
+  initial: '0'
+- name: pick_color_mode
+  type: uint8_t
+  initial: '0'
+- name: cursor_arrow
+  type: void *
+  initial: 'NULL'
+- name: cursor_crosshair
+  type: void *
+  initial: 'NULL'
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      typedef struct MapperBox {
+          char id[128];
+          int x;
+          int y;
+          int w;
+          int h;
+          uint8_t has_overlay;
+          uint8_t or_;
+          uint8_t og;
+          uint8_t ob;
+      } MapperBox;
+      do {
+          MapperBox *boxes;
+          const char *mapper_path;
+          char mapper_dir[768];
+          char image_file[512];
+          char image_path[1400];
+          FILE *fp;
+          char line[1024];
+          char current_id[128];
+          int have_current = 0;
+          int cur_x = 0;
+          int cur_y = 0;
+          int cur_w = 1;
+          int cur_h = 1;
+          int in_bbox = 0;
+          int in_overlay = 0;
+          int overlay_idx = 0;
+          int cur_or = 0;
+          int cur_og = 0;
+          int cur_ob = 0;
+          int cur_has_overlay = 0;
+          size_t line_len;
+          char *s;
+
+          if (comp->host_inited != 0u) break;
+          if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_EVENTS) != 0) break;
+          cpu_host_hal_stop_text_input();
+
+          comp->window = cpu_host_hal_create_window(
+              "PASM Keymapper Tool (Host-HAL)",
+              CPU_HOST_WINDOWPOS_CENTERED,
+              CPU_HOST_WINDOWPOS_CENTERED,
+              1280,
+              760,
+              CPU_HOST_WINDOW_RESIZABLE
+          );
+          if (comp->window == NULL) break;
+
+          comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, CPU_HOST_RENDERER_ACCELERATED);
+          if (comp->renderer == NULL) {
+              comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);
+          }
+          if (comp->renderer == NULL) break;
+
+          cpu_host_hal_show_window(comp->window);
+          cpu_host_hal_raise_window(comp->window);
+          (void)cpu_host_hal_set_window_input_focus(comp->window);
+
+          comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
+          comp->last_focus_state = comp->has_keyboard_focus;
+          comp->title_last_scancode = -1;
+          comp->title_last_keycode = 0;
+          comp->title_last_mods = 0u;
+          comp->title_last_repeat = 0u;
+          comp->title_last_is_down = 0u;
+          comp->mapper_boxes = NULL;
+          comp->mapper_path = NULL;
+          comp->image_texture = NULL;
+          comp->image_surface = NULL;
+          comp->image_lib_inited = 0u;
+          comp->image_w = 0;
+          comp->image_h = 0;
+          comp->mapper_box_count = 0u;
+          comp->mapper_box_cap = 0u;
+          comp->undo_boxes = NULL;
+          comp->undo_count = 0u;
+          comp->undo_valid = 0u;
+          comp->redo_boxes = NULL;
+          comp->redo_count = 0u;
+          comp->redo_valid = 0u;
+          comp->selection_mask = NULL;
+          comp->selection_count = 0u;
+          comp->selected_box = -1;
+          comp->drag_active = 0u;
+          comp->resize_active = 0u;
+          comp->pan_active = 0u;
+          comp->dirty = 0u;
+          comp->edit_field = 0u;
+          comp->view_zoom_q8 = 256;
+          comp->view_off_x = 0;
+          comp->view_off_y = 0;
+          comp->last_mouse_x = 0;
+          comp->last_mouse_y = 0;
+          comp->quit_prompt_active = 0u;
+          comp->quit_after_save = 0u;
+          comp->rename_mode = 0u;
+          comp->pick_color_mode = 0u;
+          comp->cursor_arrow = (void *)SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_ARROW);
+          comp->cursor_crosshair = (void *)SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
+          if (comp->cursor_arrow != NULL) {
+              SDL_SetCursor((SDL_Cursor *)comp->cursor_arrow);
+          }
+
+          mapper_path = cpu_host_hal_getenv("PASM_KEYMAPPER_FILE");
+          if (mapper_path == NULL || mapper_path[0] == '\0') {
+              mapper_path = "examples/hosts/cpc464/cpc_keyboard_mapper.yaml";
+          }
+          {
+              size_t path_len = strlen(mapper_path);
+              char *mp = (char *)malloc(path_len + 1u);
+              if (mp != NULL) {
+                  memcpy(mp, mapper_path, path_len + 1u);
+                  comp->mapper_path = mp;
+              }
+          }
+
+          fp = fopen(mapper_path, "r");
+          if (fp == NULL) {
+              cpu_host_hal_log("keymapper_tool: failed to open mapper file: %s", mapper_path);
+              comp->host_inited = 1u;
+              break;
+          }
+
+          {
+              int img_flags = IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
+              if ((img_flags & (IMG_INIT_PNG | IMG_INIT_JPG)) != 0) {
+                  comp->image_lib_inited = 1u;
+              }
+          }
+
+          memset(mapper_dir, 0, sizeof(mapper_dir));
+          memset(image_file, 0, sizeof(image_file));
+          memset(image_path, 0, sizeof(image_path));
+          {
+              const char *slash = strrchr(mapper_path, '/');
+              if (slash != NULL) {
+                  size_t dn = (size_t)(slash - mapper_path);
+                  if (dn >= sizeof(mapper_dir)) dn = sizeof(mapper_dir) - 1u;
+                  memcpy(mapper_dir, mapper_path, dn);
+                  mapper_dir[dn] = '\0';
+              } else {
+                  strcpy(mapper_dir, ".");
+              }
+          }
+
+          current_id[0] = '\0';
+          while (fgets(line, (int)sizeof(line), fp) != NULL) {
+              line_len = strlen(line);
+              while (line_len > 0u && (line[line_len - 1u] == '\r' || line[line_len - 1u] == '\n')) {
+                  line[--line_len] = '\0';
+              }
+              s = cpu_component_trim(line);
+              if (s == NULL || s[0] == '\0' || s[0] == '#') continue;
+
+              if (strncmp(s, "- id:", 5) == 0 || strncmp(s, "id:", 3) == 0) {
+                  const char *p = strchr(s, ':');
+                  if (have_current != 0 && current_id[0] != '\0') {
+                      if (comp->mapper_box_count >= comp->mapper_box_cap) {
+                          uint32_t new_cap = (comp->mapper_box_cap == 0u) ? 128u : (comp->mapper_box_cap * 2u);
+                          MapperBox *nb = (MapperBox *)realloc((MapperBox *)comp->mapper_boxes, (size_t)new_cap * sizeof(MapperBox));
+                          if (nb == NULL) break;
+                          comp->mapper_boxes = nb;
+                          comp->mapper_box_cap = new_cap;
+                      }
+                      boxes = (MapperBox *)comp->mapper_boxes;
+                      memset(&boxes[comp->mapper_box_count], 0, sizeof(MapperBox));
+                      strncpy(boxes[comp->mapper_box_count].id, current_id, sizeof(boxes[comp->mapper_box_count].id) - 1u);
+                      boxes[comp->mapper_box_count].x = cur_x;
+                      boxes[comp->mapper_box_count].y = cur_y;
+                      boxes[comp->mapper_box_count].w = (cur_w > 0) ? cur_w : 1;
+                      boxes[comp->mapper_box_count].h = (cur_h > 0) ? cur_h : 1;
+                      boxes[comp->mapper_box_count].has_overlay = (cur_has_overlay != 0) ? 1u : 0u;
+                      boxes[comp->mapper_box_count].or_ = (uint8_t)((cur_or < 0) ? 0 : (cur_or > 255 ? 255 : cur_or));
+                      boxes[comp->mapper_box_count].og = (uint8_t)((cur_og < 0) ? 0 : (cur_og > 255 ? 255 : cur_og));
+                      boxes[comp->mapper_box_count].ob = (uint8_t)((cur_ob < 0) ? 0 : (cur_ob > 255 ? 255 : cur_ob));
+                      comp->mapper_box_count += 1u;
+                  }
+                  have_current = 1;
+                  cur_x = 0;
+                  cur_y = 0;
+                  cur_w = 1;
+                  cur_h = 1;
+                  cur_or = 0;
+                  cur_og = 0;
+                  cur_ob = 0;
+                  cur_has_overlay = 0;
+                  in_bbox = 0;
+                  in_overlay = 0;
+                  overlay_idx = 0;
+                  current_id[0] = '\0';
+                  if (p != NULL) {
+                      char *val = cpu_component_trim((char *)(p + 1));
+                      size_t n;
+                      if (val != NULL) {
+                          n = strlen(val);
+                          if (n >= 2u && ((val[0] == '\'' && val[n - 1u] == '\'') || (val[0] == '"' && val[n - 1u] == '"'))) {
+                              val[n - 1u] = '\0';
+                              val += 1;
+                          }
+                          strncpy(current_id, val, sizeof(current_id) - 1u);
+                          current_id[sizeof(current_id) - 1u] = '\0';
+                      }
+                  }
+                  continue;
+              }
+
+              if (strncmp(s, "file:", 5) == 0 && image_file[0] == '\0') {
+                  char *v = cpu_component_trim(s + 5);
+                  if (v != NULL && v[0] != '\0') {
+                      size_t n = strlen(v);
+                      if (n >= 2u && ((v[0] == '\'' && v[n - 1u] == '\'') || (v[0] == '"' && v[n - 1u] == '"'))) {
+                          v[n - 1u] = '\0';
+                          v += 1;
+                      }
+                      strncpy(image_file, v, sizeof(image_file) - 1u);
+                      image_file[sizeof(image_file) - 1u] = '\0';
+                  }
+                  continue;
+              }
+
+              if (strncmp(s, "bbox:", 5) == 0) {
+                  in_bbox = 1;
+                  in_overlay = 0;
+                  overlay_idx = 0;
+                  continue;
+              }
+              if (strncmp(s, "overlay_color:", 14) == 0) {
+                  in_overlay = 1;
+                  overlay_idx = 0;
+                  continue;
+              }
+
+              if (have_current != 0 && in_bbox != 0) {
+                  if (strncmp(s, "x:", 2) == 0) {
+                      cur_x = (int)strtol(cpu_component_trim(s + 2), NULL, 0);
+                  } else if (strncmp(s, "y:", 2) == 0) {
+                      cur_y = (int)strtol(cpu_component_trim(s + 2), NULL, 0);
+                  } else if (strncmp(s, "width:", 6) == 0) {
+                      cur_w = (int)strtol(cpu_component_trim(s + 6), NULL, 0);
+                  } else if (strncmp(s, "height:", 7) == 0) {
+                      cur_h = (int)strtol(cpu_component_trim(s + 7), NULL, 0);
+                  }
+              } else if (have_current != 0 && in_overlay != 0) {
+                  if (s[0] == '-' && (s[1] == ' ' || s[1] == '\t')) {
+                      int v = (int)strtol(cpu_component_trim(s + 1), NULL, 0);
+                      if (overlay_idx == 0) cur_or = v;
+                      else if (overlay_idx == 1) cur_og = v;
+                      else if (overlay_idx == 2) cur_ob = v;
+                      overlay_idx += 1;
+                      if (overlay_idx >= 3) {
+                          cur_has_overlay = 1;
+                      }
+                  } else {
+                      in_overlay = 0;
+                  }
+              }
+          }
+
+          if (have_current != 0 && current_id[0] != '\0') {
+              if (comp->mapper_box_count >= comp->mapper_box_cap) {
+                  uint32_t new_cap = (comp->mapper_box_cap == 0u) ? 128u : (comp->mapper_box_cap * 2u);
+                  MapperBox *nb = (MapperBox *)realloc((MapperBox *)comp->mapper_boxes, (size_t)new_cap * sizeof(MapperBox));
+                  if (nb != NULL) {
+                      comp->mapper_boxes = nb;
+                      comp->mapper_box_cap = new_cap;
+                  }
+              }
+              if (comp->mapper_box_count < comp->mapper_box_cap) {
+                  boxes = (MapperBox *)comp->mapper_boxes;
+                  memset(&boxes[comp->mapper_box_count], 0, sizeof(MapperBox));
+                  strncpy(boxes[comp->mapper_box_count].id, current_id, sizeof(boxes[comp->mapper_box_count].id) - 1u);
+                  boxes[comp->mapper_box_count].x = cur_x;
+                  boxes[comp->mapper_box_count].y = cur_y;
+                  boxes[comp->mapper_box_count].w = (cur_w > 0) ? cur_w : 1;
+                  boxes[comp->mapper_box_count].h = (cur_h > 0) ? cur_h : 1;
+                  boxes[comp->mapper_box_count].has_overlay = (cur_has_overlay != 0) ? 1u : 0u;
+                  boxes[comp->mapper_box_count].or_ = (uint8_t)((cur_or < 0) ? 0 : (cur_or > 255 ? 255 : cur_or));
+                  boxes[comp->mapper_box_count].og = (uint8_t)((cur_og < 0) ? 0 : (cur_og > 255 ? 255 : cur_og));
+                  boxes[comp->mapper_box_count].ob = (uint8_t)((cur_ob < 0) ? 0 : (cur_ob > 255 ? 255 : cur_ob));
+                  comp->mapper_box_count += 1u;
+              }
+          }
+
+          fclose(fp);
+
+          if (image_file[0] != '\0') {
+              SDL_Surface *surf = NULL;
+              int loaded = 0;
+              if (image_file[0] == '/') {
+                  strncpy(image_path, image_file, sizeof(image_path) - 1u);
+              } else {
+                  snprintf(image_path, sizeof(image_path), "%s/%s", mapper_dir, image_file);
+              }
+              if (comp->image_lib_inited != 0u) {
+                  surf = IMG_Load(image_path);
+              }
+              if (surf == NULL) {
+                  surf = SDL_LoadBMP(image_path);
+              }
+              if (surf != NULL) {
+                  loaded = 1;
+                  SDL_Texture *tex = SDL_CreateTextureFromSurface((SDL_Renderer *)comp->renderer, surf);
+                  if (tex != NULL) {
+                      comp->image_texture = tex;
+                      comp->image_surface = surf;
+                      comp->image_w = surf->w;
+                      comp->image_h = surf->h;
+                      cpu_host_hal_log("keymapper_tool: loaded image: %s (%dx%d)", image_path, surf->w, surf->h);
+                  } else {
+                      cpu_host_hal_log("keymapper_tool: texture create failed for image: %s", image_path);
+                      SDL_FreeSurface(surf);
+                  }
+              }
+              if (loaded == 0) {
+                  const char *exts[] = { ".png", ".jpg", ".jpeg", ".bmp", ".webp" };
+                  char stem[512];
+                  char *dot = NULL;
+                  memset(stem, 0, sizeof(stem));
+                  strncpy(stem, image_file, sizeof(stem) - 1u);
+                  dot = strrchr(stem, '.');
+                  if (dot != NULL) {
+                      *dot = '\0';
+                  }
+                  for (size_t ei = 0u; ei < (sizeof(exts) / sizeof(exts[0])); ++ei) {
+                      if (stem[0] == '\0') break;
+                      snprintf(image_path, sizeof(image_path), "%s/%s%s", mapper_dir, stem, exts[ei]);
+                      surf = NULL;
+                      if (comp->image_lib_inited != 0u) {
+                          surf = IMG_Load(image_path);
+                      }
+                      if (surf == NULL) {
+                          surf = SDL_LoadBMP(image_path);
+                      }
+                      if (surf != NULL) {
+                          SDL_Texture *tex = SDL_CreateTextureFromSurface((SDL_Renderer *)comp->renderer, surf);
+                          if (tex != NULL) {
+                              comp->image_texture = tex;
+                              comp->image_surface = surf;
+                              comp->image_w = surf->w;
+                              comp->image_h = surf->h;
+                              loaded = 1;
+                              cpu_host_hal_log("keymapper_tool: loaded image: %s (%dx%d)", image_path, surf->w, surf->h);
+                          }
+                          if (loaded == 0) {
+                              SDL_FreeSurface(surf);
+                          }
+                          if (loaded != 0) break;
+                      }
+                  }
+              }
+              if (loaded == 0) {
+                  cpu_host_hal_log("keymapper_tool: image load failed: %s", image_path);
+              }
+          }
+
+          if (comp->mapper_box_count > 0u) {
+              comp->selection_mask = calloc((size_t)comp->mapper_box_count, sizeof(uint8_t));
+          }
+          cpu_host_hal_log("keymapper_tool: loaded %u boxes from %s", (unsigned)comp->mapper_box_count, mapper_path);
+          comp->host_inited = 1u;
+      } while (0);
+
+    step_post: |
+      typedef struct MapperBox {
+          char id[128];
+          int x;
+          int y;
+          int w;
+          int h;
+          uint8_t has_overlay;
+          uint8_t or_;
+          uint8_t og;
+          uint8_t ob;
+      } MapperBox;
+      static char rename_buf[128] = {0};
+      static uint32_t rename_len = 0u;
+      if (comp->host_inited == 0u) return;
+      {
+          CPUHostEvent ev;
+          uint8_t title_dirty = 0u;
+          int key_count = 0;
+          int win_w = 0;
+          int win_h = 0;
+          const uint8_t *host_state = cpu_host_hal_keyboard_state(&key_count);
+          MapperBox *boxes = (MapperBox *)comp->mapper_boxes;
+          uint8_t *sel = (uint8_t *)comp->selection_mask;
+          MapperBox *undo_boxes = (MapperBox *)comp->undo_boxes;
+          MapperBox *redo_boxes = (MapperBox *)comp->redo_boxes;
+
+          (void)cpu_host_hal_get_window_size(comp->window, &win_w, &win_h);
+
+          while (cpu_host_hal_poll_event(&ev)) {
+              uint32_t et = cpu_host_hal_event_type(&ev);
+              if (et == CPU_HOST_EVENT_QUIT) {
+                  if (comp->dirty != 0u) {
+                      comp->quit_prompt_active = 1u;
+                      comp->quit_after_save = 0u;
+                      title_dirty = 1u;
+                  } else {
+                      cpu->running = false;
+                      cpu->halted = true;
+                  }
+                  continue;
+              }
+
+              if (et == SDL_MOUSEMOTION) {
+                  comp->last_mouse_x = (int32_t)ev.motion.x;
+                  comp->last_mouse_y = (int32_t)ev.motion.y;
+              } else if (et == SDL_MOUSEBUTTONDOWN || et == SDL_MOUSEBUTTONUP) {
+                  comp->last_mouse_x = (int32_t)ev.button.x;
+                  comp->last_mouse_y = (int32_t)ev.button.y;
+              }
+
+              if (et == SDL_MOUSEWHEEL) {
+                  int32_t oldz = comp->view_zoom_q8;
+                  int32_t newz = oldz + ((int32_t)ev.wheel.y * 24);
+                  int32_t mx = comp->last_mouse_x;
+                  int32_t my = comp->last_mouse_y;
+                  if (newz < 64) newz = 64;
+                  if (newz > 1024) newz = 1024;
+                  if (newz != oldz) {
+                      int32_t wx = ((mx + comp->view_off_x) * 256) / oldz;
+                      int32_t wy = ((my + comp->view_off_y) * 256) / oldz;
+                      comp->view_zoom_q8 = newz;
+                      comp->view_off_x = ((wx * newz) / 256) - mx;
+                      comp->view_off_y = ((wy * newz) / 256) - my;
+                      if (comp->view_off_x < 0) comp->view_off_x = 0;
+                      if (comp->view_off_y < 0) comp->view_off_y = 0;
+                      title_dirty = 1u;
+                  }
+              }
+
+              if (comp->rename_mode != 0u && et == SDL_TEXTINPUT) {
+                  const char *txt = ev.text.text;
+                  if (txt != NULL) {
+                      while (*txt != '\0' && rename_len + 1u < sizeof(rename_buf)) {
+                          char c = *txt++;
+                          if ((unsigned char)c < 32u) continue;
+                          rename_buf[rename_len++] = c;
+                      }
+                      rename_buf[rename_len] = '\0';
+                      title_dirty = 1u;
+                  }
+                  continue;
+              }
+
+              if (et == CPU_HOST_EVENT_KEYDOWN || et == CPU_HOST_EVENT_KEYUP) {
+                  int32_t sc = cpu_host_hal_event_scancode(&ev);
+                  comp->title_last_scancode = sc;
+                  comp->title_last_keycode = cpu_host_hal_key_from_scancode(sc);
+                  comp->title_last_mods = cpu_host_hal_event_mod_state(&ev);
+                  comp->title_last_repeat = cpu_host_hal_event_key_repeat(&ev);
+                  comp->title_last_is_down = (et == CPU_HOST_EVENT_KEYDOWN) ? 1u : 0u;
+                  if (comp->rename_mode != 0u && et == CPU_HOST_EVENT_KEYDOWN && comp->title_last_repeat == 0u) {
+                      if (sc == CPU_HOST_SCANCODE(BACKSPACE)) {
+                          if (rename_len > 0u) {
+                              rename_len -= 1u;
+                              rename_buf[rename_len] = '\0';
+                          }
+                      } else if (sc == CPU_HOST_SCANCODE(ESCAPE)) {
+                          comp->rename_mode = 0u;
+                          cpu_host_hal_stop_text_input();
+                      } else if (sc == CPU_HOST_SCANCODE(RETURN) || sc == CPU_HOST_SCANCODE(KP_ENTER)) {
+                          if (comp->selected_box >= 0 && (uint32_t)comp->selected_box < comp->mapper_box_count && rename_len > 0u) {
+                              int unique = 1;
+                              for (uint32_t i = 0u; i < comp->mapper_box_count; ++i) {
+                                  if ((int32_t)i == comp->selected_box) continue;
+                                  if (strcmp(boxes[i].id, rename_buf) == 0) {
+                                      unique = 0;
+                                      break;
+                                  }
+                              }
+                              if (unique != 0) {
+                                  if (comp->mapper_box_count > 0u) {
+                                      MapperBox *snap = (MapperBox *)malloc((size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                      if (snap != NULL) {
+                                          memcpy(snap, boxes, (size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                          if (undo_boxes != NULL) free(undo_boxes);
+                                          undo_boxes = snap;
+                                          comp->undo_boxes = snap;
+                                          comp->undo_count = comp->mapper_box_count;
+                                          comp->undo_valid = 1u;
+                                          if (redo_boxes != NULL) {
+                                              free(redo_boxes);
+                                              redo_boxes = NULL;
+                                          }
+                                          comp->redo_boxes = NULL;
+                                          comp->redo_count = 0u;
+                                          comp->redo_valid = 0u;
+                                      }
+                                  }
+                                  strncpy(boxes[comp->selected_box].id, rename_buf, sizeof(boxes[comp->selected_box].id) - 1u);
+                                  boxes[comp->selected_box].id[sizeof(boxes[comp->selected_box].id) - 1u] = '\0';
+                                  comp->dirty = 1u;
+                                  comp->rename_mode = 0u;
+                                  cpu_host_hal_stop_text_input();
+                              }
+                          }
+                      }
+                      title_dirty = 1u;
+                      continue;
+                  }
+                  if (comp->quit_prompt_active != 0u && et == CPU_HOST_EVENT_KEYDOWN && comp->title_last_repeat == 0u) {
+                      if ((comp->title_last_mods & CPU_HOST_MOD_CTRL) != 0u && sc == CPU_HOST_SCANCODE(S)) {
+                          const char *src_path = (const char *)comp->mapper_path;
+                          int save_failed = 0;
+                          if (src_path != NULL && src_path[0] != '\0') {
+                              char tmp_path[768];
+                              FILE *in_fp = NULL;
+                              FILE *out_fp = NULL;
+                              char line[1024];
+                              char cur_id[128];
+                              uint8_t *found_ids = NULL;
+                              int skip_key_block = 0;
+                              int in_bbox = 0;
+                              int in_overlay = 0;
+                              int overlay_idx = 0;
+                              int line_changed = 0;
+                              cur_id[0] = '\0';
+                              snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", src_path);
+                              if (comp->mapper_box_count > 0u) {
+                                  found_ids = (uint8_t *)calloc((size_t)comp->mapper_box_count, sizeof(uint8_t));
+                              }
+                              in_fp = fopen(src_path, "r");
+                              out_fp = fopen(tmp_path, "w");
+                              if (in_fp == NULL || out_fp == NULL) {
+                                  save_failed = 1;
+                              } else {
+                                  while (fgets(line, (int)sizeof(line), in_fp) != NULL) {
+                                      char work[1024];
+                                      char *trimmed;
+                                      memcpy(work, line, sizeof(work));
+                                      work[sizeof(work) - 1u] = '\0';
+                                      trimmed = cpu_component_trim(work);
+                                      line_changed = 0;
+                                      if (trimmed != NULL) {
+                                          if (strncmp(trimmed, "- id:", 5) == 0 || strncmp(trimmed, "id:", 3) == 0) {
+                                              const char *p = strchr(trimmed, ':');
+                                              in_bbox = 0;
+                                              in_overlay = 0;
+                                              overlay_idx = 0;
+                                              cur_id[0] = '\0';
+                                              if (p != NULL) {
+                                                  char val[128];
+                                                  char *tv;
+                                                  size_t vn;
+                                                  memset(val, 0, sizeof(val));
+                                                  strncpy(val, p + 1, sizeof(val) - 1u);
+                                                  tv = cpu_component_trim(val);
+                                                  if (tv != NULL) {
+                                                      vn = strlen(tv);
+                                                      if (vn >= 2u && ((tv[0] == '\'' && tv[vn - 1u] == '\'') || (tv[0] == '"' && tv[vn - 1u] == '"'))) {
+                                                          tv[vn - 1u] = '\0';
+                                                          tv += 1;
+                                                      }
+                                                      strncpy(cur_id, tv, sizeof(cur_id) - 1u);
+                                                      {
+                                                          int known = 0;
+                                                          for (uint32_t bi = 0u; bi < comp->mapper_box_count; ++bi) {
+                                                              if (strcmp(boxes[bi].id, cur_id) == 0) {
+                                                                  known = 1;
+                                                                  if (found_ids != NULL) found_ids[bi] = 1u;
+                                                                  break;
+                                                              }
+                                                          }
+                                                          skip_key_block = (known == 0) ? 1 : 0;
+                                                          if (skip_key_block != 0) {
+                                                              in_bbox = 0;
+                                                              in_overlay = 0;
+                                                              overlay_idx = 0;
+                                                              line_changed = 1;
+                                                          }
+                                                      }
+                                                  }
+                                              }
+                                          } else if (strncmp(trimmed, "bbox:", 5) == 0) {
+                                              in_bbox = 1;
+                                              in_overlay = 0;
+                                              overlay_idx = 0;
+                                          } else if (strncmp(trimmed, "overlay_color:", 14) == 0) {
+                                              in_overlay = 1;
+                                              overlay_idx = 0;
+                                          } else if (trimmed[0] == '-' && strncmp(trimmed, "- ", 2) == 0) {
+                                              in_bbox = 0;
+                                          }
+                                          if (skip_key_block != 0) {
+                                              line_changed = 1;
+                                          } else if (in_bbox != 0 && cur_id[0] != '\0') {
+                                              const MapperBox *b = NULL;
+                                              for (uint32_t bi = 0u; bi < comp->mapper_box_count; ++bi) {
+                                                  if (strcmp(boxes[bi].id, cur_id) == 0) {
+                                                      b = &boxes[bi];
+                                                      break;
+                                                  }
+                                              }
+                                              if (b != NULL) {
+                                                  int indent = 0;
+                                                  while (line[indent] == ' ' || line[indent] == '\t') indent++;
+                                                  if (strncmp(trimmed, "x:", 2) == 0) {
+                                                      fprintf(out_fp, "%.*sx: %d\n", indent, line, b->x);
+                                                      line_changed = 1;
+                                                  } else if (strncmp(trimmed, "y:", 2) == 0) {
+                                                      fprintf(out_fp, "%.*sy: %d\n", indent, line, b->y);
+                                                      line_changed = 1;
+                                                  } else if (strncmp(trimmed, "width:", 6) == 0) {
+                                                      fprintf(out_fp, "%.*swidth: %d\n", indent, line, b->w);
+                                                      line_changed = 1;
+                                                  } else if (strncmp(trimmed, "height:", 7) == 0) {
+                                                      fprintf(out_fp, "%.*sheight: %d\n", indent, line, b->h);
+                                                      line_changed = 1;
+                                                  }
+                                              }
+                                          }
+                                          if (in_overlay != 0 && cur_id[0] != '\0' &&
+                                              trimmed[0] == '-' && strncmp(trimmed, "- ", 2) == 0) {
+                                              const MapperBox *b = NULL;
+                                              for (uint32_t bi = 0u; bi < comp->mapper_box_count; ++bi) {
+                                                  if (strcmp(boxes[bi].id, cur_id) == 0) {
+                                                      b = &boxes[bi];
+                                                      break;
+                                                  }
+                                              }
+                                              if (b != NULL && b->has_overlay != 0u && overlay_idx < 3) {
+                                                  int indent = 0;
+                                                  int vv = 0;
+                                                  while (line[indent] == ' ' || line[indent] == '\t') indent++;
+                                                  if (overlay_idx == 0) vv = (int)b->or_;
+                                                  else if (overlay_idx == 1) vv = (int)b->og;
+                                                  else vv = (int)b->ob;
+                                                  fprintf(out_fp, "%.*s- %d\n", indent, line, vv);
+                                                  line_changed = 1;
+                                              }
+                                              overlay_idx += 1;
+                                          } else if (in_overlay != 0 && trimmed[0] != '-') {
+                                              in_overlay = 0;
+                                              overlay_idx = 0;
+                                          }
+                                      }
+                                      if (line_changed == 0) {
+                                          fputs(line, out_fp);
+                                      }
+                                  }
+                              }
+                              if (save_failed == 0 && out_fp != NULL && found_ids != NULL) {
+                                  for (uint32_t bi = 0u; bi < comp->mapper_box_count; ++bi) {
+                                      if (found_ids[bi] != 0u) continue;
+                                      fprintf(out_fp, "- id: %s\n", boxes[bi].id);
+                                      fprintf(out_fp, "  multi_legend: false\n");
+                                      fprintf(out_fp, "  legend:\n");
+                                      fprintf(out_fp, "  - %s\n", boxes[bi].id);
+                                      fprintf(out_fp, "  legend_combos:\n");
+                                      fprintf(out_fp, "    %s:\n", boxes[bi].id);
+                                      fprintf(out_fp, "    - %s\n", boxes[bi].id);
+                                      fprintf(out_fp, "  bbox:\n");
+                                      fprintf(out_fp, "    x: %d\n", boxes[bi].x);
+                                      fprintf(out_fp, "    y: %d\n", boxes[bi].y);
+                                      fprintf(out_fp, "    width: %d\n", boxes[bi].w);
+                                      fprintf(out_fp, "    height: %d\n", boxes[bi].h);
+                                      if (boxes[bi].has_overlay != 0u) {
+                                          fprintf(out_fp, "  overlay_color:\n");
+                                          fprintf(out_fp, "  - %u\n", (unsigned)boxes[bi].or_);
+                                          fprintf(out_fp, "  - %u\n", (unsigned)boxes[bi].og);
+                                          fprintf(out_fp, "  - %u\n", (unsigned)boxes[bi].ob);
+                                      }
+                                  }
+                              }
+                              if (in_fp != NULL) fclose(in_fp);
+                              if (out_fp != NULL) fclose(out_fp);
+                              if (save_failed == 0) {
+                                  if (rename(tmp_path, src_path) != 0) {
+                                      remove(tmp_path);
+                                      save_failed = 1;
+                                  }
+                              }
+                              if (found_ids != NULL) {
+                                  free(found_ids);
+                                  found_ids = NULL;
+                              }
+                              if (save_failed != 0) {
+                                  cpu_host_hal_log("keymapper_tool: failed to save mapper file: %s", src_path);
+                              } else {
+                                  comp->dirty = 0u;
+                                  cpu_host_hal_log("keymapper_tool: saved mapper file: %s", src_path);
+                              }
+                          } else {
+                              save_failed = 1;
+                          }
+                          if (save_failed == 0) {
+                              comp->quit_after_save = 1u;
+                              cpu->running = false;
+                              cpu->halted = true;
+                              continue;
+                          }
+                      } else if (sc == CPU_HOST_SCANCODE(RETURN) || sc == CPU_HOST_SCANCODE(KP_ENTER) || sc == CPU_HOST_SCANCODE(Q)) {
+                          cpu->running = false;
+                          cpu->halted = true;
+                          continue;
+                      } else if (sc == CPU_HOST_SCANCODE(ESCAPE)) {
+                          comp->quit_prompt_active = 0u;
+                          comp->quit_after_save = 0u;
+                      }
+                      title_dirty = 1u;
+                      continue;
+                  }
+                  if (et == CPU_HOST_EVENT_KEYDOWN && comp->title_last_repeat == 0u) {
+                      if (comp->pick_color_mode != 0u && sc == CPU_HOST_SCANCODE(ESCAPE)) {
+                          comp->pick_color_mode = 0u;
+                          if (comp->cursor_arrow != NULL) {
+                              SDL_SetCursor((SDL_Cursor *)comp->cursor_arrow);
+                          }
+                          title_dirty = 1u;
+                          continue;
+                      }
+                      if (sc == CPU_HOST_SCANCODE(F2)) {
+                          if (comp->selected_box >= 0 && (uint32_t)comp->selected_box < comp->mapper_box_count) {
+                              const char *sid = boxes[comp->selected_box].id;
+                              size_t n = strlen(sid);
+                              if (n >= sizeof(rename_buf)) n = sizeof(rename_buf) - 1u;
+                              memset(rename_buf, 0, sizeof(rename_buf));
+                              memcpy(rename_buf, sid, n);
+                              rename_len = (uint32_t)n;
+                              comp->rename_mode = 1u;
+                              cpu_host_hal_start_text_input();
+                              title_dirty = 1u;
+                          }
+                          continue;
+                      }
+                      if ((comp->title_last_mods & CPU_HOST_MOD_CTRL) != 0u && sc == CPU_HOST_SCANCODE(Q)) {
+                          if (comp->dirty != 0u) {
+                              comp->quit_prompt_active = 1u;
+                              comp->quit_after_save = 0u;
+                              title_dirty = 1u;
+                              continue;
+                          }
+                          cpu->running = false;
+                          cpu->halted = true;
+                          continue;
+                      }
+                      if ((comp->title_last_mods & CPU_HOST_MOD_CTRL) != 0u && sc == CPU_HOST_SCANCODE(0)) {
+                          int max_x = 0;
+                          int max_y = 0;
+                          int target_q8 = 256;
+                          if (comp->image_w > max_x) max_x = comp->image_w;
+                          if (comp->image_h > max_y) max_y = comp->image_h;
+                          for (uint32_t i = 0u; i < comp->mapper_box_count; ++i) {
+                              int bx2 = boxes[i].x + boxes[i].w;
+                              int by2 = boxes[i].y + boxes[i].h;
+                              if (bx2 > max_x) max_x = bx2;
+                              if (by2 > max_y) max_y = by2;
+                          }
+                          if (max_x > 0 && max_y > 0 && win_w > 0 && win_h > 0) {
+                              int zx = (win_w * 256) / max_x;
+                              int zy = (win_h * 256) / max_y;
+                              target_q8 = (zx < zy) ? zx : zy;
+                              if (target_q8 < 64) target_q8 = 64;
+                              if (target_q8 > 1024) target_q8 = 1024;
+                          }
+                          comp->view_zoom_q8 = target_q8;
+                          comp->view_off_x = 0;
+                          comp->view_off_y = 0;
+                          title_dirty = 1u;
+                          continue;
+                      }
+                      if ((comp->title_last_mods & CPU_HOST_MOD_CTRL) != 0u && sc == CPU_HOST_SCANCODE(I)) {
+                          comp->pick_color_mode = (comp->pick_color_mode == 0u) ? 1u : 0u;
+                          if (comp->pick_color_mode != 0u) {
+                              if (comp->cursor_crosshair != NULL) {
+                                  SDL_SetCursor((SDL_Cursor *)comp->cursor_crosshair);
+                              }
+                          } else if (comp->cursor_arrow != NULL) {
+                              SDL_SetCursor((SDL_Cursor *)comp->cursor_arrow);
+                          }
+                          title_dirty = 1u;
+                          continue;
+                      }
+                      if ((comp->title_last_mods & CPU_HOST_MOD_CTRL) != 0u && sc == CPU_HOST_SCANCODE(D)) {
+                          if (comp->mapper_box_count > 0u && comp->selection_count > 0u) {
+                              uint32_t old_count = comp->mapper_box_count;
+                              uint32_t sel_count = 0u;
+                              for (uint32_t i = 0u; i < old_count; ++i) {
+                                  if (sel != NULL && sel[i] != 0u) sel_count += 1u;
+                              }
+                              if (sel_count > 0u) {
+                                  MapperBox *snap = (MapperBox *)malloc((size_t)old_count * sizeof(MapperBox));
+                                  if (snap != NULL) {
+                                      memcpy(snap, boxes, (size_t)old_count * sizeof(MapperBox));
+                                      if (undo_boxes != NULL) free(undo_boxes);
+                                      undo_boxes = snap;
+                                      comp->undo_boxes = snap;
+                                      comp->undo_count = old_count;
+                                      comp->undo_valid = 1u;
+                                      if (redo_boxes != NULL) {
+                                          free(redo_boxes);
+                                          redo_boxes = NULL;
+                                      }
+                                      comp->redo_boxes = NULL;
+                                      comp->redo_count = 0u;
+                                      comp->redo_valid = 0u;
+                                  }
+                                  if (comp->mapper_box_cap < old_count + sel_count) {
+                                      uint32_t new_cap = comp->mapper_box_cap;
+                                      if (new_cap == 0u) new_cap = 128u;
+                                      while (new_cap < old_count + sel_count) new_cap *= 2u;
+                                      {
+                                          MapperBox *nb = (MapperBox *)realloc(boxes, (size_t)new_cap * sizeof(MapperBox));
+                                          if (nb != NULL) {
+                                              boxes = nb;
+                                              comp->mapper_boxes = nb;
+                                              comp->mapper_box_cap = new_cap;
+                                          }
+                                      }
+                                  }
+                                  if (comp->mapper_box_cap >= old_count + sel_count) {
+                                      if (sel != NULL) {
+                                          uint8_t *ns = (uint8_t *)realloc(sel, (size_t)(old_count + sel_count) * sizeof(uint8_t));
+                                          if (ns != NULL) {
+                                              sel = ns;
+                                              comp->selection_mask = ns;
+                                          }
+                                      } else {
+                                          sel = (uint8_t *)calloc((size_t)(old_count + sel_count), sizeof(uint8_t));
+                                          comp->selection_mask = sel;
+                                      }
+                                      if (sel != NULL) {
+                                          uint32_t wi = old_count;
+                                          for (uint32_t i = 0u; i < old_count; ++i) {
+                                              if (sel[i] == 0u) continue;
+                                              boxes[wi] = boxes[i];
+                                              boxes[wi].x += 12;
+                                              boxes[wi].y += 12;
+                                              if (boxes[wi].x < 0) boxes[wi].x = 0;
+                                              if (boxes[wi].y < 0) boxes[wi].y = 0;
+                                              {
+                                                  char base[96];
+                                                  unsigned n = 1u;
+                                                  int unique = 0;
+                                                  snprintf(base, sizeof(base), "%s_copy", boxes[i].id);
+                                                  strncpy(boxes[wi].id, base, sizeof(boxes[wi].id) - 1u);
+                                                  boxes[wi].id[sizeof(boxes[wi].id) - 1u] = '\0';
+                                                  while (!unique) {
+                                                      unique = 1;
+                                                      for (uint32_t k = 0u; k < wi; ++k) {
+                                                          if (strcmp(boxes[k].id, boxes[wi].id) == 0) {
+                                                              unique = 0;
+                                                              n += 1u;
+                                                              snprintf(boxes[wi].id, sizeof(boxes[wi].id), "%s%u", base, n);
+                                                              break;
+                                                          }
+                                                      }
+                                                  }
+                                              }
+                                              wi += 1u;
+                                          }
+                                          comp->mapper_box_count = wi;
+                                          memset(sel, 0, (size_t)comp->mapper_box_count * sizeof(uint8_t));
+                                          for (uint32_t i = old_count; i < comp->mapper_box_count; ++i) {
+                                              sel[i] = 1u;
+                                          }
+                                          comp->selection_count = comp->mapper_box_count - old_count;
+                                          comp->selected_box = (comp->selection_count > 0u) ? (int32_t)old_count : -1;
+                                          comp->dirty = 1u;
+                                          title_dirty = 1u;
+                                      }
+                                  }
+                              }
+                          }
+                          continue;
+                      }
+                      if ((comp->title_last_mods & CPU_HOST_MOD_CTRL) != 0u && sc == CPU_HOST_SCANCODE(N)) {
+                          if (comp->mapper_box_count > 0u) {
+                              MapperBox *snap = (MapperBox *)malloc((size_t)comp->mapper_box_count * sizeof(MapperBox));
+                              if (snap != NULL) {
+                                  memcpy(snap, boxes, (size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                  if (undo_boxes != NULL) free(undo_boxes);
+                                  undo_boxes = snap;
+                                  comp->undo_boxes = snap;
+                                  comp->undo_count = comp->mapper_box_count;
+                                  comp->undo_valid = 1u;
+                                  if (redo_boxes != NULL) {
+                                      free(redo_boxes);
+                                      redo_boxes = NULL;
+                                  }
+                                  comp->redo_boxes = NULL;
+                                  comp->redo_count = 0u;
+                                  comp->redo_valid = 0u;
+                              }
+                          }
+                          if (comp->mapper_box_count >= comp->mapper_box_cap) {
+                              uint32_t new_cap = (comp->mapper_box_cap == 0u) ? 128u : (comp->mapper_box_cap * 2u);
+                              MapperBox *nb = (MapperBox *)realloc(boxes, (size_t)new_cap * sizeof(MapperBox));
+                              if (nb != NULL) {
+                                  boxes = nb;
+                                  comp->mapper_boxes = nb;
+                                  comp->mapper_box_cap = new_cap;
+                              }
+                          }
+                          if (comp->mapper_box_count < comp->mapper_box_cap) {
+                              uint8_t *new_sel = NULL;
+                              uint32_t new_count = comp->mapper_box_count + 1u;
+                              if (sel != NULL) {
+                                  new_sel = (uint8_t *)realloc(sel, (size_t)new_count * sizeof(uint8_t));
+                              } else {
+                                  new_sel = (uint8_t *)calloc((size_t)new_count, sizeof(uint8_t));
+                              }
+                              if (new_sel != NULL) {
+                                  sel = new_sel;
+                                  comp->selection_mask = new_sel;
+                                  if (new_count > 1u) {
+                                      memset(sel, 0, (size_t)new_count * sizeof(uint8_t));
+                                  }
+                              }
+                              {
+                                  uint32_t ni = comp->mapper_box_count;
+                                  int32_t zoom = comp->view_zoom_q8;
+                                  int wx = ((comp->last_mouse_x + comp->view_off_x) * 256) / (zoom > 0 ? zoom : 256);
+                                  int wy = ((comp->last_mouse_y + comp->view_off_y) * 256) / (zoom > 0 ? zoom : 256);
+                                  memset(&boxes[ni], 0, sizeof(MapperBox));
+                                  snprintf(boxes[ni].id, sizeof(boxes[ni].id), "new_key_%u", (unsigned)(ni + 1u));
+                                  boxes[ni].x = (wx >= 0) ? wx : 0;
+                                  boxes[ni].y = (wy >= 0) ? wy : 0;
+                                  boxes[ni].w = 60;
+                                  boxes[ni].h = 40;
+                                  comp->mapper_box_count = new_count;
+                                  comp->selected_box = (int32_t)ni;
+                                  comp->selection_count = 1u;
+                                  if (sel != NULL) {
+                                      sel[ni] = 1u;
+                                  }
+                                  comp->dirty = 1u;
+                              }
+                          }
+                          title_dirty = 1u;
+                          continue;
+                      }
+                      if (sc == CPU_HOST_SCANCODE(DELETE) || sc == CPU_HOST_SCANCODE(BACKSPACE)) {
+                          if (comp->mapper_box_count > 0u && (comp->selection_count > 0u || comp->selected_box >= 0)) {
+                              uint32_t remove_count = 0u;
+                              if (sel != NULL) {
+                                  for (uint32_t i = 0u; i < comp->mapper_box_count; ++i) {
+                                      if (sel[i] != 0u) remove_count += 1u;
+                                  }
+                              } else if (comp->selected_box >= 0 && (uint32_t)comp->selected_box < comp->mapper_box_count) {
+                                  remove_count = 1u;
+                              }
+                              if (remove_count > 0u) {
+                                  MapperBox *snap = (MapperBox *)malloc((size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                  if (snap != NULL) {
+                                      memcpy(snap, boxes, (size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                      if (undo_boxes != NULL) free(undo_boxes);
+                                      undo_boxes = snap;
+                                      comp->undo_boxes = snap;
+                                      comp->undo_count = comp->mapper_box_count;
+                                      comp->undo_valid = 1u;
+                                      if (redo_boxes != NULL) {
+                                          free(redo_boxes);
+                                          redo_boxes = NULL;
+                                      }
+                                      comp->redo_boxes = NULL;
+                                      comp->redo_count = 0u;
+                                      comp->redo_valid = 0u;
+                                  }
+                                  {
+                                      uint32_t wi = 0u;
+                                      for (uint32_t ri = 0u; ri < comp->mapper_box_count; ++ri) {
+                                          uint8_t to_remove = 0u;
+                                          if (sel != NULL) {
+                                              to_remove = sel[ri];
+                                          } else if ((int32_t)ri == comp->selected_box) {
+                                              to_remove = 1u;
+                                          }
+                                          if (to_remove == 0u) {
+                                              if (wi != ri) boxes[wi] = boxes[ri];
+                                              wi += 1u;
+                                          }
+                                      }
+                                      comp->mapper_box_count = wi;
+                                      comp->selected_box = (wi > 0u) ? 0 : -1;
+                                      comp->selection_count = (wi > 0u) ? 1u : 0u;
+                                      if (sel != NULL) {
+                                          memset(sel, 0, (size_t)wi * sizeof(uint8_t));
+                                          if (wi > 0u) sel[0] = 1u;
+                                      }
+                                      comp->dirty = 1u;
+                                  }
+                                  title_dirty = 1u;
+                              }
+                          }
+                          continue;
+                      }
+                      if ((comp->title_last_mods & CPU_HOST_MOD_CTRL) != 0u &&
+                          (sc == CPU_HOST_SCANCODE(L) || sc == CPU_HOST_SCANCODE(R) ||
+                           sc == CPU_HOST_SCANCODE(T) || sc == CPU_HOST_SCANCODE(B) ||
+                           sc == CPU_HOST_SCANCODE(W) || sc == CPU_HOST_SCANCODE(H) ||
+                           sc == CPU_HOST_SCANCODE(E))) {
+                          if (comp->mapper_box_count > 1u &&
+                              comp->selected_box >= 0 &&
+                              (uint32_t)comp->selected_box < comp->mapper_box_count &&
+                              comp->selection_count >= 2u) {
+                              MapperBox *snap = (MapperBox *)malloc((size_t)comp->mapper_box_count * sizeof(MapperBox));
+                              if (snap != NULL) {
+                                  const MapperBox *a = &boxes[comp->selected_box];
+                                  memcpy(snap, boxes, (size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                  if (undo_boxes != NULL) free(undo_boxes);
+                                  undo_boxes = snap;
+                                  comp->undo_boxes = snap;
+                                  comp->undo_count = comp->mapper_box_count;
+                                  comp->undo_valid = 1u;
+                                  if (redo_boxes != NULL) {
+                                      free(redo_boxes);
+                                      redo_boxes = NULL;
+                                  }
+                                  comp->redo_boxes = NULL;
+                                  comp->redo_count = 0u;
+                                  comp->redo_valid = 0u;
+                                  for (uint32_t i = 0u; i < comp->mapper_box_count; ++i) {
+                                      MapperBox *b = &boxes[i];
+                                      if ((int32_t)i == comp->selected_box) continue;
+                                      if (sel != NULL && sel[i] == 0u) continue;
+                                      if (sc == CPU_HOST_SCANCODE(L)) {
+                                          b->x = a->x;
+                                      } else if (sc == CPU_HOST_SCANCODE(R)) {
+                                          b->x = a->x + a->w - b->w;
+                                      } else if (sc == CPU_HOST_SCANCODE(T)) {
+                                          b->y = a->y;
+                                      } else if (sc == CPU_HOST_SCANCODE(B)) {
+                                          b->y = a->y + a->h - b->h;
+                                      } else if (sc == CPU_HOST_SCANCODE(W)) {
+                                          b->w = a->w;
+                                      } else if (sc == CPU_HOST_SCANCODE(H)) {
+                                          b->h = a->h;
+                                      } else if (sc == CPU_HOST_SCANCODE(E)) {
+                                          b->w = a->w;
+                                          b->h = a->h;
+                                      }
+                                      if (b->x < 0) b->x = 0;
+                                      if (b->y < 0) b->y = 0;
+                                      if (b->w < 1) b->w = 1;
+                                      if (b->h < 1) b->h = 1;
+                                  }
+                                  comp->dirty = 1u;
+                                  title_dirty = 1u;
+                              }
+                          }
+                          continue;
+                      }
+                      if ((comp->title_last_mods & CPU_HOST_MOD_CTRL) != 0u &&
+                          (comp->title_last_mods & CPU_HOST_MOD_SHIFT) != 0u &&
+                          (sc == CPU_HOST_SCANCODE(H) || sc == CPU_HOST_SCANCODE(V))) {
+                          if (comp->mapper_box_count >= 3u && comp->selection_count >= 3u) {
+                              uint32_t idxs[512];
+                              uint32_t n = 0u;
+                              if (sel != NULL) {
+                                  for (uint32_t i = 0u; i < comp->mapper_box_count && n < 512u; ++i) {
+                                      if (sel[i] != 0u) idxs[n++] = i;
+                                  }
+                              }
+                              if (n >= 3u) {
+                                  MapperBox *snap = (MapperBox *)malloc((size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                  if (snap != NULL) {
+                                      memcpy(snap, boxes, (size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                      if (undo_boxes != NULL) free(undo_boxes);
+                                      undo_boxes = snap;
+                                      comp->undo_boxes = snap;
+                                      comp->undo_count = comp->mapper_box_count;
+                                      comp->undo_valid = 1u;
+                                      if (redo_boxes != NULL) {
+                                          free(redo_boxes);
+                                          redo_boxes = NULL;
+                                      }
+                                      comp->redo_boxes = NULL;
+                                      comp->redo_count = 0u;
+                                      comp->redo_valid = 0u;
+
+                                      for (uint32_t a = 0u; a + 1u < n; ++a) {
+                                          for (uint32_t b = a + 1u; b < n; ++b) {
+                                              int ca, cb;
+                                              if (sc == CPU_HOST_SCANCODE(H)) {
+                                                  ca = boxes[idxs[a]].x + (boxes[idxs[a]].w / 2);
+                                                  cb = boxes[idxs[b]].x + (boxes[idxs[b]].w / 2);
+                                              } else {
+                                                  ca = boxes[idxs[a]].y + (boxes[idxs[a]].h / 2);
+                                                  cb = boxes[idxs[b]].y + (boxes[idxs[b]].h / 2);
+                                              }
+                                              if (ca > cb) {
+                                                  uint32_t t = idxs[a];
+                                                  idxs[a] = idxs[b];
+                                                  idxs[b] = t;
+                                              }
+                                          }
+                                      }
+                                      {
+                                          uint32_t first = idxs[0];
+                                          uint32_t last = idxs[n - 1u];
+                                          int start = (sc == CPU_HOST_SCANCODE(H))
+                                              ? (boxes[first].x + (boxes[first].w / 2))
+                                              : (boxes[first].y + (boxes[first].h / 2));
+                                          int end = (sc == CPU_HOST_SCANCODE(H))
+                                              ? (boxes[last].x + (boxes[last].w / 2))
+                                              : (boxes[last].y + (boxes[last].h / 2));
+                                          double step = (double)(end - start) / (double)(n - 1u);
+                                          for (uint32_t i = 1u; i + 1u < n; ++i) {
+                                              uint32_t mi = idxs[i];
+                                              int center = (int)(start + (step * (double)i) + (step >= 0.0 ? 0.5 : -0.5));
+                                              if (sc == CPU_HOST_SCANCODE(H)) {
+                                                  boxes[mi].x = center - (boxes[mi].w / 2);
+                                                  if (boxes[mi].x < 0) boxes[mi].x = 0;
+                                              } else {
+                                                  boxes[mi].y = center - (boxes[mi].h / 2);
+                                                  if (boxes[mi].y < 0) boxes[mi].y = 0;
+                                              }
+                                          }
+                                      }
+                                      comp->dirty = 1u;
+                                      title_dirty = 1u;
+                                  }
+                              }
+                          }
+                          continue;
+                      }
+                      if ((comp->title_last_mods & CPU_HOST_MOD_CTRL) != 0u && sc == CPU_HOST_SCANCODE(Z)) {
+                          if (comp->undo_valid != 0u && undo_boxes != NULL) {
+                              MapperBox *curr = NULL;
+                              if (comp->mapper_box_count > 0u) {
+                                  curr = (MapperBox *)malloc((size_t)comp->mapper_box_count * sizeof(MapperBox));
+                              }
+                              if (curr != NULL || comp->mapper_box_count == 0u) {
+                                  if (curr != NULL) {
+                                      memcpy(curr, boxes, (size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                  }
+                                  if (redo_boxes != NULL) free(redo_boxes);
+                                  comp->redo_boxes = curr;
+                                  comp->redo_count = comp->mapper_box_count;
+                                  comp->redo_valid = 1u;
+                                  redo_boxes = curr;
+                                  if (comp->mapper_box_cap < comp->undo_count) {
+                                      MapperBox *nb = (MapperBox *)realloc(boxes, (size_t)comp->undo_count * sizeof(MapperBox));
+                                      if (nb != NULL) {
+                                          boxes = nb;
+                                          comp->mapper_boxes = nb;
+                                          comp->mapper_box_cap = comp->undo_count;
+                                      }
+                                  }
+                                  if (comp->mapper_box_cap >= comp->undo_count) {
+                                      memcpy(boxes, undo_boxes, (size_t)comp->undo_count * sizeof(MapperBox));
+                                      comp->mapper_box_count = comp->undo_count;
+                                      if (sel != NULL) {
+                                          uint8_t *ns = (uint8_t *)realloc(sel, (size_t)comp->mapper_box_count * sizeof(uint8_t));
+                                          if (ns != NULL || comp->mapper_box_count == 0u) {
+                                              sel = ns;
+                                              comp->selection_mask = ns;
+                                          }
+                                      } else if (comp->mapper_box_count > 0u) {
+                                          sel = (uint8_t *)calloc((size_t)comp->mapper_box_count, sizeof(uint8_t));
+                                          comp->selection_mask = sel;
+                                      }
+                                      if (sel != NULL && comp->mapper_box_count > 0u) {
+                                          memset(sel, 0, (size_t)comp->mapper_box_count * sizeof(uint8_t));
+                                          sel[0] = 1u;
+                                      }
+                                      comp->selection_count = (comp->mapper_box_count > 0u) ? 1u : 0u;
+                                      comp->selected_box = (comp->mapper_box_count > 0u) ? 0 : -1;
+                                  }
+                                  comp->undo_valid = 0u;
+                                  title_dirty = 1u;
+                              }
+                          }
+                      } else if ((comp->title_last_mods & CPU_HOST_MOD_CTRL) != 0u && sc == CPU_HOST_SCANCODE(Y)) {
+                          if (comp->redo_valid != 0u && redo_boxes != NULL) {
+                              MapperBox *curr = NULL;
+                              if (comp->mapper_box_count > 0u) {
+                                  curr = (MapperBox *)malloc((size_t)comp->mapper_box_count * sizeof(MapperBox));
+                              }
+                              if (curr != NULL || comp->mapper_box_count == 0u) {
+                                  if (curr != NULL) {
+                                      memcpy(curr, boxes, (size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                  }
+                                  if (undo_boxes != NULL) free(undo_boxes);
+                                  comp->undo_boxes = curr;
+                                  comp->undo_count = comp->mapper_box_count;
+                                  comp->undo_valid = 1u;
+                                  undo_boxes = curr;
+                                  if (comp->mapper_box_cap < comp->redo_count) {
+                                      MapperBox *nb = (MapperBox *)realloc(boxes, (size_t)comp->redo_count * sizeof(MapperBox));
+                                      if (nb != NULL) {
+                                          boxes = nb;
+                                          comp->mapper_boxes = nb;
+                                          comp->mapper_box_cap = comp->redo_count;
+                                      }
+                                  }
+                                  if (comp->mapper_box_cap >= comp->redo_count) {
+                                      memcpy(boxes, redo_boxes, (size_t)comp->redo_count * sizeof(MapperBox));
+                                      comp->mapper_box_count = comp->redo_count;
+                                      if (sel != NULL) {
+                                          uint8_t *ns = (uint8_t *)realloc(sel, (size_t)comp->mapper_box_count * sizeof(uint8_t));
+                                          if (ns != NULL || comp->mapper_box_count == 0u) {
+                                              sel = ns;
+                                              comp->selection_mask = ns;
+                                          }
+                                      } else if (comp->mapper_box_count > 0u) {
+                                          sel = (uint8_t *)calloc((size_t)comp->mapper_box_count, sizeof(uint8_t));
+                                          comp->selection_mask = sel;
+                                      }
+                                      if (sel != NULL && comp->mapper_box_count > 0u) {
+                                          memset(sel, 0, (size_t)comp->mapper_box_count * sizeof(uint8_t));
+                                          sel[0] = 1u;
+                                      }
+                                      comp->selection_count = (comp->mapper_box_count > 0u) ? 1u : 0u;
+                                      comp->selected_box = (comp->mapper_box_count > 0u) ? 0 : -1;
+                                  }
+                                  comp->redo_valid = 0u;
+                                  title_dirty = 1u;
+                              }
+                          }
+                      } else if ((comp->title_last_mods & CPU_HOST_MOD_CTRL) != 0u && sc == CPU_HOST_SCANCODE(S)) {
+                          const char *src_path = (const char *)comp->mapper_path;
+                          if (src_path != NULL && src_path[0] != '\0') {
+                              char tmp_path[768];
+                              FILE *in_fp = NULL;
+                              FILE *out_fp = NULL;
+                              char line[1024];
+                              char cur_id[128];
+                              uint8_t *found_ids = NULL;
+                              int skip_key_block = 0;
+                              int in_bbox = 0;
+                              int in_overlay = 0;
+                              int overlay_idx = 0;
+                              int line_changed = 0;
+                              int save_failed = 0;
+                              cur_id[0] = '\0';
+                              snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", src_path);
+                              if (comp->mapper_box_count > 0u) {
+                                  found_ids = (uint8_t *)calloc((size_t)comp->mapper_box_count, sizeof(uint8_t));
+                              }
+                              in_fp = fopen(src_path, "r");
+                              out_fp = fopen(tmp_path, "w");
+                              if (in_fp == NULL || out_fp == NULL) {
+                                  save_failed = 1;
+                              } else {
+                                  while (fgets(line, (int)sizeof(line), in_fp) != NULL) {
+                                      char work[1024];
+                                      char *trimmed;
+                                      memcpy(work, line, sizeof(work));
+                                      work[sizeof(work) - 1u] = '\0';
+                                      trimmed = cpu_component_trim(work);
+                                      line_changed = 0;
+                                      if (trimmed != NULL) {
+                                          if (strncmp(trimmed, "- id:", 5) == 0 || strncmp(trimmed, "id:", 3) == 0) {
+                                              const char *p = strchr(trimmed, ':');
+                                              in_bbox = 0;
+                                              in_overlay = 0;
+                                              overlay_idx = 0;
+                                              cur_id[0] = '\0';
+                                              if (p != NULL) {
+                                                  char val[128];
+                                                  char *tv;
+                                                  size_t vn;
+                                                  memset(val, 0, sizeof(val));
+                                                  strncpy(val, p + 1, sizeof(val) - 1u);
+                                                  tv = cpu_component_trim(val);
+                                                  if (tv != NULL) {
+                                                      vn = strlen(tv);
+                                                      if (vn >= 2u && ((tv[0] == '\'' && tv[vn - 1u] == '\'') || (tv[0] == '"' && tv[vn - 1u] == '"'))) {
+                                                          tv[vn - 1u] = '\0';
+                                                          tv += 1;
+                                                      }
+                                                      strncpy(cur_id, tv, sizeof(cur_id) - 1u);
+                                                      {
+                                                          int known = 0;
+                                                          for (uint32_t bi = 0u; bi < comp->mapper_box_count; ++bi) {
+                                                              if (strcmp(boxes[bi].id, cur_id) == 0) {
+                                                                  known = 1;
+                                                                  if (found_ids != NULL) found_ids[bi] = 1u;
+                                                                  break;
+                                                              }
+                                                          }
+                                                          skip_key_block = (known == 0) ? 1 : 0;
+                                                          if (skip_key_block != 0) {
+                                                              in_bbox = 0;
+                                                              in_overlay = 0;
+                                                              overlay_idx = 0;
+                                                              line_changed = 1;
+                                                          }
+                                                      }
+                                                  }
+                                              }
+                                          } else if (strncmp(trimmed, "bbox:", 5) == 0) {
+                                              in_bbox = 1;
+                                              in_overlay = 0;
+                                              overlay_idx = 0;
+                                          } else if (strncmp(trimmed, "overlay_color:", 14) == 0) {
+                                              in_overlay = 1;
+                                              overlay_idx = 0;
+                                          } else if (trimmed[0] == '-' && strncmp(trimmed, "- ", 2) == 0) {
+                                              in_bbox = 0;
+                                          }
+                                          if (skip_key_block != 0) {
+                                              line_changed = 1;
+                                          } else if (in_bbox != 0 && cur_id[0] != '\0') {
+                                              const MapperBox *b = NULL;
+                                              for (uint32_t bi = 0u; bi < comp->mapper_box_count; ++bi) {
+                                                  if (strcmp(boxes[bi].id, cur_id) == 0) {
+                                                      b = &boxes[bi];
+                                                      break;
+                                                  }
+                                              }
+                                              if (b != NULL) {
+                                                  int indent = 0;
+                                                  while (line[indent] == ' ' || line[indent] == '\t') indent++;
+                                                  if (strncmp(trimmed, "x:", 2) == 0) {
+                                                      fprintf(out_fp, "%.*sx: %d\n", indent, line, b->x);
+                                                      line_changed = 1;
+                                                  } else if (strncmp(trimmed, "y:", 2) == 0) {
+                                                      fprintf(out_fp, "%.*sy: %d\n", indent, line, b->y);
+                                                      line_changed = 1;
+                                                  } else if (strncmp(trimmed, "width:", 6) == 0) {
+                                                      fprintf(out_fp, "%.*swidth: %d\n", indent, line, b->w);
+                                                      line_changed = 1;
+                                                  } else if (strncmp(trimmed, "height:", 7) == 0) {
+                                                      fprintf(out_fp, "%.*sheight: %d\n", indent, line, b->h);
+                                                      line_changed = 1;
+                                                  }
+                                              }
+                                          }
+                                          if (in_overlay != 0 && cur_id[0] != '\0' &&
+                                              trimmed[0] == '-' && strncmp(trimmed, "- ", 2) == 0) {
+                                              const MapperBox *b = NULL;
+                                              for (uint32_t bi = 0u; bi < comp->mapper_box_count; ++bi) {
+                                                  if (strcmp(boxes[bi].id, cur_id) == 0) {
+                                                      b = &boxes[bi];
+                                                      break;
+                                                  }
+                                              }
+                                              if (b != NULL && b->has_overlay != 0u && overlay_idx < 3) {
+                                                  int indent = 0;
+                                                  int vv = 0;
+                                                  while (line[indent] == ' ' || line[indent] == '\t') indent++;
+                                                  if (overlay_idx == 0) vv = (int)b->or_;
+                                                  else if (overlay_idx == 1) vv = (int)b->og;
+                                                  else vv = (int)b->ob;
+                                                  fprintf(out_fp, "%.*s- %d\n", indent, line, vv);
+                                                  line_changed = 1;
+                                              }
+                                              overlay_idx += 1;
+                                          } else if (in_overlay != 0 && trimmed[0] != '-') {
+                                              in_overlay = 0;
+                                              overlay_idx = 0;
+                                          }
+                                      }
+                                      if (line_changed == 0) {
+                                          fputs(line, out_fp);
+                                      }
+                                  }
+                              }
+                              if (save_failed == 0 && out_fp != NULL && found_ids != NULL) {
+                                  for (uint32_t bi = 0u; bi < comp->mapper_box_count; ++bi) {
+                                      if (found_ids[bi] != 0u) continue;
+                                      fprintf(out_fp, "- id: %s\n", boxes[bi].id);
+                                      fprintf(out_fp, "  multi_legend: false\n");
+                                      fprintf(out_fp, "  legend:\n");
+                                      fprintf(out_fp, "  - %s\n", boxes[bi].id);
+                                      fprintf(out_fp, "  legend_combos:\n");
+                                      fprintf(out_fp, "    %s:\n", boxes[bi].id);
+                                      fprintf(out_fp, "    - %s\n", boxes[bi].id);
+                                      fprintf(out_fp, "  bbox:\n");
+                                      fprintf(out_fp, "    x: %d\n", boxes[bi].x);
+                                      fprintf(out_fp, "    y: %d\n", boxes[bi].y);
+                                      fprintf(out_fp, "    width: %d\n", boxes[bi].w);
+                                      fprintf(out_fp, "    height: %d\n", boxes[bi].h);
+                                      if (boxes[bi].has_overlay != 0u) {
+                                          fprintf(out_fp, "  overlay_color:\n");
+                                          fprintf(out_fp, "  - %u\n", (unsigned)boxes[bi].or_);
+                                          fprintf(out_fp, "  - %u\n", (unsigned)boxes[bi].og);
+                                          fprintf(out_fp, "  - %u\n", (unsigned)boxes[bi].ob);
+                                      }
+                                  }
+                              }
+                              if (in_fp != NULL) fclose(in_fp);
+                              if (out_fp != NULL) fclose(out_fp);
+                              if (save_failed == 0) {
+                                  if (rename(tmp_path, src_path) != 0) {
+                                      remove(tmp_path);
+                                      save_failed = 1;
+                                  }
+                              }
+                              if (found_ids != NULL) {
+                                  free(found_ids);
+                                  found_ids = NULL;
+                              }
+                              if (save_failed != 0) {
+                                  cpu_host_hal_log("keymapper_tool: failed to save mapper file: %s", src_path);
+                              } else {
+                                  comp->dirty = 0u;
+                                  cpu_host_hal_log("keymapper_tool: saved mapper file: %s", src_path);
+                              }
+                              title_dirty = 1u;
+                          }
+                      } else {
+                          int step = ((comp->title_last_mods & CPU_HOST_MOD_SHIFT) != 0u) ? 10 : 1;
+                          if (step < 1) step = 1;
+                          if (sc == CPU_HOST_SCANCODE(X)) comp->edit_field = 1u;
+                          else if (sc == CPU_HOST_SCANCODE(Y)) comp->edit_field = 2u;
+                          else if (sc == CPU_HOST_SCANCODE(W)) comp->edit_field = 3u;
+                          else if (sc == CPU_HOST_SCANCODE(H)) comp->edit_field = 4u;
+                          else if (sc == CPU_HOST_SCANCODE(R)) comp->edit_field = 5u;
+                          else if (sc == CPU_HOST_SCANCODE(G)) comp->edit_field = 6u;
+                          else if (sc == CPU_HOST_SCANCODE(B)) comp->edit_field = 7u;
+                          else if (sc == CPU_HOST_SCANCODE(ESCAPE)) comp->edit_field = 0u;
+                          else {
+                              if (comp->mapper_box_count > 0u) {
+                                  MapperBox *snap = (MapperBox *)malloc((size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                  if (snap != NULL) {
+                                      memcpy(snap, boxes, (size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                      if (undo_boxes != NULL) free(undo_boxes);
+                                      undo_boxes = snap;
+                                      comp->undo_boxes = snap;
+                                      comp->undo_count = comp->mapper_box_count;
+                                      comp->undo_valid = 1u;
+                                      if (redo_boxes != NULL) {
+                                          free(redo_boxes);
+                                          redo_boxes = NULL;
+                                      }
+                                      comp->redo_boxes = NULL;
+                                      comp->redo_count = 0u;
+                                      comp->redo_valid = 0u;
+                                  }
+                              }
+                              for (uint32_t i = 0u; i < comp->mapper_box_count; ++i) {
+                                  MapperBox *b = &boxes[i];
+                                  if (sel != NULL && sel[i] == 0u) continue;
+                                  if (sel == NULL && comp->selected_box != (int32_t)i) continue;
+                                  if (comp->edit_field == 1u) {
+                                      if (sc == CPU_HOST_SCANCODE(LEFT)) b->x -= step;
+                                      else if (sc == CPU_HOST_SCANCODE(RIGHT)) b->x += step;
+                                      if (b->x < 0) b->x = 0;
+                                      comp->dirty = 1u;
+                                  } else if (comp->edit_field == 2u) {
+                                      if (sc == CPU_HOST_SCANCODE(UP)) b->y -= step;
+                                      else if (sc == CPU_HOST_SCANCODE(DOWN)) b->y += step;
+                                      if (b->y < 0) b->y = 0;
+                                      comp->dirty = 1u;
+                                  } else if (comp->edit_field == 3u) {
+                                      if (sc == CPU_HOST_SCANCODE(LEFT)) b->w -= step;
+                                      else if (sc == CPU_HOST_SCANCODE(RIGHT)) b->w += step;
+                                      if (b->w < 1) b->w = 1;
+                                      comp->dirty = 1u;
+                                  } else if (comp->edit_field == 4u) {
+                                      if (sc == CPU_HOST_SCANCODE(UP)) b->h -= step;
+                                      else if (sc == CPU_HOST_SCANCODE(DOWN)) b->h += step;
+                                      if (b->h < 1) b->h = 1;
+                                      comp->dirty = 1u;
+                                  } else if (comp->edit_field == 5u) {
+                                      if (b->has_overlay == 0u) {
+                                          b->has_overlay = 1u;
+                                          b->or_ = 80u;
+                                          b->og = 160u;
+                                          b->ob = 255u;
+                                      }
+                                      if (sc == CPU_HOST_SCANCODE(LEFT) || sc == CPU_HOST_SCANCODE(DOWN)) {
+                                          int nv = (int)b->or_ - step;
+                                          b->or_ = (uint8_t)((nv < 0) ? 0 : nv);
+                                          comp->dirty = 1u;
+                                      } else if (sc == CPU_HOST_SCANCODE(RIGHT) || sc == CPU_HOST_SCANCODE(UP)) {
+                                          int nv = (int)b->or_ + step;
+                                          b->or_ = (uint8_t)((nv > 255) ? 255 : nv);
+                                          comp->dirty = 1u;
+                                      }
+                                  } else if (comp->edit_field == 6u) {
+                                      if (b->has_overlay == 0u) {
+                                          b->has_overlay = 1u;
+                                          b->or_ = 80u;
+                                          b->og = 160u;
+                                          b->ob = 255u;
+                                      }
+                                      if (sc == CPU_HOST_SCANCODE(LEFT) || sc == CPU_HOST_SCANCODE(DOWN)) {
+                                          int nv = (int)b->og - step;
+                                          b->og = (uint8_t)((nv < 0) ? 0 : nv);
+                                          comp->dirty = 1u;
+                                      } else if (sc == CPU_HOST_SCANCODE(RIGHT) || sc == CPU_HOST_SCANCODE(UP)) {
+                                          int nv = (int)b->og + step;
+                                          b->og = (uint8_t)((nv > 255) ? 255 : nv);
+                                          comp->dirty = 1u;
+                                      }
+                                  } else if (comp->edit_field == 7u) {
+                                      if (b->has_overlay == 0u) {
+                                          b->has_overlay = 1u;
+                                          b->or_ = 80u;
+                                          b->og = 160u;
+                                          b->ob = 255u;
+                                      }
+                                      if (sc == CPU_HOST_SCANCODE(LEFT) || sc == CPU_HOST_SCANCODE(DOWN)) {
+                                          int nv = (int)b->ob - step;
+                                          b->ob = (uint8_t)((nv < 0) ? 0 : nv);
+                                          comp->dirty = 1u;
+                                      } else if (sc == CPU_HOST_SCANCODE(RIGHT) || sc == CPU_HOST_SCANCODE(UP)) {
+                                          int nv = (int)b->ob + step;
+                                          b->ob = (uint8_t)((nv > 255) ? 255 : nv);
+                                          comp->dirty = 1u;
+                                      }
+                                  } else {
+                                      if (sc == CPU_HOST_SCANCODE(LEFT)) b->x -= step;
+                                      else if (sc == CPU_HOST_SCANCODE(RIGHT)) b->x += step;
+                                      else if (sc == CPU_HOST_SCANCODE(UP)) b->y -= step;
+                                      else if (sc == CPU_HOST_SCANCODE(DOWN)) b->y += step;
+                                      if (b->x < 0) b->x = 0;
+                                      if (b->y < 0) b->y = 0;
+                                      comp->dirty = 1u;
+                                  }
+                              }
+                          }
+                          title_dirty = 1u;
+                      }
+                  }
+                  title_dirty = 1u;
+              }
+              if (comp->quit_prompt_active != 0u) {
+                  continue;
+              }
+
+              if (et == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
+                  if (comp->pick_color_mode != 0u) {
+                      SDL_Surface *surf = (SDL_Surface *)comp->image_surface;
+                      if (surf != NULL && comp->mapper_box_count > 0u) {
+                          int32_t zoom = comp->view_zoom_q8;
+                          int ix = (((int)ev.button.x + comp->view_off_x) * 256) / (zoom > 0 ? zoom : 256);
+                          int iy = (((int)ev.button.y + comp->view_off_y) * 256) / (zoom > 0 ? zoom : 256);
+                          if (ix >= 0 && iy >= 0 && ix < surf->w && iy < surf->h) {
+                              uint8_t r = 0u, g = 0u, b = 0u;
+                              uint8_t *base = (uint8_t *)surf->pixels;
+                              uint8_t *p = base + (size_t)iy * (size_t)surf->pitch + (size_t)ix * (size_t)surf->format->BytesPerPixel;
+                              Uint32 px = 0u;
+                              switch (surf->format->BytesPerPixel) {
+                                  case 1: px = *p; break;
+                                  case 2: px = *(Uint16 *)p; break;
+                                  case 3:
+                                      if (SDL_BYTEORDER == SDL_BIG_ENDIAN) px = ((Uint32)p[0] << 16) | ((Uint32)p[1] << 8) | (Uint32)p[2];
+                                      else px = (Uint32)p[0] | ((Uint32)p[1] << 8) | ((Uint32)p[2] << 16);
+                                      break;
+                                  default: px = *(Uint32 *)p; break;
+                              }
+                              SDL_GetRGB(px, surf->format, &r, &g, &b);
+                              {
+                                  MapperBox *snap = (MapperBox *)malloc((size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                  if (snap != NULL) {
+                                      memcpy(snap, boxes, (size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                      if (undo_boxes != NULL) free(undo_boxes);
+                                      undo_boxes = snap;
+                                      comp->undo_boxes = snap;
+                                      comp->undo_count = comp->mapper_box_count;
+                                      comp->undo_valid = 1u;
+                                      if (redo_boxes != NULL) {
+                                          free(redo_boxes);
+                                          redo_boxes = NULL;
+                                      }
+                                      comp->redo_boxes = NULL;
+                                      comp->redo_count = 0u;
+                                      comp->redo_valid = 0u;
+                                  }
+                              }
+                              for (uint32_t i = 0u; i < comp->mapper_box_count; ++i) {
+                                  MapperBox *mb = &boxes[i];
+                                  if (sel != NULL && sel[i] == 0u) continue;
+                                  if (sel == NULL && comp->selected_box != (int32_t)i) continue;
+                                  mb->has_overlay = 1u;
+                                  mb->or_ = r;
+                                  mb->og = g;
+                                  mb->ob = b;
+                              }
+                              comp->dirty = 1u;
+                          }
+                      }
+                      comp->pick_color_mode = 0u;
+                      if (comp->cursor_arrow != NULL) {
+                          SDL_SetCursor((SDL_Cursor *)comp->cursor_arrow);
+                      }
+                      title_dirty = 1u;
+                      continue;
+                  }
+                  int mx = (int)ev.button.x;
+                  int my = (int)ev.button.y;
+                  int32_t found = -1;
+                  uint32_t mods = cpu_host_hal_get_mod_state();
+                  int32_t zoom = comp->view_zoom_q8;
+                  int wx = ((mx + comp->view_off_x) * 256) / (zoom > 0 ? zoom : 256);
+                  int wy = ((my + comp->view_off_y) * 256) / (zoom > 0 ? zoom : 256);
+
+                  if (comp->selected_box >= 0 && (uint32_t)comp->selected_box < comp->mapper_box_count) {
+                      const MapperBox *sb = &boxes[comp->selected_box];
+                      int sx = (sb->x * zoom) / 256 - comp->view_off_x;
+                      int sy = (sb->y * zoom) / 256 - comp->view_off_y;
+                      int sw = (sb->w * zoom) / 256;
+                      int sh = (sb->h * zoom) / 256;
+                      int hx = sx + sw - 10;
+                      int hy = sy + sh - 10;
+                      if (sw < 1) sw = 1;
+                      if (sh < 1) sh = 1;
+                      if (mx >= hx && mx <= (hx + 10) && my >= hy && my <= (hy + 10)) {
+                          if (comp->mapper_box_count > 0u) {
+                              MapperBox *snap = (MapperBox *)malloc((size_t)comp->mapper_box_count * sizeof(MapperBox));
+                              if (snap != NULL) {
+                                  memcpy(snap, boxes, (size_t)comp->mapper_box_count * sizeof(MapperBox));
+                                  if (undo_boxes != NULL) free(undo_boxes);
+                                  undo_boxes = snap;
+                                  comp->undo_boxes = snap;
+                                  comp->undo_count = comp->mapper_box_count;
+                                  comp->undo_valid = 1u;
+                                  if (redo_boxes != NULL) {
+                                      free(redo_boxes);
+                                      redo_boxes = NULL;
+                                  }
+                                  comp->redo_boxes = NULL;
+                                  comp->redo_count = 0u;
+                                  comp->redo_valid = 0u;
+                              }
+                          }
+                          comp->resize_active = 1u;
+                          comp->drag_active = 0u;
+                          title_dirty = 1u;
+                          continue;
+                      }
+                  }
+
+                  for (int32_t i = (int32_t)comp->mapper_box_count - 1; i >= 0; --i) {
+                      const MapperBox *b = &boxes[i];
+                      if (wx >= b->x && wx <= (b->x + b->w) && wy >= b->y && wy <= (b->y + b->h)) {
+                          found = i;
+                          break;
+                      }
+                  }
+
+                  if (sel != NULL) {
+                      if ((mods & (CPU_HOST_MOD_CTRL | CPU_HOST_MOD_SHIFT)) != 0u) {
+                          if (found >= 0) {
+                              uint8_t was = sel[found];
+                              sel[found] = was ? 0u : 1u;
+                              if (was != 0u) {
+                                  if (comp->selection_count > 0u) comp->selection_count -= 1u;
+                              } else {
+                                  comp->selection_count += 1u;
+                              }
+                              if (sel[found] != 0u) {
+                                  comp->selected_box = found;
+                              } else if (comp->selected_box == found) {
+                                  comp->selected_box = -1;
+                                  for (uint32_t i = 0u; i < comp->mapper_box_count; ++i) {
+                                      if (sel[i] != 0u) {
+                                          comp->selected_box = (int32_t)i;
+                                          break;
+                                      }
+                                  }
+                              }
+                          }
+                      } else {
+                          for (uint32_t i = 0u; i < comp->mapper_box_count; ++i) sel[i] = 0u;
+                          comp->selection_count = 0u;
+                          comp->selected_box = found;
+                          if (found >= 0) {
+                              sel[found] = 1u;
+                              comp->selection_count = 1u;
+                          }
+                      }
+                  } else {
+                      comp->selected_box = found;
+                  }
+
+                  if (found >= 0 && ((sel != NULL && sel[found] != 0u) || (sel == NULL && comp->selected_box == found))) {
+                      if (comp->mapper_box_count > 0u) {
+                          MapperBox *snap = (MapperBox *)malloc((size_t)comp->mapper_box_count * sizeof(MapperBox));
+                          if (snap != NULL) {
+                              memcpy(snap, boxes, (size_t)comp->mapper_box_count * sizeof(MapperBox));
+                              if (undo_boxes != NULL) free(undo_boxes);
+                              undo_boxes = snap;
+                              comp->undo_boxes = snap;
+                              comp->undo_count = comp->mapper_box_count;
+                              comp->undo_valid = 1u;
+                              if (redo_boxes != NULL) {
+                                  free(redo_boxes);
+                                  redo_boxes = NULL;
+                              }
+                              comp->redo_boxes = NULL;
+                              comp->redo_count = 0u;
+                              comp->redo_valid = 0u;
+                          }
+                      }
+                      comp->drag_active = 1u;
+                  } else {
+                      comp->drag_active = 0u;
+                  }
+                  comp->resize_active = 0u;
+                  title_dirty = 1u;
+              }
+              if (et == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_RIGHT) {
+                  int mx = (int)ev.button.x;
+                  int my = (int)ev.button.y;
+                  int32_t found = -1;
+                  int32_t zoom = comp->view_zoom_q8;
+                  int wx = ((mx + comp->view_off_x) * 256) / (zoom > 0 ? zoom : 256);
+                  int wy = ((my + comp->view_off_y) * 256) / (zoom > 0 ? zoom : 256);
+                  for (int32_t i = (int32_t)comp->mapper_box_count - 1; i >= 0; --i) {
+                      const MapperBox *b = &boxes[i];
+                      if (wx >= b->x && wx <= (b->x + b->w) && wy >= b->y && wy <= (b->y + b->h)) {
+                          found = i;
+                          break;
+                      }
+                  }
+                  if (found >= 0) {
+                      if (sel != NULL) {
+                          if (sel[found] != 0u) {
+                              comp->selected_box = found;
+                          } else {
+                              for (uint32_t i = 0u; i < comp->mapper_box_count; ++i) sel[i] = 0u;
+                              sel[found] = 1u;
+                              comp->selection_count = 1u;
+                              comp->selected_box = found;
+                          }
+                      } else {
+                          comp->selected_box = found;
+                      }
+                      title_dirty = 1u;
+                  }
+              }
+              if (et == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_MIDDLE) {
+                  comp->pan_active = 1u;
+                  comp->drag_active = 0u;
+                  comp->resize_active = 0u;
+                  title_dirty = 1u;
+              }
+
+              if (et == SDL_MOUSEMOTION && (comp->drag_active != 0u || comp->resize_active != 0u || comp->pan_active != 0u)) {
+                  if (comp->pan_active != 0u) {
+                      comp->view_off_x -= (int32_t)ev.motion.xrel;
+                      comp->view_off_y -= (int32_t)ev.motion.yrel;
+                      if (comp->view_off_x < 0) comp->view_off_x = 0;
+                      if (comp->view_off_y < 0) comp->view_off_y = 0;
+                      title_dirty = 1u;
+                      continue;
+                  }
+                  int32_t zoom = comp->view_zoom_q8;
+                  int dxw = (((int)ev.motion.xrel) * 256) / (zoom > 0 ? zoom : 256);
+                  int dyw = (((int)ev.motion.yrel) * 256) / (zoom > 0 ? zoom : 256);
+                  if (comp->resize_active != 0u) {
+                      if (comp->selected_box >= 0 && (uint32_t)comp->selected_box < comp->mapper_box_count) {
+                          MapperBox *b = &boxes[comp->selected_box];
+                          b->w += dxw;
+                          b->h += dyw;
+                          if (b->w < 1) b->w = 1;
+                          if (b->h < 1) b->h = 1;
+                          comp->dirty = 1u;
+                      }
+                  } else if (dxw != 0 || dyw != 0) {
+                      for (uint32_t i = 0u; i < comp->mapper_box_count; ++i) {
+                          MapperBox *b = &boxes[i];
+                          if (sel != NULL && sel[i] == 0u) continue;
+                          if (sel == NULL && comp->selected_box != (int32_t)i) continue;
+                          b->x += dxw;
+                          b->y += dyw;
+                          if (b->x < 0) b->x = 0;
+                          if (b->y < 0) b->y = 0;
+                      }
+                      comp->dirty = 1u;
+                  }
+
+                  if (win_w > 0 && win_h > 0) {
+                      int edge = 20;
+                      int pan_step = 12;
+                      if (comp->last_mouse_x < edge) {
+                          comp->view_off_x -= pan_step;
+                          if (comp->view_off_x < 0) comp->view_off_x = 0;
+                      } else if (comp->last_mouse_x > (win_w - edge)) {
+                          comp->view_off_x += pan_step;
+                      }
+                      if (comp->last_mouse_y < edge) {
+                          comp->view_off_y -= pan_step;
+                          if (comp->view_off_y < 0) comp->view_off_y = 0;
+                      } else if (comp->last_mouse_y > (win_h - edge)) {
+                          comp->view_off_y += pan_step;
+                      }
+                  }
+              }
+
+              if (et == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_LEFT) {
+                  comp->drag_active = 0u;
+                  comp->resize_active = 0u;
+                  title_dirty = 1u;
+              }
+              if (et == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_MIDDLE) {
+                  comp->pan_active = 0u;
+                  title_dirty = 1u;
+              }
+          }
+
+          cpu_host_hal_pump_events();
+
+          if (comp->window != NULL) {
+              comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
+              if (comp->has_keyboard_focus != comp->last_focus_state) {
+                  comp->last_focus_state = comp->has_keyboard_focus;
+                  title_dirty = 1u;
+              }
+          }
+
+          if (comp->renderer != NULL) {
+              int32_t zoom = comp->view_zoom_q8;
+              uint8_t *pressed_mask = NULL;
+              SDL_SetRenderDrawBlendMode((SDL_Renderer *)comp->renderer, SDL_BLENDMODE_BLEND);
+              cpu_host_hal_render_set_draw_color(comp->renderer, 8, 10, 14, 255);
+              if (cpu_host_hal_render_clear(comp->renderer) == 0) {
+                  if (comp->mapper_box_count > 0u) {
+                      pressed_mask = (uint8_t *)calloc((size_t)comp->mapper_box_count, sizeof(uint8_t));
+                      if (pressed_mask != NULL && host_state != NULL && key_count > 0) {
+                          for (size_t bi = 0u; bi < g_runtime_keyboard_map.binding_count; ++bi) {
+                              const RuntimeKeyboardBinding *rb = &g_runtime_keyboard_map.bindings[bi];
+                              if (rb->mapper_key_id[0] == '\0') continue;
+                              if (rb->scancode < 0 || (size_t)rb->scancode >= (size_t)key_count) continue;
+                              if (host_state[rb->scancode] == 0u) continue;
+                              for (uint32_t mi = 0u; mi < comp->mapper_box_count; ++mi) {
+                                  if (strcmp(boxes[mi].id, rb->mapper_key_id) == 0) {
+                                      pressed_mask[mi] = 1u;
+                                      break;
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  if (comp->image_texture != NULL && comp->image_w > 0 && comp->image_h > 0) {
+                      SDL_Rect dst;
+                      dst.x = -comp->view_off_x;
+                      dst.y = -comp->view_off_y;
+                      dst.w = (comp->image_w * zoom) / 256;
+                      dst.h = (comp->image_h * zoom) / 256;
+                      if (dst.w < 1) dst.w = 1;
+                      if (dst.h < 1) dst.h = 1;
+                      cpu_host_hal_render_copy(comp->renderer, comp->image_texture, NULL, &dst);
+                  }
+                  for (uint32_t i = 0u; i < comp->mapper_box_count; ++i) {
+                      const MapperBox *b = &boxes[i];
+                      uint8_t is_pressed = 0u;
+                      uint8_t is_selected = (sel != NULL) ? sel[i] : ((comp->selected_box == (int32_t)i) ? 1u : 0u);
+                      SDL_Rect r;
+                      int sx;
+                      int sy;
+
+                      if (pressed_mask != NULL && i < comp->mapper_box_count && pressed_mask[i] != 0u) {
+                          is_pressed = 1u;
+                      }
+
+                      sx = (b->x * zoom) / 256 - comp->view_off_x;
+                      sy = (b->y * zoom) / 256 - comp->view_off_y;
+                      r.x = sx;
+                      r.y = sy;
+                      r.w = (b->w * zoom) / 256;
+                      r.h = (b->h * zoom) / 256;
+                      if (r.w < 1) r.w = 1;
+                      if (r.h < 1) r.h = 1;
+
+                      if (is_pressed != 0u) {
+                          cpu_host_hal_render_set_draw_color(comp->renderer, 255, 80, 80, 120);
+                      } else if (is_selected != 0u) {
+                          cpu_host_hal_render_set_draw_color(comp->renderer, 255, 215, 90, 120);
+                      } else {
+                          if (b->has_overlay != 0u) {
+                              cpu_host_hal_render_set_draw_color(comp->renderer, b->or_, b->og, b->ob, 90);
+                          } else {
+                              cpu_host_hal_render_set_draw_color(comp->renderer, 80, 160, 255, 70);
+                          }
+                      }
+                      SDL_RenderFillRect((SDL_Renderer *)comp->renderer, &r);
+
+                      if (is_pressed != 0u) {
+                          cpu_host_hal_render_set_draw_color(comp->renderer, 255, 120, 120, 255);
+                      } else if (is_selected != 0u) {
+                          cpu_host_hal_render_set_draw_color(comp->renderer, 255, 190, 40, 255);
+                      } else {
+                          cpu_host_hal_render_set_draw_color(comp->renderer, 25, 25, 25, 220);
+                      }
+                      SDL_RenderDrawRect((SDL_Renderer *)comp->renderer, &r);
+
+                      if (is_selected != 0u && (int32_t)i == comp->selected_box) {
+                          SDL_Rect handle;
+                          handle.w = 10;
+                          handle.h = 10;
+                          handle.x = r.x + r.w - handle.w;
+                          handle.y = r.y + r.h - handle.h;
+                          cpu_host_hal_render_set_draw_color(comp->renderer, 245, 245, 245, 210);
+                          SDL_RenderFillRect((SDL_Renderer *)comp->renderer, &handle);
+                          cpu_host_hal_render_set_draw_color(comp->renderer, 30, 30, 30, 240);
+                          SDL_RenderDrawRect((SDL_Renderer *)comp->renderer, &handle);
+                      }
+                  }
+                  if (pressed_mask != NULL) {
+                      free(pressed_mask);
+                  }
+                  cpu_host_hal_render_present(comp->renderer);
+              }
+          }
+
+          if (title_dirty != 0u && comp->window != NULL) {
+              const RuntimeKeyboardBinding *binding = NULL;
+              const char *map_id = "-";
+              const char *sc_name = "-";
+              const char *key_name = "-";
+              const char *event_name = comp->title_last_is_down ? "down" : "up";
+              const char *selected_id = "-";
+              const char *field_name = "move";
+              const char *prompt = "";
+              char binds_preview[256];
+              char title[760];
+
+              if (comp->edit_field == 1u) field_name = "X";
+              else if (comp->edit_field == 2u) field_name = "Y";
+              else if (comp->edit_field == 3u) field_name = "W";
+              else if (comp->edit_field == 4u) field_name = "H";
+              else if (comp->edit_field == 5u) field_name = "R";
+              else if (comp->edit_field == 6u) field_name = "G";
+              else if (comp->edit_field == 7u) field_name = "B";
+
+              if (comp->selected_box >= 0 && (uint32_t)comp->selected_box < comp->mapper_box_count) {
+                  selected_id = boxes[comp->selected_box].id;
+              }
+              binds_preview[0] = '\0';
+              if (selected_id[0] != '-') {
+                  size_t used = 0u;
+                  unsigned shown = 0u;
+                  for (size_t bi = 0u; bi < g_runtime_keyboard_map.binding_count; ++bi) {
+                      const RuntimeKeyboardBinding *rb = &g_runtime_keyboard_map.bindings[bi];
+                      const char *nm;
+                      char tok[96];
+                      int wrote;
+                      if (rb->mapper_key_id[0] == '\0' || strcmp(rb->mapper_key_id, selected_id) != 0) continue;
+                      nm = (rb->scancode >= 0) ? cpu_host_hal_scancode_name(rb->scancode) : NULL;
+                      if (nm == NULL || nm[0] == '\0') nm = "?";
+                      if (rb->press_count > 0u) {
+                          snprintf(tok, sizeof(tok), "%s[r%u/b%u]", nm, (unsigned)rb->presses[0].row, (unsigned)rb->presses[0].bit);
+                      } else if (rb->has_ascii != 0u || rb->has_ascii_shift != 0u || rb->has_ascii_ctrl != 0u) {
+                          char a0[12], a1[12], a2[12];
+                          if (rb->has_ascii != 0u) snprintf(a0, sizeof(a0), "%u", (unsigned)rb->ascii);
+                          else strncpy(a0, "-", sizeof(a0) - 1u);
+                          if (rb->has_ascii_shift != 0u) snprintf(a1, sizeof(a1), "%u", (unsigned)rb->ascii_shift);
+                          else strncpy(a1, "-", sizeof(a1) - 1u);
+                          if (rb->has_ascii_ctrl != 0u) snprintf(a2, sizeof(a2), "%u", (unsigned)rb->ascii_ctrl);
+                          else strncpy(a2, "-", sizeof(a2) - 1u);
+                          tok[sizeof(tok) - 1u] = '\0';
+                          a0[sizeof(a0) - 1u] = '\0';
+                          a1[sizeof(a1) - 1u] = '\0';
+                          a2[sizeof(a2) - 1u] = '\0';
+                          snprintf(tok, sizeof(tok), "%s[a%s/s%s/c%s]", nm, a0, a1, a2);
+                      } else {
+                          snprintf(tok, sizeof(tok), "%s[unmapped]", nm);
+                      }
+                      wrote = snprintf(
+                          binds_preview + used,
+                          (used < sizeof(binds_preview)) ? (sizeof(binds_preview) - used) : 0u,
+                          "%s%s",
+                          (shown > 0u) ? "," : "",
+                          tok
+                      );
+                      if (wrote < 0) break;
+                      if ((size_t)wrote >= (sizeof(binds_preview) - used)) {
+                          used = sizeof(binds_preview) - 1u;
+                          break;
+                      }
+                      used += (size_t)wrote;
+                      shown += 1u;
+                      if (shown >= 6u) {
+                          if (used + 4u < sizeof(binds_preview)) {
+                              memcpy(binds_preview + used, ",...", 5u);
+                              used += 4u;
+                          }
+                          break;
+                      }
+                  }
+                  if (binds_preview[0] == '\0') {
+                      strncpy(binds_preview, "-", sizeof(binds_preview) - 1u);
+                  }
+              } else {
+                  strncpy(binds_preview, "-", sizeof(binds_preview) - 1u);
+              }
+              if (comp->quit_prompt_active != 0u) {
+                  prompt = " | QUIT? Ctrl+S save+quit, Enter/Q discard+quit, Esc cancel";
+              } else if (comp->rename_mode != 0u) {
+                  static char rp[220];
+                  snprintf(rp, sizeof(rp), " | RENAME: %s (Enter apply, Esc cancel)", rename_buf);
+                  prompt = rp;
+              }
+
+              if (comp->title_last_scancode >= 0) {
+                  sc_name = cpu_host_hal_scancode_name(comp->title_last_scancode);
+                  key_name = cpu_host_hal_key_name(comp->title_last_keycode);
+                  binding = cpu_component_runtime_binding_for_scancode(comp->title_last_scancode, 0u);
+                  if (binding != NULL && binding->mapper_key_id[0] != '\0') {
+                      map_id = binding->mapper_key_id;
+                  }
+              }
+
+              snprintf(
+                  title,
+                  sizeof(title),
+                  "PASM Keymapper Tool (Host-HAL)%s | zoom=%d%% off=(%d,%d) boxes=%u sel_count=%u field=%s focus=%u | sel=%s binds=%s | %s sc=%d(%s) key=%s mods=0x%X rep=%u -> %s%s",
+                  (comp->dirty != 0u) ? " *" : "",
+                  (int)((comp->view_zoom_q8 * 100) / 256),
+                  (int)comp->view_off_x,
+                  (int)comp->view_off_y,
+                  (unsigned)comp->mapper_box_count,
+                  (unsigned)comp->selection_count,
+                  field_name,
+                  (unsigned)comp->has_keyboard_focus,
+                  selected_id,
+                  binds_preview,
+                  event_name,
+                  (int)comp->title_last_scancode,
+                  sc_name ? sc_name : "-",
+                  key_name ? key_name : "-",
+                  (unsigned)comp->title_last_mods,
+                  (unsigned)comp->title_last_repeat,
+                  map_id,
+                  prompt
+              );
+              cpu_host_hal_set_window_title(comp->window, title);
+          }
+      }
+
+    destroy: |
+      if (comp->mapper_boxes != NULL) {
+          free(comp->mapper_boxes);
+          comp->mapper_boxes = NULL;
+      }
+      if (comp->selection_mask != NULL) {
+          free(comp->selection_mask);
+          comp->selection_mask = NULL;
+      }
+      if (comp->undo_boxes != NULL) {
+          free(comp->undo_boxes);
+          comp->undo_boxes = NULL;
+      }
+      if (comp->redo_boxes != NULL) {
+          free(comp->redo_boxes);
+          comp->redo_boxes = NULL;
+      }
+      if (comp->image_texture != NULL) {
+          cpu_host_hal_destroy_texture(comp->image_texture);
+          comp->image_texture = NULL;
+      }
+      if (comp->image_surface != NULL) {
+          SDL_FreeSurface((SDL_Surface *)comp->image_surface);
+          comp->image_surface = NULL;
+      }
+      if (comp->mapper_path != NULL) {
+          free(comp->mapper_path);
+          comp->mapper_path = NULL;
+      }
+      comp->mapper_box_count = 0u;
+      comp->mapper_box_cap = 0u;
+      comp->undo_count = 0u;
+      comp->undo_valid = 0u;
+      comp->redo_count = 0u;
+      comp->redo_valid = 0u;
+      comp->selection_count = 0u;
+      comp->selected_box = -1;
+      comp->drag_active = 0u;
+      comp->resize_active = 0u;
+      comp->pan_active = 0u;
+      comp->dirty = 0u;
+      comp->edit_field = 0u;
+      comp->view_zoom_q8 = 256;
+      comp->view_off_x = 0;
+      comp->view_off_y = 0;
+      comp->last_mouse_x = 0;
+      comp->last_mouse_y = 0;
+      comp->quit_prompt_active = 0u;
+      comp->quit_after_save = 0u;
+      comp->rename_mode = 0u;
+      cpu_host_hal_stop_text_input();
+      comp->image_w = 0;
+      comp->image_h = 0;
+      if (comp->image_lib_inited != 0u) {
+          IMG_Quit();
+          comp->image_lib_inited = 0u;
+      }
+      if (comp->renderer != NULL) {
+          cpu_host_hal_destroy_renderer(comp->renderer);
+          comp->renderer = NULL;
+      }
+      if (comp->window != NULL) {
+          cpu_host_hal_destroy_window(comp->window);
+          comp->window = NULL;
+      }
+      if (comp->host_inited != 0u) {
+          cpu_host_hal_quit_subsystems();
+          cpu_host_hal_quit();
+          comp->host_inited = 0u;
+      }
+
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers:
+  - SDL2/SDL_image.h
+  include_paths: []
+  linked_libraries:
+  - name: SDL2_image
+  library_paths: []

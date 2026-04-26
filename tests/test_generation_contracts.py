@@ -536,6 +536,7 @@ def test_cpu_codegen_emits_runtime_keyboard_loader_apis():
     code = generate_cpu_impl(data, "Z80")
     assert "load_keyboard_map(CPUState *cpu, const char *path)" in code
     assert "cpu_component_keyboard_ascii_feed(" in code
+    assert "mapper_key_id:" in code
 
 
 def test_memory_read_only_regions_emit_write_guards():

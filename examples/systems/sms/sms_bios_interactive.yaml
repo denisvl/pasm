@@ -48,6 +48,7 @@ components:
     - sms_joy0
     - sms_psg0
   devices:
+    - controller_sms
     - video_sms
     - speaker_sms
   hosts:
@@ -59,7 +60,7 @@ connections:
       kind: callback
       name: joy1_read
     to:
-      component: host_sms
+      component: controller_sms
       kind: callback
       name: read_joy1
 
@@ -67,6 +68,24 @@ connections:
       component: sms_joy0
       kind: callback
       name: joy2_read
+    to:
+      component: controller_sms
+      kind: callback
+      name: read_joy2
+
+  - from:
+      component: controller_sms
+      kind: callback
+      name: host_joy1
+    to:
+      component: host_sms
+      kind: callback
+      name: read_joy1
+
+  - from:
+      component: controller_sms
+      kind: callback
+      name: host_joy2
     to:
       component: host_sms
       kind: callback

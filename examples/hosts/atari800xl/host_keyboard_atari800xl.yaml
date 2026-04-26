@@ -2,182 +2,276 @@ keyboard:
   kind: ascii
   focus_required: false
   bindings:
-  - host_key: A
-    ascii: 65
-    ascii_shift: 65
-    ascii_ctrl: 1
-  - host_key: B
-    ascii: 66
-    ascii_shift: 66
-    ascii_ctrl: 2
-  - host_key: C
-    ascii: 67
-    ascii_shift: 67
-    ascii_ctrl: 3
-  - host_key: D
-    ascii: 68
-    ascii_shift: 68
-    ascii_ctrl: 4
-  - host_key: E
-    ascii: 69
-    ascii_shift: 69
-    ascii_ctrl: 5
-  - host_key: F
-    ascii: 70
-    ascii_shift: 70
-    ascii_ctrl: 6
-  - host_key: G
-    ascii: 71
-    ascii_shift: 71
-    ascii_ctrl: 7
-  - host_key: H
-    ascii: 72
-    ascii_shift: 72
-    ascii_ctrl: 8
-  - host_key: I
-    ascii: 73
-    ascii_shift: 73
-    ascii_ctrl: 9
-  - host_key: J
-    ascii: 74
-    ascii_shift: 74
-    ascii_ctrl: 10
-  - host_key: K
-    ascii: 75
-    ascii_shift: 75
-    ascii_ctrl: 11
-  - host_key: L
-    ascii: 76
-    ascii_shift: 76
-    ascii_ctrl: 12
-  - host_key: M
-    ascii: 77
-    ascii_shift: 77
-    ascii_ctrl: 13
-  - host_key: N
-    ascii: 78
-    ascii_shift: 78
-    ascii_ctrl: 14
-  - host_key: O
-    ascii: 79
-    ascii_shift: 79
-    ascii_ctrl: 15
-  - host_key: P
-    ascii: 80
-    ascii_shift: 80
-    ascii_ctrl: 16
-  - host_key: Q
-    ascii: 81
-    ascii_shift: 81
-    ascii_ctrl: 17
-  - host_key: R
-    ascii: 82
-    ascii_shift: 82
-    ascii_ctrl: 18
-  - host_key: S
-    ascii: 83
-    ascii_shift: 83
-    ascii_ctrl: 19
-  - host_key: T
-    ascii: 84
-    ascii_shift: 84
-    ascii_ctrl: 20
-  - host_key: U
-    ascii: 85
-    ascii_shift: 85
-    ascii_ctrl: 21
-  - host_key: V
-    ascii: 86
-    ascii_shift: 86
-    ascii_ctrl: 22
-  - host_key: W
-    ascii: 87
-    ascii_shift: 87
-    ascii_ctrl: 23
-  - host_key: X
-    ascii: 88
-    ascii_shift: 88
-    ascii_ctrl: 24
-  - host_key: Y
-    ascii: 89
-    ascii_shift: 89
-    ascii_ctrl: 25
-  - host_key: Z
-    ascii: 90
-    ascii_shift: 90
-    ascii_ctrl: 26
-  - host_key: '0'
-    ascii: 48
-    ascii_shift: 41
-  - host_key: '1'
-    ascii: 49
-    ascii_shift: 33
-  - host_key: '2'
-    ascii: 50
+  - host_scancode: A
+    mapper_key_id: key_a
+    ascii: 64
     ascii_shift: 64
-  - host_key: '3'
-    ascii: 51
-    ascii_shift: 35
-  - host_key: '4'
-    ascii: 52
-    ascii_shift: 36
-  - host_key: '5'
-    ascii: 53
-    ascii_shift: 37
-  - host_key: '6'
-    ascii: 54
-    ascii_shift: 94
-  - host_key: '7'
-    ascii: 55
-    ascii_shift: 38
-  - host_key: '8'
-    ascii: 56
-    ascii_shift: 42
-  - host_key: '9'
-    ascii: 57
-    ascii_shift: 40
-  - host_key: SPACE
-    ascii: 32
-  - host_key: RETURN
-    ascii: 155
-  - host_key: KP_ENTER
-    ascii: 155
-  - host_key: BACKSPACE
-    ascii: 126
-  - host_key: ESCAPE
-    ascii: 27
-  - host_key: TAB
-    ascii: 127
-  - host_key: MINUS
-    ascii: 45
-    ascii_shift: 95
-  - host_key: EQUALS
-    ascii: 61
-    ascii_shift: 43
-  - host_key: LEFTBRACKET
-    ascii: 91
-    ascii_shift: 123
-  - host_key: RIGHTBRACKET
-    ascii: 93
-    ascii_shift: 125
-  - host_key: BACKSLASH
-    ascii: 92
-    ascii_shift: 124
-  - host_key: SEMICOLON
+    ascii_ctrl: 192
+  - host_scancode: B
+    mapper_key_id: key_b
+    ascii: 22
+    ascii_shift: 22
+    ascii_ctrl: 150
+  - host_scancode: C
+    mapper_key_id: key_c
+    ascii: 19
+    ascii_shift: 19
+    ascii_ctrl: 147
+  - host_scancode: D
+    mapper_key_id: key_d
     ascii: 59
-    ascii_shift: 58
-  - host_key: APOSTROPHE
-    ascii: 39
-    ascii_shift: 34
-  - host_key: COMMA
-    ascii: 44
-    ascii_shift: 60
-  - host_key: PERIOD
-    ascii: 46
+    ascii_shift: 59
+    ascii_ctrl: 187
+  - host_scancode: E
+    mapper_key_id: key_e
+    ascii: 43
+    ascii_shift: 43
+    ascii_ctrl: 171
+  - host_scancode: F
+    mapper_key_id: key_f
+    ascii: 57
+    ascii_shift: 57
+    ascii_ctrl: 185
+  - host_scancode: G
+    mapper_key_id: key_g
+    ascii: 62
     ascii_shift: 62
-  - host_key: SLASH
-    ascii: 47
+    ascii_ctrl: 190
+  - host_scancode: H
+    mapper_key_id: key_h
+    ascii: 58
+    ascii_shift: 58
+    ascii_ctrl: 186
+  - host_scancode: I
+    mapper_key_id: key_i
+    ascii: 14
+    ascii_shift: 14
+    ascii_ctrl: 142
+  - host_scancode: J
+    mapper_key_id: key_j
+    ascii: 2
+    ascii_shift: 2
+    ascii_ctrl: 13
+  - host_scancode: K
+    mapper_key_id: key_k
+    ascii: 6
+    ascii_shift: 6
+    ascii_ctrl: 134
+  - host_scancode: L
+    mapper_key_id: key_l
+    ascii: 1
+    ascii_shift: 1
+    ascii_ctrl: 129
+  - host_scancode: M
+    mapper_key_id: key_m
+    ascii: 38
+    ascii_shift: 38
+    ascii_ctrl: 13
+  - host_scancode: N
+    mapper_key_id: key_n
+    ascii: 36
+    ascii_shift: 36
+    ascii_ctrl: 164
+  - host_scancode: O
+    mapper_key_id: key_o
+    ascii: 9
+    ascii_shift: 9
+    ascii_ctrl: 137
+  - host_scancode: P
+    mapper_key_id: key_p
+    ascii: 11
+    ascii_shift: 11
+    ascii_ctrl: 139
+  - host_scancode: Q
+    mapper_key_id: key_q
+    ascii: 48
+    ascii_shift: 48
+    ascii_ctrl: 176
+  - host_scancode: R
+    mapper_key_id: key_r
+    ascii: 41
+    ascii_shift: 41
+    ascii_ctrl: 169
+  - host_scancode: S
+    mapper_key_id: key_s
+    ascii: 63
     ascii_shift: 63
-  - host_key: GRAVE
-    ascii: 96
-    ascii_shift: 126
+    ascii_ctrl: 191
+  - host_scancode: T
+    mapper_key_id: key_t
+    ascii: 46
+    ascii_shift: 46
+    ascii_ctrl: 174
+  - host_scancode: U
+    mapper_key_id: key_u
+    ascii: 12
+    ascii_shift: 12
+    ascii_ctrl: 140
+  - host_scancode: V
+    mapper_key_id: key_v
+    ascii: 17
+    ascii_shift: 17
+    ascii_ctrl: 145
+  - host_scancode: W
+    mapper_key_id: key_w
+    ascii: 47
+    ascii_shift: 47
+    ascii_ctrl: 175
+  - host_scancode: X
+    mapper_key_id: key_x
+    ascii: 23
+    ascii_shift: 23
+    ascii_ctrl: 151
+  - host_scancode: Y
+    mapper_key_id: key_y
+    ascii: 44
+    ascii_shift: 44
+    ascii_ctrl: 172
+  - host_scancode: Z
+    mapper_key_id: key_z
+    ascii: 24
+    ascii_shift: 24
+    ascii_ctrl: 152
+  - host_scancode: '0'
+    mapper_key_id: key_0
+    ascii: 51
+    ascii_shift: 115
+  - host_scancode: '1'
+    mapper_key_id: key_1
+    ascii: 32
+    ascii_shift: 96
+  - host_scancode: '2'
+    mapper_key_id: key_2
+    ascii: 31
+    ascii_shift: 95
+  - host_scancode: '3'
+    mapper_key_id: key_3
+    ascii: 27
+    ascii_shift: 91
+  - host_scancode: '4'
+    mapper_key_id: key_4
+    ascii: 25
+    ascii_shift: 89
+  - host_scancode: '5'
+    mapper_key_id: key_5
+    ascii: 30
+    ascii_shift: 94
+  - host_scancode: '6'
+    mapper_key_id: key_6
+    ascii: 28
+    ascii_shift: 92
+  - host_scancode: '7'
+    mapper_key_id: key_7
+    ascii: 52
+    ascii_shift: 116
+  - host_scancode: '8'
+    mapper_key_id: key_8
+    ascii: 54
+    ascii_shift: 95
+  - host_scancode: '9'
+    mapper_key_id: key_9
+    ascii: 49
+    ascii_shift: 113
+  - host_scancode: SPACE
+    mapper_key_id: key_space
+    ascii: 34
+  - host_scancode: RETURN
+    mapper_key_id: key_return
+    ascii: 13
+  - host_scancode: KP_ENTER
+    mapper_key_id: key_return
+    ascii: 13
+  - host_scancode: BACKSPACE
+    mapper_key_id: key_backspace
+    ascii: 53
+  - host_scancode: ESCAPE
+    mapper_key_id: key_esc
+    ascii: 29
+  - host_scancode: TAB
+    mapper_key_id: key_tab
+    ascii: 45
+  - host_scancode: MINUS
+    mapper_key_id: key_minus
+    ascii: 15
+    ascii_shift: 79
+  - host_scancode: EQUALS
+    mapper_key_id: key_equals
+    ascii: 16
+    ascii_shift: 80
+  - host_scancode: RIGHTBRACKET
+    mapper_key_id: key_clear_lt
+    ascii: 55
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: BACKSLASH
+    mapper_key_id: key_insert_gt
+    ascii: 56
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: SEMICOLON
+    mapper_key_id: key_plus
+    ascii: 7
+    ascii_shift: 71
+  - host_scancode: APOSTROPHE
+    mapper_key_id: key_asterisk
+    ascii: 8
+    ascii_shift: 71
+  - host_scancode: COMMA
+    mapper_key_id: key_comma
+    ascii: 33
+    ascii_shift: 97
+  - host_scancode: PERIOD
+    mapper_key_id: key_period
+    ascii: 35
+    ascii_shift: 99
+  - host_scancode: SLASH
+    mapper_key_id: key_semicolon
+    ascii: 3
+    ascii_shift: 67
+  - host_scancode: INTERNATIONAL1
+    mapper_key_id: key_slash
+    ascii: 39
+    ascii_shift: 103
+  - host_scancode: GRAVE
+    mapper_key_id: key_asterisk
+    ascii: 0
+    ascii_shift: 53
+  - host_scancode: LCTRL
+    mapper_key_id: key_ctrl
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: CAPSLOCK
+    mapper_key_id: key_caps
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: LSHIFT
+    mapper_key_id: key_shift_left
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: RSHIFT
+    mapper_key_id: key_shift_right
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: 76
+    mapper_key_id: key_break
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: 230
+    mapper_key_id: key_atari
+    # POKEY KBCODE for ATARI/INV (0x27) + 1
+    ascii: 40
+    ascii_shift: 0
+    ascii_ctrl: 0
+  # PC keyboards don't usually have a dedicated Atari/INV key.
+  # Map Left Alt as the Atari/INV key for interactive host usage.
+  - host_scancode: LALT
+    mapper_key_id: key_atari
+    # POKEY KBCODE for ATARI/INV (0x27) + 1
+    ascii: 40
+    ascii_shift: 0
+    ascii_ctrl: 0

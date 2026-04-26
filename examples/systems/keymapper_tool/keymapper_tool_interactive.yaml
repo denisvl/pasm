@@ -1,0 +1,22 @@
+metadata:
+  name: KeymapperToolInteractive
+  version: '1.0'
+
+clock_hz: 1000000
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions: []
+
+hooks: {}
+integrations:
+  profile: keymapper_tool_interactive
+
+components:
+  ics: []
+  devices: []
+  hosts:
+    - host_keymapper_tool
+
+connections: []

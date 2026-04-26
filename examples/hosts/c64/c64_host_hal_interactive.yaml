@@ -88,6 +88,12 @@ state:
 - name: swap_semicolon_slash
   type: uint8_t
   initial: 0u
+- name: joy_port1
+  type: uint8_t
+  initial: 0xFFu
+- name: joy_port2
+  type: uint8_t
+  initial: 0xFFu
 - name: row0
   type: uint8_t
   initial: 0xFFu
@@ -118,6 +124,9 @@ interfaces:
     args:
     - u8
     returns: u8
+  - name: joystick_port
+    args: [u8]
+    returns: u8
   handlers:
   - name: video_frame
     args:
@@ -132,8 +141,8 @@ interfaces:
   signals: []
 behavior:
   snippets:
-    init: "do {\n    if (comp->host_inited != 0u) break;\n    if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO\
-      \ | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) break;\n    comp->window\
+    init: "do {\n    if (comp->host_inited != 0u) break;\n    {\n        const char *disable_dead = cpu_host_hal_getenv(\"PASM_DISABLE_DEADKEYS\");\n        if (disable_dead == NULL || disable_dead[0] != '0') {\n            #if defined(__linux__)\n            /* Keep scancode flow deterministic by disabling XIM dead-key composition for this process. */\n            setenv(\"XMODIFIERS\", \"@im=none\", 1);\n            setenv(\"GTK_IM_MODULE\", \"xim\", 0);\n            setenv(\"QT_IM_MODULE\", \"xim\", 0);\n            #endif\n        }\n    }\n    if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO\
+      \ | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) break;\n    cpu_host_hal_stop_text_input();\n    comp->window\
       \ = cpu_host_hal_create_window(\n        \"PASM C64\",\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
       \        CPU_HOST_WINDOWPOS_CENTERED,\n        960,\n        600,\n        CPU_HOST_WINDOW_RESIZABLE\n\
       \    );\n    if (comp->window == NULL) break;\n    comp->renderer = cpu_host_hal_create_renderer(comp->window,\
@@ -190,6 +199,10 @@ behavior:
       comp->row6 = 0xFFu;
 
       comp->row7 = 0xFFu;
+
+      comp->joy_port1 = 0xFFu;
+
+      comp->joy_port2 = 0xFFu;
 
       comp->audio_ring_read_idx = 0u;
 
@@ -249,7 +262,30 @@ behavior:
       \ << 7));\n        }\n    }\n    comp->row0 = rows[0];\n    comp->row1 = rows[1];\n\
       \    comp->row2 = rows[2];\n    comp->row3 = rows[3];\n    comp->row4 = rows[4];\n\
       \    comp->row5 = rows[5];\n    comp->row6 = rows[6];\n    comp->row7 = rows[7];\n\
-      }\nif (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u && comp->audio_ring\
+      }\n\
+{\n\
+    /* Joystick ports come from the controller-map (host_controller_c64.yaml).\n\
+       Note: C64 joystick port 2 is treated as Player 1 (P1_*), port 1 as Player 2 (P2_*). */\n\
+    if (g_runtime_controller_map.loaded != 0u) {\n\
+        cpu_component_controller_map_poll(cpu, comp->has_keyboard_focus);\n\
+        comp->joy_port1 = 0xFFu;\n\
+        comp->joy_port2 = 0xFFu;\n\
+        if (cpu_component_controller_pressed(\"P1_UP\")) comp->joy_port2 &= (uint8_t)~0x01u;\n\
+        if (cpu_component_controller_pressed(\"P1_DOWN\")) comp->joy_port2 &= (uint8_t)~0x02u;\n\
+        if (cpu_component_controller_pressed(\"P1_LEFT\")) comp->joy_port2 &= (uint8_t)~0x04u;\n\
+        if (cpu_component_controller_pressed(\"P1_RIGHT\")) comp->joy_port2 &= (uint8_t)~0x08u;\n\
+        if (cpu_component_controller_pressed(\"P1_FIRE\")) comp->joy_port2 &= (uint8_t)~0x10u;\n\
+        if (cpu_component_controller_pressed(\"P2_UP\")) comp->joy_port1 &= (uint8_t)~0x01u;\n\
+        if (cpu_component_controller_pressed(\"P2_DOWN\")) comp->joy_port1 &= (uint8_t)~0x02u;\n\
+        if (cpu_component_controller_pressed(\"P2_LEFT\")) comp->joy_port1 &= (uint8_t)~0x04u;\n\
+        if (cpu_component_controller_pressed(\"P2_RIGHT\")) comp->joy_port1 &= (uint8_t)~0x08u;\n\
+        if (cpu_component_controller_pressed(\"P2_FIRE\")) comp->joy_port1 &= (uint8_t)~0x10u;\n\
+    } else {\n\
+        comp->joy_port1 = 0xFFu;\n\
+        comp->joy_port2 = 0xFFu;\n\
+    }\n\
+}\n\
+if (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u && comp->audio_ring\
       \ != NULL && comp->audio_ring_fill > 0u) {\n    uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev)\
       \ / (uint32_t)sizeof(int16_t);\n    uint32_t device_samples = (comp->audio_device_samples\
       \ > 0u) ? comp->audio_device_samples : 512u;\n    uint32_t low_watermark = device_samples\
@@ -290,6 +326,10 @@ behavior:
       \ 3u: return (uint64_t)comp->row3;\n    case 4u: return (uint64_t)comp->row4;\n\
       \    case 5u: return (uint64_t)comp->row5;\n    case 6u: return (uint64_t)comp->row6;\n\
       \    case 7u: return (uint64_t)comp->row7;\n    default: return 0xFFu;\n}\n"
+    joystick_port: "uint8_t port = (argc > 0) ? (uint8_t)(args[0] & 0xFFu) : 2u;\n\
+      if (port == 1u) return (uint64_t)comp->joy_port1;\n\
+      if (port == 2u) return (uint64_t)comp->joy_port2;\n\
+      return 0xFFu;\n"
   handler_bodies:
     video_frame: "if (comp->host_inited == 0u || argc < 4) return;\nvoid *renderer\
       \ = comp->renderer;\nvoid *texture = comp->texture;\nuint32_t frame = (uint32_t)(args[0]\

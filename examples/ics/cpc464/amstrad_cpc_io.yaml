@@ -175,6 +175,9 @@ interfaces:
     - name: keyboard_read_row
       args: [u8]
       returns: u8
+    - name: controller_read_row
+      args: [u8]
+      returns: u8
   handlers: []
   signals:
     - name: frame_ready
@@ -430,10 +433,12 @@ behavior:
                   uint8_t row = (uint8_t)(comp->ppi_port_c & 0x0Fu);
                   uint64_t cb_args[1] = { (uint64_t)row };
                   uint8_t kb = (uint8_t)cpu_component_call(cpu, "cpc_io", "keyboard_read_row", cb_args, 1);
+                  uint8_t joy = (uint8_t)cpu_component_call(cpu, "cpc_io", "controller_read_row", cb_args, 1);
+                  uint8_t merged = (uint8_t)(kb & joy);
                   if ((comp->ay_regs[7] & 0x40u) == 0u) {
-                      value = kb;
+                      value = merged;
                   } else {
-                      value = (uint8_t)(comp->ay_regs[14] & kb);
+                      value = (uint8_t)(comp->ay_regs[14] & merged);
                   }
                   comp->ppi_port_a = value;
                   if (kb_trace_on != 0 && kb_trace_count < 5000u) {

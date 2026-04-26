@@ -36,6 +36,9 @@ interfaces:
     - name: keyboard_matrix
       args: [u8]
       returns: u8
+    - name: read_kempston
+      args: []
+      returns: u8
     - name: mic_sample
       args: []
       returns: u8
@@ -57,6 +60,8 @@ behavior:
       (void)args;
       (void)argc;
       return (uint64_t)comp->keyboard_value;
+    read_kempston: |
+      return 0u;
     mic_sample: |
       return (uint64_t)comp->mic_value;
   handler_bodies:

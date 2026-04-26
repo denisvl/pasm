@@ -1,0 +1,121 @@
+metadata:
+  name: BBCMicroDefaultSystem
+  version: "0.1"
+
+clock_hz: 2000000
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: RAM_MAIN
+      start: 0x0000
+      size: 0x8000
+      read_write: true
+    - name: ROM_PAGED
+      start: 0x8000
+      size: 0x4000
+      read_only: true
+    - name: ROM_OS
+      start: 0xC000
+      size: 0x4000
+      read_only: true
+  rom_images:
+    - name: bbc_basic_rom
+      file: ../../roms/bbcmicro/BASIC2.ROM
+      target_region: ROM_PAGED
+      offset: 0
+    - name: bbc_mos_rom
+      file: ../../roms/bbcmicro/OS12.ROM
+      target_region: ROM_OS
+      offset: 0
+
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+
+components:
+  ics:
+    - bbc_micro_io
+    - sms_psg0
+  devices:
+    - keyboard_bbc_micro
+    - video_bbc_micro
+    - speaker_bbc_micro
+  hosts:
+    - host_bbc_micro
+
+connections:
+  - from:
+      component: bbc_micro_io
+      kind: callback
+      name: keyboard_read_row
+    to:
+      component: host_bbc_micro
+      kind: callback
+      name: keyboard_read_row
+
+  - from:
+      component: bbc_micro_io
+      kind: signal
+      name: frame_ready
+    to:
+      component: video_bbc_micro
+      kind: handler
+      name: on_frame_ready
+
+  - from:
+      component: video_bbc_micro
+      kind: signal
+      name: frame_present
+    to:
+      component: host_bbc_micro
+      kind: handler
+      name: video_frame
+
+  - from:
+      component: bbc_micro_io
+      kind: signal
+      name: audio_command
+    to:
+      component: sms_psg0
+      kind: handler
+      name: on_audio_command
+
+  - from:
+      component: sms_psg0
+      kind: signal
+      name: audio_level
+    to:
+      component: speaker_bbc_micro
+      kind: handler
+      name: on_audio_level
+
+  - from:
+      component: speaker_bbc_micro
+      kind: signal
+      name: pcm_sample
+    to:
+      component: host_bbc_micro
+      kind: handler
+      name: audio_pcm
+
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+
+integrations:
+  profile: bbc_micro_default

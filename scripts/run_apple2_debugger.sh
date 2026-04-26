@@ -20,6 +20,8 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/apple2/host_keyboard_apple2.yaml}"
+JOYSTICK_KEYBOARD_MAP="${JOYSTICK_KEYBOARD_MAP:-examples/hosts/apple2/host_keyboard_apple2_joystick.yaml}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/apple2/host_controller_apple2.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -29,6 +31,7 @@ PROCESSOR="examples/processors/mos6502.yaml"
 SYSTEM_DIR="examples/systems/apple2"
 IC_IO="examples/ics/apple2/apple2_io.yaml"
 DEVICE_KB="examples/devices/apple2/apple2_keyboard.yaml"
+DEVICE_GP="examples/devices/apple2/apple2_gameport.yaml"
 DEVICE_VIDEO="examples/devices/apple2/apple2_video.yaml"
 DEVICE_SPK="examples/devices/apple2/apple2_speaker.yaml"
 HOST_INTERACTIVE="examples/hosts/apple2/apple2_host_hal_interactive.yaml"
@@ -61,6 +64,7 @@ if [[ "${PROFILE}" == "interactive" ]]; then
     --system "${SYSTEM}" \
     --ic "${IC_IO}" \
     --device "${DEVICE_KB}" \
+    --device "${DEVICE_GP}" \
     --device "${DEVICE_VIDEO}" \
     --device "${DEVICE_SPK}" \
     --host "${HOST_INTERACTIVE}" \
@@ -87,7 +91,16 @@ RUN_ARGS=(
   --run-speed "${RUN_SPEED}"
 )
 if [[ "${PROFILE}" == "interactive" ]]; then
-  RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
+  KB_PATH="${KEYBOARD_MAP}"
+  if [[ -n "${JOYSTICK_KEYBOARD_MAP}" && -f "${JOYSTICK_KEYBOARD_MAP}" ]]; then
+    MERGED_KB="/tmp/pasm_apple2_keyboard_merged.yaml"
+    python3 scripts/merge_keyboard_maps.py "${KEYBOARD_MAP}" "${JOYSTICK_KEYBOARD_MAP}" > "${MERGED_KB}"
+    KB_PATH="${MERGED_KB}"
+  fi
+  RUN_ARGS+=(--keyboard-map "${KB_PATH}")
+  if [[ -n "${CONTROLLER_MAP}" && -f "${CONTROLLER_MAP}" ]]; then
+    RUN_ARGS+=(--controller-map "${CONTROLLER_MAP}")
+  fi
 fi
 if [[ -n "${START_PC}" ]]; then
   RUN_ARGS+=(--start-pc "${START_PC}")

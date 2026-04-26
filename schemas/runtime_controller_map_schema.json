@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PASM Runtime Controller Map",
+  "type": "object",
+  "required": ["controller_map"],
+  "properties": {
+    "controller_map": {
+      "type": "object",
+      "required": ["bindings"],
+      "properties": {
+        "focus_required": { "type": "boolean" },
+        "ports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["port", "connected"],
+            "properties": {
+              "port": { "type": "integer", "minimum": 1 },
+              "connected": { "type": "boolean" },
+              "host_device": {
+                "type": "object",
+                "properties": {
+                  "kind": { "type": "string", "enum": ["any", "gamecontroller", "joystick"] },
+                  "index": { "type": "integer", "minimum": 0 },
+                  "guid": { "type": "string" }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["target_control_id"],
+            "properties": {
+              "target_control_id": { "type": "string", "minLength": 1 },
+              "host_scancode": { "type": "string" },
+              "host_gamepad": { "type": "object" },
+              "host_joystick": { "type": "object" },
+              "deadzone": { "type": "number", "minimum": 0.0 },
+              "scale": { "type": "number" },
+              "invert": { "type": "boolean" },
+              "threshold": { "type": "number" }
+            },
+            "additionalProperties": true,
+            "oneOf": [
+              { "required": ["host_scancode"] },
+              { "required": ["host_gamepad"] },
+              { "required": ["host_joystick"] }
+            ]
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
+

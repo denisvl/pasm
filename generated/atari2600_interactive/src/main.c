@@ -12,7 +12,7 @@ void print_usage(const char *prog) {
     printf("Usage: %s [options]\n", prog);
     printf("Options:\n");
     printf("  --system-dir <dir>  Load system ROM manifests relative to this directory\n");
-
+    printf("  --keyboard-map <file>  Load runtime keyboard map YAML\n");
     printf("  --rom <file>    Load ROM file\n");
     printf("  --cart-rom <file>  Load cartridge ROM file (overrides generated default)\n");
     printf("  --addr <addr>   Load address (default: 0x0000)\n");
@@ -41,6 +41,8 @@ int main(int argc, char *argv[]) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--system-dir") == 0 && i + 1 < argc) {
             system_dir = argv[++i];
+        } else if (strcmp(argv[i], "--keyboard-map") == 0 && i + 1 < argc) {
+            keyboard_map_file = argv[++i];
         } else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {
             rom_file = argv[++i];
         } else if (strcmp(argv[i], "--cart-rom") == 0 && i + 1 < argc) {
