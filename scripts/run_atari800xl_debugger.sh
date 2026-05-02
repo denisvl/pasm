@@ -14,10 +14,13 @@ set -euo pipefail
 #   CMAKE_BUILD_TYPE=Release
 #   RUN_SPEED=realtime|max
 #   PASM_HOST_AUDIO=1
-#   USE_CARTRIDGE=0|1
 #   CARTRIDGE_MAP=examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml
 #   CARTRIDGE_ROM_GEN=../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/cart.rom
+#   USE_CARTRIDGE=0|1                           (default 1: picker-enabled system)
+#   BOOT_CARTRIDGE=0|1                          (default 0: boot BASIC/no cart)
+#   CARTRIDGE_DIR=/abs/path/to/atari800xl/roms   (enable runtime cartridge picker list)
+#   PASM_EMU_CART_PICKER_RAW_KEYS=0|1            (default 1; raw picker hotkey F12)
 #   OS_ROM=../../roms/atari800xl/ATARIXL.ROM
 #   BASIC_ROM=../../roms/atari800xl/BASIC_C.ROM
 #   SELFTEST_ROM=../../roms/atari800xl/ATARIXL_SELFTEST.ROM
@@ -29,20 +32,26 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
-USE_CARTRIDGE="${USE_CARTRIDGE:-0}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
+USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
+BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-0}"
+CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
 OS_ROM="${OS_ROM:-../../roms/atari800xl/ATARIXL.ROM}"
 BASIC_ROM="${BASIC_ROM:-../../roms/atari800xl/BASIC_C.ROM}"
 SELFTEST_ROM="${SELFTEST_ROM:-../../roms/atari800xl/ATARIXL_SELFTEST.ROM}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/atari800xl/host_keyboard_atari800xl.yaml}"
+PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
 mkdir -p "${UV_CACHE_DIR}"
+if [[ -z "${CARTRIDGE_DIR}" ]]; then
+  CARTRIDGE_DIR="${REPO_ROOT}/examples/roms/atari800xl"
+fi
 
 PROCESSOR="examples/processors/mos6502.yaml"
 IC_MAIN="examples/ics/atari800xl/atari800xl_io.yaml"
@@ -89,18 +98,32 @@ RESTORE_SYSTEM=0
 
 GEN_CARTRIDGE_ARGS=()
 RUN_CARTRIDGE_ARGS=()
+GEN_CARTRIDGE_ROM="${CARTRIDGE_ROM_GEN}"
+if [[ -n "${CARTRIDGE_ROM_RUNTIME}" ]]; then
+  ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME}"
+elif command -v realpath >/dev/null 2>&1; then
+  ROM_RUNTIME="$(realpath "${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}")"
+elif command -v readlink >/dev/null 2>&1; then
+  ROM_RUNTIME="$(readlink -f "${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}")"
+else
+  ROM_RUNTIME="${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}"
+fi
 if [[ "${USE_CARTRIDGE}" != "0" ]]; then
-  if [[ -n "${CARTRIDGE_ROM_RUNTIME}" ]]; then
-    ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME}"
-  elif command -v realpath >/dev/null 2>&1; then
-    ROM_RUNTIME="$(realpath "${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}")"
-  elif command -v readlink >/dev/null 2>&1; then
-    ROM_RUNTIME="$(readlink -f "${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}")"
-  else
-    ROM_RUNTIME="${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}"
+  if [[ ! -d "${CARTRIDGE_DIR}" ]]; then
+    echo "warning: CARTRIDGE_DIR does not exist: ${CARTRIDGE_DIR}" >&2
+    echo "         picker hotkey will appear to do nothing until this is fixed." >&2
   fi
-  GEN_CARTRIDGE_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_GEN}")
-  RUN_CARTRIDGE_ARGS+=(--cart-rom "${ROM_RUNTIME}")
+  RUN_CARTRIDGE_ARGS+=(--cartridge-dir "${CARTRIDGE_DIR}")
+  if [[ "${BOOT_CARTRIDGE}" != "0" ]]; then
+    RUN_CARTRIDGE_ARGS+=(--cart-rom "${ROM_RUNTIME}")
+  fi
+
+  # Keep picker-enabled cartridge systems booting to BASIC by default:
+  # when BOOT_CARTRIDGE=0, seed codegen with BASIC ROM instead of a game cart.
+  if [[ "${BOOT_CARTRIDGE}" == "0" ]]; then
+    GEN_CARTRIDGE_ROM="${BASIC_ROM}"
+  fi
+  GEN_CARTRIDGE_ARGS=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${GEN_CARTRIDGE_ROM}")
 fi
 
 if [[ ! -f "${SYSTEM_DIR_ABS}/${OS_ROM}" && ! -f "${OS_ROM}" ]]; then
@@ -120,7 +143,7 @@ if [[ ! -f "${SYSTEM_DIR_ABS}/${SELFTEST_ROM}" && ! -f "${SELFTEST_ROM}" ]]; the
     echo "Warning: self-test ROM not found (${SELFTEST_ROM}) and source OS ROM missing (${OS_ROM})." >&2
   fi
 fi
-if [[ "${USE_CARTRIDGE}" != "0" && ! -f "${ROM_RUNTIME}" ]]; then
+if [[ "${USE_CARTRIDGE}" != "0" && "${BOOT_CARTRIDGE}" != "0" && ! -f "${ROM_RUNTIME}" ]]; then
   echo "Warning: cartridge ROM not found (${ROM_RUNTIME})." >&2
 fi
 
@@ -172,12 +195,16 @@ cmake -S "${OUTPUT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYP
 cmake --build "${BUILD_DIR}" --config "${CMAKE_BUILD_TYPE}"
 
 echo "[3/3] Running Rust debugger (linked backend)"
-echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC:-<reset-vector>} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE} use_cartridge=${USE_CARTRIDGE}"
+echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC:-<reset-vector>} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
 echo "    os_rom=${OS_ROM} basic_rom=${BASIC_ROM}"
+echo "    use_cartridge=${USE_CARTRIDGE}"
 if [[ "${USE_CARTRIDGE}" != "0" ]]; then
   echo "    cartridge_map=${CARTRIDGE_MAP}"
-  echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
+  echo "    cartridge_rom_gen=${GEN_CARTRIDGE_ROM}"
   echo "    cartridge_rom_runtime=${ROM_RUNTIME}"
+  echo "    cartridge_dir=${CARTRIDGE_DIR}"
+  echo "    boot_cartridge=${BOOT_CARTRIDGE}"
+  echo "    cart_picker_raw_keys=${PASM_EMU_CART_PICKER_RAW_KEYS}"
 fi
 
 if [[ -n "${START_PC}" ]]; then
@@ -194,7 +221,9 @@ fi
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
+PASM_SYSTEM_DIR="${SYSTEM_DIR_ABS}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
+PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \

@@ -2,9 +2,5 @@ keyboard:
   kind: matrix
   focus_required: false
   bindings:
-  - host_scancode: F6
-    emulator_key_id: EMU_CART_PICKER
-  - host_scancode: F5
-    emulator_key_id: EMU_CART_PICKER
-  - host_scancode: P
+  - host_scancode: F12
     emulator_key_id: EMU_CART_PICKER

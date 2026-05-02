@@ -252,6 +252,7 @@ void {cpu_prefix}_reset(CPUState *cpu) {{
 {shadow_flags_reset}
 {interrupt_reset}
 {ic_reset}
+{interrupt_reset_post}
     cpu->running = true;
     cpu->halted = false;
     cpu->error_code = CPU_ERROR_NONE;
@@ -263,7 +264,10 @@ void {cpu_prefix}_reset(CPUState *cpu) {{
     cpu->hook_prefix = 0;
     cpu->hook_opcode = 0;
     cpu->hook_raw = 0;
-    cpu->tracing_enabled = false;
+    {{
+        const char *pasm_trace_env = getenv("PASM_TRACE");
+        cpu->tracing_enabled = (pasm_trace_env && (pasm_trace_env[0] == '1' || pasm_trace_env[0] == 'y' || pasm_trace_env[0] == 'Y'));
+    }}
     cpu->reset_delay_pending = true;
 }}
 

@@ -275,3 +275,6 @@ keyboard:
     ascii: 40
     ascii_shift: 0
     ascii_ctrl: 0
+  # Cartridge picker toggle
+  - host_scancode: F12
+    emulator_key_id: EMU_CART_PICKER

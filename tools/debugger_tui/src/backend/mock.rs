@@ -245,6 +245,14 @@ impl DebuggerBackend for MockDebuggerBackend {
         })
     }
 
+    fn status_line(&mut self) -> Result<String, String> {
+        Ok(if self.running {
+            "Running".to_string()
+        } else {
+            "Paused".to_string()
+        })
+    }
+
     fn reset(&mut self) -> Result<(), String> {
         self.pc = 0;
         self.total_cycles = 0;

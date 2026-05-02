@@ -19,6 +19,9 @@ state:
   - { name: cia1_ta_counter, type: uint16_t, initial: "0xFFFFu" }
   - { name: cia1_tb_counter, type: uint16_t, initial: "0xFFFFu" }
   - { name: cia2_pra, type: uint8_t, initial: "0xFFu" }
+  - { name: cia2_prb, type: uint8_t, initial: "0xFFu" }
+  - { name: cia2_ddra, type: uint8_t, initial: "0x00u" }
+  - { name: cia2_ddrb, type: uint8_t, initial: "0x00u" }
   - { name: cia2_icr_mask, type: uint8_t, initial: "0u" }
   - { name: cia2_icr_status, type: uint8_t, initial: "0u" }
   - { name: cia2_nmi_asserted, type: uint8_t, initial: "0u" }
@@ -89,14 +92,15 @@ behavior:
       if (comp->sid_regs != NULL) memset(comp->sid_regs, 0, 0x20u);
       if (comp->cia1_regs != NULL) memset(comp->cia1_regs, 0, 0x10u);
       if (comp->cia2_regs != NULL) memset(comp->cia2_regs, 0, 0x10u);
-      cpu->registers[REG_IO_DDR] = comp->io_ddr;
-      cpu->registers[REG_IO_DATA] = comp->io_data;
+      cpu->registers[REG_IO_DDR] = (uint8_t)(comp->io_ddr | 0xC0u);
+      cpu->registers[REG_IO_DATA] = (uint8_t)(comp->io_data | 0xC0u);
     reset: |
       comp->io_ddr = 0x2Fu; comp->io_data = 0x37u;
       comp->cia1_pra = 0xFFu; comp->cia1_prb = 0xFFu; comp->cia1_ddra = 0xFFu; comp->cia1_ddrb = 0x00u;
       comp->cia1_icr_mask = 0u; comp->cia1_icr_status = 0u; comp->cia1_irq_asserted = 0u;
       comp->cia1_ta_latch = 0xFFFFu; comp->cia1_tb_latch = 0xFFFFu; comp->cia1_ta_counter = 0xFFFFu; comp->cia1_tb_counter = 0xFFFFu;
-      comp->cia2_pra = 0xFFu; comp->cia2_icr_mask = 0u; comp->cia2_icr_status = 0u; comp->cia2_nmi_asserted = 0u;
+      comp->cia2_pra = 0xFFu; comp->cia2_prb = 0xFFu; comp->cia2_ddra = 0x00u; comp->cia2_ddrb = 0x00u;
+      comp->cia2_icr_mask = 0u; comp->cia2_icr_status = 0u; comp->cia2_nmi_asserted = 0u;
       comp->cia2_ta_latch = 0xFFFFu; comp->cia2_tb_latch = 0xFFFFu; comp->cia2_ta_counter = 0xFFFFu; comp->cia2_tb_counter = 0xFFFFu;
       comp->frame_counter = 0u; comp->last_step_cycle = cpu->total_cycles; comp->vic_raster_line = 0u; comp->vic_cycle_in_line = 0u; comp->vic_irq_asserted = 0u;
       comp->sid_phase0 = 0u; comp->sid_phase1 = 0u; comp->sid_phase2 = 0u; comp->sid_noise = 0x007FFFFFu; comp->sid_sample_cursor = 0u;
@@ -112,8 +116,8 @@ behavior:
       if (comp->sid_regs != NULL) memset(comp->sid_regs, 0, 0x20u);
       if (comp->cia1_regs != NULL) memset(comp->cia1_regs, 0, 0x10u);
       if (comp->cia2_regs != NULL) memset(comp->cia2_regs, 0, 0x10u);
-      cpu->registers[REG_IO_DDR] = comp->io_ddr;
-      cpu->registers[REG_IO_DATA] = comp->io_data;
+      cpu->registers[REG_IO_DDR] = (uint8_t)(comp->io_ddr | 0xC0u);
+      cpu->registers[REG_IO_DATA] = (uint8_t)(comp->io_data | 0xC0u);
     destroy: |
       if (comp->ram_a000 != NULL) { free(comp->ram_a000); comp->ram_a000 = NULL; }
       if (comp->ram_d000 != NULL) { free(comp->ram_d000); comp->ram_d000 = NULL; }
@@ -124,19 +128,32 @@ behavior:
       if (comp->cia1_regs != NULL) { free(comp->cia1_regs); comp->cia1_regs = NULL; }
       if (comp->cia2_regs != NULL) { free(comp->cia2_regs); comp->cia2_regs = NULL; }
     mem_read_pre: |
-      if (addr == 0x0000u) return comp->io_ddr;
-      if (addr == 0x0001u) return (uint8_t)((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr));
+      if (addr == 0x0000u) return (uint8_t)(comp->io_ddr | 0xC0u);
+      if (addr == 0x0001u) return (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
       {
-          uint8_t effective = (uint8_t)((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr));
+          uint8_t effective = (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
           uint8_t loram = (uint8_t)(effective & 0x01u);
           uint8_t hiram = (uint8_t)((effective >> 1u) & 0x01u);
           uint8_t charen = (uint8_t)((effective >> 2u) & 0x01u);
           if (addr >= 0xA000u && addr <= 0xBFFFu) {
+              ComponentState_c64_cart0 *cart = &cpu->comp_c64_cart0;
+              if (cart->rom_data != NULL && cart->rom_size > 0u && cart->image_parsed != 0u &&
+                  cart->image_hi_len != 0u &&
+                  cart->crt_exrom == 0u && cart->crt_game == 0u) {
+                  uint32_t off = (uint32_t)(addr - 0xA000u);
+                  if (off < cart->image_hi_len) {
+                      return cart->rom_data[cart->image_hi_off + off];
+                  }
+              }
               if (loram != 0u && hiram != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
               return (comp->ram_a000 != NULL) ? comp->ram_a000[addr - 0xA000u] : 0xFFu;
           }
           if (addr >= 0xD000u && addr <= 0xDFFFu) {
               uint16_t off = (uint16_t)(addr - 0xD000u);
+              /* IO1/IO2 ($DE00-$DFFF) are cartridge space; do not consume here. */
+              if (off >= 0x0E00u) {
+                  /* fallthrough so cartridge mapper can handle it */
+              } else {
               if (charen == 0u) {
                   if ((loram | hiram) != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
                   return (comp->ram_d000 != NULL) ? comp->ram_d000[off] : 0xFFu;
@@ -173,7 +190,10 @@ behavior:
               }
               if (off < 0x0E00u) {
                   uint8_t r=(uint8_t)(off & 0x0Fu);
-                  if (r == 0x00u) return comp->cia2_pra;
+                  if (r == 0x00u) return (uint8_t)((comp->cia2_pra & comp->cia2_ddra) | (uint8_t)(~comp->cia2_ddra));
+                  if (r == 0x01u) return (uint8_t)((comp->cia2_prb & comp->cia2_ddrb) | (uint8_t)(~comp->cia2_ddrb));
+                  if (r == 0x02u) return comp->cia2_ddra;
+                  if (r == 0x03u) return comp->cia2_ddrb;
                   if (r == 0x04u) return (uint8_t)(comp->cia2_ta_counter & 0xFFu);
                   if (r == 0x05u) return (uint8_t)((comp->cia2_ta_counter >> 8u) & 0xFFu);
                   if (r == 0x06u) return (uint8_t)(comp->cia2_tb_counter & 0xFFu);
@@ -181,7 +201,7 @@ behavior:
                   if (r == 0x0Du) { uint8_t st=comp->cia2_icr_status; comp->cia2_icr_status=0u; comp->cia2_nmi_asserted=0u; return st; }
                   return comp->cia2_regs[r];
               }
-              return 0xFFu;
+              }
           }
           if (addr >= 0xE000u && addr <= 0xFFFFu) {
               if (hiram != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
@@ -189,14 +209,26 @@ behavior:
           }
       }
     mem_write_pre: |
-      if (addr == 0x0000u) { comp->io_ddr = value; cpu->registers[REG_IO_DDR] = value; return; }
-      if (addr == 0x0001u) { comp->io_data = value; cpu->registers[REG_IO_DATA] = value; return; }
+      if (addr == 0x0000u) {
+          comp->io_ddr = (uint8_t)(value & 0x3Fu);
+          cpu->registers[REG_IO_DDR] = (uint8_t)(comp->io_ddr | 0xC0u);
+          return;
+      }
+      if (addr == 0x0001u) {
+          comp->io_data = (uint8_t)(value & 0x3Fu);
+          cpu->registers[REG_IO_DATA] = (uint8_t)(comp->io_data | 0xC0u);
+          return;
+      }
       {
-          uint8_t effective = (uint8_t)((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr));
+          uint8_t effective = (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
           uint8_t charen = (uint8_t)((effective >> 2u) & 0x01u);
           if (addr >= 0xA000u && addr <= 0xBFFFu) { if (comp->ram_a000 != NULL) comp->ram_a000[addr - 0xA000u] = value; return; }
           if (addr >= 0xD000u && addr <= 0xDFFFu) {
               uint16_t off=(uint16_t)(addr - 0xD000u);
+              /* IO1/IO2 ($DE00-$DFFF) are cartridge space; do not consume here. */
+              if (off >= 0x0E00u) {
+                  /* fallthrough so cartridge mapper can handle it */
+              } else {
               if (charen == 0u) { if (comp->ram_d000 != NULL) comp->ram_d000[off] = value; return; }
               if (off < 0x0400u) {
                   uint8_t r=(uint8_t)(off & 0x3Fu); comp->vic_regs[r] = value;
@@ -223,6 +255,9 @@ behavior:
               if (off < 0x0E00u) {
                   uint8_t r=(uint8_t)(off & 0x0Fu); comp->cia2_regs[r] = value;
                   if (r == 0x00u) { comp->cia2_pra = value; return; }
+                  if (r == 0x01u) { comp->cia2_prb = value; return; }
+                  if (r == 0x02u) { comp->cia2_ddra = value; return; }
+                  if (r == 0x03u) { comp->cia2_ddrb = value; return; }
                   if (r == 0x04u) { comp->cia2_ta_latch = (uint16_t)((comp->cia2_ta_latch & 0xFF00u) | value); return; }
                   if (r == 0x05u) { comp->cia2_ta_latch = (uint16_t)((comp->cia2_ta_latch & 0x00FFu) | ((uint16_t)value << 8u)); if ((comp->cia2_regs[0x0Eu] & 0x01u) == 0u) comp->cia2_ta_counter = comp->cia2_ta_latch; return; }
                   if (r == 0x06u) { comp->cia2_tb_latch = (uint16_t)((comp->cia2_tb_latch & 0xFF00u) | value); return; }
@@ -232,7 +267,7 @@ behavior:
                   if (r == 0x0Fu) { comp->cia2_regs[0x0Fu] = (uint8_t)(value & 0xEFu); if ((value & 0x10u) != 0u) comp->cia2_tb_counter = comp->cia2_tb_latch; return; }
                   return;
               }
-              return;
+              }
           }
           if (addr >= 0xE000u && addr <= 0xFFFFu) { if (comp->ram_e000 != NULL) comp->ram_e000[addr - 0xE000u] = value; return; }
       }
@@ -249,7 +284,8 @@ behavior:
           for (uint16_t i = 0u; i < steps; ++i) {
               comp->vic_raster_line = (uint16_t)(comp->vic_raster_line + 1u);
               if (comp->vic_raster_line >= 312u) {
-                  uint16_t bank = (uint16_t)(((uint16_t)((uint8_t)(~comp->cia2_pra) & 0x03u)) << 14u);
+                  uint8_t cia2_porta = (uint8_t)((comp->cia2_pra & comp->cia2_ddra) | (uint8_t)(~comp->cia2_ddra));
+                  uint16_t bank = (uint16_t)(((uint16_t)((uint8_t)(~cia2_porta) & 0x03u)) << 14u);
                   uint16_t vm = comp->vic_regs[0x18u];
                   uint16_t sa = (uint16_t)(bank + (((vm >> 4u) & 0x0Fu) << 10u));
                   uint16_t ca = (uint16_t)(bank + (((vm >> 1u) & 0x07u) << 11u));
@@ -294,22 +330,22 @@ behavior:
 
       {
           uint64_t d = delta_cycles;
-          if ((comp->cia1_regs[0x0Eu] & 0x01u) != 0u) {
+          if ((comp->cia1_regs[0x0Eu] & 0x01u) != 0u && (comp->cia1_regs[0x0Eu] & 0x20u) == 0u) {
               uint16_t rl = (comp->cia1_ta_latch != 0u) ? comp->cia1_ta_latch : 0xFFFFu;
               while (d > 0u) { uint16_t c = (comp->cia1_ta_counter != 0u) ? comp->cia1_ta_counter : rl; if (d < (uint64_t)c) { comp->cia1_ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia1_ta_counter = rl; comp->cia1_icr_status = (uint8_t)(comp->cia1_icr_status | 0x01u); if ((comp->cia1_regs[0x0Eu] & 0x08u) != 0u) { comp->cia1_regs[0x0Eu] &= (uint8_t)~0x01u; break; } } }
           }
           d = delta_cycles;
-          if ((comp->cia1_regs[0x0Fu] & 0x01u) != 0u) {
+          if ((comp->cia1_regs[0x0Fu] & 0x01u) != 0u && (comp->cia1_regs[0x0Fu] & 0x60u) == 0u) {
               uint16_t rl = (comp->cia1_tb_latch != 0u) ? comp->cia1_tb_latch : 0xFFFFu;
               while (d > 0u) { uint16_t c = (comp->cia1_tb_counter != 0u) ? comp->cia1_tb_counter : rl; if (d < (uint64_t)c) { comp->cia1_tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia1_tb_counter = rl; comp->cia1_icr_status = (uint8_t)(comp->cia1_icr_status | 0x02u); if ((comp->cia1_regs[0x0Fu] & 0x08u) != 0u) { comp->cia1_regs[0x0Fu] &= (uint8_t)~0x01u; break; } } }
           }
           d = delta_cycles;
-          if ((comp->cia2_regs[0x0Eu] & 0x01u) != 0u) {
+          if ((comp->cia2_regs[0x0Eu] & 0x01u) != 0u && (comp->cia2_regs[0x0Eu] & 0x20u) == 0u) {
               uint16_t rl = (comp->cia2_ta_latch != 0u) ? comp->cia2_ta_latch : 0xFFFFu;
               while (d > 0u) { uint16_t c = (comp->cia2_ta_counter != 0u) ? comp->cia2_ta_counter : rl; if (d < (uint64_t)c) { comp->cia2_ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia2_ta_counter = rl; comp->cia2_icr_status = (uint8_t)(comp->cia2_icr_status | 0x01u); if ((comp->cia2_regs[0x0Eu] & 0x08u) != 0u) { comp->cia2_regs[0x0Eu] &= (uint8_t)~0x01u; break; } } }
           }
           d = delta_cycles;
-          if ((comp->cia2_regs[0x0Fu] & 0x01u) != 0u) {
+          if ((comp->cia2_regs[0x0Fu] & 0x01u) != 0u && (comp->cia2_regs[0x0Fu] & 0x60u) == 0u) {
               uint16_t rl = (comp->cia2_tb_latch != 0u) ? comp->cia2_tb_latch : 0xFFFFu;
               while (d > 0u) { uint16_t c = (comp->cia2_tb_counter != 0u) ? comp->cia2_tb_counter : rl; if (d < (uint64_t)c) { comp->cia2_tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia2_tb_counter = rl; comp->cia2_icr_status = (uint8_t)(comp->cia2_icr_status | 0x02u); if ((comp->cia2_regs[0x0Fu] & 0x08u) != 0u) { comp->cia2_regs[0x0Fu] &= (uint8_t)~0x01u; break; } } }
           }

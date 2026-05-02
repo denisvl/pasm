@@ -295,6 +295,8 @@ struct CPUState {
     uint8_t interrupt_vector;
     bool interrupts_enabled;
     bool interrupt_pending;
+    bool irq_pending;
+    bool nmi_pending;
     
     /* Execution state */
     bool running;

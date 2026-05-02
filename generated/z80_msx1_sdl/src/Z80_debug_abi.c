@@ -673,8 +673,11 @@ int z80_dbg_snapshot_fill(
     if (stack_rows && stack_cap > 0) {
         for (i = 0; i < stack_cap && i < 32u; i++) {
             PASMDebugStackRow *row = &stack_rows[i];
+            uint8_t sp8 = (uint8_t)cpu->sp;
+            uint8_t top = (uint8_t)(sp8 + 1u);
+            uint8_t off = (uint8_t)(top + (uint8_t)(i * 2u));
             memset(row, 0, sizeof(*row));
-            row->address = (uint64_t)((uint16_t)(cpu->sp + (uint16_t)(i * 2u)));
+            row->address = (uint64_t)((uint16_t)(0x0100u | off));
             row->value = (uint64_t)z80_read_word(cpu, (uint16_t)row->address);
             row->is_sp = (i == 0u) ? 1u : 0u;
             row->changed = 0u;
@@ -1071,6 +1074,10 @@ int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path) {
     return z80_load_cartridge_rom(cpu, path);
 }
 
+int pasm_dbg_set_cartridge_dir(CPUState *cpu, const char *path) {
+    return z80_set_cartridge_dir(cpu, path);
+}
+
 int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path) {
     return z80_load_keyboard_map(cpu, path);
 }
@@ -1184,6 +1191,10 @@ int pasm_dbg_focus_host_window(CPUState *cpu) {
 }
 
 uint8_t pasm_dbg_requires_keyboard_map(void) {
+    return 1u;
+}
+
+uint8_t pasm_dbg_supports_cartridge(void) {
     return 1u;
 }
 

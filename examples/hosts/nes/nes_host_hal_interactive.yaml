@@ -213,7 +213,7 @@ behavior:
 
       '
     step_post: "if (comp->host_inited == 0u) return;\nif ((cpu->total_cycles - comp->last_event_poll_cycle)\
-      \ < 128u) return;\ncomp->last_event_poll_cycle = cpu->total_cycles;\n\n{\n\
+      \ < 2048u) return;\ncomp->last_event_poll_cycle = cpu->total_cycles;\n\n{\n\
       \    CPUHostEvent ev;\n    while (cpu_host_hal_poll_event(&ev)) {\n        if\
       \ (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {\n            cpu->running\
       \ = false;\n            cpu->halted = true;\n        }\n    }\n    cpu_host_hal_pump_events();\n\
@@ -269,10 +269,14 @@ behavior:
        \ comp->joy2 |= 0x08u;\n        if ((rows[1] & 0x01u) == 0u) comp->joy2 |= 0x10u;\n\
        \        if ((rows[1] & 0x02u) == 0u) comp->joy2 |= 0x20u;\n        if ((rows[1]\
        \ & 0x04u) == 0u) comp->joy2 |= 0x40u;\n        if ((rows[1] & 0x08u) == 0u)\
-       \ comp->joy2 |= 0x80u;\n    }\n    {\n        const char *force_start = cpu_host_hal_getenv(\"PASM_NES_FORCE_START\");\n\
-       \        if (force_start != NULL && force_start[0] != '0') comp->joy1 |= 0x08u;\n    }\n\
-       \    {\n        const char *env = cpu_host_hal_getenv(\"PASM_NES_PAD_TRACE\");\n\
-       \        if (env != NULL && env[0] != '0') {\n            static FILE *fp = NULL;\n\
+       \ comp->joy2 |= 0x80u;\n    }\n    {\n        static int force_start_enabled = -1;\n\
+       \        if (force_start_enabled < 0) {\n            const char *force_start = cpu_host_hal_getenv(\"PASM_NES_FORCE_START\");\n\
+       \            force_start_enabled = (force_start != NULL && force_start[0] != '0') ? 1 : 0;\n        }\n\
+       \        if (force_start_enabled != 0) comp->joy1 |= 0x08u;\n    }\n\
+       \    {\n        static int host_pad_trace_enabled = -1;\n\
+       \        if (host_pad_trace_enabled < 0) {\n            const char *env = cpu_host_hal_getenv(\"PASM_NES_PAD_TRACE\");\n\
+       \            host_pad_trace_enabled = (env != NULL && env[0] != '0') ? 1 : 0;\n        }\n\
+       \        if (host_pad_trace_enabled != 0) {\n            static FILE *fp = NULL;\n\
        \            if (fp == NULL) fp = fopen(\"log/nes_pad_trace.log\", \"a\");\n\
        \            if (fp != NULL) {\n                unsigned k_ret = 0u, k_ret2 = 0u, k_kpenter = 0u, k_rshift = 0u, k_up = 0u, k_down = 0u, k_left = 0u, k_right = 0u, map_start = 0u;\n\
        \                if (ks != NULL && key_count > 0) {\n                    if ((size_t)CPU_HOST_SCANCODE(RETURN) < (size_t)key_count) k_ret = (unsigned)ks[CPU_HOST_SCANCODE(RETURN)];\n\

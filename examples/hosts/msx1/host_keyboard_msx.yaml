@@ -374,3 +374,5 @@ keyboard:
     - row: 8
       bit: 7
 
+  - host_scancode: F12
+    emulator_key_id: EMU_CART_PICKER

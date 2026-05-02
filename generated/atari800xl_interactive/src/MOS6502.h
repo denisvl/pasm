@@ -187,6 +187,11 @@ typedef struct ComponentState_host_atari800xl {
     uint32_t overlay_cpu_pct_x10;
 } ComponentState_host_atari800xl;
 
+typedef struct ComponentState_atari_cart0 {
+    uint8_t * rom_data;
+    uint32_t rom_size;
+} ComponentState_atari_cart0;
+
 
 /* ===== CPU State ===== */
 struct CPUState {
@@ -220,6 +225,8 @@ struct CPUState {
     uint8_t interrupt_vector;
     bool interrupts_enabled;
     bool interrupt_pending;
+    bool irq_pending;
+    bool nmi_pending;
     
     /* Execution state */
     bool running;
@@ -227,6 +234,8 @@ struct CPUState {
     int error_code;
     uint64_t total_cycles;
     bool pc_modified;
+    uint8_t current_instruction_cycles;
+    uint16_t io_read_phase_ppu_dots;
     uint16_t hook_pc;
     uint8_t hook_prefix;
     uint8_t hook_opcode;
@@ -252,6 +261,7 @@ struct CPUState {
     ComponentState_video_atari800xl comp_video_atari800xl;
     ComponentState_speaker_atari800xl comp_speaker_atari800xl;
     ComponentState_host_atari800xl comp_host_atari800xl;
+    ComponentState_atari_cart0 comp_atari_cart0;
 };
 
 /* ===== Constants ===== */
@@ -259,17 +269,17 @@ struct CPUState {
 #define CPU_ERROR_INVALID_OPCODE 1
 #define CPU_ERROR_INVALID_MEMORY 2
 #define CPU_ERROR_HALT 3
-#define CPU_SYSTEM_NAME "Atari800XLInteractiveSystem"
+#define CPU_SYSTEM_NAME "Atari800XLCartridgeInteractiveSystem"
 #define CPU_SYSTEM_VERSION "0.1"
 #define CPU_SYSTEM_CLOCK_HZ 1789773ULL
 #define CPU_AUDIO_SAMPLE_RATE 44100ULL
 #define CPU_AUDIO_CHANNELS 1
 #define CPU_AUDIO_FORMAT "s16le"
-/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"atari800xl_interactive\"} */
+/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"atari800xl_cartridge_interactive\"} */
 #define CPU_IC_COUNT 1
 #define CPU_DEVICE_COUNT 4
 #define CPU_HOST_COUNT 1
-#define CPU_CARTRIDGE_COUNT 0
+#define CPU_CARTRIDGE_COUNT 1
 
 /* ===== Register Enum ===== */
 typedef enum {
@@ -299,6 +309,7 @@ void mos6502_reset(CPUState *cpu);
 int mos6502_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mos6502_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mos6502_load_cartridge_rom(CPUState *cpu, const char *path);
+int mos6502_set_cartridge_dir(CPUState *cpu, const char *path);
 int mos6502_load_keyboard_map(CPUState *cpu, const char *path);
 int mos6502_load_controller_map(CPUState *cpu, const char *path);
 

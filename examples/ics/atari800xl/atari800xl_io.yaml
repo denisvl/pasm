@@ -407,6 +407,31 @@ behavior:
           }
           }
       }
+      #if CPU_CARTRIDGE_COUNT > 0
+      if (addr >= 0x8000u && addr < 0xA000u) {
+          if (cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) {
+              uint8_t *rom = cpu->comp_atari_cart0.rom_data;
+              uint32_t size = cpu->comp_atari_cart0.rom_size;
+              uint32_t base_off = 0u;
+              uint32_t eff_size = size;
+              if (
+                  eff_size >= 16u &&
+                  rom[0] == 'C' &&
+                  rom[1] == 'A' &&
+                  rom[2] == 'R' &&
+                  rom[3] == 'T'
+              ) {
+                  base_off = 16u;
+                  eff_size -= 16u;
+              }
+              /* 16K-style mapping: lower bank at 0x8000-0x9FFF. */
+              if (eff_size > 0x2000u) {
+                  uint32_t off = base_off + (uint32_t)(addr - 0x8000u);
+                  if (off < size) return rom[off];
+              }
+          }
+      }
+      #endif
       if (addr >= 0xC000u && addr < 0xD000u) {
           if ((comp->portb & 0x01u) == 0u && comp->ram_under_os_low != NULL) {
               return comp->ram_under_os_low[(uint16_t)(addr - 0xC000u)];
@@ -549,6 +574,14 @@ behavior:
           return;
           }
       }
+      #if CPU_CARTRIDGE_COUNT > 0
+      if (addr >= 0x8000u && addr < 0xA000u) {
+          if (cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) {
+              /* 16K-style cart lower window is ROM while cartridge is present. */
+              return;
+          }
+      }
+      #endif
       if (addr >= 0xC000u && addr < 0xD000u) {
           if (comp->ram_under_os_low != NULL) {
               comp->ram_under_os_low[(uint16_t)(addr - 0xC000u)] = value;
@@ -671,7 +704,8 @@ behavior:
               comp->pokey_irqst = (uint8_t)(comp->pokey_irqst | (uint8_t)(~value & 0xF7u));
               if ((((uint8_t)(~comp->pokey_irqst)) & comp->pokey_irqen) != 0u) {
                   cpu->interrupt_vector = 0x00u;
-                  cpu->interrupt_pending = true;
+                  cpu->irq_pending = true;
+                  cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               }
               return;
           }
@@ -752,7 +786,8 @@ behavior:
               if ((comp->pokey_irqen & 0x10u) != 0u) {
                   comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x10u);
                   cpu->interrupt_vector = 0x00u;
-                  cpu->interrupt_pending = true;
+                  cpu->irq_pending = true;
+                  cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               }
           }
           if (comp->pokey_serout_busy != 0u && cpu->total_cycles >= comp->pokey_serout_done_cycle) {
@@ -768,16 +803,19 @@ behavior:
               if ((comp->pokey_irqen & 0x10u) != 0u) {
                   comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x10u);
                   cpu->interrupt_vector = 0x00u;
-                  cpu->interrupt_pending = true;
+                  cpu->irq_pending = true;
+                  cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               }
               if ((comp->pokey_irqen & 0x08u) != 0u) {
                   cpu->interrupt_vector = 0x00u;
-                  cpu->interrupt_pending = true;
+                  cpu->irq_pending = true;
+                  cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               }
           }
           if ((((uint8_t)(~comp->pokey_irqst)) & comp->pokey_irqen) != 0u) {
               cpu->interrupt_vector = 0x00u;
-              cpu->interrupt_pending = true;
+              cpu->irq_pending = true;
+              cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
           }
       }
       {
@@ -968,7 +1006,8 @@ behavior:
               comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x40u);
               if ((comp->pokey_irqen & 0x40u) != 0u) {
                   cpu->interrupt_vector = 0x00u;
-                  cpu->interrupt_pending = true;
+                  cpu->irq_pending = true;
+                  cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               }
           }
       }
@@ -979,7 +1018,8 @@ behavior:
               comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x80u);
               if ((comp->pokey_irqen & 0x80u) != 0u) {
                   cpu->interrupt_vector = 0x00u;
-                  cpu->interrupt_pending = true;
+                  cpu->irq_pending = true;
+                  cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               }
           } else {
               comp->pokey_irqst = (uint8_t)(comp->pokey_irqst | 0x80u);
@@ -1001,7 +1041,8 @@ behavior:
           comp->nmi_status = (uint8_t)(comp->nmi_status | 0x40u);
           if ((comp->nmi_enable & 0x40u) != 0u) {
               cpu->interrupt_vector = 0xFFu;
-              cpu->interrupt_pending = true;
+              cpu->nmi_pending = true;
+              cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               {
                   uint64_t irq_up[1] = { 1u };
                   uint64_t irq_down[1] = { 0u };

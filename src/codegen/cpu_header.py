@@ -148,6 +148,13 @@ def _generate_interrupt_state_fields(isa_data: Dict[str, Any]) -> str:
             "    bool interrupt_pending;",
         ]
     )
+    if model == "mos6502":
+        lines.extend(
+            [
+                "    bool irq_pending;",
+                "    bool nmi_pending;",
+            ]
+        )
     return "\n".join(lines)
 
 

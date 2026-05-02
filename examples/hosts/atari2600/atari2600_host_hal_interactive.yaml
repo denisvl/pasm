@@ -3,6 +3,8 @@ metadata:
   type: host_adapter
   model: atari2600_hal_interactive
   version: '1.0'
+ui:
+  cartridge_picker_font_scale: 1
 state:
 - name: host_inited
   type: uint8_t

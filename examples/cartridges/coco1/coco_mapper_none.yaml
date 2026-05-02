@@ -4,6 +4,11 @@ metadata:
   model: coco_mapper_none
   version: "1.0"
 
+allowed_extensions:
+  - ccc
+  - rom
+  - bin
+
 state:
   - name: rom_data
     type: uint8_t *

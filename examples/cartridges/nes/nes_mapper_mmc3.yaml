@@ -4,6 +4,12 @@ metadata:
   model: nes_mapper_mmc3_4
   version: "1.0"
 
+allowed_extensions:
+  - nes
+  - bin
+  - unf
+  - unif
+
 state:
   - name: rom_data
     type: uint8_t *
@@ -405,14 +411,13 @@ behavior:
           return 0xFFu;
       }
     mem_write_pre: |
-      if (comp->ines_valid == 0u) return;
-      if (addr >= 0x6000u && addr < 0x8000u) {
+      if (comp->ines_valid != 0u && addr >= 0x6000u && addr < 0x8000u) {
           if (comp->prg_ram != NULL && comp->prg_ram_size > 0u) {
               comp->prg_ram[(uint32_t)(addr - 0x6000u) % comp->prg_ram_size] = value;
           }
           return;
       }
-      if (addr >= 0x8000u) {
+      if (comp->ines_valid != 0u && addr >= 0x8000u) {
           if (addr < 0xA000u) {
               if ((addr & 1u) == 0u) {
                   comp->bank_select = (uint8_t)(value & 0x07u);
@@ -461,31 +466,6 @@ behavior:
   callback_handlers:
     chr_read: |
       uint16_t ppu_addr = (argc > 0) ? (uint16_t)(args[0] & 0x3FFFu) : 0u;
-      uint8_t rendering = (argc > 1) ? (uint8_t)(args[1] & 0x01u) : 1u;
-      if (rendering != 0u) {
-          uint8_t a12 = (uint8_t)((ppu_addr & 0x1000u) ? 1u : 0u);
-          if (a12 == 0u) {
-              if (comp->a12_low_count < 255u) comp->a12_low_count += 1u;
-          } else {
-              /* MMC3 clocks on A12 rising edge only after A12 has stayed low long enough.
-               * In this model, low_count is tracked in PPU fetch accesses, so use >=3 to
-               * suppress per-tile chatter and keep scanline IRQ cadence stable.
-               */
-              if (comp->a12_prev == 0u && comp->a12_low_count >= 3u) {
-                  if (comp->irq_reload != 0u || comp->irq_counter == 0u) {
-                      comp->irq_counter = comp->irq_latch;
-                      comp->irq_reload = 0u;
-                  } else {
-                      comp->irq_counter = (uint8_t)(comp->irq_counter - 1u);
-                  }
-                  if (comp->irq_counter == 0u && comp->irq_enable != 0u) {
-                      comp->irq_pending = 1u;
-                  }
-              }
-              comp->a12_low_count = 0u;
-          }
-          comp->a12_prev = a12;
-      }
       if (ppu_addr >= 0x2000u) return 0x00u;
       if (comp->ines_valid == 0u) return 0x00u;
 
@@ -537,27 +517,6 @@ behavior:
       if (argc < 2) return 0u;
       uint16_t ppu_addr = (uint16_t)(args[0] & 0x3FFFu);
       uint8_t val = (uint8_t)(args[1] & 0xFFu);
-      uint8_t rendering = (argc > 2) ? (uint8_t)(args[2] & 0x01u) : 1u;
-      if (rendering != 0u && ppu_addr < 0x2000u) {
-          uint8_t a12 = (uint8_t)((ppu_addr & 0x1000u) ? 1u : 0u);
-          if (a12 == 0u) {
-              if (comp->a12_low_count < 255u) comp->a12_low_count += 1u;
-          } else {
-              if (comp->a12_prev == 0u && comp->a12_low_count >= 3u) {
-                  if (comp->irq_reload != 0u || comp->irq_counter == 0u) {
-                      comp->irq_counter = comp->irq_latch;
-                      comp->irq_reload = 0u;
-                  } else {
-                      comp->irq_counter = (uint8_t)(comp->irq_counter - 1u);
-                  }
-                  if (comp->irq_counter == 0u && comp->irq_enable != 0u) {
-                      comp->irq_pending = 1u;
-                  }
-              }
-              comp->a12_low_count = 0u;
-          }
-          comp->a12_prev = a12;
-      }
       if (ppu_addr < 0x2000u && comp->chr_size == 0u && comp->chr_ram != NULL && comp->chr_ram_size > 0u) {
           uint32_t rel = (uint32_t)ppu_addr;
           uint32_t slot = rel / 0x0400u;
@@ -597,7 +556,17 @@ behavior:
     irq_pending: |
       return (uint64_t)(comp->irq_pending != 0u ? 1u : 0u);
     irq_clock: |
-      /* MMC3 scanline IRQ is clocked by PPU A12 edges only (CHR fetch path). */
+      uint8_t decremented = 0u;
+      if (comp->irq_reload != 0u || comp->irq_counter == 0u) {
+          comp->irq_counter = comp->irq_latch;
+          comp->irq_reload = 0u;
+      } else {
+          comp->irq_counter = (uint8_t)(comp->irq_counter - 1u);
+          decremented = 1u;
+      }
+      if (decremented != 0u && comp->irq_counter == 0u && comp->irq_enable != 0u) {
+          comp->irq_pending = 1u;
+      }
       return 0u;
   handler_bodies: {}
 

@@ -4,6 +4,11 @@ metadata:
   model: atari2600_mapper_none
   version: "1.0"
 
+allowed_extensions:
+  - a26
+  - bin
+  - rom
+
 state:
   - name: rom_data
     type: uint8_t *

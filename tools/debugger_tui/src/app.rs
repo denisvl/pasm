@@ -124,7 +124,7 @@ impl App {
             should_quit: false,
             focused_pane: Pane::Disassembly,
             scroll: 0,
-            run_steps_per_tick: 50000,
+            run_steps_per_tick: 500000,
             disasm_rows: Vec::new(),
             disasm_selected_index: 0,
             memory_cursor_address,
@@ -234,6 +234,10 @@ impl App {
                         )
                     }));
                 }
+            } else {
+                // Keep only status/header ROM label fresh while running.
+                let status = self.backend.status_line()?;
+                self.snapshot.core.status_line = Self::normalize_rom_status_line(&status);
             }
             return Ok(());
         }

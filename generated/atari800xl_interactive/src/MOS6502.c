@@ -45,38 +45,6 @@ static void cpu_sleep_seconds(uint32_t seconds) {
 #endif
 }
 
-static FILE *cpu_irq_trace_file(void) {
-    static int initialized = -1;
-    static FILE *fp = NULL;
-    if (initialized < 0) {
-        const char *env = getenv("PASM_IRQ_TRACE");
-        initialized = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-        if (initialized != 0) {
-            const char *path = getenv("PASM_IRQ_TRACE_FILE");
-            if (path == NULL || path[0] == '\0') path = "pasm_irq_trace.log";
-            fp = fopen(path, "a");
-            if (fp == NULL) initialized = 0;
-        }
-    }
-    return (initialized != 0) ? fp : NULL;
-}
-
-static void cpu_irq_trace(CPUState *cpu, const char *phase, uint8_t vector, uint16_t vector_addr) {
-    FILE *fp = cpu_irq_trace_file();
-    if (fp == NULL || cpu == NULL) return;
-    fprintf(fp, "irq %s cyc=%llu pc=%04X sp=%04X vec=%02X vaddr=%04X pend=%u en=%u flags=%02X\n",
-            (phase != NULL) ? phase : "?",
-            (unsigned long long)cpu->total_cycles,
-            (unsigned int)(cpu->pc & 0xFFFFu),
-            (unsigned int)(cpu->sp & 0xFFFFu),
-            (unsigned int)vector,
-            (unsigned int)(vector_addr & 0xFFFFu),
-            (unsigned int)(cpu->interrupt_pending ? 1u : 0u),
-            (unsigned int)(cpu->interrupts_enabled ? 1u : 0u),
-            (unsigned int)cpu->flags.raw);
-    fflush(fp);
-}
-
 static bool cpu_check_condition(CPUState *cpu, uint8_t cc) {
     switch (cc) {
         case 0: return !(cpu->flags.Z);
@@ -166,6 +134,13 @@ static void cpu_apply_mos6502_runtime_cycles(CPUState *cpu, DecodedInstruction *
             return;
     }
 }
+#include <errno.h>
+#include <limits.h>
+#include <sys/stat.h>
+#if !defined(_WIN32)
+#include <dirent.h>
+#endif
+
 typedef struct {
     const char *from_component;
     const char *from_kind;
@@ -190,6 +165,9 @@ static void cpu_component_emit_signal(
     const uint64_t *args,
     uint8_t argc
 );
+static int cpu_component_cartridge_picker_set_dir(const char *path);
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);
+static const int g_runtime_cartridge_picker_font_scale = 1;
 
 typedef struct {
     uint8_t row;
@@ -1739,7 +1717,7 @@ static void cpu_component_controller_map_poll(CPUState *cpu, uint8_t has_focus) 
             if (active != 0u) {
                 t->pressed = 1u;
                 if (b->source_kind == 3u || b->source_kind == 5u) {
-                    if (fabsf(av) > fabsf(t->axis)) t->axis = av;
+                    { float aabs = (av < 0.0f) ? -av : av; float tabs = (t->axis < 0.0f) ? -t->axis : t->axis; if (aabs > tabs) t->axis = av; }
                 }
             }
         }
@@ -1827,8 +1805,478 @@ static uint8_t cpu_component_keyboard_ascii_pop(void) {
     return cpu_component_keyboard_ascii_queue_pop();
 }
 
+typedef struct {
+    char rom_path[1024];
+    char file_name[256];
+    char title[128];
+    char release_year[16];
+    char description[320];
+    char image_path[256];
+} RuntimeCartridgeEntry;
+
+typedef struct {
+    uint8_t supported;
+    uint8_t active;
+    uint8_t action_prev;
+    uint8_t nav_up_prev;
+    uint8_t nav_down_prev;
+    uint8_t nav_enter_prev;
+    uint8_t nav_esc_prev;
+    char directory[1024];
+    char status[256];
+    RuntimeCartridgeEntry *entries;
+    size_t entry_count;
+    size_t entry_cap;
+    size_t selected;
+    uint8_t pending_swap;
+    char pending_path[1024];
+} RuntimeCartridgePicker;
+
+static RuntimeCartridgePicker g_runtime_cartridge_picker = {
+    1u, 0u, 0u, 0u, 0u, 0u, 0u, "", "", NULL, 0u, 0u, 0u, 0u, ""
+};
+
+static int cpu_component_cartridge_picker_entry_cmp(const void *a, const void *b) {
+    const RuntimeCartridgeEntry *ea = (const RuntimeCartridgeEntry *)a;
+    const RuntimeCartridgeEntry *eb = (const RuntimeCartridgeEntry *)b;
+    return strcmp(ea->file_name, eb->file_name);
+}
+
+static uint8_t cpu_component_rom_ext_allowed(const char *name) {
+    const char *dot = strrchr(name, '.');
+    char ext[16];
+    size_t n;
+    if (!dot || dot[1] == '\0') return 0u;
+    dot++;
+    n = strlen(dot);
+    if (n >= sizeof(ext)) n = sizeof(ext) - 1u;
+    for (size_t i = 0; i < n; ++i) {
+        char c = dot[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        ext[i] = c;
+    }
+    ext[n] = '\0';
+    if (strcmp(ext, "car") == 0) return 1u;
+    if (strcmp(ext, "rom") == 0) return 1u;
+    if (strcmp(ext, "bin") == 0) return 1u;
+    return 0u;
+}
+
+static void cpu_component_cartridge_picker_clear_entries(void) {
+    if (g_runtime_cartridge_picker.entries != NULL) {
+        free(g_runtime_cartridge_picker.entries);
+        g_runtime_cartridge_picker.entries = NULL;
+    }
+    g_runtime_cartridge_picker.entry_count = 0u;
+    g_runtime_cartridge_picker.entry_cap = 0u;
+    g_runtime_cartridge_picker.selected = 0u;
+}
+
+static RuntimeCartridgeEntry *cpu_component_cartridge_picker_add_entry(void) {
+    if (g_runtime_cartridge_picker.entry_count >= g_runtime_cartridge_picker.entry_cap) {
+        size_t new_cap = (g_runtime_cartridge_picker.entry_cap == 0u) ? 64u : (g_runtime_cartridge_picker.entry_cap * 2u);
+        RuntimeCartridgeEntry *ne = (RuntimeCartridgeEntry *)realloc(g_runtime_cartridge_picker.entries, new_cap * sizeof(RuntimeCartridgeEntry));
+        if (ne == NULL) return NULL;
+        memset(ne + g_runtime_cartridge_picker.entry_cap, 0, (new_cap - g_runtime_cartridge_picker.entry_cap) * sizeof(RuntimeCartridgeEntry));
+        g_runtime_cartridge_picker.entries = ne;
+        g_runtime_cartridge_picker.entry_cap = new_cap;
+    }
+    return &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.entry_count++];
+}
+
+static void cpu_component_cartridge_picker_parse_sidecar(RuntimeCartridgeEntry *entry) {
+    char yaml_path[1024];
+    FILE *f;
+    char line[768];
+    char *dot;
+    if (entry == NULL) return;
+    snprintf(yaml_path, sizeof(yaml_path), "%s", entry->rom_path);
+    dot = strrchr(yaml_path, '.');
+    if (dot != NULL) {
+        snprintf(dot, (size_t)(yaml_path + sizeof(yaml_path) - dot), ".yaml");
+    } else {
+        size_t n = strlen(yaml_path);
+        if (n + 5u >= sizeof(yaml_path)) return;
+        strcat(yaml_path, ".yaml");
+    }
+    f = fopen(yaml_path, "r");
+    if (f == NULL) return;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char *hash = strchr(line, '#');
+        char *s;
+        if (hash) *hash = '\0';
+        s = cpu_component_trim(line);
+        if (!s || s[0] == '\0') continue;
+        if (strncmp(s, "title:", 6) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 6));
+            snprintf(entry->title, sizeof(entry->title), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "release_year:", 13) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 13));
+            snprintf(entry->release_year, sizeof(entry->release_year), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "description:", 12) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 12));
+            snprintf(entry->description, sizeof(entry->description), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "image:", 6) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 6));
+            snprintf(entry->image_path, sizeof(entry->image_path), "%s", v ? v : "");
+            continue;
+        }
+    }
+    fclose(f);
+}
+
+static int cpu_component_cartridge_picker_scan_dir(void) {
+#if defined(_WIN32)
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cartridge picker unsupported on this backend");
+    return -1;
+#else
+    DIR *d;
+    struct dirent *de;
+    cpu_component_cartridge_picker_clear_entries();
+    if (g_runtime_cartridge_picker.directory[0] == '\0') {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "missing --cartridge-dir");
+        return -1;
+    }
+    d = opendir(g_runtime_cartridge_picker.directory);
+    if (d == NULL) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cannot open dir: %s", g_runtime_cartridge_picker.directory);
+        return -1;
+    }
+    while ((de = readdir(d)) != NULL) {
+        RuntimeCartridgeEntry *entry;
+        if (de->d_name[0] == '.') continue;
+        if (cpu_component_rom_ext_allowed(de->d_name) == 0u) continue;
+        entry = cpu_component_cartridge_picker_add_entry();
+        if (entry == NULL) {
+            closedir(d);
+            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "out of memory");
+            return -1;
+        }
+        snprintf(entry->file_name, sizeof(entry->file_name), "%s", de->d_name);
+        snprintf(entry->rom_path, sizeof(entry->rom_path), "%s/%s", g_runtime_cartridge_picker.directory, de->d_name);
+        cpu_component_cartridge_picker_parse_sidecar(entry);
+    }
+    closedir(d);
+    if (g_runtime_cartridge_picker.entry_count == 0u) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "no ROM files found");
+        return -1;
+    }
+    qsort(
+        g_runtime_cartridge_picker.entries,
+        g_runtime_cartridge_picker.entry_count,
+        sizeof(RuntimeCartridgeEntry),
+        cpu_component_cartridge_picker_entry_cmp
+    );
+    if (g_runtime_cartridge_picker.selected >= g_runtime_cartridge_picker.entry_count) {
+        g_runtime_cartridge_picker.selected = 0u;
+    }
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "select cartridge (%u)", (unsigned)g_runtime_cartridge_picker.entry_count);
+    return 0;
+#endif
+}
+
+static int cpu_component_cartridge_picker_set_dir(const char *path) {
+    if (path == NULL || path[0] == '\0') return -1;
+    snprintf(g_runtime_cartridge_picker.directory, sizeof(g_runtime_cartridge_picker.directory), "%s", path);
+    g_runtime_cartridge_picker.active = 0u;
+    g_runtime_cartridge_picker.pending_swap = 0u;
+    g_runtime_cartridge_picker.pending_path[0] = '\0';
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cartridge dir set");
+    return 0;
+}
+
+static uint8_t cpu_component_keyboard_emulator_action_pressed(const char *action_id, const uint8_t *host_keys, size_t host_key_count, uint8_t has_focus) {
+    if (g_runtime_keyboard_map.loaded == 0u) return 0u;
+    if (!action_id || action_id[0] == '\0') return 0u;
+    if (!host_keys || host_key_count == 0u) return 0u;
+    if (g_runtime_keyboard_map.focus_required != 0u && has_focus == 0u) return 0u;
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+        if (b->scancode < 0 || (size_t)b->scancode >= host_key_count) continue;
+        if (b->emulator_key_id[0] == '\0') continue;
+        if (strcmp(b->emulator_key_id, action_id) != 0) continue;
+        if (host_keys[b->scancode] != 0u) return 1u;
+    }
+    return 0u;
+}
+
+static uint8_t cpu_component_cartridge_picker_is_active(void) {
+    return g_runtime_cartridge_picker.active;
+}
+
+static void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {
+    int key_count = 0;
+    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
+    static int raw_picker_keys_enabled = -1;
+    uint8_t trig;
+    uint8_t raw_trig = 0u;
+    uint8_t up;
+    uint8_t down;
+    uint8_t enter;
+    uint8_t esc;
+    if (!cpu) return;
+    if (g_runtime_cartridge_picker.supported == 0u) return;
+    if (raw_picker_keys_enabled < 0) {
+        const char *env = getenv("PASM_EMU_CART_PICKER_RAW_KEYS");
+        raw_picker_keys_enabled = (env == NULL || env[0] == '\0' || env[0] != '0') ? 1 : 0;
+    }
+    trig = cpu_component_keyboard_emulator_action_pressed("EMU_CART_PICKER", ks, (size_t)((key_count < 0) ? 0 : key_count), has_focus);
+    if (raw_picker_keys_enabled != 0 && ks != NULL && key_count > 0) {
+        if ((size_t)CPU_HOST_SCANCODE(F12) < (size_t)key_count && ks[CPU_HOST_SCANCODE(F12)] != 0u) raw_trig = 1u;
+    }
+    if (raw_trig != 0u) trig = 1u;
+    if (trig != 0u && g_runtime_cartridge_picker.action_prev == 0u) {
+        if (g_runtime_cartridge_picker.active == 0u) {
+            if (cpu_component_cartridge_picker_scan_dir() == 0) {
+                g_runtime_cartridge_picker.active = 1u;
+            }
+        } else {
+            g_runtime_cartridge_picker.active = 0u;
+        }
+    }
+    g_runtime_cartridge_picker.action_prev = trig;
+    if (g_runtime_cartridge_picker.active == 0u) return;
+    if (!ks || key_count <= 0) return;
+    up = ((size_t)CPU_HOST_SCANCODE(UP) < (size_t)key_count && ks[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;
+    down = ((size_t)CPU_HOST_SCANCODE(DOWN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(DOWN)] != 0u) ? 1u : 0u;
+    enter = (((size_t)CPU_HOST_SCANCODE(RETURN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(RETURN)] != 0u) || ((size_t)CPU_HOST_SCANCODE(KP_ENTER) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_ENTER)] != 0u)) ? 1u : 0u;
+    esc = ((size_t)CPU_HOST_SCANCODE(ESCAPE) < (size_t)key_count && ks[CPU_HOST_SCANCODE(ESCAPE)] != 0u) ? 1u : 0u;
+    if (up != 0u && g_runtime_cartridge_picker.nav_up_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            if (g_runtime_cartridge_picker.selected == 0u) g_runtime_cartridge_picker.selected = g_runtime_cartridge_picker.entry_count - 1u;
+            else g_runtime_cartridge_picker.selected -= 1u;
+        }
+    }
+    if (down != 0u && g_runtime_cartridge_picker.nav_down_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            g_runtime_cartridge_picker.selected = (g_runtime_cartridge_picker.selected + 1u) % g_runtime_cartridge_picker.entry_count;
+        }
+    }
+    if (esc != 0u && g_runtime_cartridge_picker.nav_esc_prev == 0u) {
+        g_runtime_cartridge_picker.active = 0u;
+    }
+    if (enter != 0u && g_runtime_cartridge_picker.nav_enter_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            const RuntimeCartridgeEntry *sel = &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.selected];
+            snprintf(g_runtime_cartridge_picker.pending_path, sizeof(g_runtime_cartridge_picker.pending_path), "%s", sel->rom_path);
+            g_runtime_cartridge_picker.pending_swap = 1u;
+            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "queued: %s", sel->file_name);
+        }
+        g_runtime_cartridge_picker.active = 0u;
+    }
+    g_runtime_cartridge_picker.nav_up_prev = up;
+    g_runtime_cartridge_picker.nav_down_prev = down;
+    g_runtime_cartridge_picker.nav_enter_prev = enter;
+    g_runtime_cartridge_picker.nav_esc_prev = esc;
+}
+
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu) {
+    if (!cpu) return -1;
+    if (g_runtime_cartridge_picker.pending_swap == 0u) return 0;
+    if (mos6502_load_cartridge_rom(cpu, g_runtime_cartridge_picker.pending_path) != 0) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "load failed: %s", g_runtime_cartridge_picker.pending_path);
+        g_runtime_cartridge_picker.pending_swap = 0u;
+        g_runtime_cartridge_picker.pending_path[0] = '\0';
+        return -1;
+    }
+    {
+        const char *sysdir = getenv("PASM_SYSTEM_DIR");
+        if (sysdir != NULL && sysdir[0] != '\0') {
+            if (cpu->memory != NULL && cpu->memory_size > 0u) {
+                memset(cpu->memory, 0, (size_t)cpu->memory_size);
+            }
+            if (cpu->port_memory != NULL && cpu->port_size > 0u) {
+                memset(cpu->port_memory, 0, (size_t)cpu->port_size);
+            }
+            if (mos6502_load_system_roms(cpu, sysdir) != 0) {
+                snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "system ROM reload failed");
+                g_runtime_cartridge_picker.pending_swap = 0u;
+                g_runtime_cartridge_picker.pending_path[0] = '\0';
+                return -1;
+            }
+        } else {
+            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "system dir missing; reusing current memory image");
+        }
+    }
+    mos6502_reset(cpu);
+    cpu->running = true;
+    cpu->halted = false;
+    cpu->error_code = CPU_ERROR_NONE;
+    snprintf(
+        cpu->loaded_rom_debug,
+        sizeof(cpu->loaded_rom_debug),
+        "name=cartridge path=%s",
+        g_runtime_cartridge_picker.pending_path
+    );
+    g_runtime_cartridge_picker.pending_swap = 0u;
+    g_runtime_cartridge_picker.pending_path[0] = '\0';
+    return 1;
+}
+
+static void cpu_component_cartridge_picker_draw_text(
+    uint32_t *pixels,
+    uint32_t w,
+    uint32_t h,
+    int x,
+    int y,
+    const char *text,
+    int scale,
+    uint32_t color
+) {
+    if (!text || text[0] == '\0') return;
+    if (scale > 0) {
+        sms_overlay_draw_text(pixels, w, h, x, y, text, scale, color);
+        return;
+    }
+    {
+        int cx = x;
+        for (const char *p = text; *p; ++p) {
+            const uint8_t *glyph = sms_overlay_glyph(*p);
+            for (int row = 0; row < 7; row += 2) {
+                uint8_t bits = glyph[row];
+                int ty = y + (row / 2);
+                for (int col = 0; col < 5; col += 2) {
+                    if ((bits & (uint8_t)(1u << (4 - col))) == 0u) continue;
+                    sms_overlay_put_pixel(pixels, w, h, cx + (col / 2), ty, color);
+                }
+            }
+            cx += 4;
+        }
+    }
+}
+
+static void cpu_component_cartridge_picker_draw_text_fit(
+    uint32_t *pixels,
+    uint32_t w,
+    uint32_t h,
+    int x,
+    int y,
+    const char *text,
+    int scale,
+    uint32_t color,
+    int max_px
+) {
+    char buf[320];
+    size_t n = 0u;
+    int cell_px = (scale > 0) ? (6 * scale) : 4;
+    int max_chars;
+    if (!text || text[0] == '\0') return;
+    if (cell_px <= 0) cell_px = 1;
+    max_chars = (max_px > 0) ? (max_px / cell_px) : 0;
+    if (max_chars <= 0) return;
+    while (text[n] != '\0' && n < (size_t)max_chars && n < sizeof(buf) - 1u) {
+        buf[n] = text[n];
+        n++;
+    }
+    if (text[n] != '\0' && n >= 3u) {
+        buf[n - 3u] = '.';
+        buf[n - 2u] = '.';
+        buf[n - 1u] = '.';
+    }
+    buf[n] = '\0';
+    cpu_component_cartridge_picker_draw_text(pixels, w, h, x, y, buf, scale, color);
+}
+
+static int cpu_component_cartridge_picker_draw_text_wrap(
+    uint32_t *pixels,
+    uint32_t w,
+    uint32_t h,
+    int x,
+    int y,
+    const char *text,
+    int scale,
+    uint32_t color,
+    int max_px,
+    int max_lines
+) {
+    char line[320];
+    int cell_px = (scale > 0) ? (6 * scale) : 4;
+    int max_chars;
+    int lines_drawn = 0;
+    const char *p = text;
+    if (!text || text[0] == '\0' || max_lines <= 0) return 0;
+    if (cell_px <= 0) cell_px = 1;
+    max_chars = (max_px > 0) ? (max_px / cell_px) : 0;
+    if (max_chars <= 0) return 0;
+    while (*p != '\0' && lines_drawn < max_lines) {
+        int n = 0;
+        int last_space = -1;
+        const char *seg = p;
+        while (seg[n] != '\0' && seg[n] != '\n' && n < max_chars && n < (int)sizeof(line) - 1) {
+            if (seg[n] == ' ') last_space = n;
+            n++;
+        }
+        if (seg[n] != '\0' && seg[n] != '\n' && n == max_chars && last_space > 0) {
+            n = last_space;
+        }
+        if (n <= 0) n = (seg[0] != '\0') ? 1 : 0;
+        if (n <= 0) break;
+        memcpy(line, seg, (size_t)n);
+        line[n] = '\0';
+        cpu_component_cartridge_picker_draw_text(pixels, w, h, x, y + lines_drawn * ((scale > 0) ? (8 * scale + 1) : 5), line, scale, color);
+        lines_drawn++;
+        p = seg + n;
+        while (*p == ' ') p++;
+        if (*p == '\n') p++;
+    }
+    return lines_drawn;
+}
+
+static void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {
+    int scale = g_runtime_cartridge_picker_font_scale;
+    int x = 10;
+    int y = 24;
+    int row_h = (scale > 0) ? (8 * scale + 1) : 5;
+    int max_rows = 10;
+    int right_pad = 14;
+    int text_w = (int)w - x - right_pad;
+    size_t first;
+    (void)cpu;
+    if (!pixels || w == 0u || h == 0u) return;
+    if (g_runtime_cartridge_picker.active == 0u) return;
+    if (g_runtime_cartridge_picker.entry_count == 0u) return;
+    sms_overlay_fill_rect_alpha(pixels, w, h, 6, 20, (int)w - 12, (int)h - 26, 0x00101010u, 190u);
+    cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, y, "CARTRIDGE PICKER", scale, 0xFFFFFFFFu, text_w);
+    y += row_h * 2;
+    first = (g_runtime_cartridge_picker.selected >= 4u) ? (g_runtime_cartridge_picker.selected - 4u) : 0u;
+    for (int i = 0; i < max_rows; ++i) {
+        size_t idx = first + (size_t)i;
+        char line[320];
+        if (idx >= g_runtime_cartridge_picker.entry_count) break;
+        const RuntimeCartridgeEntry *e = &g_runtime_cartridge_picker.entries[idx];
+        uint32_t fg = (idx == g_runtime_cartridge_picker.selected) ? 0xFF00FF9Fu : 0xFFE0E0E0u;
+        if (e->title[0] != '\0') snprintf(line, sizeof(line), "%s (%s)", e->title, (e->release_year[0] ? e->release_year : "?"));
+        else snprintf(line, sizeof(line), "%s", e->file_name);
+        cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, y + i * row_h, line, scale, fg, text_w);
+    }
+    {
+        const RuntimeCartridgeEntry *sel = &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.selected];
+        int info_y = y + max_rows * row_h + 8;
+        char info[384];
+        snprintf(info, sizeof(info), "FILE: %s", sel->file_name);
+        int file_lines = cpu_component_cartridge_picker_draw_text_wrap(pixels, w, h, x, info_y, info, scale, 0xFFC8C8FFu, text_w, 3);
+        if (file_lines <= 0) file_lines = 1;
+        if (sel->description[0] != '\0') {
+            cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, info_y + (file_lines * row_h), sel->description, scale, 0xFFDDDDDDu, text_w);
+        }
+        if (sel->image_path[0] != '\0') {
+            char img[320];
+            snprintf(img, sizeof(img), "IMG: %s", sel->image_path);
+            cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, info_y + ((file_lines + 1) * row_h), img, scale, 0xFFBBBBBBu, text_w);
+        }
+    }
+    cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, (int)h - ((scale > 0) ? (14 * scale) : 8), "UP/DOWN SELECT  ENTER LOAD+RESET  ESC CANCEL", scale, 0xFFFFFFA0u, text_w);
+}
+
 static const ComponentConnection g_component_connections[] = {
     { "atari_io", "callback", "keyboard_ascii", "keyboard_atari800xl", "callback", "read_ascii" },
+    { "atari_io", "callback", "keyboard_mods", "keyboard_atari800xl", "callback", "read_mods" },
     { "atari_io", "callback", "break_state", "keyboard_atari800xl", "callback", "read_break" },
     { "atari_io", "callback", "consol_state", "controller_atari800xl", "callback", "read_consol" },
     { "atari_io", "callback", "joystick_porta", "controller_atari800xl", "callback", "read_porta" },
@@ -1837,6 +2285,7 @@ static const ComponentConnection g_component_connections[] = {
     { "atari_io", "callback", "trigger2", "controller_atari800xl", "callback", "read_trigger2" },
     { "atari_io", "callback", "trigger3", "controller_atari800xl", "callback", "read_trigger3" },
     { "keyboard_atari800xl", "callback", "host_ascii", "host_atari800xl", "callback", "keyboard_ascii" },
+    { "keyboard_atari800xl", "callback", "host_mods", "host_atari800xl", "callback", "keyboard_mods" },
     { "keyboard_atari800xl", "callback", "host_break", "host_atari800xl", "callback", "break_state" },
     { "controller_atari800xl", "callback", "host_consol", "host_atari800xl", "callback", "consol_state" },
     { "controller_atari800xl", "callback", "host_porta", "host_atari800xl", "callback", "joystick_porta" },
@@ -2253,6 +2702,12 @@ static void component_host_atari800xl_handler_video_frame(CPUState *cpu, const u
     (void)argc;
     ComponentState_host_atari800xl *comp = &cpu->comp_host_atari800xl;
     cpu->active_component_id = "host_atari800xl";
+    if (argc >= 4u) {
+        uint32_t *picker_pixels = (uint32_t *)(uintptr_t)args[1];
+        uint32_t picker_w = (uint32_t)(args[2] & 0xFFFFFFFFu);
+        uint32_t picker_h = (uint32_t)(args[3] & 0xFFFFFFFFu);
+        cpu_component_cartridge_picker_draw_overlay(cpu, picker_pixels, picker_w, picker_h);
+    }
     if (comp->host_inited == 0u || argc < 4) return;
     void *renderer = comp->renderer;
     void *texture = comp->texture;
@@ -2427,6 +2882,7 @@ static void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uin
 static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {
     (void)inst;
     (void)pc_before;
+    cpu_component_cartridge_picker_update(cpu, cpu_host_hal_window_has_focus(NULL));
     {
         ComponentState_atari_io *comp = &cpu->comp_atari_io;
         cpu->active_component_id = "atari_io";
@@ -2444,7 +2900,8 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                 if ((comp->pokey_irqen & 0x10u) != 0u) {
                     comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x10u);
                     cpu->interrupt_vector = 0x00u;
-                    cpu->interrupt_pending = true;
+                    cpu->irq_pending = true;
+                    cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
                 }
             }
             if (comp->pokey_serout_busy != 0u && cpu->total_cycles >= comp->pokey_serout_done_cycle) {
@@ -2460,16 +2917,19 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                 if ((comp->pokey_irqen & 0x10u) != 0u) {
                     comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x10u);
                     cpu->interrupt_vector = 0x00u;
-                    cpu->interrupt_pending = true;
+                    cpu->irq_pending = true;
+                    cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
                 }
                 if ((comp->pokey_irqen & 0x08u) != 0u) {
                     cpu->interrupt_vector = 0x00u;
-                    cpu->interrupt_pending = true;
+                    cpu->irq_pending = true;
+                    cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
                 }
             }
             if ((((uint8_t)(~comp->pokey_irqst)) & comp->pokey_irqen) != 0u) {
                 cpu->interrupt_vector = 0x00u;
-                cpu->interrupt_pending = true;
+                cpu->irq_pending = true;
+                cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
             }
         }
         {
@@ -2660,7 +3120,8 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                 comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x40u);
                 if ((comp->pokey_irqen & 0x40u) != 0u) {
                     cpu->interrupt_vector = 0x00u;
-                    cpu->interrupt_pending = true;
+                    cpu->irq_pending = true;
+                    cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
                 }
             }
         }
@@ -2671,7 +3132,8 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
                 comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x80u);
                 if ((comp->pokey_irqen & 0x80u) != 0u) {
                     cpu->interrupt_vector = 0x00u;
-                    cpu->interrupt_pending = true;
+                    cpu->irq_pending = true;
+                    cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
                 }
             } else {
                 comp->pokey_irqst = (uint8_t)(comp->pokey_irqst | 0x80u);
@@ -2693,7 +3155,8 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             comp->nmi_status = (uint8_t)(comp->nmi_status | 0x40u);
             if ((comp->nmi_enable & 0x40u) != 0u) {
                 cpu->interrupt_vector = 0xFFu;
-                cpu->interrupt_pending = true;
+                cpu->nmi_pending = true;
+                cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
                 {
                     uint64_t irq_up[1] = { 1u };
                     uint64_t irq_down[1] = { 0u };
@@ -3721,6 +4184,7 @@ static void inst_TAS_ABSY_UD(CPUState *cpu, DecodedInstruction *inst) {
 /* JMP_ABS - control */
 static void inst_JMP_ABS(CPUState *cpu, DecodedInstruction *inst) {
     cpu->pc = inst->addr;
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
 }
 
@@ -5276,6 +5740,7 @@ static void inst_BPL(CPUState *cpu, DecodedInstruction *inst) {
     if (!cpu->flags.N) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
     }
 }
 
@@ -5284,6 +5749,7 @@ static void inst_BMI(CPUState *cpu, DecodedInstruction *inst) {
     int8_t off = (int8_t)inst->rel;
     if (cpu->flags.N) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
     }
 }
@@ -5294,6 +5760,7 @@ static void inst_BVC(CPUState *cpu, DecodedInstruction *inst) {
     if (!cpu->flags.V) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
     }
 }
 
@@ -5302,6 +5769,7 @@ static void inst_BVS(CPUState *cpu, DecodedInstruction *inst) {
     int8_t off = (int8_t)inst->rel;
     if (cpu->flags.V) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
     }
 }
@@ -5312,6 +5780,7 @@ static void inst_BCC(CPUState *cpu, DecodedInstruction *inst) {
     if (!cpu->flags.C) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
     }
 }
 
@@ -5320,6 +5789,7 @@ static void inst_BCS(CPUState *cpu, DecodedInstruction *inst) {
     int8_t off = (int8_t)inst->rel;
     if (cpu->flags.C) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
     }
 }
@@ -5330,6 +5800,7 @@ static void inst_BNE(CPUState *cpu, DecodedInstruction *inst) {
     if (!cpu->flags.Z) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
     }
 }
 
@@ -5338,6 +5809,7 @@ static void inst_BEQ(CPUState *cpu, DecodedInstruction *inst) {
     int8_t off = (int8_t)inst->rel;
     if (cpu->flags.Z) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
     }
 }
@@ -5353,6 +5825,7 @@ static void inst_JSR_ABS(CPUState *cpu, DecodedInstruction *inst) {
     cpu->sp = sp8;
     cpu->pc = inst->addr;
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
 }
 
 /* RTS - control */
@@ -5365,6 +5838,7 @@ static void inst_RTS(CPUState *cpu, DecodedInstruction *inst) {
     cpu->sp = sp8;
     uint16_t ret = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
     cpu->pc = (uint16_t)(ret + 1u);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
 }
 
@@ -5381,6 +5855,7 @@ static void inst_RTI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->sp = sp8;
     cpu->pc = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
 }
 
 /* JMP_IND - control */
@@ -5390,6 +5865,7 @@ static void inst_JMP_IND(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t lo = mos6502_read_byte(cpu, ptr);
     uint8_t hi = mos6502_read_byte(cpu, ptr_hi_wrap);
     cpu->pc = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
 }
 
@@ -6289,14 +6765,19 @@ int mos6502_step(CPUState *cpu) {
         cpu->reset_delay_pending = false;
     }
 
+    if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {
+        return 0;
+    }
+
     if (cpu_check_breakpoints(cpu)) {
         cpu->running = false;
         return 0;
     }
 
-    if (cpu->interrupt_pending && (cpu->interrupt_vector == 0xFFu || cpu->interrupts_enabled)) {
-        uint8_t irq_vector = cpu->interrupt_vector;
-        cpu->interrupt_pending = false;
+    if (cpu->nmi_pending || (cpu->irq_pending && cpu->interrupts_enabled)) {
+        uint8_t irq_vector = cpu->nmi_pending ? 0xFFu : 0x00u;
+        if (cpu->nmi_pending) cpu->nmi_pending = false; else cpu->irq_pending = false;
+        cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
         cpu->halted = false;
         {
             uint8_t sp8 = (uint8_t)cpu->sp;
@@ -6317,17 +6798,11 @@ int mos6502_step(CPUState *cpu) {
         cpu->flags.I = true;
         cpu->interrupts_enabled = false;
         cpu->pc = (irq_vector == 0xFFu) ? mos6502_read_word(cpu, 0xFFFAu) : mos6502_read_word(cpu, 0xFFFEu);
-        cpu_irq_trace(cpu, "take", irq_vector, (irq_vector == 0xFFu) ? 0xFFFAu : 0xFFFEu);
         cpu->total_cycles += 7u;
         return 0;
     }
 
     if (cpu->halted) {
-        if (cpu->interrupt_pending && !cpu->interrupts_enabled) {
-            cpu->interrupt_pending = false;
-            cpu->halted = false;
-            return 0;
-        }
         uint16_t halted_pc = cpu->pc;
         DecodedInstruction halted_inst = {0};
         halted_inst.pc = halted_pc;
@@ -6362,13 +6837,11 @@ int mos6502_step(CPUState *cpu) {
     if (!inst.valid) {
         cpu->running = false;
         cpu->error_code = CPU_ERROR_INVALID_OPCODE;
-        fprintf(stderr, "Invalid opcode at 0x%04X: 0x%06X\n", pc_before, (unsigned int)raw);
+        fprintf(stderr, "KIL instruction at 0x%04X: 0x%02X\n", pc_before, b0);
         return -1;
     }
+    if (cpu->tracing_enabled) { mos6502_trace_instruction(cpu, &inst); }
 
-    if (cpu->tracing_enabled) {
-        mos6502_trace_instruction(cpu, &inst);
-    }
 
     uint8_t x_before = cpu->registers[REG_X];
     uint8_t y_before = cpu->registers[REG_Y];
@@ -6379,6 +6852,8 @@ int mos6502_step(CPUState *cpu) {
 
     bool executed = false;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = inst.cycles;
+    cpu->io_read_phase_ppu_dots = (uint16_t)((uint16_t)inst.cycles * 6u);
     cpu_components_step_pre(cpu, &inst, pc_before);
     switch (inst.category) {
         case CAT_CONTROL:
@@ -7682,20 +8157,28 @@ int mos6502_step(CPUState *cpu) {
         cpu->running = false;
         return -1;
     }
-
     cpu_apply_mos6502_runtime_cycles(cpu, &inst, pc_before, x_before, y_before, c_before, z_before, n_before, v_before);
-
+    if (!cpu->pc_modified) {
+        cpu->pc = (uint16_t)(pc_before + inst.length);
+        cpu->pc_modified = true;
+    }
+    cpu->total_cycles += inst.cycles;
     cpu_components_step_post(cpu, &inst, pc_before);
+    /* After step_post, PPU may have signalled NMI — take it immediately. */
+    if (cpu->nmi_pending || (cpu->irq_pending && cpu->interrupts_enabled)) {
+        cpu->current_instruction_cycles = 0u;
+        cpu->io_read_phase_ppu_dots = 0u;
+        return 0;
+    }
+
+    cpu->current_instruction_cycles = 0u;
+    cpu->io_read_phase_ppu_dots = 0u;
 
     if (cpu->halted && !cpu->pc_modified) {
         cpu->pc = (uint16_t)(pc_before + inst.length);
         cpu->pc_modified = true;
     }
 
-    if (!cpu->pc_modified) {
-        cpu->pc = (uint16_t)(pc_before + inst.length);
-    }
-    cpu->total_cycles += inst.cycles;
 
     return 0;
 }
@@ -7707,7 +8190,7 @@ void mos6502_run(CPUState *cpu) {
 void mos6502_run_until(CPUState *cpu, uint64_t cycles) {
     while (cpu->running) {
         if (cycles > 0 && cpu->total_cycles >= cycles) break;
-        if (cpu->halted && !cpu->interrupt_pending) break;
+        if (cpu->halted && !(cpu->nmi_pending || cpu->irq_pending)) break;
         if (mos6502_step(cpu) != 0) break;
     }
 }
@@ -7734,6 +8217,7 @@ CPUState *mos6502_create(size_t memory_size) {
         cpu->hooks[i].func = NULL;
         cpu->hooks[i].context = NULL;
     }
+    cpu->debug_overlay_enabled = false;
     cpu->active_component_id = NULL;
     cpu->component_last_return = 0;
     cpu->comp_atari_io.portb = 0xFF;
@@ -7962,6 +8446,8 @@ CPUState *mos6502_create(size_t memory_size) {
             comp->host_inited = 1u;
         } while (0);
     }
+    cpu->comp_atari_cart0.rom_data = NULL;
+    cpu->comp_atari_cart0.rom_size = 0;
     
     mos6502_reset(cpu);
     return cpu;
@@ -8031,6 +8517,15 @@ void mos6502_destroy(CPUState *cpu) {
                 comp->host_inited = 0u;
             }
         }
+        {
+            ComponentState_atari_cart0 *comp = &cpu->comp_atari_cart0;
+            cpu->active_component_id = "atari_cart0";
+            if (comp->rom_data != NULL) {
+                free(comp->rom_data);
+                comp->rom_data = NULL;
+            }
+            comp->rom_size = 0u;
+        }
         free(cpu->memory);
         free(cpu->port_memory);
         free(cpu);
@@ -8045,11 +8540,13 @@ void mos6502_reset(CPUState *cpu) {
     cpu->flags.raw = 0;
     /* No shadow flag bank */
     cpu->interrupt_vector = 0;
-    cpu->sp = 0xFDu;
-    cpu->flags.I = true;
-    cpu->pc = mos6502_read_word(cpu, 0xFFFCu);
+    cpu->sp = 0xF8u;
+    cpu->registers[REG_Y] = 0x1Au;
+    cpu->flags.raw = 0x34u;
     cpu->interrupts_enabled = false;
     cpu->interrupt_pending = false;
+    cpu->irq_pending = false;
+    cpu->nmi_pending = false;
     cpu->active_component_id = NULL;
     cpu->component_last_return = 0;
     cpu->comp_atari_io.portb = 0xFF;
@@ -8259,17 +8756,22 @@ void mos6502_reset(CPUState *cpu) {
             cpu_host_hal_audio_clear(comp->audio_out_dev);
         }
     }
+    cpu->pc = mos6502_read_word(cpu, 0xFFFCu);
     cpu->running = true;
     cpu->halted = false;
     cpu->error_code = CPU_ERROR_NONE;
     cpu->total_cycles = 0;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = 0;
+    cpu->io_read_phase_ppu_dots = 0;
     cpu->hook_pc = 0;
     cpu->hook_prefix = 0;
     cpu->hook_opcode = 0;
     cpu->hook_raw = 0;
-    cpu->tracing_enabled = false;
-    cpu->debug_overlay_enabled = true;
+    {
+        const char *pasm_trace_env = getenv("PASM_TRACE");
+        cpu->tracing_enabled = (pasm_trace_env && (pasm_trace_env[0] == '1' || pasm_trace_env[0] == 'y' || pasm_trace_env[0] == 'Y'));
+    }
     cpu->reset_delay_pending = true;
 }
 
@@ -8377,9 +8879,43 @@ int mos6502_load_system_roms(CPUState *cpu, const char *system_base_dir) {
 }
 
 int mos6502_load_cartridge_rom(CPUState *cpu, const char *path) {
+    FILE *f;
+    long file_size;
+    uint8_t *buf;
+    ComponentState_atari_cart0 *comp;
+    size_t read_len;
+
+    if (!cpu || !path || !path[0]) return -1;
+    comp = &cpu->comp_atari_cart0;
+    f = fopen(path, "rb");
+    if (!f) return -1;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    file_size = ftell(f);
+    if (file_size < 0) { fclose(f); return -1; }
+    if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+    buf = (uint8_t *)malloc((size_t)file_size);
+    if (!buf) { fclose(f); return -1; }
+    read_len = fread(buf, 1, (size_t)file_size, f);
+    fclose(f);
+    if (read_len != (size_t)file_size) { free(buf); return -1; }
+    if (comp->rom_data != NULL) {
+        free(comp->rom_data);
+        comp->rom_data = NULL;
+    }
+    comp->rom_data = buf;
+    comp->rom_size = (uint32_t)file_size;
+    snprintf(
+        cpu->loaded_rom_debug,
+        sizeof(cpu->loaded_rom_debug),
+        "name=atari_cart0 path=%s",
+        path
+    );
+    return 0;
+}
+
+int mos6502_set_cartridge_dir(CPUState *cpu, const char *path) {
     (void)cpu;
-    (void)path;
-    return -1;
+    return cpu_component_cartridge_picker_set_dir(path);
 }
 
 
@@ -8407,6 +8943,31 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
             }
             }
         }
+        #if CPU_CARTRIDGE_COUNT > 0
+        if (addr >= 0x8000u && addr < 0xA000u) {
+            if (cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) {
+                uint8_t *rom = cpu->comp_atari_cart0.rom_data;
+                uint32_t size = cpu->comp_atari_cart0.rom_size;
+                uint32_t base_off = 0u;
+                uint32_t eff_size = size;
+                if (
+                    eff_size >= 16u &&
+                    rom[0] == 'C' &&
+                    rom[1] == 'A' &&
+                    rom[2] == 'R' &&
+                    rom[3] == 'T'
+                ) {
+                    base_off = 16u;
+                    eff_size -= 16u;
+                }
+                /* 16K-style mapping: lower bank at 0x8000-0x9FFF. */
+                if (eff_size > 0x2000u) {
+                    uint32_t off = base_off + (uint32_t)(addr - 0x8000u);
+                    if (off < size) return rom[off];
+                }
+            }
+        }
+        #endif
         if (addr >= 0xC000u && addr < 0xD000u) {
             if ((comp->portb & 0x01u) == 0u && comp->ram_under_os_low != NULL) {
                 return comp->ram_under_os_low[(uint16_t)(addr - 0xC000u)];
@@ -8528,6 +9089,42 @@ uint8_t mos6502_read_byte(CPUState *cpu, uint16_t addr) {
             }
         }
     }
+    {
+        ComponentState_atari_cart0 *comp = &cpu->comp_atari_cart0;
+        cpu->active_component_id = "atari_cart0";
+        if (addr >= 0xA000u && addr < 0xC000u) {
+            if (comp->rom_data == NULL || comp->rom_size == 0u) {
+                /* No runtime cartridge inserted: fall back to system memory
+                   (e.g. built-in BASIC ROM image). */
+                return cpu->memory[addr];
+            }
+            {
+                uint32_t base_off = 0u;
+                uint32_t eff_size = comp->rom_size;
+                /* .car images usually have a 16-byte CART header. */
+                if (
+                    eff_size >= 16u &&
+                    comp->rom_data[0] == 'C' &&
+                    comp->rom_data[1] == 'A' &&
+                    comp->rom_data[2] == 'R' &&
+                    comp->rom_data[3] == 'T'
+                ) {
+                    base_off = 16u;
+                    eff_size -= 16u;
+                }
+                if (eff_size == 0u) {
+                    return cpu->memory[addr];
+                }
+                {
+                    uint32_t in_bank = (uint32_t)(addr - 0xA000u);
+                    uint32_t bank_base = (eff_size > 0x2000u) ? (eff_size - 0x2000u) : 0u;
+                    uint32_t off = base_off + bank_base + in_bank;
+                    if (off < comp->rom_size) return comp->rom_data[off];
+                }
+            }
+            return cpu->memory[addr];
+        }
+    }
     if (addr >= cpu->memory_size) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return 0xFF;
@@ -8560,6 +9157,14 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
             return;
             }
         }
+        #if CPU_CARTRIDGE_COUNT > 0
+        if (addr >= 0x8000u && addr < 0xA000u) {
+            if (cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) {
+                /* 16K-style cart lower window is ROM while cartridge is present. */
+                return;
+            }
+        }
+        #endif
         if (addr >= 0xC000u && addr < 0xD000u) {
             if (comp->ram_under_os_low != NULL) {
                 comp->ram_under_os_low[(uint16_t)(addr - 0xC000u)] = value;
@@ -8682,7 +9287,8 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
                 comp->pokey_irqst = (uint8_t)(comp->pokey_irqst | (uint8_t)(~value & 0xF7u));
                 if ((((uint8_t)(~comp->pokey_irqst)) & comp->pokey_irqen) != 0u) {
                     cpu->interrupt_vector = 0x00u;
-                    cpu->interrupt_pending = true;
+                    cpu->irq_pending = true;
+                    cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
                 }
                 return;
             }
@@ -8749,12 +9355,20 @@ void mos6502_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
             }
         }
     }
+    {
+        ComponentState_atari_cart0 *comp = &cpu->comp_atari_cart0;
+        cpu->active_component_id = "atari_cart0";
+        if (addr >= 0xA000u && addr < 0xC000u) {
+            if (comp->rom_data != NULL && comp->rom_size > 0u) {
+                /* Cartridge inserted: cart decode windows are not writable. */
+                return;
+            }
+            /* No runtime cartridge inserted: allow normal RAM-under-ROM writes
+               when the machine banks BASIC out / no cart is active. */
+        }
+    }
     if (addr >= cpu->memory_size) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
-        return;
-    }
-    /* Ignore writes to read-only region: ROM_BASIC */
-    if (addr >= 0xA000u && addr < 0xC000u) {
         return;
     }
     /* Ignore writes to read-only region: ROM_SELFTEST */
@@ -8805,8 +9419,12 @@ void mos6502_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
 /* ===== Interrupts ===== */
 void mos6502_interrupt(CPUState *cpu, uint8_t vector) {
     cpu->interrupt_vector = vector;
-    cpu->interrupt_pending = true;
-    cpu_irq_trace(cpu, "request", vector, 0u);
+    if (vector == 0xFFu) {
+        cpu->nmi_pending = true;
+    } else {
+        cpu->irq_pending = true;
+    }
+    cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
 }
 
 void mos6502_set_irq(CPUState *cpu, bool enabled) {
@@ -11946,14 +12564,33 @@ char *mos6502_disassemble_instruction(uint16_t pc, uint32_t raw) {
     return buf;
 }
 
+static FILE *cpu_trace_file(void) {
+    static FILE *fp = NULL;
+    if (fp == NULL) {
+        const char *path = getenv("PASM_TRACE_FILE");
+        if (path && path[0]) { fp = fopen(path, "w"); }
+        if (fp == NULL) { fp = stdout; }
+    }
+    return fp;
+}
+
 void mos6502_trace_instruction(CPUState *cpu, DecodedInstruction *inst) {
-    (void)cpu;
     if (!inst) return;
     uint32_t raw_for_disasm = inst->raw;
     if (inst->prefix != 0) {
         raw_for_disasm = ((uint32_t)inst->prefix) | (inst->raw << 8);
     }
-    printf("[TRACE] %s\n", mos6502_disassemble_instruction(inst->pc, raw_for_disasm));
+
+    FILE *fp = cpu_trace_file();
+    fprintf(fp, "[TRACE] PC:0x%04X  %-20s A:0x%02X X:0x%02X Y:0x%02X SP:0x%02X P:0x%02X\n",
+            inst->pc,
+            mos6502_disassemble_instruction(inst->pc, raw_for_disasm),
+            cpu->registers[REG_A],
+            cpu->registers[REG_X],
+            cpu->registers[REG_Y],
+            cpu->sp,
+            cpu->flags.raw);
+    fflush(fp);
 }
 
 /* ===== Hook API ===== */

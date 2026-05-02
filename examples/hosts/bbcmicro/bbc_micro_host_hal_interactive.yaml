@@ -180,7 +180,7 @@ behavior:
       \ | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) break;\n    cpu_host_hal_stop_text_input();\n\
       \    comp->window = cpu_host_hal_create_window(\n        \"PASM BBC Micro\"\
       ,\n        CPU_HOST_WINDOWPOS_CENTERED,\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
-      \        960,\n        700,\n        CPU_HOST_WINDOW_RESIZABLE\n    );\n   \
+      \        640,\n        256,\n        CPU_HOST_WINDOW_RESIZABLE\n    );\n   \
       \ if (comp->window == NULL) break;\n    comp->renderer = cpu_host_hal_create_renderer(comp->window,\
       \ -1, CPU_HOST_RENDERER_ACCELERATED);\n    if (comp->renderer == NULL) {\n \
       \       comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);\n\

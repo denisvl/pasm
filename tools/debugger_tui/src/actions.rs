@@ -52,7 +52,7 @@ pub fn map_key_event(ev: KeyEvent) -> Action {
         KeyCode::Up => Action::ScrollUp,
         KeyCode::PageDown => Action::PageDown,
         KeyCode::PageUp => Action::PageUp,
-        KeyCode::F(6) => Action::StepOut,
+        KeyCode::F(3) => Action::StepOut,
         KeyCode::F(7) => Action::StepInto,
         KeyCode::F(8) => Action::StepOver,
         KeyCode::F(5) => Action::Reset,
@@ -80,7 +80,7 @@ mod tests {
             Action::StepOver
         );
         assert_eq!(
-            map_key_event(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE)),
+            map_key_event(KeyEvent::new(KeyCode::F(3), KeyModifiers::NONE)),
             Action::StepOut
         );
         assert_eq!(

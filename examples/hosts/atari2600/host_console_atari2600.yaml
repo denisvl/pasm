@@ -27,3 +27,5 @@ keyboard:
     system_key_id: SW_GAME_SELECT
   - host_scancode: F6
     system_key_id: SW_GAME_RESET
+  - host_scancode: F12
+    emulator_key_id: EMU_CART_PICKER

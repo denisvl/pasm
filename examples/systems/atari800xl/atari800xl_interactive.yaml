@@ -15,7 +15,7 @@ memory:
     - name: ROM_BASIC
       start: 0xA000
       size: 0x2000
-      read_only: true
+      read_write: true
     - name: RAM_B000
       start: 0xB000
       size: 0x1000

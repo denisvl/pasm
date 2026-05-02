@@ -505,8 +505,11 @@ int mos6510_dbg_snapshot_fill(
     if (stack_rows && stack_cap > 0) {
         for (i = 0; i < stack_cap && i < 32u; i++) {
             PASMDebugStackRow *row = &stack_rows[i];
+            uint8_t sp8 = (uint8_t)cpu->sp;
+            uint8_t top = (uint8_t)(sp8 + 1u);
+            uint8_t off = (uint8_t)(top + (uint8_t)(i * 2u));
             memset(row, 0, sizeof(*row));
-            row->address = (uint64_t)((uint16_t)(cpu->sp + (uint16_t)(i * 2u)));
+            row->address = (uint64_t)((uint16_t)(0x0100u | off));
             row->value = (uint64_t)mos6510_read_word(cpu, (uint16_t)row->address);
             row->is_sp = (i == 0u) ? 1u : 0u;
             row->changed = 0u;
@@ -902,6 +905,10 @@ int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path) {
     return mos6510_load_cartridge_rom(cpu, path);
 }
 
+int pasm_dbg_set_cartridge_dir(CPUState *cpu, const char *path) {
+    return mos6510_set_cartridge_dir(cpu, path);
+}
+
 int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path) {
     return mos6510_load_keyboard_map(cpu, path);
 }
@@ -1018,12 +1025,16 @@ uint8_t pasm_dbg_requires_keyboard_map(void) {
     return 1u;
 }
 
+uint8_t pasm_dbg_supports_cartridge(void) {
+    return 1u;
+}
+
 const char *pasm_dbg_processor_name(void) {
     return "MOS6510";
 }
 
 const char *pasm_dbg_system_name(void) {
-    return "C64InteractiveSystem";
+    return "C64CartridgeInteractiveSystem";
 }
 
 uint8_t pasm_dbg_architecture(void) {

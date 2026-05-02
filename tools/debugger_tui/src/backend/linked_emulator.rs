@@ -640,6 +640,39 @@ impl DebuggerBackend for LinkedEmulatorBackend {
         })
     }
 
+    fn status_line(&mut self) -> Result<String, String> {
+        let mut core: PASMDebugSnapshotCore = unsafe { std::mem::zeroed() };
+        self.check(unsafe {
+            pasm_dbg_snapshot_fill(
+                self.cpu,
+                &mut core,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+            )
+        })?;
+        Ok(Self::c_text(&core.status_line))
+    }
+
     fn run(&mut self) -> Result<(), String> {
         self.check(unsafe { pasm_dbg_run(self.cpu) })
     }

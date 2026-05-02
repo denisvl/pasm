@@ -24,11 +24,12 @@ def _c64_interactive_paths():
     ]
     device_paths = [
         BASE_DIR / "examples" / "devices" / "c64_keyboard.yaml",
+        BASE_DIR / "examples" / "devices" / "c64_joystick.yaml",
         BASE_DIR / "examples" / "devices" / "c64_video.yaml",
         BASE_DIR / "examples" / "devices" / "c64_speaker.yaml",
     ]
     host_paths = [
-        BASE_DIR / "examples" / "hosts" / "c64_host_hal_interactive.yaml",
+        BASE_DIR / "examples" / "hosts" / "c64" / "c64_host_hal_interactive.yaml",
     ]
     return processor_path, system_path, ic_paths, device_paths, host_paths
 
@@ -47,6 +48,7 @@ def test_c64_interactive_component_graph_validates():
     assert [ic["metadata"]["id"] for ic in data["ics"]] == ["c64_io"]
     assert [dev["metadata"]["id"] for dev in data["devices"]] == [
         "keyboard_c64",
+        "joystick_c64",
         "video_c64",
         "speaker_c64",
     ]

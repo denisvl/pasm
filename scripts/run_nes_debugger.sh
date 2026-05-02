@@ -27,6 +27,7 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
+PASM_HOST_DEBUG="${PASM_HOST_DEBUG:-0}"
 PASM_NES_JOY2_CONNECTED="${PASM_NES_JOY2_CONNECTED:-0}"
 # Always use auto mapper so cartridge picker can switch across supported mappers
 # (mapper 0/NROM, mapper 4/MMC3, mapper 66/GxROM) in one running session.
@@ -36,8 +37,28 @@ CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/nes/host_console_nes.yaml}"
 CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/nes/host_controller_nes.yaml}"
 CARTRIDGE_DIR="${CARTRIDGE_DIR:-examples/roms/nes}"
-PASM_NES_MMC3_TRACE="${PASM_NES_MMC3_TRACE:-0}"
-PASM_NES_IRQ_TRACE="${PASM_NES_IRQ_TRACE:-0}"
+# Trace/debug flags are forced OFF by default to avoid inherited shell exports
+# silently degrading runtime performance.
+PASM_NES_MMC3_TRACE="0"
+PASM_NES_IRQ_TRACE="0"
+PASM_NES_PAD_TRACE="0"
+PASM_NES_PPUSTATUS_TRACE="0"
+PASM_NES_PAD_ZP_TRACE="0"
+PASM_NES_ZP_TRACE="0"
+PASM_CYC_DEBUG="0"
+PASM_TRACE="0"
+
+# Optional opt-in trace bundle for focused debugging sessions.
+if [[ "${NES_ENABLE_TRACES:-0}" != "0" ]]; then
+  PASM_NES_MMC3_TRACE="1"
+  PASM_NES_IRQ_TRACE="1"
+  PASM_NES_PAD_TRACE="1"
+  PASM_NES_PPUSTATUS_TRACE="1"
+  PASM_NES_PAD_ZP_TRACE="1"
+  PASM_NES_ZP_TRACE="1"
+  PASM_CYC_DEBUG="1"
+  PASM_TRACE="1"
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -131,13 +152,13 @@ fi
 if [[ "${PASM_NES_IRQ_TRACE}" != "0" ]]; then
   rm -f log/nes_irq_trace.log nes_irq_trace.log
 fi
-if [[ "${PASM_NES_PAD_TRACE:-0}" != "0" ]]; then
+if [[ "${PASM_NES_PAD_TRACE}" != "0" ]]; then
   rm -f log/nes_pad_trace.log nes_pad_trace.log
 fi
-if [[ "${PASM_NES_PPUSTATUS_TRACE:-0}" != "0" ]]; then
+if [[ "${PASM_NES_PPUSTATUS_TRACE}" != "0" ]]; then
   rm -f log/nes_ppu_status_trace.log nes_ppu_status_trace.log
 fi
-if [[ "${PASM_NES_PAD_ZP_TRACE:-0}" != "0" ]]; then
+if [[ "${PASM_NES_PAD_ZP_TRACE}" != "0" ]]; then
   rm -f log/nes_pad_zp_trace.log nes_pad_zp_trace.log
 fi
 
@@ -152,10 +173,17 @@ PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
+PASM_HOST_DEBUG="${PASM_HOST_DEBUG}" \
 PASM_NES_JOY2_CONNECTED="${PASM_NES_JOY2_CONNECTED}" \
 PASM_NES_MMC3_TRACE="${PASM_NES_MMC3_TRACE}" \
+PASM_NES_PAD_TRACE="${PASM_NES_PAD_TRACE}" \
+PASM_NES_PPUSTATUS_TRACE="${PASM_NES_PPUSTATUS_TRACE}" \
+PASM_NES_PAD_ZP_TRACE="${PASM_NES_PAD_ZP_TRACE}" \
+PASM_NES_ZP_TRACE="${PASM_NES_ZP_TRACE}" \
 PASM_IRQ_TRACE="${PASM_NES_IRQ_TRACE}" \
 PASM_IRQ_TRACE_FILE="log/nes_irq_trace.log" \
+PASM_CYC_DEBUG="${PASM_CYC_DEBUG}" \
+PASM_TRACE="${PASM_TRACE}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \

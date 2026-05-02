@@ -11,6 +11,7 @@ use crate::state::{DebugCounts, DebuggerMode, DebuggerSnapshot, DisasmRow};
 pub trait DebuggerBackend {
     fn counts(&mut self) -> Result<DebugCounts, String>;
     fn snapshot(&mut self) -> Result<DebuggerSnapshot, String>;
+    fn status_line(&mut self) -> Result<String, String>;
     fn reset(&mut self) -> Result<(), String>;
     fn run(&mut self) -> Result<(), String>;
     fn run_slice(&mut self, max_steps: u32) -> Result<DebuggerMode, String>;

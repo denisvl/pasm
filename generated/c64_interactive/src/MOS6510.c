@@ -45,38 +45,6 @@ static void cpu_sleep_seconds(uint32_t seconds) {
 #endif
 }
 
-static FILE *cpu_irq_trace_file(void) {
-    static int initialized = -1;
-    static FILE *fp = NULL;
-    if (initialized < 0) {
-        const char *env = getenv("PASM_IRQ_TRACE");
-        initialized = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-        if (initialized != 0) {
-            const char *path = getenv("PASM_IRQ_TRACE_FILE");
-            if (path == NULL || path[0] == '\0') path = "pasm_irq_trace.log";
-            fp = fopen(path, "a");
-            if (fp == NULL) initialized = 0;
-        }
-    }
-    return (initialized != 0) ? fp : NULL;
-}
-
-static void cpu_irq_trace(CPUState *cpu, const char *phase, uint8_t vector, uint16_t vector_addr) {
-    FILE *fp = cpu_irq_trace_file();
-    if (fp == NULL || cpu == NULL) return;
-    fprintf(fp, "irq %s cyc=%llu pc=%04X sp=%04X vec=%02X vaddr=%04X pend=%u en=%u flags=%02X\n",
-            (phase != NULL) ? phase : "?",
-            (unsigned long long)cpu->total_cycles,
-            (unsigned int)(cpu->pc & 0xFFFFu),
-            (unsigned int)(cpu->sp & 0xFFFFu),
-            (unsigned int)vector,
-            (unsigned int)(vector_addr & 0xFFFFu),
-            (unsigned int)(cpu->interrupt_pending ? 1u : 0u),
-            (unsigned int)(cpu->interrupts_enabled ? 1u : 0u),
-            (unsigned int)cpu->flags.raw);
-    fflush(fp);
-}
-
 static bool cpu_check_condition(CPUState *cpu, uint8_t cc) {
     switch (cc) {
         case 0: return !(cpu->flags.Z);
@@ -166,6 +134,13 @@ static void cpu_apply_mos6502_runtime_cycles(CPUState *cpu, DecodedInstruction *
             return;
     }
 }
+#include <errno.h>
+#include <limits.h>
+#include <sys/stat.h>
+#if !defined(_WIN32)
+#include <dirent.h>
+#endif
+
 typedef struct {
     const char *from_component;
     const char *from_kind;
@@ -190,6 +165,9 @@ static void cpu_component_emit_signal(
     const uint64_t *args,
     uint8_t argc
 );
+static int cpu_component_cartridge_picker_set_dir(const char *path);
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);
+static const int g_runtime_cartridge_picker_font_scale = 1;
 
 typedef struct {
     uint8_t row;
@@ -1739,7 +1717,7 @@ static void cpu_component_controller_map_poll(CPUState *cpu, uint8_t has_focus) 
             if (active != 0u) {
                 t->pressed = 1u;
                 if (b->source_kind == 3u || b->source_kind == 5u) {
-                    if (fabsf(av) > fabsf(t->axis)) t->axis = av;
+                    { float aabs = (av < 0.0f) ? -av : av; float tabs = (t->axis < 0.0f) ? -t->axis : t->axis; if (aabs > tabs) t->axis = av; }
                 }
             }
         }
@@ -1825,6 +1803,475 @@ static void cpu_component_keyboard_ascii_feed(
 static uint8_t cpu_component_keyboard_ascii_pop(void) {
     if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return 0u;
     return cpu_component_keyboard_ascii_queue_pop();
+}
+
+typedef struct {
+    char rom_path[1024];
+    char file_name[256];
+    char title[128];
+    char release_year[16];
+    char description[320];
+    char image_path[256];
+} RuntimeCartridgeEntry;
+
+typedef struct {
+    uint8_t supported;
+    uint8_t active;
+    uint8_t action_prev;
+    uint8_t nav_up_prev;
+    uint8_t nav_down_prev;
+    uint8_t nav_enter_prev;
+    uint8_t nav_esc_prev;
+    char directory[1024];
+    char status[256];
+    RuntimeCartridgeEntry *entries;
+    size_t entry_count;
+    size_t entry_cap;
+    size_t selected;
+    uint8_t pending_swap;
+    char pending_path[1024];
+} RuntimeCartridgePicker;
+
+static RuntimeCartridgePicker g_runtime_cartridge_picker = {
+    1u, 0u, 0u, 0u, 0u, 0u, 0u, "", "", NULL, 0u, 0u, 0u, 0u, ""
+};
+
+static int cpu_component_cartridge_picker_entry_cmp(const void *a, const void *b) {
+    const RuntimeCartridgeEntry *ea = (const RuntimeCartridgeEntry *)a;
+    const RuntimeCartridgeEntry *eb = (const RuntimeCartridgeEntry *)b;
+    return strcmp(ea->file_name, eb->file_name);
+}
+
+static uint8_t cpu_component_rom_ext_allowed(const char *name) {
+    const char *dot = strrchr(name, '.');
+    char ext[16];
+    size_t n;
+    if (!dot || dot[1] == '\0') return 0u;
+    dot++;
+    n = strlen(dot);
+    if (n >= sizeof(ext)) n = sizeof(ext) - 1u;
+    for (size_t i = 0; i < n; ++i) {
+        char c = dot[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        ext[i] = c;
+    }
+    ext[n] = '\0';
+    if (strcmp(ext, "crt") == 0) return 1u;
+    if (strcmp(ext, "bin") == 0) return 1u;
+    if (strcmp(ext, "rom") == 0) return 1u;
+    return 0u;
+}
+
+static void cpu_component_cartridge_picker_clear_entries(void) {
+    if (g_runtime_cartridge_picker.entries != NULL) {
+        free(g_runtime_cartridge_picker.entries);
+        g_runtime_cartridge_picker.entries = NULL;
+    }
+    g_runtime_cartridge_picker.entry_count = 0u;
+    g_runtime_cartridge_picker.entry_cap = 0u;
+    g_runtime_cartridge_picker.selected = 0u;
+}
+
+static RuntimeCartridgeEntry *cpu_component_cartridge_picker_add_entry(void) {
+    if (g_runtime_cartridge_picker.entry_count >= g_runtime_cartridge_picker.entry_cap) {
+        size_t new_cap = (g_runtime_cartridge_picker.entry_cap == 0u) ? 64u : (g_runtime_cartridge_picker.entry_cap * 2u);
+        RuntimeCartridgeEntry *ne = (RuntimeCartridgeEntry *)realloc(g_runtime_cartridge_picker.entries, new_cap * sizeof(RuntimeCartridgeEntry));
+        if (ne == NULL) return NULL;
+        memset(ne + g_runtime_cartridge_picker.entry_cap, 0, (new_cap - g_runtime_cartridge_picker.entry_cap) * sizeof(RuntimeCartridgeEntry));
+        g_runtime_cartridge_picker.entries = ne;
+        g_runtime_cartridge_picker.entry_cap = new_cap;
+    }
+    return &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.entry_count++];
+}
+
+static void cpu_component_cartridge_picker_parse_sidecar(RuntimeCartridgeEntry *entry) {
+    char yaml_path[1024];
+    FILE *f;
+    char line[768];
+    char *dot;
+    if (entry == NULL) return;
+    snprintf(yaml_path, sizeof(yaml_path), "%s", entry->rom_path);
+    dot = strrchr(yaml_path, '.');
+    if (dot != NULL) {
+        snprintf(dot, (size_t)(yaml_path + sizeof(yaml_path) - dot), ".yaml");
+    } else {
+        size_t n = strlen(yaml_path);
+        if (n + 5u >= sizeof(yaml_path)) return;
+        strcat(yaml_path, ".yaml");
+    }
+    f = fopen(yaml_path, "r");
+    if (f == NULL) return;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char *hash = strchr(line, '#');
+        char *s;
+        if (hash) *hash = '\0';
+        s = cpu_component_trim(line);
+        if (!s || s[0] == '\0') continue;
+        if (strncmp(s, "title:", 6) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 6));
+            snprintf(entry->title, sizeof(entry->title), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "release_year:", 13) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 13));
+            snprintf(entry->release_year, sizeof(entry->release_year), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "description:", 12) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 12));
+            snprintf(entry->description, sizeof(entry->description), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "image:", 6) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 6));
+            snprintf(entry->image_path, sizeof(entry->image_path), "%s", v ? v : "");
+            continue;
+        }
+    }
+    fclose(f);
+}
+
+static int cpu_component_cartridge_picker_scan_dir(void) {
+#if defined(_WIN32)
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cartridge picker unsupported on this backend");
+    return -1;
+#else
+    DIR *d;
+    struct dirent *de;
+    cpu_component_cartridge_picker_clear_entries();
+    if (g_runtime_cartridge_picker.directory[0] == '\0') {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "missing --cartridge-dir");
+        return -1;
+    }
+    d = opendir(g_runtime_cartridge_picker.directory);
+    if (d == NULL) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cannot open dir: %s", g_runtime_cartridge_picker.directory);
+        return -1;
+    }
+    while ((de = readdir(d)) != NULL) {
+        RuntimeCartridgeEntry *entry;
+        if (de->d_name[0] == '.') continue;
+        if (cpu_component_rom_ext_allowed(de->d_name) == 0u) continue;
+        entry = cpu_component_cartridge_picker_add_entry();
+        if (entry == NULL) {
+            closedir(d);
+            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "out of memory");
+            return -1;
+        }
+        snprintf(entry->file_name, sizeof(entry->file_name), "%s", de->d_name);
+        snprintf(entry->rom_path, sizeof(entry->rom_path), "%s/%s", g_runtime_cartridge_picker.directory, de->d_name);
+        cpu_component_cartridge_picker_parse_sidecar(entry);
+    }
+    closedir(d);
+    if (g_runtime_cartridge_picker.entry_count == 0u) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "no ROM files found");
+        return -1;
+    }
+    qsort(
+        g_runtime_cartridge_picker.entries,
+        g_runtime_cartridge_picker.entry_count,
+        sizeof(RuntimeCartridgeEntry),
+        cpu_component_cartridge_picker_entry_cmp
+    );
+    if (g_runtime_cartridge_picker.selected >= g_runtime_cartridge_picker.entry_count) {
+        g_runtime_cartridge_picker.selected = 0u;
+    }
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "select cartridge (%u)", (unsigned)g_runtime_cartridge_picker.entry_count);
+    return 0;
+#endif
+}
+
+static int cpu_component_cartridge_picker_set_dir(const char *path) {
+    if (path == NULL || path[0] == '\0') return -1;
+    snprintf(g_runtime_cartridge_picker.directory, sizeof(g_runtime_cartridge_picker.directory), "%s", path);
+    g_runtime_cartridge_picker.active = 0u;
+    g_runtime_cartridge_picker.pending_swap = 0u;
+    g_runtime_cartridge_picker.pending_path[0] = '\0';
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cartridge dir set");
+    return 0;
+}
+
+static uint8_t cpu_component_keyboard_emulator_action_pressed(const char *action_id, const uint8_t *host_keys, size_t host_key_count, uint8_t has_focus) {
+    if (g_runtime_keyboard_map.loaded == 0u) return 0u;
+    if (!action_id || action_id[0] == '\0') return 0u;
+    if (!host_keys || host_key_count == 0u) return 0u;
+    if (g_runtime_keyboard_map.focus_required != 0u && has_focus == 0u) return 0u;
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+        if (b->scancode < 0 || (size_t)b->scancode >= host_key_count) continue;
+        if (b->emulator_key_id[0] == '\0') continue;
+        if (strcmp(b->emulator_key_id, action_id) != 0) continue;
+        if (host_keys[b->scancode] != 0u) return 1u;
+    }
+    return 0u;
+}
+
+static uint8_t cpu_component_cartridge_picker_is_active(void) {
+    return g_runtime_cartridge_picker.active;
+}
+
+static void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {
+    int key_count = 0;
+    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
+    static int raw_picker_keys_enabled = -1;
+    uint8_t trig;
+    uint8_t raw_trig = 0u;
+    uint8_t up;
+    uint8_t down;
+    uint8_t enter;
+    uint8_t esc;
+    if (!cpu) return;
+    if (g_runtime_cartridge_picker.supported == 0u) return;
+    if (raw_picker_keys_enabled < 0) {
+        const char *env = getenv("PASM_EMU_CART_PICKER_RAW_KEYS");
+        raw_picker_keys_enabled = (env == NULL || env[0] == '\0' || env[0] != '0') ? 1 : 0;
+    }
+    trig = cpu_component_keyboard_emulator_action_pressed("EMU_CART_PICKER", ks, (size_t)((key_count < 0) ? 0 : key_count), has_focus);
+    if (raw_picker_keys_enabled != 0 && ks != NULL && key_count > 0) {
+        if ((size_t)CPU_HOST_SCANCODE(F12) < (size_t)key_count && ks[CPU_HOST_SCANCODE(F12)] != 0u) raw_trig = 1u;
+    }
+    if (raw_trig != 0u) trig = 1u;
+    if (trig != 0u && g_runtime_cartridge_picker.action_prev == 0u) {
+        if (g_runtime_cartridge_picker.active == 0u) {
+            if (cpu_component_cartridge_picker_scan_dir() == 0) {
+                g_runtime_cartridge_picker.active = 1u;
+            }
+        } else {
+            g_runtime_cartridge_picker.active = 0u;
+        }
+    }
+    g_runtime_cartridge_picker.action_prev = trig;
+    if (g_runtime_cartridge_picker.active == 0u) return;
+    if (!ks || key_count <= 0) return;
+    up = ((size_t)CPU_HOST_SCANCODE(UP) < (size_t)key_count && ks[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;
+    down = ((size_t)CPU_HOST_SCANCODE(DOWN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(DOWN)] != 0u) ? 1u : 0u;
+    enter = (((size_t)CPU_HOST_SCANCODE(RETURN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(RETURN)] != 0u) || ((size_t)CPU_HOST_SCANCODE(KP_ENTER) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_ENTER)] != 0u)) ? 1u : 0u;
+    esc = ((size_t)CPU_HOST_SCANCODE(ESCAPE) < (size_t)key_count && ks[CPU_HOST_SCANCODE(ESCAPE)] != 0u) ? 1u : 0u;
+    if (up != 0u && g_runtime_cartridge_picker.nav_up_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            if (g_runtime_cartridge_picker.selected == 0u) g_runtime_cartridge_picker.selected = g_runtime_cartridge_picker.entry_count - 1u;
+            else g_runtime_cartridge_picker.selected -= 1u;
+        }
+    }
+    if (down != 0u && g_runtime_cartridge_picker.nav_down_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            g_runtime_cartridge_picker.selected = (g_runtime_cartridge_picker.selected + 1u) % g_runtime_cartridge_picker.entry_count;
+        }
+    }
+    if (esc != 0u && g_runtime_cartridge_picker.nav_esc_prev == 0u) {
+        g_runtime_cartridge_picker.active = 0u;
+    }
+    if (enter != 0u && g_runtime_cartridge_picker.nav_enter_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            const RuntimeCartridgeEntry *sel = &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.selected];
+            snprintf(g_runtime_cartridge_picker.pending_path, sizeof(g_runtime_cartridge_picker.pending_path), "%s", sel->rom_path);
+            g_runtime_cartridge_picker.pending_swap = 1u;
+            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "queued: %s", sel->file_name);
+        }
+        g_runtime_cartridge_picker.active = 0u;
+    }
+    g_runtime_cartridge_picker.nav_up_prev = up;
+    g_runtime_cartridge_picker.nav_down_prev = down;
+    g_runtime_cartridge_picker.nav_enter_prev = enter;
+    g_runtime_cartridge_picker.nav_esc_prev = esc;
+}
+
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu) {
+    if (!cpu) return -1;
+    if (g_runtime_cartridge_picker.pending_swap == 0u) return 0;
+    if (mos6510_load_cartridge_rom(cpu, g_runtime_cartridge_picker.pending_path) != 0) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "load failed: %s", g_runtime_cartridge_picker.pending_path);
+        g_runtime_cartridge_picker.pending_swap = 0u;
+        g_runtime_cartridge_picker.pending_path[0] = '\0';
+        return -1;
+    }
+    {
+        const char *sysdir = getenv("PASM_SYSTEM_DIR");
+        if (sysdir != NULL && sysdir[0] != '\0') {
+            if (cpu->memory != NULL && cpu->memory_size > 0u) {
+                memset(cpu->memory, 0, (size_t)cpu->memory_size);
+            }
+            if (cpu->port_memory != NULL && cpu->port_size > 0u) {
+                memset(cpu->port_memory, 0, (size_t)cpu->port_size);
+            }
+            if (mos6510_load_system_roms(cpu, sysdir) != 0) {
+                snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "system ROM reload failed");
+                g_runtime_cartridge_picker.pending_swap = 0u;
+                g_runtime_cartridge_picker.pending_path[0] = '\0';
+                return -1;
+            }
+        } else {
+            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "system dir missing; reusing current memory image");
+        }
+    }
+    mos6510_reset(cpu);
+    cpu->running = true;
+    cpu->halted = false;
+    cpu->error_code = CPU_ERROR_NONE;
+    snprintf(
+        cpu->loaded_rom_debug,
+        sizeof(cpu->loaded_rom_debug),
+        "name=cartridge path=%s",
+        g_runtime_cartridge_picker.pending_path
+    );
+    g_runtime_cartridge_picker.pending_swap = 0u;
+    g_runtime_cartridge_picker.pending_path[0] = '\0';
+    return 1;
+}
+
+static void cpu_component_cartridge_picker_draw_text(
+    uint32_t *pixels,
+    uint32_t w,
+    uint32_t h,
+    int x,
+    int y,
+    const char *text,
+    int scale,
+    uint32_t color
+) {
+    if (!text || text[0] == '\0') return;
+    if (scale > 0) {
+        sms_overlay_draw_text(pixels, w, h, x, y, text, scale, color);
+        return;
+    }
+    {
+        int cx = x;
+        for (const char *p = text; *p; ++p) {
+            const uint8_t *glyph = sms_overlay_glyph(*p);
+            for (int row = 0; row < 7; row += 2) {
+                uint8_t bits = glyph[row];
+                int ty = y + (row / 2);
+                for (int col = 0; col < 5; col += 2) {
+                    if ((bits & (uint8_t)(1u << (4 - col))) == 0u) continue;
+                    sms_overlay_put_pixel(pixels, w, h, cx + (col / 2), ty, color);
+                }
+            }
+            cx += 4;
+        }
+    }
+}
+
+static void cpu_component_cartridge_picker_draw_text_fit(
+    uint32_t *pixels,
+    uint32_t w,
+    uint32_t h,
+    int x,
+    int y,
+    const char *text,
+    int scale,
+    uint32_t color,
+    int max_px
+) {
+    char buf[320];
+    size_t n = 0u;
+    int cell_px = (scale > 0) ? (6 * scale) : 4;
+    int max_chars;
+    if (!text || text[0] == '\0') return;
+    if (cell_px <= 0) cell_px = 1;
+    max_chars = (max_px > 0) ? (max_px / cell_px) : 0;
+    if (max_chars <= 0) return;
+    while (text[n] != '\0' && n < (size_t)max_chars && n < sizeof(buf) - 1u) {
+        buf[n] = text[n];
+        n++;
+    }
+    if (text[n] != '\0' && n >= 3u) {
+        buf[n - 3u] = '.';
+        buf[n - 2u] = '.';
+        buf[n - 1u] = '.';
+    }
+    buf[n] = '\0';
+    cpu_component_cartridge_picker_draw_text(pixels, w, h, x, y, buf, scale, color);
+}
+
+static int cpu_component_cartridge_picker_draw_text_wrap(
+    uint32_t *pixels,
+    uint32_t w,
+    uint32_t h,
+    int x,
+    int y,
+    const char *text,
+    int scale,
+    uint32_t color,
+    int max_px,
+    int max_lines
+) {
+    char line[320];
+    int cell_px = (scale > 0) ? (6 * scale) : 4;
+    int max_chars;
+    int lines_drawn = 0;
+    const char *p = text;
+    if (!text || text[0] == '\0' || max_lines <= 0) return 0;
+    if (cell_px <= 0) cell_px = 1;
+    max_chars = (max_px > 0) ? (max_px / cell_px) : 0;
+    if (max_chars <= 0) return 0;
+    while (*p != '\0' && lines_drawn < max_lines) {
+        int n = 0;
+        int last_space = -1;
+        const char *seg = p;
+        while (seg[n] != '\0' && seg[n] != '\n' && n < max_chars && n < (int)sizeof(line) - 1) {
+            if (seg[n] == ' ') last_space = n;
+            n++;
+        }
+        if (seg[n] != '\0' && seg[n] != '\n' && n == max_chars && last_space > 0) {
+            n = last_space;
+        }
+        if (n <= 0) n = (seg[0] != '\0') ? 1 : 0;
+        if (n <= 0) break;
+        memcpy(line, seg, (size_t)n);
+        line[n] = '\0';
+        cpu_component_cartridge_picker_draw_text(pixels, w, h, x, y + lines_drawn * ((scale > 0) ? (8 * scale + 1) : 5), line, scale, color);
+        lines_drawn++;
+        p = seg + n;
+        while (*p == ' ') p++;
+        if (*p == '\n') p++;
+    }
+    return lines_drawn;
+}
+
+static void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {
+    int scale = g_runtime_cartridge_picker_font_scale;
+    int x = 10;
+    int y = 24;
+    int row_h = (scale > 0) ? (8 * scale + 1) : 5;
+    int max_rows = 10;
+    int right_pad = 14;
+    int text_w = (int)w - x - right_pad;
+    size_t first;
+    (void)cpu;
+    if (!pixels || w == 0u || h == 0u) return;
+    if (g_runtime_cartridge_picker.active == 0u) return;
+    if (g_runtime_cartridge_picker.entry_count == 0u) return;
+    sms_overlay_fill_rect_alpha(pixels, w, h, 6, 20, (int)w - 12, (int)h - 26, 0x00101010u, 190u);
+    cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, y, "CARTRIDGE PICKER", scale, 0xFFFFFFFFu, text_w);
+    y += row_h * 2;
+    first = (g_runtime_cartridge_picker.selected >= 4u) ? (g_runtime_cartridge_picker.selected - 4u) : 0u;
+    for (int i = 0; i < max_rows; ++i) {
+        size_t idx = first + (size_t)i;
+        char line[320];
+        if (idx >= g_runtime_cartridge_picker.entry_count) break;
+        const RuntimeCartridgeEntry *e = &g_runtime_cartridge_picker.entries[idx];
+        uint32_t fg = (idx == g_runtime_cartridge_picker.selected) ? 0xFF00FF9Fu : 0xFFE0E0E0u;
+        if (e->title[0] != '\0') snprintf(line, sizeof(line), "%s (%s)", e->title, (e->release_year[0] ? e->release_year : "?"));
+        else snprintf(line, sizeof(line), "%s", e->file_name);
+        cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, y + i * row_h, line, scale, fg, text_w);
+    }
+    {
+        const RuntimeCartridgeEntry *sel = &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.selected];
+        int info_y = y + max_rows * row_h + 8;
+        char info[384];
+        snprintf(info, sizeof(info), "FILE: %s", sel->file_name);
+        int file_lines = cpu_component_cartridge_picker_draw_text_wrap(pixels, w, h, x, info_y, info, scale, 0xFFC8C8FFu, text_w, 6);
+        if (file_lines <= 0) file_lines = 1;
+        if (sel->description[0] != '\0') {
+            cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, info_y + (file_lines * row_h), sel->description, scale, 0xFFDDDDDDu, text_w);
+        }
+        if (sel->image_path[0] != '\0') {
+            char img[320];
+            snprintf(img, sizeof(img), "IMG: %s", sel->image_path);
+            cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, info_y + ((file_lines + 1) * row_h), img, scale, 0xFFBBBBBBu, text_w);
+        }
+    }
+    cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, (int)h - ((scale > 0) ? (14 * scale) : 8), "UP/DOWN SELECT  ENTER LOAD+RESET  ESC CANCEL", scale, 0xFFFFFFA0u, text_w);
 }
 
 static const ComponentConnection g_component_connections[] = {
@@ -2089,6 +2536,12 @@ static void component_host_c64_handler_video_frame(CPUState *cpu, const uint64_t
     (void)argc;
     ComponentState_host_c64 *comp = &cpu->comp_host_c64;
     cpu->active_component_id = "host_c64";
+    if (argc >= 4u) {
+        uint32_t *picker_pixels = (uint32_t *)(uintptr_t)args[1];
+        uint32_t picker_w = (uint32_t)(args[2] & 0xFFFFFFFFu);
+        uint32_t picker_h = (uint32_t)(args[3] & 0xFFFFFFFFu);
+        cpu_component_cartridge_picker_draw_overlay(cpu, picker_pixels, picker_w, picker_h);
+    }
     if (comp->host_inited == 0u || argc < 4) return;
     void *renderer = comp->renderer;
     void *texture = comp->texture;
@@ -2256,6 +2709,7 @@ static void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uin
 static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {
     (void)inst;
     (void)pc_before;
+    cpu_component_cartridge_picker_update(cpu, cpu_host_hal_window_has_focus(NULL));
     {
         ComponentState_c64_io *comp = &cpu->comp_c64_io;
         cpu->active_component_id = "c64_io";
@@ -2271,7 +2725,8 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
             for (uint16_t i = 0u; i < steps; ++i) {
                 comp->vic_raster_line = (uint16_t)(comp->vic_raster_line + 1u);
                 if (comp->vic_raster_line >= 312u) {
-                    uint16_t bank = (uint16_t)(((uint16_t)((uint8_t)(~comp->cia2_pra) & 0x03u)) << 14u);
+                    uint8_t cia2_porta = (uint8_t)((comp->cia2_pra & comp->cia2_ddra) | (uint8_t)(~comp->cia2_ddra));
+                    uint16_t bank = (uint16_t)(((uint16_t)((uint8_t)(~cia2_porta) & 0x03u)) << 14u);
                     uint16_t vm = comp->vic_regs[0x18u];
                     uint16_t sa = (uint16_t)(bank + (((vm >> 4u) & 0x0Fu) << 10u));
                     uint16_t ca = (uint16_t)(bank + (((vm >> 1u) & 0x07u) << 11u));
@@ -2316,22 +2771,22 @@ static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, ui
 
         {
             uint64_t d = delta_cycles;
-            if ((comp->cia1_regs[0x0Eu] & 0x01u) != 0u) {
+            if ((comp->cia1_regs[0x0Eu] & 0x01u) != 0u && (comp->cia1_regs[0x0Eu] & 0x20u) == 0u) {
                 uint16_t rl = (comp->cia1_ta_latch != 0u) ? comp->cia1_ta_latch : 0xFFFFu;
                 while (d > 0u) { uint16_t c = (comp->cia1_ta_counter != 0u) ? comp->cia1_ta_counter : rl; if (d < (uint64_t)c) { comp->cia1_ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia1_ta_counter = rl; comp->cia1_icr_status = (uint8_t)(comp->cia1_icr_status | 0x01u); if ((comp->cia1_regs[0x0Eu] & 0x08u) != 0u) { comp->cia1_regs[0x0Eu] &= (uint8_t)~0x01u; break; } } }
             }
             d = delta_cycles;
-            if ((comp->cia1_regs[0x0Fu] & 0x01u) != 0u) {
+            if ((comp->cia1_regs[0x0Fu] & 0x01u) != 0u && (comp->cia1_regs[0x0Fu] & 0x60u) == 0u) {
                 uint16_t rl = (comp->cia1_tb_latch != 0u) ? comp->cia1_tb_latch : 0xFFFFu;
                 while (d > 0u) { uint16_t c = (comp->cia1_tb_counter != 0u) ? comp->cia1_tb_counter : rl; if (d < (uint64_t)c) { comp->cia1_tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia1_tb_counter = rl; comp->cia1_icr_status = (uint8_t)(comp->cia1_icr_status | 0x02u); if ((comp->cia1_regs[0x0Fu] & 0x08u) != 0u) { comp->cia1_regs[0x0Fu] &= (uint8_t)~0x01u; break; } } }
             }
             d = delta_cycles;
-            if ((comp->cia2_regs[0x0Eu] & 0x01u) != 0u) {
+            if ((comp->cia2_regs[0x0Eu] & 0x01u) != 0u && (comp->cia2_regs[0x0Eu] & 0x20u) == 0u) {
                 uint16_t rl = (comp->cia2_ta_latch != 0u) ? comp->cia2_ta_latch : 0xFFFFu;
                 while (d > 0u) { uint16_t c = (comp->cia2_ta_counter != 0u) ? comp->cia2_ta_counter : rl; if (d < (uint64_t)c) { comp->cia2_ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia2_ta_counter = rl; comp->cia2_icr_status = (uint8_t)(comp->cia2_icr_status | 0x01u); if ((comp->cia2_regs[0x0Eu] & 0x08u) != 0u) { comp->cia2_regs[0x0Eu] &= (uint8_t)~0x01u; break; } } }
             }
             d = delta_cycles;
-            if ((comp->cia2_regs[0x0Fu] & 0x01u) != 0u) {
+            if ((comp->cia2_regs[0x0Fu] & 0x01u) != 0u && (comp->cia2_regs[0x0Fu] & 0x60u) == 0u) {
                 uint16_t rl = (comp->cia2_tb_latch != 0u) ? comp->cia2_tb_latch : 0xFFFFu;
                 while (d > 0u) { uint16_t c = (comp->cia2_tb_counter != 0u) ? comp->cia2_tb_counter : rl; if (d < (uint64_t)c) { comp->cia2_tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; comp->cia2_tb_counter = rl; comp->cia2_icr_status = (uint8_t)(comp->cia2_icr_status | 0x02u); if ((comp->cia2_regs[0x0Fu] & 0x08u) != 0u) { comp->cia2_regs[0x0Fu] &= (uint8_t)~0x01u; break; } } }
             }
@@ -6033,14 +6488,19 @@ int mos6510_step(CPUState *cpu) {
         cpu->reset_delay_pending = false;
     }
 
+    if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {
+        return 0;
+    }
+
     if (cpu_check_breakpoints(cpu)) {
         cpu->running = false;
         return 0;
     }
 
-    if (cpu->interrupt_pending && (cpu->interrupt_vector == 0xFFu || cpu->interrupts_enabled)) {
-        uint8_t irq_vector = cpu->interrupt_vector;
-        cpu->interrupt_pending = false;
+    if (cpu->nmi_pending || (cpu->irq_pending && cpu->interrupts_enabled)) {
+        uint8_t irq_vector = cpu->nmi_pending ? 0xFFu : 0x00u;
+        if (cpu->nmi_pending) cpu->nmi_pending = false; else cpu->irq_pending = false;
+        cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
         cpu->halted = false;
         {
             uint8_t sp8 = (uint8_t)cpu->sp;
@@ -6061,17 +6521,11 @@ int mos6510_step(CPUState *cpu) {
         cpu->flags.I = true;
         cpu->interrupts_enabled = false;
         cpu->pc = (irq_vector == 0xFFu) ? mos6510_read_word(cpu, 0xFFFAu) : mos6510_read_word(cpu, 0xFFFEu);
-        cpu_irq_trace(cpu, "take", irq_vector, (irq_vector == 0xFFu) ? 0xFFFAu : 0xFFFEu);
         cpu->total_cycles += 7u;
         return 0;
     }
 
     if (cpu->halted) {
-        if (cpu->interrupt_pending && !cpu->interrupts_enabled) {
-            cpu->interrupt_pending = false;
-            cpu->halted = false;
-            return 0;
-        }
         uint16_t halted_pc = cpu->pc;
         DecodedInstruction halted_inst = {0};
         halted_inst.pc = halted_pc;
@@ -6106,13 +6560,10 @@ int mos6510_step(CPUState *cpu) {
     if (!inst.valid) {
         cpu->running = false;
         cpu->error_code = CPU_ERROR_INVALID_OPCODE;
-        fprintf(stderr, "Invalid opcode at 0x%04X: 0x%06X\n", pc_before, (unsigned int)raw);
+        fprintf(stderr, "KIL instruction at 0x%04X: 0x%02X\n", pc_before, b0);
         return -1;
     }
 
-    if (cpu->tracing_enabled) {
-        mos6510_trace_instruction(cpu, &inst);
-    }
 
     uint8_t x_before = cpu->registers[REG_X];
     uint8_t y_before = cpu->registers[REG_Y];
@@ -6123,6 +6574,8 @@ int mos6510_step(CPUState *cpu) {
 
     bool executed = false;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = inst.cycles;
+    cpu->io_read_phase_ppu_dots = (uint16_t)((uint16_t)inst.cycles * 6u);
     cpu_components_step_pre(cpu, &inst, pc_before);
     switch (inst.category) {
         case CAT_CONTROL:
@@ -7426,20 +7879,28 @@ int mos6510_step(CPUState *cpu) {
         cpu->running = false;
         return -1;
     }
-
     cpu_apply_mos6502_runtime_cycles(cpu, &inst, pc_before, x_before, y_before, c_before, z_before, n_before, v_before);
-
+    if (!cpu->pc_modified) {
+        cpu->pc = (uint16_t)(pc_before + inst.length);
+        cpu->pc_modified = true;
+    }
+    cpu->total_cycles += inst.cycles;
     cpu_components_step_post(cpu, &inst, pc_before);
+    /* After step_post, PPU may have signalled NMI — take it immediately. */
+    if (cpu->nmi_pending || (cpu->irq_pending && cpu->interrupts_enabled)) {
+        cpu->current_instruction_cycles = 0u;
+        cpu->io_read_phase_ppu_dots = 0u;
+        return 0;
+    }
+
+    cpu->current_instruction_cycles = 0u;
+    cpu->io_read_phase_ppu_dots = 0u;
 
     if (cpu->halted && !cpu->pc_modified) {
         cpu->pc = (uint16_t)(pc_before + inst.length);
         cpu->pc_modified = true;
     }
 
-    if (!cpu->pc_modified) {
-        cpu->pc = (uint16_t)(pc_before + inst.length);
-    }
-    cpu->total_cycles += inst.cycles;
 
     return 0;
 }
@@ -7451,7 +7912,7 @@ void mos6510_run(CPUState *cpu) {
 void mos6510_run_until(CPUState *cpu, uint64_t cycles) {
     while (cpu->running) {
         if (cycles > 0 && cpu->total_cycles >= cycles) break;
-        if (cpu->halted && !cpu->interrupt_pending) break;
+        if (cpu->halted && !(cpu->nmi_pending || cpu->irq_pending)) break;
         if (mos6510_step(cpu) != 0) break;
     }
 }
@@ -7478,6 +7939,7 @@ CPUState *mos6510_create(size_t memory_size) {
         cpu->hooks[i].func = NULL;
         cpu->hooks[i].context = NULL;
     }
+    cpu->debug_overlay_enabled = false;
     cpu->active_component_id = NULL;
     cpu->component_last_return = 0;
     cpu->comp_c64_io.io_ddr = 0x2Fu;
@@ -7494,6 +7956,9 @@ CPUState *mos6510_create(size_t memory_size) {
     cpu->comp_c64_io.cia1_ta_counter = 0xFFFFu;
     cpu->comp_c64_io.cia1_tb_counter = 0xFFFFu;
     cpu->comp_c64_io.cia2_pra = 0xFFu;
+    cpu->comp_c64_io.cia2_prb = 0xFFu;
+    cpu->comp_c64_io.cia2_ddra = 0x00u;
+    cpu->comp_c64_io.cia2_ddrb = 0x00u;
     cpu->comp_c64_io.cia2_icr_mask = 0u;
     cpu->comp_c64_io.cia2_icr_status = 0u;
     cpu->comp_c64_io.cia2_nmi_asserted = 0u;
@@ -7539,8 +8004,8 @@ CPUState *mos6510_create(size_t memory_size) {
         if (comp->sid_regs != NULL) memset(comp->sid_regs, 0, 0x20u);
         if (comp->cia1_regs != NULL) memset(comp->cia1_regs, 0, 0x10u);
         if (comp->cia2_regs != NULL) memset(comp->cia2_regs, 0, 0x10u);
-        cpu->registers[REG_IO_DDR] = comp->io_ddr;
-        cpu->registers[REG_IO_DATA] = comp->io_data;
+        cpu->registers[REG_IO_DDR] = (uint8_t)(comp->io_ddr | 0xC0u);
+        cpu->registers[REG_IO_DATA] = (uint8_t)(comp->io_data | 0xC0u);
     }
     cpu->comp_keyboard_c64.last_row = 0u;
     cpu->comp_video_c64.frame_count = 0u;
@@ -7674,6 +8139,23 @@ CPUState *mos6510_create(size_t memory_size) {
             comp->host_inited = 1u;
         } while (0);
     }
+    cpu->comp_c64_cart0.rom_data = NULL;
+    cpu->comp_c64_cart0.rom_size = 0;
+    cpu->comp_c64_cart0.image_lo_off = 0;
+    cpu->comp_c64_cart0.image_lo_len = 0;
+    cpu->comp_c64_cart0.image_hi_off = 0;
+    cpu->comp_c64_cart0.image_hi_len = 0;
+    cpu->comp_c64_cart0.image_parsed = 0;
+    cpu->comp_c64_cart0.mapper_kind = 0;
+    cpu->comp_c64_cart0.crt_hw_type = 0;
+    cpu->comp_c64_cart0.md_bank_off = NULL;
+    cpu->comp_c64_cart0.md_bank_len = NULL;
+    cpu->comp_c64_cart0.md_bank_count = 0;
+    cpu->comp_c64_cart0.md_bank_sel = 0;
+    cpu->comp_c64_cart0.md_cart_disabled = 0;
+    cpu->comp_c64_cart0.crt_exrom = 1;
+    cpu->comp_c64_cart0.crt_game = 1;
+    cpu->comp_c64_cart0.ram_lo = NULL;
     
     mos6510_reset(cpu);
     return cpu;
@@ -7733,6 +8215,39 @@ void mos6510_destroy(CPUState *cpu) {
                 comp->host_inited = 0u;
             }
         }
+        {
+            ComponentState_c64_cart0 *comp = &cpu->comp_c64_cart0;
+            cpu->active_component_id = "c64_cart0";
+            if (comp->rom_data != NULL) {
+                free(comp->rom_data);
+                comp->rom_data = NULL;
+            }
+            comp->rom_size = 0u;
+            comp->image_lo_off = 0u;
+            comp->image_lo_len = 0u;
+            comp->image_hi_off = 0u;
+            comp->image_hi_len = 0u;
+            comp->image_parsed = 0u;
+            comp->mapper_kind = 0u;
+            comp->crt_hw_type = 0u;
+            comp->crt_exrom = 1u;
+            comp->crt_game = 1u;
+            comp->md_cart_disabled = 0u;
+            if (comp->ram_lo != NULL) {
+                free(comp->ram_lo);
+                comp->ram_lo = NULL;
+            }
+            if (comp->md_bank_off != NULL) {
+                free(comp->md_bank_off);
+                comp->md_bank_off = NULL;
+            }
+            if (comp->md_bank_len != NULL) {
+                free(comp->md_bank_len);
+                comp->md_bank_len = NULL;
+            }
+            comp->md_bank_count = 0u;
+            comp->md_bank_sel = 0u;
+        }
         free(cpu->memory);
         free(cpu->port_memory);
         free(cpu);
@@ -7748,11 +8263,13 @@ void mos6510_reset(CPUState *cpu) {
     cpu->flags.raw = 0;
     /* No shadow flag bank */
     cpu->interrupt_vector = 0;
-    cpu->sp = 0xFDu;
-    cpu->flags.I = true;
-    cpu->pc = mos6510_read_word(cpu, 0xFFFCu);
+    cpu->sp = 0xF8u;
+    cpu->registers[REG_Y] = 0x1Au;
+    cpu->flags.raw = 0x34u;
     cpu->interrupts_enabled = false;
     cpu->interrupt_pending = false;
+    cpu->irq_pending = false;
+    cpu->nmi_pending = false;
     cpu->active_component_id = NULL;
     cpu->component_last_return = 0;
     cpu->comp_c64_io.io_ddr = 0x2Fu;
@@ -7769,6 +8286,9 @@ void mos6510_reset(CPUState *cpu) {
     cpu->comp_c64_io.cia1_ta_counter = 0xFFFFu;
     cpu->comp_c64_io.cia1_tb_counter = 0xFFFFu;
     cpu->comp_c64_io.cia2_pra = 0xFFu;
+    cpu->comp_c64_io.cia2_prb = 0xFFu;
+    cpu->comp_c64_io.cia2_ddra = 0x00u;
+    cpu->comp_c64_io.cia2_ddrb = 0x00u;
     cpu->comp_c64_io.cia2_icr_mask = 0u;
     cpu->comp_c64_io.cia2_icr_status = 0u;
     cpu->comp_c64_io.cia2_nmi_asserted = 0u;
@@ -7793,7 +8313,8 @@ void mos6510_reset(CPUState *cpu) {
         comp->cia1_pra = 0xFFu; comp->cia1_prb = 0xFFu; comp->cia1_ddra = 0xFFu; comp->cia1_ddrb = 0x00u;
         comp->cia1_icr_mask = 0u; comp->cia1_icr_status = 0u; comp->cia1_irq_asserted = 0u;
         comp->cia1_ta_latch = 0xFFFFu; comp->cia1_tb_latch = 0xFFFFu; comp->cia1_ta_counter = 0xFFFFu; comp->cia1_tb_counter = 0xFFFFu;
-        comp->cia2_pra = 0xFFu; comp->cia2_icr_mask = 0u; comp->cia2_icr_status = 0u; comp->cia2_nmi_asserted = 0u;
+        comp->cia2_pra = 0xFFu; comp->cia2_prb = 0xFFu; comp->cia2_ddra = 0x00u; comp->cia2_ddrb = 0x00u;
+        comp->cia2_icr_mask = 0u; comp->cia2_icr_status = 0u; comp->cia2_nmi_asserted = 0u;
         comp->cia2_ta_latch = 0xFFFFu; comp->cia2_tb_latch = 0xFFFFu; comp->cia2_ta_counter = 0xFFFFu; comp->cia2_tb_counter = 0xFFFFu;
         comp->frame_counter = 0u; comp->last_step_cycle = cpu->total_cycles; comp->vic_raster_line = 0u; comp->vic_cycle_in_line = 0u; comp->vic_irq_asserted = 0u;
         comp->sid_phase0 = 0u; comp->sid_phase1 = 0u; comp->sid_phase2 = 0u; comp->sid_noise = 0x007FFFFFu; comp->sid_sample_cursor = 0u;
@@ -7809,8 +8330,8 @@ void mos6510_reset(CPUState *cpu) {
         if (comp->sid_regs != NULL) memset(comp->sid_regs, 0, 0x20u);
         if (comp->cia1_regs != NULL) memset(comp->cia1_regs, 0, 0x10u);
         if (comp->cia2_regs != NULL) memset(comp->cia2_regs, 0, 0x10u);
-        cpu->registers[REG_IO_DDR] = comp->io_ddr;
-        cpu->registers[REG_IO_DATA] = comp->io_data;
+        cpu->registers[REG_IO_DDR] = (uint8_t)(comp->io_ddr | 0xC0u);
+        cpu->registers[REG_IO_DATA] = (uint8_t)(comp->io_data | 0xC0u);
     }
     cpu->comp_keyboard_c64.last_row = 0u;
     cpu->comp_video_c64.frame_count = 0u;
@@ -7847,17 +8368,170 @@ void mos6510_reset(CPUState *cpu) {
         comp->overlay_cpu_pct_x10 = 0u;
         if (comp->audio_out_dev != 0u) cpu_host_hal_audio_clear(comp->audio_out_dev);
     }
+    cpu->comp_c64_cart0.image_lo_off = 0;
+    cpu->comp_c64_cart0.image_lo_len = 0;
+    cpu->comp_c64_cart0.image_hi_off = 0;
+    cpu->comp_c64_cart0.image_hi_len = 0;
+    cpu->comp_c64_cart0.image_parsed = 0;
+    cpu->comp_c64_cart0.mapper_kind = 0;
+    cpu->comp_c64_cart0.crt_hw_type = 0;
+    cpu->comp_c64_cart0.md_bank_count = 0;
+    cpu->comp_c64_cart0.md_bank_sel = 0;
+    cpu->comp_c64_cart0.md_cart_disabled = 0;
+    cpu->comp_c64_cart0.crt_exrom = 1;
+    cpu->comp_c64_cart0.crt_game = 1;
+    {
+        ComponentState_c64_cart0 *comp = &cpu->comp_c64_cart0;
+        cpu->active_component_id = "c64_cart0";
+        if (comp->ram_lo == NULL) {
+            comp->ram_lo = (uint8_t *)calloc(0x2000u, 1u);
+        } else {
+            memset(comp->ram_lo, 0, 0x2000u);
+        }
+        if (comp->rom_data != NULL && comp->rom_size > 0u) {
+            if (comp->image_parsed == 0u) {
+                comp->image_lo_off = 0u;
+                comp->image_lo_len = 0u;
+                comp->image_hi_off = 0u;
+                comp->image_hi_len = 0u;
+                comp->crt_hw_type = 0u;
+                comp->crt_exrom = 1u;
+                comp->crt_game = 1u;
+                comp->md_bank_count = 0u;
+                comp->md_bank_sel = 0u;
+                comp->md_cart_disabled = 0u;
+                if (comp->md_bank_off != NULL) {
+                    free(comp->md_bank_off);
+                    comp->md_bank_off = NULL;
+                }
+                if (comp->md_bank_len != NULL) {
+                    free(comp->md_bank_len);
+                    comp->md_bank_len = NULL;
+                }
+                /* .crt support: parse ROML ($8000) and ROMH ($A000) CHIP packets. */
+                if (comp->rom_size >= 0x40u && memcmp(comp->rom_data, "C64 CARTRIDGE   ", 16u) == 0) {
+                    comp->crt_hw_type = (uint16_t)(((uint16_t)comp->rom_data[0x16] << 8u) | (uint16_t)comp->rom_data[0x17]);
+                    comp->crt_exrom = (uint8_t)(comp->rom_data[0x18] & 0x01u);
+                    comp->crt_game = (uint8_t)(comp->rom_data[0x19] & 0x01u);
+                    if (comp->crt_hw_type == 0x0013u) {
+                        comp->mapper_kind = 5u; /* CRT Magic Desk */
+                        comp->md_bank_off = (uint32_t *)calloc(128u, sizeof(uint32_t));
+                        comp->md_bank_len = (uint16_t *)calloc(128u, sizeof(uint16_t));
+                        if (comp->md_bank_off == NULL || comp->md_bank_len == NULL) {
+                            if (comp->md_bank_off != NULL) free(comp->md_bank_off);
+                            if (comp->md_bank_len != NULL) free(comp->md_bank_len);
+                            comp->md_bank_off = NULL;
+                            comp->md_bank_len = NULL;
+                            comp->mapper_kind = 3u;
+                        }
+                    } else {
+                        comp->mapper_kind = 3u; /* CRT */
+                    }
+                    uint32_t pos = 0x40u;
+                    while (pos + 0x10u <= comp->rom_size) {
+                        const uint8_t *h = comp->rom_data + pos;
+                        uint32_t packet_len;
+                        uint16_t chip_type;
+                        uint16_t chip_bank;
+                        uint16_t load_addr;
+                        uint16_t chip_len;
+                        if (memcmp(h, "CHIP", 4u) != 0) {
+                            break;
+                        }
+                        packet_len = ((uint32_t)h[4] << 24u) | ((uint32_t)h[5] << 16u) | ((uint32_t)h[6] << 8u) | (uint32_t)h[7];
+                        chip_type = (uint16_t)(((uint16_t)h[8] << 8u) | (uint16_t)h[9]);
+                        chip_bank = (uint16_t)(((uint16_t)h[10] << 8u) | (uint16_t)h[11]);
+                        load_addr = (uint16_t)(((uint16_t)h[12] << 8u) | (uint16_t)h[13]);
+                        chip_len = (uint16_t)(((uint16_t)h[14] << 8u) | (uint16_t)h[15]);
+                        if (packet_len < 0x10u) {
+                            break;
+                        }
+                        if (chip_type == 0u && chip_len != 0u) {
+                            uint32_t data_off = pos + 0x10u;
+                            uint32_t data_len = (uint32_t)chip_len;
+                            if (data_off <= comp->rom_size && data_len <= (comp->rom_size - data_off)) {
+                                if (comp->mapper_kind == 5u && comp->md_bank_off != NULL && comp->md_bank_len != NULL &&
+                                    load_addr == 0x8000u && chip_bank < 128u) {
+                                    uint32_t use_len = (data_len > 0x2000u) ? 0x2000u : data_len;
+                                    if (use_len != 0u) {
+                                        comp->md_bank_off[chip_bank] = data_off;
+                                        comp->md_bank_len[chip_bank] = (uint16_t)use_len;
+                                        if ((uint16_t)(chip_bank + 1u) > comp->md_bank_count) {
+                                            comp->md_bank_count = (uint16_t)(chip_bank + 1u);
+                                        }
+                                    }
+                                } else if (load_addr == 0x8000u && comp->image_lo_len == 0u) {
+                                    uint32_t use_len = (data_len > 0x2000u) ? 0x2000u : data_len;
+                                    comp->image_lo_off = data_off;
+                                    comp->image_lo_len = use_len;
+                                    if (data_len > 0x2000u && comp->image_hi_len == 0u) {
+                                        uint32_t hi_len = data_len - 0x2000u;
+                                        if (hi_len > 0x2000u) hi_len = 0x2000u;
+                                        comp->image_hi_off = data_off + 0x2000u;
+                                        comp->image_hi_len = hi_len;
+                                    }
+                                } else if (load_addr == 0xA000u && comp->image_hi_len == 0u) {
+                                    comp->image_hi_off = data_off;
+                                    comp->image_hi_len = data_len;
+                                }
+                            }
+                        }
+                        if (packet_len > (comp->rom_size - pos)) {
+                            break;
+                        }
+                        pos += packet_len;
+                    }
+                    if (comp->mapper_kind == 5u && comp->md_bank_off != NULL && comp->md_bank_len != NULL && comp->md_bank_count != 0u) {
+                        uint16_t b = 0u;
+                        while (b < comp->md_bank_count && comp->md_bank_len[b] == 0u) {
+                            b = (uint16_t)(b + 1u);
+                        }
+                        if (b < comp->md_bank_count) {
+                            comp->md_bank_sel = (uint8_t)b;
+                            comp->image_lo_off = comp->md_bank_off[b];
+                            comp->image_lo_len = comp->md_bank_len[b];
+                        }
+                    }
+                }
+                /* Raw binary fallback:
+                   - 8KB: map at $8000
+                   - >=16KB: map first 8KB at $8000 and second 8KB at $A000 */
+                if (comp->image_lo_len == 0u && comp->image_hi_len == 0u) {
+                    if (comp->rom_size >= 0x4000u) {
+                        comp->mapper_kind = 2u; /* RAW 16K */
+                        comp->image_lo_off = 0u;
+                        comp->image_lo_len = 0x2000u;
+                        comp->image_hi_off = 0x2000u;
+                        comp->image_hi_len = 0x2000u;
+                    } else {
+                        comp->mapper_kind = 1u; /* RAW 8K */
+                        comp->image_lo_off = 0u;
+                        comp->image_lo_len = (comp->rom_size >= 0x2000u) ? 0x2000u : comp->rom_size;
+                    }
+                } else if (comp->image_hi_len != 0u) {
+                    comp->mapper_kind = 4u; /* CRT 16K */
+                }
+                comp->image_parsed = 1u;
+            }
+            /* Let KERNAL reset flow perform standard cartridge autostart check at $FD02. */
+        }
+    }
+    cpu->pc = mos6510_read_word(cpu, 0xFFFCu);
     cpu->running = true;
     cpu->halted = false;
     cpu->error_code = CPU_ERROR_NONE;
     cpu->total_cycles = 0;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = 0;
+    cpu->io_read_phase_ppu_dots = 0;
     cpu->hook_pc = 0;
     cpu->hook_prefix = 0;
     cpu->hook_opcode = 0;
     cpu->hook_raw = 0;
-    cpu->tracing_enabled = false;
-    cpu->debug_overlay_enabled = true;
+    {
+        const char *pasm_trace_env = getenv("PASM_TRACE");
+        cpu->tracing_enabled = (pasm_trace_env && (pasm_trace_env[0] == '1' || pasm_trace_env[0] == 'y' || pasm_trace_env[0] == 'Y'));
+    }
     cpu->reset_delay_pending = true;
 }
 
@@ -7964,9 +8638,44 @@ int mos6510_load_system_roms(CPUState *cpu, const char *system_base_dir) {
 }
 
 int mos6510_load_cartridge_rom(CPUState *cpu, const char *path) {
+    FILE *f;
+    long file_size;
+    uint8_t *buf;
+    ComponentState_c64_cart0 *comp;
+    size_t read_len;
+
+    if (!cpu || !path || !path[0]) return -1;
+    comp = &cpu->comp_c64_cart0;
+    f = fopen(path, "rb");
+    if (!f) return -1;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    file_size = ftell(f);
+    if (file_size < 0) { fclose(f); return -1; }
+    if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+    buf = (uint8_t *)malloc((size_t)file_size);
+    if (!buf) { fclose(f); return -1; }
+    read_len = fread(buf, 1, (size_t)file_size, f);
+    fclose(f);
+    if (read_len != (size_t)file_size) { free(buf); return -1; }
+    if (comp->rom_data != NULL) {
+        free(comp->rom_data);
+        comp->rom_data = NULL;
+    }
+    comp->rom_data = buf;
+    comp->rom_size = (uint32_t)file_size;
+    comp->image_parsed = 0u;
+    snprintf(
+        cpu->loaded_rom_debug,
+        sizeof(cpu->loaded_rom_debug),
+        "name=c64_cart0 path=%s",
+        path
+    );
+    return 0;
+}
+
+int mos6510_set_cartridge_dir(CPUState *cpu, const char *path) {
     (void)cpu;
-    (void)path;
-    return -1;
+    return cpu_component_cartridge_picker_set_dir(path);
 }
 
 
@@ -7975,19 +8684,32 @@ uint8_t mos6510_read_byte(CPUState *cpu, uint16_t addr) {
     {
         ComponentState_c64_io *comp = &cpu->comp_c64_io;
         cpu->active_component_id = "c64_io";
-        if (addr == 0x0000u) return comp->io_ddr;
-        if (addr == 0x0001u) return (uint8_t)((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr));
+        if (addr == 0x0000u) return (uint8_t)(comp->io_ddr | 0xC0u);
+        if (addr == 0x0001u) return (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
         {
-            uint8_t effective = (uint8_t)((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr));
+            uint8_t effective = (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
             uint8_t loram = (uint8_t)(effective & 0x01u);
             uint8_t hiram = (uint8_t)((effective >> 1u) & 0x01u);
             uint8_t charen = (uint8_t)((effective >> 2u) & 0x01u);
             if (addr >= 0xA000u && addr <= 0xBFFFu) {
+                ComponentState_c64_cart0 *cart = &cpu->comp_c64_cart0;
+                if (cart->rom_data != NULL && cart->rom_size > 0u && cart->image_parsed != 0u &&
+                    cart->image_hi_len != 0u &&
+                    cart->crt_exrom == 0u && cart->crt_game == 0u) {
+                    uint32_t off = (uint32_t)(addr - 0xA000u);
+                    if (off < cart->image_hi_len) {
+                        return cart->rom_data[cart->image_hi_off + off];
+                    }
+                }
                 if (loram != 0u && hiram != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
                 return (comp->ram_a000 != NULL) ? comp->ram_a000[addr - 0xA000u] : 0xFFu;
             }
             if (addr >= 0xD000u && addr <= 0xDFFFu) {
                 uint16_t off = (uint16_t)(addr - 0xD000u);
+                /* IO1/IO2 ($DE00-$DFFF) are cartridge space; do not consume here. */
+                if (off >= 0x0E00u) {
+                    /* fallthrough so cartridge mapper can handle it */
+                } else {
                 if (charen == 0u) {
                     if ((loram | hiram) != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
                     return (comp->ram_d000 != NULL) ? comp->ram_d000[off] : 0xFFu;
@@ -8024,7 +8746,10 @@ uint8_t mos6510_read_byte(CPUState *cpu, uint16_t addr) {
                 }
                 if (off < 0x0E00u) {
                     uint8_t r=(uint8_t)(off & 0x0Fu);
-                    if (r == 0x00u) return comp->cia2_pra;
+                    if (r == 0x00u) return (uint8_t)((comp->cia2_pra & comp->cia2_ddra) | (uint8_t)(~comp->cia2_ddra));
+                    if (r == 0x01u) return (uint8_t)((comp->cia2_prb & comp->cia2_ddrb) | (uint8_t)(~comp->cia2_ddrb));
+                    if (r == 0x02u) return comp->cia2_ddra;
+                    if (r == 0x03u) return comp->cia2_ddrb;
                     if (r == 0x04u) return (uint8_t)(comp->cia2_ta_counter & 0xFFu);
                     if (r == 0x05u) return (uint8_t)((comp->cia2_ta_counter >> 8u) & 0xFFu);
                     if (r == 0x06u) return (uint8_t)(comp->cia2_tb_counter & 0xFFu);
@@ -8032,11 +8757,151 @@ uint8_t mos6510_read_byte(CPUState *cpu, uint16_t addr) {
                     if (r == 0x0Du) { uint8_t st=comp->cia2_icr_status; comp->cia2_icr_status=0u; comp->cia2_nmi_asserted=0u; return st; }
                     return comp->cia2_regs[r];
                 }
-                return 0xFFu;
+                }
             }
             if (addr >= 0xE000u && addr <= 0xFFFFu) {
                 if (hiram != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
                 return (comp->ram_e000 != NULL) ? comp->ram_e000[addr - 0xE000u] : 0xFFu;
+            }
+        }
+    }
+    {
+        ComponentState_c64_cart0 *comp = &cpu->comp_c64_cart0;
+        cpu->active_component_id = "c64_cart0";
+        if ((addr >= 0x8000u && addr < 0xA000u) || (addr >= 0xA000u && addr < 0xC000u)) {
+            ComponentState_c64_io *io = &cpu->comp_c64_io;
+            uint8_t effective = (uint8_t)((io->io_data & io->io_ddr) | (uint8_t)(~io->io_ddr));
+            uint8_t hiram = (uint8_t)((effective >> 1u) & 0x01u);
+            uint8_t roml_visible = 0u;
+            uint8_t romh_visible = 0u;
+            if (comp->rom_data == NULL || comp->rom_size == 0u) return cpu->memory[addr];
+            if (comp->image_parsed == 0u) {
+                /* Reuse reset parser path by inlining the same parse/fallback behavior. */
+                comp->image_lo_off = 0u;
+                comp->image_lo_len = 0u;
+                comp->image_hi_off = 0u;
+                comp->image_hi_len = 0u;
+                comp->crt_hw_type = 0u;
+                comp->crt_exrom = 1u;
+                comp->crt_game = 1u;
+                comp->md_bank_count = 0u;
+                comp->md_bank_sel = 0u;
+                comp->md_cart_disabled = 0u;
+                if (comp->md_bank_off != NULL) {
+                    free(comp->md_bank_off);
+                    comp->md_bank_off = NULL;
+                }
+                if (comp->md_bank_len != NULL) {
+                    free(comp->md_bank_len);
+                    comp->md_bank_len = NULL;
+                }
+                if (comp->rom_size >= 0x40u && memcmp(comp->rom_data, "C64 CARTRIDGE   ", 16u) == 0) {
+                    comp->crt_hw_type = (uint16_t)(((uint16_t)comp->rom_data[0x16] << 8u) | (uint16_t)comp->rom_data[0x17]);
+                    comp->crt_exrom = (uint8_t)(comp->rom_data[0x18] & 0x01u);
+                    comp->crt_game = (uint8_t)(comp->rom_data[0x19] & 0x01u);
+                    if (comp->crt_hw_type == 0x0013u) {
+                        comp->mapper_kind = 5u;
+                        comp->md_bank_off = (uint32_t *)calloc(128u, sizeof(uint32_t));
+                        comp->md_bank_len = (uint16_t *)calloc(128u, sizeof(uint16_t));
+                        if (comp->md_bank_off == NULL || comp->md_bank_len == NULL) {
+                            if (comp->md_bank_off != NULL) free(comp->md_bank_off);
+                            if (comp->md_bank_len != NULL) free(comp->md_bank_len);
+                            comp->md_bank_off = NULL;
+                            comp->md_bank_len = NULL;
+                            comp->mapper_kind = 3u;
+                        }
+                    } else {
+                        comp->mapper_kind = 3u;
+                    }
+                    uint32_t pos = 0x40u;
+                    while (pos + 0x10u <= comp->rom_size) {
+                        const uint8_t *h = comp->rom_data + pos;
+                        uint32_t packet_len = ((uint32_t)h[4] << 24u) | ((uint32_t)h[5] << 16u) | ((uint32_t)h[6] << 8u) | (uint32_t)h[7];
+                        uint16_t chip_type = (uint16_t)(((uint16_t)h[8] << 8u) | (uint16_t)h[9]);
+                        uint16_t chip_bank = (uint16_t)(((uint16_t)h[10] << 8u) | (uint16_t)h[11]);
+                        uint16_t load_addr = (uint16_t)(((uint16_t)h[12] << 8u) | (uint16_t)h[13]);
+                        uint16_t chip_len = (uint16_t)(((uint16_t)h[14] << 8u) | (uint16_t)h[15]);
+                        if (memcmp(h, "CHIP", 4u) != 0 || packet_len < 0x10u) break;
+                        if (chip_type == 0u && chip_len != 0u) {
+                            uint32_t data_off = pos + 0x10u;
+                            uint32_t data_len = (uint32_t)chip_len;
+                            if (data_off <= comp->rom_size && data_len <= (comp->rom_size - data_off)) {
+                                if (comp->mapper_kind == 5u && comp->md_bank_off != NULL && comp->md_bank_len != NULL &&
+                                    load_addr == 0x8000u && chip_bank < 128u) {
+                                    uint32_t use_len = (data_len > 0x2000u) ? 0x2000u : data_len;
+                                    if (use_len != 0u) {
+                                        comp->md_bank_off[chip_bank] = data_off;
+                                        comp->md_bank_len[chip_bank] = (uint16_t)use_len;
+                                        if ((uint16_t)(chip_bank + 1u) > comp->md_bank_count) {
+                                            comp->md_bank_count = (uint16_t)(chip_bank + 1u);
+                                        }
+                                    }
+                                } else if (load_addr == 0x8000u && comp->image_lo_len == 0u) {
+                                    uint32_t use_len = (data_len > 0x2000u) ? 0x2000u : data_len;
+                                    comp->image_lo_off = data_off;
+                                    comp->image_lo_len = use_len;
+                                    if (data_len > 0x2000u && comp->image_hi_len == 0u) {
+                                        uint32_t hi_len = data_len - 0x2000u;
+                                        if (hi_len > 0x2000u) hi_len = 0x2000u;
+                                        comp->image_hi_off = data_off + 0x2000u;
+                                        comp->image_hi_len = hi_len;
+                                    }
+                                } else if (load_addr == 0xA000u && comp->image_hi_len == 0u) {
+                                    comp->image_hi_off = data_off; comp->image_hi_len = data_len;
+                                }
+                            }
+                        }
+                        if (packet_len > (comp->rom_size - pos)) break;
+                        pos += packet_len;
+                    }
+                    if (comp->mapper_kind == 5u && comp->md_bank_off != NULL && comp->md_bank_len != NULL && comp->md_bank_count != 0u) {
+                        uint16_t b = 0u;
+                        while (b < comp->md_bank_count && comp->md_bank_len[b] == 0u) {
+                            b = (uint16_t)(b + 1u);
+                        }
+                        if (b < comp->md_bank_count) {
+                            comp->md_bank_sel = (uint8_t)b;
+                            comp->image_lo_off = comp->md_bank_off[b];
+                            comp->image_lo_len = comp->md_bank_len[b];
+                        }
+                    }
+                }
+                if (comp->image_lo_len == 0u && comp->image_hi_len == 0u) {
+                    if (comp->rom_size >= 0x4000u) {
+                        comp->mapper_kind = 2u;
+                        comp->image_lo_off = 0u; comp->image_lo_len = 0x2000u;
+                        comp->image_hi_off = 0x2000u; comp->image_hi_len = 0x2000u;
+                    } else {
+                        comp->mapper_kind = 1u;
+                        comp->image_lo_off = 0u;
+                        comp->image_lo_len = (comp->rom_size >= 0x2000u) ? 0x2000u : comp->rom_size;
+                    }
+                } else if (comp->image_hi_len != 0u) {
+                    comp->mapper_kind = 4u;
+                }
+                comp->image_parsed = 1u;
+            }
+            /* PLA behavior: when /EXROM is asserted (0), ROML stays visible
+               regardless of LORAM/HIRAM ($01) state. */
+            if (comp->crt_exrom == 0u) {
+                roml_visible = 1u;
+            }
+            if (comp->crt_exrom == 0u && comp->crt_game == 0u) {
+                /* 16K C64 cart mode: ROMH is visible at $A000-$BFFF. */
+                romh_visible = 1u;
+            } else if (comp->crt_exrom == 1u && comp->crt_game == 0u) {
+                /* Ultimax keeps ROML visible at $8000. */
+                roml_visible = 1u;
+            }
+            if (addr < 0xA000u) {
+                uint32_t off = (uint32_t)(addr - 0x8000u);
+                if (roml_visible != 0u && off < comp->image_lo_len) return comp->rom_data[comp->image_lo_off + off];
+                if (comp->ram_lo != NULL) return comp->ram_lo[off & 0x1FFFu];
+                return 0xFFu;
+            } else {
+                uint32_t off = (uint32_t)(addr - 0xA000u);
+                if (romh_visible != 0u && off < comp->image_hi_len) return comp->rom_data[comp->image_hi_off + off];
+                return cpu->memory[addr];
             }
         }
     }
@@ -8051,14 +8916,26 @@ void mos6510_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
     {
         ComponentState_c64_io *comp = &cpu->comp_c64_io;
         cpu->active_component_id = "c64_io";
-        if (addr == 0x0000u) { comp->io_ddr = value; cpu->registers[REG_IO_DDR] = value; return; }
-        if (addr == 0x0001u) { comp->io_data = value; cpu->registers[REG_IO_DATA] = value; return; }
+        if (addr == 0x0000u) {
+            comp->io_ddr = (uint8_t)(value & 0x3Fu);
+            cpu->registers[REG_IO_DDR] = (uint8_t)(comp->io_ddr | 0xC0u);
+            return;
+        }
+        if (addr == 0x0001u) {
+            comp->io_data = (uint8_t)(value & 0x3Fu);
+            cpu->registers[REG_IO_DATA] = (uint8_t)(comp->io_data | 0xC0u);
+            return;
+        }
         {
-            uint8_t effective = (uint8_t)((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr));
+            uint8_t effective = (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
             uint8_t charen = (uint8_t)((effective >> 2u) & 0x01u);
             if (addr >= 0xA000u && addr <= 0xBFFFu) { if (comp->ram_a000 != NULL) comp->ram_a000[addr - 0xA000u] = value; return; }
             if (addr >= 0xD000u && addr <= 0xDFFFu) {
                 uint16_t off=(uint16_t)(addr - 0xD000u);
+                /* IO1/IO2 ($DE00-$DFFF) are cartridge space; do not consume here. */
+                if (off >= 0x0E00u) {
+                    /* fallthrough so cartridge mapper can handle it */
+                } else {
                 if (charen == 0u) { if (comp->ram_d000 != NULL) comp->ram_d000[off] = value; return; }
                 if (off < 0x0400u) {
                     uint8_t r=(uint8_t)(off & 0x3Fu); comp->vic_regs[r] = value;
@@ -8085,6 +8962,9 @@ void mos6510_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
                 if (off < 0x0E00u) {
                     uint8_t r=(uint8_t)(off & 0x0Fu); comp->cia2_regs[r] = value;
                     if (r == 0x00u) { comp->cia2_pra = value; return; }
+                    if (r == 0x01u) { comp->cia2_prb = value; return; }
+                    if (r == 0x02u) { comp->cia2_ddra = value; return; }
+                    if (r == 0x03u) { comp->cia2_ddrb = value; return; }
                     if (r == 0x04u) { comp->cia2_ta_latch = (uint16_t)((comp->cia2_ta_latch & 0xFF00u) | value); return; }
                     if (r == 0x05u) { comp->cia2_ta_latch = (uint16_t)((comp->cia2_ta_latch & 0x00FFu) | ((uint16_t)value << 8u)); if ((comp->cia2_regs[0x0Eu] & 0x01u) == 0u) comp->cia2_ta_counter = comp->cia2_ta_latch; return; }
                     if (r == 0x06u) { comp->cia2_tb_latch = (uint16_t)((comp->cia2_tb_latch & 0xFF00u) | value); return; }
@@ -8094,13 +8974,45 @@ void mos6510_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {
                     if (r == 0x0Fu) { comp->cia2_regs[0x0Fu] = (uint8_t)(value & 0xEFu); if ((value & 0x10u) != 0u) comp->cia2_tb_counter = comp->cia2_tb_latch; return; }
                     return;
                 }
-                return;
+                }
             }
             if (addr >= 0xE000u && addr <= 0xFFFFu) { if (comp->ram_e000 != NULL) comp->ram_e000[addr - 0xE000u] = value; return; }
         }
     }
+    {
+        ComponentState_c64_cart0 *comp = &cpu->comp_c64_cart0;
+        cpu->active_component_id = "c64_cart0";
+        if (addr >= 0x8000u && addr < 0xA000u) {
+            if (comp->ram_lo != NULL) {
+                comp->ram_lo[(uint16_t)(addr - 0x8000u)] = value;
+            }
+            return;
+        }
+        if (comp->mapper_kind == 5u &&
+            addr == 0xDE00u &&
+            comp->md_bank_off != NULL && comp->md_bank_len != NULL && comp->md_bank_count != 0u) {
+            uint8_t bank = (uint8_t)(value & 0x7Fu);
+            comp->md_cart_disabled = (uint8_t)((value & 0x80u) ? 1u : 0u);
+            if (comp->md_cart_disabled != 0u) {
+                return;
+            }
+            if (bank < (uint8_t)comp->md_bank_count && comp->md_bank_len[bank] != 0u) {
+                comp->md_bank_sel = bank;
+                comp->image_lo_off = comp->md_bank_off[bank];
+                comp->image_lo_len = comp->md_bank_len[bank];
+            }
+            return;
+        }
+        if (addr >= 0x8000u && addr < 0xC000u) {
+            return;
+        }
+    }
     if (addr >= cpu->memory_size) {
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
+        return;
+    }
+    /* Ignore writes to read-only region: CART_8K */
+    if (addr >= 0x8000u && addr < 0xA000u) {
         return;
     }
     /* Ignore writes to read-only region: ROM_BASIC */
@@ -8151,8 +9063,12 @@ void mos6510_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
 /* ===== Interrupts ===== */
 void mos6510_interrupt(CPUState *cpu, uint8_t vector) {
     cpu->interrupt_vector = vector;
-    cpu->interrupt_pending = true;
-    cpu_irq_trace(cpu, "request", vector, 0u);
+    if (vector == 0xFFu) {
+        cpu->nmi_pending = true;
+    } else {
+        cpu->irq_pending = true;
+    }
+    cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
 }
 
 void mos6510_set_irq(CPUState *cpu, bool enabled) {
@@ -11292,14 +12208,35 @@ char *mos6510_disassemble_instruction(uint16_t pc, uint32_t raw) {
     return buf;
 }
 
+static FILE *cpu_trace_file(void) {
+    static FILE *fp = NULL;
+    if (fp == NULL) {
+        const char *path = getenv("PASM_TRACE_FILE");
+        if (path && path[0]) { fp = fopen(path, "w"); }
+        if (fp == NULL) { fp = stdout; }
+    }
+    return fp;
+}
+
 void mos6510_trace_instruction(CPUState *cpu, DecodedInstruction *inst) {
-    (void)cpu;
     if (!inst) return;
     uint32_t raw_for_disasm = inst->raw;
     if (inst->prefix != 0) {
         raw_for_disasm = ((uint32_t)inst->prefix) | (inst->raw << 8);
     }
-    printf("[TRACE] %s\n", mos6510_disassemble_instruction(inst->pc, raw_for_disasm));
+
+    FILE *fp = cpu_trace_file();
+    fprintf(fp, "[TRACE] PC:0x%04X  %-20s A:0x%02X X:0x%02X Y:0x%02X SP:0x%02X IO_DDR:0x%02X IO_DATA:0x%02X P:0x%02X\n",
+            inst->pc,
+            mos6510_disassemble_instruction(inst->pc, raw_for_disasm),
+            cpu->registers[REG_A],
+            cpu->registers[REG_X],
+            cpu->registers[REG_Y],
+            cpu->sp,
+            cpu->io_ddr,
+            cpu->io_data,
+            cpu->flags.raw);
+    fflush(fp);
 }
 
 /* ===== Hook API ===== */

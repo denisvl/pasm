@@ -4,6 +4,11 @@ metadata:
   model: atari800xl_cart_8k_none
   version: "1.0"
 
+allowed_extensions:
+  - car
+  - rom
+  - bin
+
 state:
   - name: rom_data
     type: uint8_t *
@@ -36,20 +41,44 @@ behavior:
     mem_read_pre: |
       if (addr >= 0xA000u && addr < 0xC000u) {
           if (comp->rom_data == NULL || comp->rom_size == 0u) {
-              return 0xFFu;
+              /* No runtime cartridge inserted: fall back to system memory
+                 (e.g. built-in BASIC ROM image). */
+              return cpu->memory[addr];
           }
           {
-              uint32_t off = (uint32_t)(addr - 0xA000u);
-              if (off < comp->rom_size) {
-                  return comp->rom_data[off];
+              uint32_t base_off = 0u;
+              uint32_t eff_size = comp->rom_size;
+              /* .car images usually have a 16-byte CART header. */
+              if (
+                  eff_size >= 16u &&
+                  comp->rom_data[0] == 'C' &&
+                  comp->rom_data[1] == 'A' &&
+                  comp->rom_data[2] == 'R' &&
+                  comp->rom_data[3] == 'T'
+              ) {
+                  base_off = 16u;
+                  eff_size -= 16u;
+              }
+              if (eff_size == 0u) {
+                  return cpu->memory[addr];
+              }
+              {
+                  uint32_t in_bank = (uint32_t)(addr - 0xA000u);
+                  uint32_t bank_base = (eff_size > 0x2000u) ? (eff_size - 0x2000u) : 0u;
+                  uint32_t off = base_off + bank_base + in_bank;
+                  if (off < comp->rom_size) return comp->rom_data[off];
               }
           }
-          return 0xFFu;
+          return cpu->memory[addr];
       }
     mem_write_pre: |
       if (addr >= 0xA000u && addr < 0xC000u) {
-          /* Atari 8K cart (no mapper): writes are ignored. */
-          return;
+          if (comp->rom_data != NULL && comp->rom_size > 0u) {
+              /* Cartridge inserted: cart decode windows are not writable. */
+              return;
+          }
+          /* No runtime cartridge inserted: allow normal RAM-under-ROM writes
+             when the machine banks BASIC out / no cart is active. */
       }
   callback_handlers: {}
   handler_bodies: {}

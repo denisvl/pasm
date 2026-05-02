@@ -248,6 +248,17 @@
           "pattern": "^[a-z][a-z0-9_]*$"
         }
       }
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cartridge_picker_font_scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        }
+      }
     }
   }
 }

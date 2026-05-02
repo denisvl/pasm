@@ -164,6 +164,8 @@ struct CPUState {
     uint8_t interrupt_vector;
     bool interrupts_enabled;
     bool interrupt_pending;
+    bool irq_pending;
+    bool nmi_pending;
     
     /* Execution state */
     bool running;
@@ -171,6 +173,8 @@ struct CPUState {
     int error_code;
     uint64_t total_cycles;
     bool pc_modified;
+    uint8_t current_instruction_cycles;
+    uint16_t io_read_phase_ppu_dots;
     uint16_t hook_pc;
     uint8_t hook_prefix;
     uint8_t hook_opcode;
@@ -243,6 +247,7 @@ void mos6502_reset(CPUState *cpu);
 int mos6502_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mos6502_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mos6502_load_cartridge_rom(CPUState *cpu, const char *path);
+int mos6502_set_cartridge_dir(CPUState *cpu, const char *path);
 int mos6502_load_keyboard_map(CPUState *cpu, const char *path);
 int mos6502_load_controller_map(CPUState *cpu, const char *path);
 

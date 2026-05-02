@@ -253,6 +253,8 @@ struct CPUState {
     int error_code;
     uint64_t total_cycles;
     bool pc_modified;
+    uint8_t current_instruction_cycles;
+    uint16_t io_read_phase_ppu_dots;
     uint16_t hook_pc;
     uint8_t hook_prefix;
     uint8_t hook_opcode;

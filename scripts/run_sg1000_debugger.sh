@@ -17,6 +17,7 @@ set -euo pipefail
 #   CARTRIDGE_MAP=examples/cartridges/sg1000/sg1000_mapper_none.yaml
 #   CARTRIDGE_ROM_GEN="../../roms/sg1000/Hang-On II (Japan).sg"
 #   CARTRIDGE_ROM_RUN=/abs/path/to/cart.sg
+#   CARTRIDGE_DIR=/abs/path/to/sg1000/roms   (enable runtime cartridge picker)
 
 PROFILE="${1:-interactive}"
 START_PC="${START_PC:-0x0000}"
@@ -28,11 +29,17 @@ CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/sg1000/sg1000_mapper_none.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/sg1000/Hang-On II (Japan).sg}"
+CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
 CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/sg1000/host_controller_sg1000.yaml}"
+KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/sg1000/host_console_sg1000.yaml}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
+
+if [[ -z "${CARTRIDGE_DIR}" ]]; then
+  CARTRIDGE_DIR="${REPO_ROOT}/examples/roms/sg1000"
+fi
 
 PROCESSOR="examples/processors/z80.yaml"
 IC_VDP="examples/ics/sg1000/sg1000_vdp_tms9918a.yaml"
@@ -100,13 +107,25 @@ echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run
 echo "    cartridge_map=${CARTRIDGE_MAP}"
 echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
 echo "    cartridge_rom_runtime=${CARTRIDGE_ROM_RUNTIME}"
+if [[ -n "${CARTRIDGE_DIR}" ]]; then
+  echo "    cartridge_dir=${CARTRIDGE_DIR}"
+fi
 if [[ "${PROFILE}" == "interactive" ]]; then
   echo "    controller_map=${CONTROLLER_MAP}"
+  echo "    keyboard_map=${KEYBOARD_MAP}"
 fi
 
 EXTRA_MAP_ARGS=()
 if [[ "${PROFILE}" == "interactive" ]]; then
   EXTRA_MAP_ARGS+=(--controller-map "${CONTROLLER_MAP}")
+  EXTRA_MAP_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
+fi
+if [[ -n "${CARTRIDGE_DIR}" ]]; then
+  if [[ ! -d "${CARTRIDGE_DIR}" ]]; then
+    echo "warning: CARTRIDGE_DIR does not exist: ${CARTRIDGE_DIR}" >&2
+    echo "         picker hotkey will appear to do nothing until this is fixed." >&2
+  fi
+  EXTRA_MAP_ARGS+=(--cartridge-dir "${CARTRIDGE_DIR}")
 fi
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \

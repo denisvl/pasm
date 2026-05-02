@@ -47,38 +47,6 @@ static void cpu_sleep_seconds(uint32_t seconds) {
 #endif
 }
 
-static FILE *cpu_irq_trace_file(void) {
-    static int initialized = -1;
-    static FILE *fp = NULL;
-    if (initialized < 0) {
-        const char *env = getenv("PASM_IRQ_TRACE");
-        initialized = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-        if (initialized != 0) {
-            const char *path = getenv("PASM_IRQ_TRACE_FILE");
-            if (path == NULL || path[0] == '\0') path = "pasm_irq_trace.log";
-            fp = fopen(path, "a");
-            if (fp == NULL) initialized = 0;
-        }
-    }
-    return (initialized != 0) ? fp : NULL;
-}
-
-static void cpu_irq_trace(CPUState *cpu, const char *phase, uint8_t vector, uint16_t vector_addr) {
-    FILE *fp = cpu_irq_trace_file();
-    if (fp == NULL || cpu == NULL) return;
-    fprintf(fp, "irq %s cyc=%llu pc=%04X sp=%04X vec=%02X vaddr=%04X pend=%u en=%u flags=%02X\n",
-            (phase != NULL) ? phase : "?",
-            (unsigned long long)cpu->total_cycles,
-            (unsigned int)(cpu->pc & 0xFFFFu),
-            (unsigned int)(cpu->sp & 0xFFFFu),
-            (unsigned int)vector,
-            (unsigned int)(vector_addr & 0xFFFFu),
-            (unsigned int)(cpu->interrupt_pending ? 1u : 0u),
-            (unsigned int)(cpu->interrupts_enabled ? 1u : 0u),
-            (unsigned int)cpu->flags.raw);
-    fflush(fp);
-}
-
 static bool cpu_check_condition(CPUState *cpu, uint8_t cc) {
     switch (cc) {
         case 0: return !(cpu->flags.Z);
@@ -99,6 +67,13 @@ static bool cpu_check_breakpoints(CPUState *cpu) {
     }
     return false;
 }
+
+#include <errno.h>
+#include <limits.h>
+#include <sys/stat.h>
+#if !defined(_WIN32)
+#include <dirent.h>
+#endif
 
 typedef struct {
     const char *from_component;
@@ -124,6 +99,9 @@ static void cpu_component_emit_signal(
     const uint64_t *args,
     uint8_t argc
 );
+static int cpu_component_cartridge_picker_set_dir(const char *path);
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);
+static const int g_runtime_cartridge_picker_font_scale = 1;
 
 typedef struct {
     uint8_t row;
@@ -1673,7 +1651,7 @@ static void cpu_component_controller_map_poll(CPUState *cpu, uint8_t has_focus) 
             if (active != 0u) {
                 t->pressed = 1u;
                 if (b->source_kind == 3u || b->source_kind == 5u) {
-                    if (fabsf(av) > fabsf(t->axis)) t->axis = av;
+                    { float aabs = (av < 0.0f) ? -av : av; float tabs = (t->axis < 0.0f) ? -t->axis : t->axis; if (aabs > tabs) t->axis = av; }
                 }
             }
         }
@@ -1759,6 +1737,475 @@ static void cpu_component_keyboard_ascii_feed(
 static uint8_t cpu_component_keyboard_ascii_pop(void) {
     if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return 0u;
     return cpu_component_keyboard_ascii_queue_pop();
+}
+
+typedef struct {
+    char rom_path[1024];
+    char file_name[256];
+    char title[128];
+    char release_year[16];
+    char description[320];
+    char image_path[256];
+} RuntimeCartridgeEntry;
+
+typedef struct {
+    uint8_t supported;
+    uint8_t active;
+    uint8_t action_prev;
+    uint8_t nav_up_prev;
+    uint8_t nav_down_prev;
+    uint8_t nav_enter_prev;
+    uint8_t nav_esc_prev;
+    char directory[1024];
+    char status[256];
+    RuntimeCartridgeEntry *entries;
+    size_t entry_count;
+    size_t entry_cap;
+    size_t selected;
+    uint8_t pending_swap;
+    char pending_path[1024];
+} RuntimeCartridgePicker;
+
+static RuntimeCartridgePicker g_runtime_cartridge_picker = {
+    1u, 0u, 0u, 0u, 0u, 0u, 0u, "", "", NULL, 0u, 0u, 0u, 0u, ""
+};
+
+static int cpu_component_cartridge_picker_entry_cmp(const void *a, const void *b) {
+    const RuntimeCartridgeEntry *ea = (const RuntimeCartridgeEntry *)a;
+    const RuntimeCartridgeEntry *eb = (const RuntimeCartridgeEntry *)b;
+    return strcmp(ea->file_name, eb->file_name);
+}
+
+static uint8_t cpu_component_rom_ext_allowed(const char *name) {
+    const char *dot = strrchr(name, '.');
+    char ext[16];
+    size_t n;
+    if (!dot || dot[1] == '\0') return 0u;
+    dot++;
+    n = strlen(dot);
+    if (n >= sizeof(ext)) n = sizeof(ext) - 1u;
+    for (size_t i = 0; i < n; ++i) {
+        char c = dot[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        ext[i] = c;
+    }
+    ext[n] = '\0';
+    if (strcmp(ext, "ccc") == 0) return 1u;
+    if (strcmp(ext, "rom") == 0) return 1u;
+    if (strcmp(ext, "bin") == 0) return 1u;
+    return 0u;
+}
+
+static void cpu_component_cartridge_picker_clear_entries(void) {
+    if (g_runtime_cartridge_picker.entries != NULL) {
+        free(g_runtime_cartridge_picker.entries);
+        g_runtime_cartridge_picker.entries = NULL;
+    }
+    g_runtime_cartridge_picker.entry_count = 0u;
+    g_runtime_cartridge_picker.entry_cap = 0u;
+    g_runtime_cartridge_picker.selected = 0u;
+}
+
+static RuntimeCartridgeEntry *cpu_component_cartridge_picker_add_entry(void) {
+    if (g_runtime_cartridge_picker.entry_count >= g_runtime_cartridge_picker.entry_cap) {
+        size_t new_cap = (g_runtime_cartridge_picker.entry_cap == 0u) ? 64u : (g_runtime_cartridge_picker.entry_cap * 2u);
+        RuntimeCartridgeEntry *ne = (RuntimeCartridgeEntry *)realloc(g_runtime_cartridge_picker.entries, new_cap * sizeof(RuntimeCartridgeEntry));
+        if (ne == NULL) return NULL;
+        memset(ne + g_runtime_cartridge_picker.entry_cap, 0, (new_cap - g_runtime_cartridge_picker.entry_cap) * sizeof(RuntimeCartridgeEntry));
+        g_runtime_cartridge_picker.entries = ne;
+        g_runtime_cartridge_picker.entry_cap = new_cap;
+    }
+    return &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.entry_count++];
+}
+
+static void cpu_component_cartridge_picker_parse_sidecar(RuntimeCartridgeEntry *entry) {
+    char yaml_path[1024];
+    FILE *f;
+    char line[768];
+    char *dot;
+    if (entry == NULL) return;
+    snprintf(yaml_path, sizeof(yaml_path), "%s", entry->rom_path);
+    dot = strrchr(yaml_path, '.');
+    if (dot != NULL) {
+        snprintf(dot, (size_t)(yaml_path + sizeof(yaml_path) - dot), ".yaml");
+    } else {
+        size_t n = strlen(yaml_path);
+        if (n + 5u >= sizeof(yaml_path)) return;
+        strcat(yaml_path, ".yaml");
+    }
+    f = fopen(yaml_path, "r");
+    if (f == NULL) return;
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char *hash = strchr(line, '#');
+        char *s;
+        if (hash) *hash = '\0';
+        s = cpu_component_trim(line);
+        if (!s || s[0] == '\0') continue;
+        if (strncmp(s, "title:", 6) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 6));
+            snprintf(entry->title, sizeof(entry->title), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "release_year:", 13) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 13));
+            snprintf(entry->release_year, sizeof(entry->release_year), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "description:", 12) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 12));
+            snprintf(entry->description, sizeof(entry->description), "%s", v ? v : "");
+            continue;
+        }
+        if (strncmp(s, "image:", 6) == 0) {
+            char *v = cpu_component_unquote(cpu_component_trim(s + 6));
+            snprintf(entry->image_path, sizeof(entry->image_path), "%s", v ? v : "");
+            continue;
+        }
+    }
+    fclose(f);
+}
+
+static int cpu_component_cartridge_picker_scan_dir(void) {
+#if defined(_WIN32)
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cartridge picker unsupported on this backend");
+    return -1;
+#else
+    DIR *d;
+    struct dirent *de;
+    cpu_component_cartridge_picker_clear_entries();
+    if (g_runtime_cartridge_picker.directory[0] == '\0') {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "missing --cartridge-dir");
+        return -1;
+    }
+    d = opendir(g_runtime_cartridge_picker.directory);
+    if (d == NULL) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cannot open dir: %s", g_runtime_cartridge_picker.directory);
+        return -1;
+    }
+    while ((de = readdir(d)) != NULL) {
+        RuntimeCartridgeEntry *entry;
+        if (de->d_name[0] == '.') continue;
+        if (cpu_component_rom_ext_allowed(de->d_name) == 0u) continue;
+        entry = cpu_component_cartridge_picker_add_entry();
+        if (entry == NULL) {
+            closedir(d);
+            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "out of memory");
+            return -1;
+        }
+        snprintf(entry->file_name, sizeof(entry->file_name), "%s", de->d_name);
+        snprintf(entry->rom_path, sizeof(entry->rom_path), "%s/%s", g_runtime_cartridge_picker.directory, de->d_name);
+        cpu_component_cartridge_picker_parse_sidecar(entry);
+    }
+    closedir(d);
+    if (g_runtime_cartridge_picker.entry_count == 0u) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "no ROM files found");
+        return -1;
+    }
+    qsort(
+        g_runtime_cartridge_picker.entries,
+        g_runtime_cartridge_picker.entry_count,
+        sizeof(RuntimeCartridgeEntry),
+        cpu_component_cartridge_picker_entry_cmp
+    );
+    if (g_runtime_cartridge_picker.selected >= g_runtime_cartridge_picker.entry_count) {
+        g_runtime_cartridge_picker.selected = 0u;
+    }
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "select cartridge (%u)", (unsigned)g_runtime_cartridge_picker.entry_count);
+    return 0;
+#endif
+}
+
+static int cpu_component_cartridge_picker_set_dir(const char *path) {
+    if (path == NULL || path[0] == '\0') return -1;
+    snprintf(g_runtime_cartridge_picker.directory, sizeof(g_runtime_cartridge_picker.directory), "%s", path);
+    g_runtime_cartridge_picker.active = 0u;
+    g_runtime_cartridge_picker.pending_swap = 0u;
+    g_runtime_cartridge_picker.pending_path[0] = '\0';
+    snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "cartridge dir set");
+    return 0;
+}
+
+static uint8_t cpu_component_keyboard_emulator_action_pressed(const char *action_id, const uint8_t *host_keys, size_t host_key_count, uint8_t has_focus) {
+    if (g_runtime_keyboard_map.loaded == 0u) return 0u;
+    if (!action_id || action_id[0] == '\0') return 0u;
+    if (!host_keys || host_key_count == 0u) return 0u;
+    if (g_runtime_keyboard_map.focus_required != 0u && has_focus == 0u) return 0u;
+    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {
+        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];
+        if (b->scancode < 0 || (size_t)b->scancode >= host_key_count) continue;
+        if (b->emulator_key_id[0] == '\0') continue;
+        if (strcmp(b->emulator_key_id, action_id) != 0) continue;
+        if (host_keys[b->scancode] != 0u) return 1u;
+    }
+    return 0u;
+}
+
+static uint8_t cpu_component_cartridge_picker_is_active(void) {
+    return g_runtime_cartridge_picker.active;
+}
+
+static void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {
+    int key_count = 0;
+    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);
+    static int raw_picker_keys_enabled = -1;
+    uint8_t trig;
+    uint8_t raw_trig = 0u;
+    uint8_t up;
+    uint8_t down;
+    uint8_t enter;
+    uint8_t esc;
+    if (!cpu) return;
+    if (g_runtime_cartridge_picker.supported == 0u) return;
+    if (raw_picker_keys_enabled < 0) {
+        const char *env = getenv("PASM_EMU_CART_PICKER_RAW_KEYS");
+        raw_picker_keys_enabled = (env == NULL || env[0] == '\0' || env[0] != '0') ? 1 : 0;
+    }
+    trig = cpu_component_keyboard_emulator_action_pressed("EMU_CART_PICKER", ks, (size_t)((key_count < 0) ? 0 : key_count), has_focus);
+    if (raw_picker_keys_enabled != 0 && ks != NULL && key_count > 0) {
+        if ((size_t)CPU_HOST_SCANCODE(F12) < (size_t)key_count && ks[CPU_HOST_SCANCODE(F12)] != 0u) raw_trig = 1u;
+    }
+    if (raw_trig != 0u) trig = 1u;
+    if (trig != 0u && g_runtime_cartridge_picker.action_prev == 0u) {
+        if (g_runtime_cartridge_picker.active == 0u) {
+            if (cpu_component_cartridge_picker_scan_dir() == 0) {
+                g_runtime_cartridge_picker.active = 1u;
+            }
+        } else {
+            g_runtime_cartridge_picker.active = 0u;
+        }
+    }
+    g_runtime_cartridge_picker.action_prev = trig;
+    if (g_runtime_cartridge_picker.active == 0u) return;
+    if (!ks || key_count <= 0) return;
+    up = ((size_t)CPU_HOST_SCANCODE(UP) < (size_t)key_count && ks[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;
+    down = ((size_t)CPU_HOST_SCANCODE(DOWN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(DOWN)] != 0u) ? 1u : 0u;
+    enter = (((size_t)CPU_HOST_SCANCODE(RETURN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(RETURN)] != 0u) || ((size_t)CPU_HOST_SCANCODE(KP_ENTER) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_ENTER)] != 0u)) ? 1u : 0u;
+    esc = ((size_t)CPU_HOST_SCANCODE(ESCAPE) < (size_t)key_count && ks[CPU_HOST_SCANCODE(ESCAPE)] != 0u) ? 1u : 0u;
+    if (up != 0u && g_runtime_cartridge_picker.nav_up_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            if (g_runtime_cartridge_picker.selected == 0u) g_runtime_cartridge_picker.selected = g_runtime_cartridge_picker.entry_count - 1u;
+            else g_runtime_cartridge_picker.selected -= 1u;
+        }
+    }
+    if (down != 0u && g_runtime_cartridge_picker.nav_down_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            g_runtime_cartridge_picker.selected = (g_runtime_cartridge_picker.selected + 1u) % g_runtime_cartridge_picker.entry_count;
+        }
+    }
+    if (esc != 0u && g_runtime_cartridge_picker.nav_esc_prev == 0u) {
+        g_runtime_cartridge_picker.active = 0u;
+    }
+    if (enter != 0u && g_runtime_cartridge_picker.nav_enter_prev == 0u) {
+        if (g_runtime_cartridge_picker.entry_count > 0u) {
+            const RuntimeCartridgeEntry *sel = &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.selected];
+            snprintf(g_runtime_cartridge_picker.pending_path, sizeof(g_runtime_cartridge_picker.pending_path), "%s", sel->rom_path);
+            g_runtime_cartridge_picker.pending_swap = 1u;
+            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "queued: %s", sel->file_name);
+        }
+        g_runtime_cartridge_picker.active = 0u;
+    }
+    g_runtime_cartridge_picker.nav_up_prev = up;
+    g_runtime_cartridge_picker.nav_down_prev = down;
+    g_runtime_cartridge_picker.nav_enter_prev = enter;
+    g_runtime_cartridge_picker.nav_esc_prev = esc;
+}
+
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu) {
+    if (!cpu) return -1;
+    if (g_runtime_cartridge_picker.pending_swap == 0u) return 0;
+    if (mc6809_load_cartridge_rom(cpu, g_runtime_cartridge_picker.pending_path) != 0) {
+        snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "load failed: %s", g_runtime_cartridge_picker.pending_path);
+        g_runtime_cartridge_picker.pending_swap = 0u;
+        g_runtime_cartridge_picker.pending_path[0] = '\0';
+        return -1;
+    }
+    {
+        const char *sysdir = getenv("PASM_SYSTEM_DIR");
+        if (sysdir != NULL && sysdir[0] != '\0') {
+            if (cpu->memory != NULL && cpu->memory_size > 0u) {
+                memset(cpu->memory, 0, (size_t)cpu->memory_size);
+            }
+            if (cpu->port_memory != NULL && cpu->port_size > 0u) {
+                memset(cpu->port_memory, 0, (size_t)cpu->port_size);
+            }
+            if (mc6809_load_system_roms(cpu, sysdir) != 0) {
+                snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "system ROM reload failed");
+                g_runtime_cartridge_picker.pending_swap = 0u;
+                g_runtime_cartridge_picker.pending_path[0] = '\0';
+                return -1;
+            }
+        } else {
+            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), "system dir missing; reusing current memory image");
+        }
+    }
+    mc6809_reset(cpu);
+    cpu->running = true;
+    cpu->halted = false;
+    cpu->error_code = CPU_ERROR_NONE;
+    snprintf(
+        cpu->loaded_rom_debug,
+        sizeof(cpu->loaded_rom_debug),
+        "name=cartridge path=%s",
+        g_runtime_cartridge_picker.pending_path
+    );
+    g_runtime_cartridge_picker.pending_swap = 0u;
+    g_runtime_cartridge_picker.pending_path[0] = '\0';
+    return 1;
+}
+
+static void cpu_component_cartridge_picker_draw_text(
+    uint32_t *pixels,
+    uint32_t w,
+    uint32_t h,
+    int x,
+    int y,
+    const char *text,
+    int scale,
+    uint32_t color
+) {
+    if (!text || text[0] == '\0') return;
+    if (scale > 0) {
+        sms_overlay_draw_text(pixels, w, h, x, y, text, scale, color);
+        return;
+    }
+    {
+        int cx = x;
+        for (const char *p = text; *p; ++p) {
+            const uint8_t *glyph = sms_overlay_glyph(*p);
+            for (int row = 0; row < 7; row += 2) {
+                uint8_t bits = glyph[row];
+                int ty = y + (row / 2);
+                for (int col = 0; col < 5; col += 2) {
+                    if ((bits & (uint8_t)(1u << (4 - col))) == 0u) continue;
+                    sms_overlay_put_pixel(pixels, w, h, cx + (col / 2), ty, color);
+                }
+            }
+            cx += 4;
+        }
+    }
+}
+
+static void cpu_component_cartridge_picker_draw_text_fit(
+    uint32_t *pixels,
+    uint32_t w,
+    uint32_t h,
+    int x,
+    int y,
+    const char *text,
+    int scale,
+    uint32_t color,
+    int max_px
+) {
+    char buf[320];
+    size_t n = 0u;
+    int cell_px = (scale > 0) ? (6 * scale) : 4;
+    int max_chars;
+    if (!text || text[0] == '\0') return;
+    if (cell_px <= 0) cell_px = 1;
+    max_chars = (max_px > 0) ? (max_px / cell_px) : 0;
+    if (max_chars <= 0) return;
+    while (text[n] != '\0' && n < (size_t)max_chars && n < sizeof(buf) - 1u) {
+        buf[n] = text[n];
+        n++;
+    }
+    if (text[n] != '\0' && n >= 3u) {
+        buf[n - 3u] = '.';
+        buf[n - 2u] = '.';
+        buf[n - 1u] = '.';
+    }
+    buf[n] = '\0';
+    cpu_component_cartridge_picker_draw_text(pixels, w, h, x, y, buf, scale, color);
+}
+
+static int cpu_component_cartridge_picker_draw_text_wrap(
+    uint32_t *pixels,
+    uint32_t w,
+    uint32_t h,
+    int x,
+    int y,
+    const char *text,
+    int scale,
+    uint32_t color,
+    int max_px,
+    int max_lines
+) {
+    char line[320];
+    int cell_px = (scale > 0) ? (6 * scale) : 4;
+    int max_chars;
+    int lines_drawn = 0;
+    const char *p = text;
+    if (!text || text[0] == '\0' || max_lines <= 0) return 0;
+    if (cell_px <= 0) cell_px = 1;
+    max_chars = (max_px > 0) ? (max_px / cell_px) : 0;
+    if (max_chars <= 0) return 0;
+    while (*p != '\0' && lines_drawn < max_lines) {
+        int n = 0;
+        int last_space = -1;
+        const char *seg = p;
+        while (seg[n] != '\0' && seg[n] != '\n' && n < max_chars && n < (int)sizeof(line) - 1) {
+            if (seg[n] == ' ') last_space = n;
+            n++;
+        }
+        if (seg[n] != '\0' && seg[n] != '\n' && n == max_chars && last_space > 0) {
+            n = last_space;
+        }
+        if (n <= 0) n = (seg[0] != '\0') ? 1 : 0;
+        if (n <= 0) break;
+        memcpy(line, seg, (size_t)n);
+        line[n] = '\0';
+        cpu_component_cartridge_picker_draw_text(pixels, w, h, x, y + lines_drawn * ((scale > 0) ? (8 * scale + 1) : 5), line, scale, color);
+        lines_drawn++;
+        p = seg + n;
+        while (*p == ' ') p++;
+        if (*p == '\n') p++;
+    }
+    return lines_drawn;
+}
+
+static void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {
+    int scale = g_runtime_cartridge_picker_font_scale;
+    int x = 10;
+    int y = 24;
+    int row_h = (scale > 0) ? (8 * scale + 1) : 5;
+    int max_rows = 10;
+    int right_pad = 14;
+    int text_w = (int)w - x - right_pad;
+    size_t first;
+    (void)cpu;
+    if (!pixels || w == 0u || h == 0u) return;
+    if (g_runtime_cartridge_picker.active == 0u) return;
+    if (g_runtime_cartridge_picker.entry_count == 0u) return;
+    sms_overlay_fill_rect_alpha(pixels, w, h, 6, 20, (int)w - 12, (int)h - 26, 0x00101010u, 190u);
+    cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, y, "CARTRIDGE PICKER", scale, 0xFFFFFFFFu, text_w);
+    y += row_h * 2;
+    first = (g_runtime_cartridge_picker.selected >= 4u) ? (g_runtime_cartridge_picker.selected - 4u) : 0u;
+    for (int i = 0; i < max_rows; ++i) {
+        size_t idx = first + (size_t)i;
+        char line[320];
+        if (idx >= g_runtime_cartridge_picker.entry_count) break;
+        const RuntimeCartridgeEntry *e = &g_runtime_cartridge_picker.entries[idx];
+        uint32_t fg = (idx == g_runtime_cartridge_picker.selected) ? 0xFF00FF9Fu : 0xFFE0E0E0u;
+        if (e->title[0] != '\0') snprintf(line, sizeof(line), "%s (%s)", e->title, (e->release_year[0] ? e->release_year : "?"));
+        else snprintf(line, sizeof(line), "%s", e->file_name);
+        cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, y + i * row_h, line, scale, fg, text_w);
+    }
+    {
+        const RuntimeCartridgeEntry *sel = &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.selected];
+        int info_y = y + max_rows * row_h + 8;
+        char info[384];
+        snprintf(info, sizeof(info), "FILE: %s", sel->file_name);
+        int file_lines = cpu_component_cartridge_picker_draw_text_wrap(pixels, w, h, x, info_y, info, scale, 0xFFC8C8FFu, text_w, 6);
+        if (file_lines <= 0) file_lines = 1;
+        if (sel->description[0] != '\0') {
+            cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, info_y + (file_lines * row_h), sel->description, scale, 0xFFDDDDDDu, text_w);
+        }
+        if (sel->image_path[0] != '\0') {
+            char img[320];
+            snprintf(img, sizeof(img), "IMG: %s", sel->image_path);
+            cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, info_y + ((file_lines + 1) * row_h), img, scale, 0xFFBBBBBBu, text_w);
+        }
+    }
+    cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, (int)h - ((scale > 0) ? (14 * scale) : 8), "UP/DOWN SELECT  ENTER LOAD+RESET  ESC CANCEL", scale, 0xFFFFFFA0u, text_w);
 }
 
 static const ComponentConnection g_component_connections[] = {
@@ -2498,6 +2945,12 @@ static void component_host_coco_handler_video_frame(CPUState *cpu, const uint64_
     (void)argc;
     ComponentState_host_coco *comp = &cpu->comp_host_coco;
     cpu->active_component_id = "host_coco";
+    if (argc >= 4u) {
+        uint32_t *picker_pixels = (uint32_t *)(uintptr_t)args[1];
+        uint32_t picker_w = (uint32_t)(args[2] & 0xFFFFFFFFu);
+        uint32_t picker_h = (uint32_t)(args[3] & 0xFFFFFFFFu);
+        cpu_component_cartridge_picker_draw_overlay(cpu, picker_pixels, picker_w, picker_h);
+    }
     if (comp->host_inited == 0u || argc < 4) return;
     void *renderer = comp->renderer;
     void *texture = comp->texture;
@@ -2665,6 +3118,7 @@ static void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uin
 static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {
     (void)inst;
     (void)pc_before;
+    cpu_component_cartridge_picker_update(cpu, cpu_host_hal_window_has_focus(NULL));
     {
         ComponentState_coco1_io *comp = &cpu->comp_coco1_io;
         cpu->active_component_id = "coco1_io";
@@ -14372,6 +14826,10 @@ int mc6809_step(CPUState *cpu) {
         cpu->reset_delay_pending = false;
     }
 
+    if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {
+        return 0;
+    }
+
     if (cpu_check_breakpoints(cpu)) {
         cpu->running = false;
         return 0;
@@ -14443,18 +14901,12 @@ int mc6809_step(CPUState *cpu) {
             if (irq_kind == 0x02u || irq_kind == 0x01u) cpu->flags.F = true;
             cpu->interrupts_enabled = false;
             cpu->pc = mc6809_read_word(cpu, vector_addr);
-            cpu_irq_trace(cpu, "take", irq_kind, vector_addr);
             cpu->total_cycles += irq_cycles;
             return 0;
         }
     }
 
     if (cpu->halted) {
-        if (cpu->interrupt_pending && !cpu->interrupts_enabled) {
-            cpu->interrupt_pending = false;
-            cpu->halted = false;
-            return 0;
-        }
         uint16_t halted_pc = cpu->pc;
         DecodedInstruction halted_inst = {0};
         halted_inst.pc = halted_pc;
@@ -14499,12 +14951,11 @@ int mc6809_step(CPUState *cpu) {
         return 0;
     }
 
-    if (cpu->tracing_enabled) {
-        mc6809_trace_instruction(cpu, &inst);
-    }
 
     bool executed = false;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = inst.cycles;
+    cpu->io_read_phase_ppu_dots = (uint16_t)((uint16_t)inst.cycles * 6u);
     cpu_components_step_pre(cpu, &inst, pc_before);
     switch (inst.category) {
         case CAT_ARITHMETIC:
@@ -15869,18 +16320,20 @@ int mc6809_step(CPUState *cpu) {
         cpu->running = false;
         return -1;
     }
-
+    if (!cpu->pc_modified) {
+        cpu->pc = (uint16_t)(pc_before + inst.length);
+        cpu->pc_modified = true;
+    }
+    cpu->total_cycles += inst.cycles;
     cpu_components_step_post(cpu, &inst, pc_before);
+    cpu->current_instruction_cycles = 0u;
+    cpu->io_read_phase_ppu_dots = 0u;
 
     if (cpu->halted && !cpu->pc_modified) {
         cpu->pc = (uint16_t)(pc_before + inst.length);
         cpu->pc_modified = true;
     }
 
-    if (!cpu->pc_modified) {
-        cpu->pc = (uint16_t)(pc_before + inst.length);
-    }
-    cpu->total_cycles += inst.cycles;
 
     return 0;
 }
@@ -15919,6 +16372,7 @@ CPUState *mc6809_create(size_t memory_size) {
         cpu->hooks[i].func = NULL;
         cpu->hooks[i].context = NULL;
     }
+    cpu->debug_overlay_enabled = false;
     cpu->active_component_id = NULL;
     cpu->component_last_return = 0;
     cpu->comp_coco1_io.frame_counter = 0;
@@ -16319,7 +16773,18 @@ void mc6809_reset(CPUState *cpu) {
         comp->sam_map_type = 0u;
         comp->sam_all_ram = 0u;
         comp->sam_ram_limit = 65536u;
-        comp->sam_rom_shadow_ready = 0u;
+        if (
+            comp->sam_rom_shadow_ready != 0u &&
+            comp->sam_rom_a000 != NULL &&
+            comp->sam_rom_e000 != NULL
+        ) {
+            for (uint16_t i = 0u; i < 0x2000u; ++i) {
+                uint16_t a0 = (uint16_t)(0xA000u + i);
+                uint16_t a1 = (uint16_t)(0xE000u + i);
+                if ((uint64_t)a0 < cpu->memory_size) cpu->memory[a0] = comp->sam_rom_a000[i];
+                if ((uint64_t)a1 < cpu->memory_size) cpu->memory[a1] = comp->sam_rom_e000[i];
+            }
+        }
         comp->cart_firq_armed = 0u;
     }
     cpu->comp_keyboard_coco.last_row = 0;
@@ -16372,17 +16837,22 @@ void mc6809_reset(CPUState *cpu) {
             cpu_host_hal_audio_clear(comp->audio_out_dev);
         }
     }
+
     cpu->running = true;
     cpu->halted = false;
     cpu->error_code = CPU_ERROR_NONE;
     cpu->total_cycles = 0;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = 0;
+    cpu->io_read_phase_ppu_dots = 0;
     cpu->hook_pc = 0;
     cpu->hook_prefix = 0;
     cpu->hook_opcode = 0;
     cpu->hook_raw = 0;
-    cpu->tracing_enabled = false;
-    cpu->debug_overlay_enabled = true;
+    {
+        const char *pasm_trace_env = getenv("PASM_TRACE");
+        cpu->tracing_enabled = (pasm_trace_env && (pasm_trace_env[0] == '1' || pasm_trace_env[0] == 'y' || pasm_trace_env[0] == 'Y'));
+    }
     cpu->reset_delay_pending = true;
 }
 
@@ -16522,6 +16992,11 @@ int mc6809_load_cartridge_rom(CPUState *cpu, const char *path) {
     return 0;
 }
 
+int mc6809_set_cartridge_dir(CPUState *cpu, const char *path) {
+    (void)cpu;
+    return cpu_component_cartridge_picker_set_dir(path);
+}
+
 
 /* ===== Memory Access ===== */
 uint8_t mc6809_read_byte(CPUState *cpu, uint16_t addr) {
@@ -16534,7 +17009,7 @@ uint8_t mc6809_read_byte(CPUState *cpu, uint16_t addr) {
             return bit_set ? 0xFFu : 0x00u;
         }
         if (
-            (comp->sam_rom_shadow_ready == 0u || cpu->total_cycles == 0u) &&
+            (comp->sam_rom_shadow_ready == 0u) &&
             comp->sam_rom_a000 != NULL &&
             comp->sam_rom_e000 != NULL
         ) {
@@ -16941,7 +17416,6 @@ void mc6809_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
 void mc6809_interrupt(CPUState *cpu, uint8_t vector) {
     cpu->interrupt_vector = vector;
     cpu->interrupt_pending = true;
-    cpu_irq_trace(cpu, "request", vector, 0u);
 }
 
 void mc6809_set_irq(CPUState *cpu, bool enabled) {
@@ -20602,14 +21076,36 @@ char *mc6809_disassemble_instruction(uint16_t pc, uint32_t raw) {
     return buf;
 }
 
+static FILE *cpu_trace_file(void) {
+    static FILE *fp = NULL;
+    if (fp == NULL) {
+        const char *path = getenv("PASM_TRACE_FILE");
+        if (path && path[0]) { fp = fopen(path, "w"); }
+        if (fp == NULL) { fp = stdout; }
+    }
+    return fp;
+}
+
 void mc6809_trace_instruction(CPUState *cpu, DecodedInstruction *inst) {
-    (void)cpu;
     if (!inst) return;
     uint32_t raw_for_disasm = inst->raw;
     if (inst->prefix != 0) {
         raw_for_disasm = ((uint32_t)inst->prefix) | (inst->raw << 8);
     }
-    printf("[TRACE] %s\n", mc6809_disassemble_instruction(inst->pc, raw_for_disasm));
+
+    FILE *fp = cpu_trace_file();
+    fprintf(fp, "[TRACE] PC:0x%04X  %-20s A:0x%02X B:0x%02X DP:0x%02X X:0x%04X Y:0x%04X U:0x%04X S:0x%04X P:0x%02X\n",
+            inst->pc,
+            mc6809_disassemble_instruction(inst->pc, raw_for_disasm),
+            cpu->registers[REG_A],
+            cpu->registers[REG_B],
+            cpu->dp,
+            cpu->x,
+            cpu->y,
+            cpu->u,
+            cpu->sp,
+            cpu->flags.raw);
+    fflush(fp);
 }
 
 /* ===== Hook API ===== */

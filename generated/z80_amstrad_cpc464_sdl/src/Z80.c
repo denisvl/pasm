@@ -45,38 +45,6 @@ static void cpu_sleep_seconds(uint32_t seconds) {
 #endif
 }
 
-static FILE *cpu_irq_trace_file(void) {
-    static int initialized = -1;
-    static FILE *fp = NULL;
-    if (initialized < 0) {
-        const char *env = getenv("PASM_IRQ_TRACE");
-        initialized = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-        if (initialized != 0) {
-            const char *path = getenv("PASM_IRQ_TRACE_FILE");
-            if (path == NULL || path[0] == '\0') path = "pasm_irq_trace.log";
-            fp = fopen(path, "a");
-            if (fp == NULL) initialized = 0;
-        }
-    }
-    return (initialized != 0) ? fp : NULL;
-}
-
-static void cpu_irq_trace(CPUState *cpu, const char *phase, uint8_t vector, uint16_t vector_addr) {
-    FILE *fp = cpu_irq_trace_file();
-    if (fp == NULL || cpu == NULL) return;
-    fprintf(fp, "irq %s cyc=%llu pc=%04X sp=%04X vec=%02X vaddr=%04X pend=%u en=%u flags=%02X\n",
-            (phase != NULL) ? phase : "?",
-            (unsigned long long)cpu->total_cycles,
-            (unsigned int)(cpu->pc & 0xFFFFu),
-            (unsigned int)(cpu->sp & 0xFFFFu),
-            (unsigned int)vector,
-            (unsigned int)(vector_addr & 0xFFFFu),
-            (unsigned int)(cpu->interrupt_pending ? 1u : 0u),
-            (unsigned int)(cpu->interrupts_enabled ? 1u : 0u),
-            (unsigned int)cpu->flags.raw);
-    fflush(fp);
-}
-
 static bool cpu_check_condition(CPUState *cpu, uint8_t cc) {
     switch (cc) {
         case 0: return !(cpu->flags.Z);
@@ -97,6 +65,13 @@ static bool cpu_check_breakpoints(CPUState *cpu) {
     }
     return false;
 }
+
+#include <errno.h>
+#include <limits.h>
+#include <sys/stat.h>
+#if !defined(_WIN32)
+#include <dirent.h>
+#endif
 
 typedef struct {
     const char *from_component;
@@ -122,6 +97,8 @@ static void cpu_component_emit_signal(
     const uint64_t *args,
     uint8_t argc
 );
+static int cpu_component_cartridge_picker_set_dir(const char *path);
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);
 
 typedef struct {
     uint8_t row;
@@ -1671,7 +1648,7 @@ static void cpu_component_controller_map_poll(CPUState *cpu, uint8_t has_focus) 
             if (active != 0u) {
                 t->pressed = 1u;
                 if (b->source_kind == 3u || b->source_kind == 5u) {
-                    if (fabsf(av) > fabsf(t->axis)) t->axis = av;
+                    { float aabs = (av < 0.0f) ? -av : av; float tabs = (t->axis < 0.0f) ? -t->axis : t->axis; if (aabs > tabs) t->axis = av; }
                 }
             }
         }
@@ -1757,6 +1734,26 @@ static void cpu_component_keyboard_ascii_feed(
 static uint8_t cpu_component_keyboard_ascii_pop(void) {
     if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return 0u;
     return cpu_component_keyboard_ascii_queue_pop();
+}
+
+static int cpu_component_cartridge_picker_set_dir(const char *path) {
+    (void)path;
+    return -1;
+}
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu) {
+    (void)cpu;
+    return 0;
+}
+static uint8_t cpu_component_cartridge_picker_is_active(void) { return 0u; }
+static void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {
+    (void)cpu;
+    (void)has_focus;
+}
+static void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {
+    (void)cpu;
+    (void)pixels;
+    (void)w;
+    (void)h;
 }
 
 static const ComponentConnection g_component_connections[] = {
@@ -1929,6 +1926,12 @@ static void component_host_cpc_handler_video_frame(CPUState *cpu, const uint64_t
     (void)argc;
     ComponentState_host_cpc *comp = &cpu->comp_host_cpc;
     cpu->active_component_id = "host_cpc";
+    if (argc >= 4u) {
+        uint32_t *picker_pixels = (uint32_t *)(uintptr_t)args[1];
+        uint32_t picker_w = (uint32_t)(args[2] & 0xFFFFFFFFu);
+        uint32_t picker_h = (uint32_t)(args[3] & 0xFFFFFFFFu);
+        cpu_component_cartridge_picker_draw_overlay(cpu, picker_pixels, picker_w, picker_h);
+    }
     if (comp->host_inited == 0u || argc < 4) return;
     void *renderer = comp->renderer;
     void *texture = comp->texture;
@@ -8174,17 +8177,11 @@ int z80_step(CPUState *cpu) {
                 cpu->pc = 0x0038;
                 break;
         }
-        cpu_irq_trace(cpu, "take", cpu->interrupt_vector, cpu->pc);
         cpu->total_cycles += irq_cycles;
         return 0;
     }
 
     if (cpu->halted) {
-        if (cpu->interrupt_pending && !cpu->interrupts_enabled) {
-            cpu->interrupt_pending = false;
-            cpu->halted = false;
-            return 0;
-        }
         uint16_t halted_pc = cpu->pc;
         DecodedInstruction halted_inst = {0};
         halted_inst.pc = halted_pc;
@@ -8226,16 +8223,15 @@ int z80_step(CPUState *cpu) {
     if (!inst.valid) {
         cpu->running = false;
         cpu->error_code = CPU_ERROR_INVALID_OPCODE;
-        fprintf(stderr, "Invalid opcode at 0x%04X: 0x%06X\n", pc_before, (unsigned int)raw);
+        fprintf(stderr, "KIL instruction at 0x%04X: 0x%02X\n", pc_before, b0);
         return -1;
     }
 
-    if (cpu->tracing_enabled) {
-        z80_trace_instruction(cpu, &inst);
-    }
 
     bool executed = false;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = inst.cycles;
+    cpu->io_read_phase_ppu_dots = (uint16_t)((uint16_t)inst.cycles * 6u);
     cpu_components_step_pre(cpu, &inst, pc_before);
     switch (inst.category) {
         case CAT_CONTROL:
@@ -10191,18 +10187,20 @@ int z80_step(CPUState *cpu) {
         cpu->running = false;
         return -1;
     }
-
+    if (!cpu->pc_modified) {
+        cpu->pc = (uint16_t)(pc_before + inst.length);
+        cpu->pc_modified = true;
+    }
+    cpu->total_cycles += inst.cycles;
     cpu_components_step_post(cpu, &inst, pc_before);
+    cpu->current_instruction_cycles = 0u;
+    cpu->io_read_phase_ppu_dots = 0u;
 
     if (cpu->halted && !cpu->pc_modified) {
         cpu->pc = (uint16_t)(pc_before + inst.length);
         cpu->pc_modified = true;
     }
 
-    if (!cpu->pc_modified) {
-        cpu->pc = (uint16_t)(pc_before + inst.length);
-    }
-    cpu->total_cycles += inst.cycles;
 
     return 0;
 }
@@ -10241,6 +10239,7 @@ CPUState *z80_create(size_t memory_size) {
         cpu->hooks[i].func = NULL;
         cpu->hooks[i].context = NULL;
     }
+    cpu->debug_overlay_enabled = false;
     cpu->active_component_id = NULL;
     cpu->component_last_return = 0;
     cpu->comp_cpc_io.frame_counter = 0;
@@ -10725,17 +10724,22 @@ void z80_reset(CPUState *cpu) {
         comp->overlay_cpu_pct_x10 = 0u;
         if (comp->audio_out_dev != 0u) cpu_host_hal_audio_clear(comp->audio_out_dev);
     }
+
     cpu->running = true;
     cpu->halted = false;
     cpu->error_code = CPU_ERROR_NONE;
     cpu->total_cycles = 0;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = 0;
+    cpu->io_read_phase_ppu_dots = 0;
     cpu->hook_pc = 0;
     cpu->hook_prefix = 0;
     cpu->hook_opcode = 0;
     cpu->hook_raw = 0;
-    cpu->tracing_enabled = false;
-    cpu->debug_overlay_enabled = true;
+    {
+        const char *pasm_trace_env = getenv("PASM_TRACE");
+        cpu->tracing_enabled = (pasm_trace_env && (pasm_trace_env[0] == '1' || pasm_trace_env[0] == 'y' || pasm_trace_env[0] == 'Y'));
+    }
     cpu->reset_delay_pending = true;
 }
 
@@ -10841,6 +10845,11 @@ int z80_load_system_roms(CPUState *cpu, const char *system_base_dir) {
 }
 
 int z80_load_cartridge_rom(CPUState *cpu, const char *path) {
+    (void)cpu;
+    (void)path;
+    return -1;
+}
+int z80_set_cartridge_dir(CPUState *cpu, const char *path) {
     (void)cpu;
     (void)path;
     return -1;
@@ -11385,7 +11394,6 @@ void z80_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
 void z80_interrupt(CPUState *cpu, uint8_t vector) {
     cpu->interrupt_vector = vector;
     cpu->interrupt_pending = true;
-    cpu_irq_trace(cpu, "request", vector, 0u);
 }
 
 void z80_set_interrupt_mode(CPUState *cpu, uint8_t mode) {
@@ -15317,14 +15325,48 @@ char *z80_disassemble_instruction(uint16_t pc, uint32_t raw) {
     return buf;
 }
 
+static FILE *cpu_trace_file(void) {
+    static FILE *fp = NULL;
+    if (fp == NULL) {
+        const char *path = getenv("PASM_TRACE_FILE");
+        if (path && path[0]) { fp = fopen(path, "w"); }
+        if (fp == NULL) { fp = stdout; }
+    }
+    return fp;
+}
+
 void z80_trace_instruction(CPUState *cpu, DecodedInstruction *inst) {
-    (void)cpu;
     if (!inst) return;
     uint32_t raw_for_disasm = inst->raw;
     if (inst->prefix != 0) {
         raw_for_disasm = ((uint32_t)inst->prefix) | (inst->raw << 8);
     }
-    printf("[TRACE] %s\n", z80_disassemble_instruction(inst->pc, raw_for_disasm));
+
+    FILE *fp = cpu_trace_file();
+    fprintf(fp, "[TRACE] PC:0x%04X  %-20s A:0x%02X B:0x%02X C:0x%02X D:0x%02X E:0x%02X H:0x%02X L:0x%02X A_PRIME:0x%02X B_PRIME:0x%02X C_PRIME:0x%02X D_PRIME:0x%02X E_PRIME:0x%02X H_PRIME:0x%02X L_PRIME:0x%02X I:0x%02X R:0x%02X IX:0x%04X IY:0x%04X SP:0x%04X P:0x%02X\n",
+            inst->pc,
+            z80_disassemble_instruction(inst->pc, raw_for_disasm),
+            cpu->registers[REG_A],
+            cpu->registers[REG_B],
+            cpu->registers[REG_C],
+            cpu->registers[REG_D],
+            cpu->registers[REG_E],
+            cpu->registers[REG_H],
+            cpu->registers[REG_L],
+            cpu->registers[REG_A_PRIME],
+            cpu->registers[REG_B_PRIME],
+            cpu->registers[REG_C_PRIME],
+            cpu->registers[REG_D_PRIME],
+            cpu->registers[REG_E_PRIME],
+            cpu->registers[REG_H_PRIME],
+            cpu->registers[REG_L_PRIME],
+            cpu->i,
+            cpu->r,
+            cpu->ix,
+            cpu->iy,
+            cpu->sp,
+            cpu->flags.raw);
+    fflush(fp);
 }
 
 /* ===== Hook API ===== */

@@ -237,7 +237,18 @@ behavior:
       comp->sam_map_type = 0u;
       comp->sam_all_ram = 0u;
       comp->sam_ram_limit = 65536u;
-      comp->sam_rom_shadow_ready = 0u;
+      if (
+          comp->sam_rom_shadow_ready != 0u &&
+          comp->sam_rom_a000 != NULL &&
+          comp->sam_rom_e000 != NULL
+      ) {
+          for (uint16_t i = 0u; i < 0x2000u; ++i) {
+              uint16_t a0 = (uint16_t)(0xA000u + i);
+              uint16_t a1 = (uint16_t)(0xE000u + i);
+              if ((uint64_t)a0 < cpu->memory_size) cpu->memory[a0] = comp->sam_rom_a000[i];
+              if ((uint64_t)a1 < cpu->memory_size) cpu->memory[a1] = comp->sam_rom_e000[i];
+          }
+      }
       comp->cart_firq_armed = 0u;
     mem_read_pre: |
       if (addr >= 0xFFC0u && addr <= 0xFFDFu) {
@@ -246,7 +257,7 @@ behavior:
           return bit_set ? 0xFFu : 0x00u;
       }
       if (
-          (comp->sam_rom_shadow_ready == 0u || cpu->total_cycles == 0u) &&
+          (comp->sam_rom_shadow_ready == 0u) &&
           comp->sam_rom_a000 != NULL &&
           comp->sam_rom_e000 != NULL
       ) {

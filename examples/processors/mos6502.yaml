@@ -1435,6 +1435,8 @@ instructions:
   cycles: 3
   behavior: 'cpu->pc = inst->addr;
 
+    cpu->pc_modified = true;
+
     '
   timing_profile:
     bus_events:
@@ -6013,7 +6015,7 @@ instructions:
       type: immediate
   cycles: 2
   behavior: "int8_t off = (int8_t)inst->rel;\nif (!cpu->flags.N) {\n  cpu->pc = (uint16_t)(cpu->pc\
-    \ + (int16_t)off);\n}\n"
+    \ + (int16_t)off);\n  cpu->pc_modified = true;\n}\n"
   timing_profile:
     bus_events:
     - kind: mem_read_opcode
@@ -6036,7 +6038,7 @@ instructions:
       type: immediate
   cycles: 2
   behavior: "int8_t off = (int8_t)inst->rel;\nif (cpu->flags.N) {\n  cpu->pc = (uint16_t)(cpu->pc\
-    \ + (int16_t)off);\n}\n"
+    \ + (int16_t)off);\n  cpu->pc_modified = true;\n}\n"
   timing_profile:
     bus_events:
     - kind: mem_read_opcode
@@ -6059,7 +6061,7 @@ instructions:
       type: immediate
   cycles: 2
   behavior: "int8_t off = (int8_t)inst->rel;\nif (!cpu->flags.V) {\n  cpu->pc = (uint16_t)(cpu->pc\
-    \ + (int16_t)off);\n}\n"
+    \ + (int16_t)off);\n  cpu->pc_modified = true;\n}\n"
   timing_profile:
     bus_events:
     - kind: mem_read_opcode
@@ -6082,7 +6084,7 @@ instructions:
       type: immediate
   cycles: 2
   behavior: "int8_t off = (int8_t)inst->rel;\nif (cpu->flags.V) {\n  cpu->pc = (uint16_t)(cpu->pc\
-    \ + (int16_t)off);\n}\n"
+    \ + (int16_t)off);\n  cpu->pc_modified = true;\n}\n"
   timing_profile:
     bus_events:
     - kind: mem_read_opcode
@@ -6105,7 +6107,7 @@ instructions:
       type: immediate
   cycles: 2
   behavior: "int8_t off = (int8_t)inst->rel;\nif (!cpu->flags.C) {\n  cpu->pc = (uint16_t)(cpu->pc\
-    \ + (int16_t)off);\n}\n"
+    \ + (int16_t)off);\n  cpu->pc_modified = true;\n}\n"
   timing_profile:
     bus_events:
     - kind: mem_read_opcode
@@ -6128,7 +6130,7 @@ instructions:
       type: immediate
   cycles: 2
   behavior: "int8_t off = (int8_t)inst->rel;\nif (cpu->flags.C) {\n  cpu->pc = (uint16_t)(cpu->pc\
-    \ + (int16_t)off);\n}\n"
+    \ + (int16_t)off);\n  cpu->pc_modified = true;\n}\n"
   timing_profile:
     bus_events:
     - kind: mem_read_opcode
@@ -6151,7 +6153,7 @@ instructions:
       type: immediate
   cycles: 2
   behavior: "int8_t off = (int8_t)inst->rel;\nif (!cpu->flags.Z) {\n  cpu->pc = (uint16_t)(cpu->pc\
-    \ + (int16_t)off);\n}\n"
+    \ + (int16_t)off);\n  cpu->pc_modified = true;\n}\n"
   timing_profile:
     bus_events:
     - kind: mem_read_opcode
@@ -6174,7 +6176,7 @@ instructions:
       type: immediate
   cycles: 2
   behavior: "int8_t off = (int8_t)inst->rel;\nif (cpu->flags.Z) {\n  cpu->pc = (uint16_t)(cpu->pc\
-    \ + (int16_t)off);\n}\n"
+    \ + (int16_t)off);\n  cpu->pc_modified = true;\n}\n"
   timing_profile:
     bus_events:
     - kind: mem_read_opcode
@@ -6212,6 +6214,8 @@ instructions:
 
     cpu->pc = inst->addr;
 
+    cpu->pc_modified = true;
+
     '
   timing_profile:
     bus_events:
@@ -6245,6 +6249,8 @@ instructions:
     uint16_t ret = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
 
     cpu->pc = (uint16_t)(ret + 1u);
+
+    cpu->pc_modified = true;
 
     '
   timing_profile:
@@ -6280,6 +6286,8 @@ instructions:
 
     cpu->pc = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
 
+    cpu->pc_modified = true;
+
     '
   timing_profile:
     bus_events:
@@ -6309,6 +6317,8 @@ instructions:
     uint8_t hi = mos6502_read_byte(cpu, ptr_hi_wrap);
 
     cpu->pc = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+
+    cpu->pc_modified = true;
 
     '
   timing_profile:

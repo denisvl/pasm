@@ -4,6 +4,12 @@ metadata:
   model: nes_mapper_nrom
   version: "1.0"
 
+allowed_extensions:
+  - nes
+  - bin
+  - unf
+  - unif
+
 state:
   - name: rom_data
     type: uint8_t *
@@ -257,8 +263,7 @@ behavior:
           return comp->rom_data[comp->prg_offset + off];
       }
     mem_write_pre: |
-      if (comp->ines_valid == 0u) return;
-      if (addr >= 0x6000u && addr < 0x8000u) {
+      if (comp->ines_valid != 0u && addr >= 0x6000u && addr < 0x8000u) {
           if (comp->prg_ram != NULL && comp->prg_ram_size > 0u) {
               comp->prg_ram[(uint32_t)(addr - 0x6000u) % comp->prg_ram_size] = value;
           }

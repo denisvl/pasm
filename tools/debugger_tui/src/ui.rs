@@ -163,7 +163,7 @@ fn build_shortcut_lines(max_inner_width: u16) -> Vec<Line<'static>> {
         ("F4", "RunTo"),
         ("F7", "Into"),
         ("F8", "Over"),
-        ("F6", "Out"),
+        ("F3", "Out"),
         ("F5", "Reset"),
         ("F9", "RunPause"),
         ("H", "History"),

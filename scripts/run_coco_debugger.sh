@@ -18,6 +18,9 @@ set -euo pipefail
 #   CARTRIDGE_MAP=examples/cartridges/coco1/coco_mapper_none.yaml
 #   CARTRIDGE_ROM_GEN=../../roms/coco1/Downland V1.1 (1983) (26-3046) (Tandy) [a1].ccc
 #   CARTRIDGE_ROM_RUN=/abs/path/to/cart.rom  (optional override)
+#   CARTRIDGE_DIR=/abs/path/to/coco1/roms     (enable runtime cartridge picker list)
+#   BOOT_CARTRIDGE=0|1                          (default 0: boot base CoCo, then pick cart)
+#   PASM_EMU_CART_PICKER_RAW_KEYS=0|1           (default 1; raw picker hotkey F12)
 
 PROFILE="${1:-interactive}"
 START_PC="${START_PC:-0xA027}"
@@ -29,6 +32,9 @@ PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 USE_CARTRIDGE="${USE_CARTRIDGE:-0}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-}"
+CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
+BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-0}"
+PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/coco1/host_keyboard_coco.yaml}"
 CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/coco1/host_controller_coco.yaml}"
 
@@ -69,11 +75,14 @@ mkdir -p "$(dirname "${OUTPUT_DIR}")"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
 SYSTEM_DIR="$(dirname "${SYSTEM}")"
 SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
+if [[ -z "${CARTRIDGE_DIR}" ]]; then
+  CARTRIDGE_DIR="${REPO_ROOT}/examples/roms/coco1"
+fi
 
 # Cartridge mode can be enabled explicitly (USE_CARTRIDGE=1) or implicitly by setting any
-# cartridge-related env vars (legacy behavior).
+# cartridge-related env vars (legacy behavior), including CARTRIDGE_DIR for picker-only usage.
 if [[ "${USE_CARTRIDGE}" == "0" ]]; then
-  if [[ -n "${CARTRIDGE_MAP}" || -n "${CARTRIDGE_ROM_GEN}" || -n "${CARTRIDGE_ROM_RUN:-}" ]]; then
+  if [[ -n "${CARTRIDGE_MAP}" || -n "${CARTRIDGE_ROM_GEN}" || -n "${CARTRIDGE_ROM_RUN:-}" || -n "${CARTRIDGE_DIR}" ]]; then
     USE_CARTRIDGE=1
   fi
 fi
@@ -99,6 +108,16 @@ fi
 
 GEN_CARTRIDGE_ARGS=()
 RUN_CARTRIDGE_ARGS=()
+if [[ "${USE_CARTRIDGE}" == "1" || -n "${CARTRIDGE_DIR}" ]]; then
+  if [[ -n "${CARTRIDGE_DIR}" ]]; then
+    if [[ ! -d "${CARTRIDGE_DIR}" ]]; then
+      echo "warning: CARTRIDGE_DIR does not exist: ${CARTRIDGE_DIR}" >&2
+      echo "         picker hotkey will appear to do nothing until this is fixed." >&2
+    fi
+    RUN_CARTRIDGE_ARGS+=(--cartridge-dir "${CARTRIDGE_DIR}")
+  fi
+fi
+
 if [[ "${USE_CARTRIDGE}" == "1" ]]; then
   if [[ -n "${CARTRIDGE_ROM_RUN:-}" ]]; then
     CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUN}"
@@ -120,7 +139,9 @@ if [[ "${USE_CARTRIDGE}" == "1" ]]; then
     # caller provides only a runtime ROM path override.
     GEN_CARTRIDGE_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_RUNTIME}")
   fi
-  RUN_CARTRIDGE_ARGS+=(--cart-rom "${CARTRIDGE_ROM_RUNTIME}")
+  if [[ "${BOOT_CARTRIDGE}" != "0" ]]; then
+    RUN_CARTRIDGE_ARGS+=(--cart-rom "${CARTRIDGE_ROM_RUNTIME}")
+  fi
 fi
 
 KEYBOARD_ARGS=()
@@ -154,10 +175,15 @@ if [[ "${USE_CARTRIDGE}" == "1" ]]; then
   echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
   echo "    cartridge_rom_runtime=${CARTRIDGE_ROM_RUNTIME}"
 fi
+echo "    cartridge_dir=${CARTRIDGE_DIR}"
+echo "    boot_cartridge=${BOOT_CARTRIDGE}"
+echo "    cart_picker_raw_keys=${PASM_EMU_CART_PICKER_RAW_KEYS}"
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
+PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS}" \
+PASM_SYSTEM_DIR="${SYSTEM_DIR}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \

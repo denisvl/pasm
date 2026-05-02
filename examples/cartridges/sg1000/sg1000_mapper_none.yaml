@@ -4,6 +4,11 @@ metadata:
   model: sg1000_mapper_none
   version: "1.0"
 
+allowed_extensions:
+  - sg
+  - rom
+  - bin
+
 state:
   - name: rom_data
     type: uint8_t *
@@ -38,13 +43,21 @@ behavior:
           if (comp->rom_data == NULL || comp->rom_size == 0u) {
               return 0xFFu;
           }
+          /*
+           * SG-1000 "no mapper" cartridges are often 8K/16K/32K and are
+           * mirrored through the 0x0000-0xBFFF window by the bus wiring.
+           * Use power-of-two masking when possible, fallback to modulo.
+           */
           {
               uint32_t off = (uint32_t)addr;
-              if (off < comp->rom_size) {
-                  return comp->rom_data[off];
+              uint32_t size = comp->rom_size;
+              if ((size & (size - 1u)) == 0u) {
+                  off = off & (size - 1u);
+              } else {
+                  off = off % size;
               }
+              return comp->rom_data[off];
           }
-          return 0xFFu;
       }
   callback_handlers: {}
   handler_bodies: {}

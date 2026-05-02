@@ -4,6 +4,12 @@ metadata:
   model: msx_mapper_none
   version: "1.0"
 
+allowed_extensions:
+  - rom
+  - bin
+  - mx1
+  - col
+
 state:
   - name: rom_data
     type: uint8_t *
@@ -87,18 +93,18 @@ behavior:
           }
       }
     mem_write_pre: |
-      if (comp->rom_data == NULL || comp->rom_size == 0u) return;
-      {
+      if (comp->rom_data != NULL && comp->rom_size > 0u) {
           uint8_t slotreg = cpu->comp_ppi0.slot_select;
           uint8_t page = (uint8_t)(addr >> 14);
           uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
-          if (page_slot != (uint8_t)(comp->slot_id & 0x03u)) return;
-      }
-      if (addr >= 0x4000u && addr < 0x8000u) {
-          return;
-      }
-      if (addr >= 0x8000u && addr < 0xC000u) {
-          return;
+          if (page_slot == (uint8_t)(comp->slot_id & 0x03u)) {
+              if (addr >= 0x4000u && addr < 0x8000u) {
+                  return;
+              }
+              if (addr >= 0x8000u && addr < 0xC000u) {
+                  return;
+              }
+          }
       }
   callback_handlers: {}
   handler_bodies: {}

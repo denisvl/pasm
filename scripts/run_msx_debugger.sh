@@ -15,6 +15,9 @@ set -euo pipefail
 #   CARTRIDGE_MAP=examples/cartridges/msx1/msx_mapper_konami.yaml
 #   CARTRIDGE_ROM_GEN="../../roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/rom.rom
+#   CARTRIDGE_DIR=/abs/path/to/msx1/roms
+#   BOOT_CARTRIDGE=0|1
+#   PASM_EMU_CART_PICKER_RAW_KEYS=0|1
 #   PASM_HOST_DEBUG=1
 #   PASM_HOST_LOGFILE=/tmp/msx_sdl.log
 #   PASM_HOST_AUDIO=1
@@ -36,6 +39,9 @@ USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/msx1/msx_mapper_konami.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
+CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
+BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-0}"
+PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -81,11 +87,15 @@ BUILD_DIR="${OUTPUT_DIR}/build"
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
 SYSTEM_DIR="$(dirname "${SYSTEM}")"
+SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
 if [[ -z "${CARTRIDGE_ROM_RUNTIME}" ]]; then
   CARTRIDGE_ROM_RUNTIME="${REPO_ROOT}/examples/roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
 fi
 if [[ -z "${CARTRIDGE_ROM_GEN}" ]]; then
   CARTRIDGE_ROM_GEN="../../roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
+fi
+if [[ -z "${CARTRIDGE_DIR}" ]]; then
+  CARTRIDGE_DIR="${REPO_ROOT}/examples/roms/msx1"
 fi
 
 echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
@@ -112,7 +122,16 @@ RUN_ARGS=(
 )
 if [[ "${USE_CARTRIDGE}" != "0" ]]; then
   GEN_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_GEN}")
-  RUN_ARGS+=(--cart-rom "${CARTRIDGE_ROM_RUNTIME}")
+  if [[ "${BOOT_CARTRIDGE}" != "0" ]]; then
+    RUN_ARGS+=(--cart-rom "${CARTRIDGE_ROM_RUNTIME}")
+  fi
+  if [[ -n "${CARTRIDGE_DIR}" ]]; then
+    if [[ ! -d "${CARTRIDGE_DIR}" ]]; then
+      echo "warning: CARTRIDGE_DIR does not exist: ${CARTRIDGE_DIR}" >&2
+      echo "         picker hotkey (F12) will not list cartridges until this path exists." >&2
+    fi
+    RUN_ARGS+=(--cartridge-dir "${CARTRIDGE_DIR}")
+  fi
 fi
 if [[ "${PROFILE}" == "interactive" ]]; then
   RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
@@ -131,14 +150,19 @@ if [[ "${USE_CARTRIDGE}" != "0" ]]; then
   echo "    cartridge_map=${CARTRIDGE_MAP}"
   echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
   echo "    cartridge_rom_runtime=${CARTRIDGE_ROM_RUNTIME}"
+  echo "    cartridge_dir=${CARTRIDGE_DIR}"
+  echo "    boot_cartridge=${BOOT_CARTRIDGE}"
+  echo "    cart_picker_raw_keys=${PASM_EMU_CART_PICKER_RAW_KEYS}"
 fi
 if [[ "${PROFILE}" == "interactive" && "${PASM_HOST_DEBUG}" != "0" ]]; then
   echo "    SDL debug log -> ${PASM_HOST_LOGFILE}"
 fi
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
+PASM_SYSTEM_DIR="${SYSTEM_DIR_ABS}" \
 PASM_HOST_DEBUG="${PASM_HOST_DEBUG}" \
 PASM_HOST_LOGFILE="${PASM_HOST_LOGFILE}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
+PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   "${RUN_ARGS[@]}"

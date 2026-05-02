@@ -76,6 +76,9 @@ typedef struct ComponentState_c64_io {
     uint16_t cia1_ta_counter;
     uint16_t cia1_tb_counter;
     uint8_t cia2_pra;
+    uint8_t cia2_prb;
+    uint8_t cia2_ddra;
+    uint8_t cia2_ddrb;
     uint8_t cia2_icr_mask;
     uint8_t cia2_icr_status;
     uint8_t cia2_nmi_asserted;
@@ -162,6 +165,26 @@ typedef struct ComponentState_host_c64 {
     uint8_t row7;
 } ComponentState_host_c64;
 
+typedef struct ComponentState_c64_cart0 {
+    uint8_t * rom_data;
+    uint32_t rom_size;
+    uint32_t image_lo_off;
+    uint32_t image_lo_len;
+    uint32_t image_hi_off;
+    uint32_t image_hi_len;
+    uint8_t image_parsed;
+    uint8_t mapper_kind;
+    uint16_t crt_hw_type;
+    uint32_t * md_bank_off;
+    uint16_t * md_bank_len;
+    uint16_t md_bank_count;
+    uint8_t md_bank_sel;
+    uint8_t md_cart_disabled;
+    uint8_t crt_exrom;
+    uint8_t crt_game;
+    uint8_t * ram_lo;
+} ComponentState_c64_cart0;
+
 
 /* ===== CPU State ===== */
 struct CPUState {
@@ -197,6 +220,8 @@ struct CPUState {
     uint8_t interrupt_vector;
     bool interrupts_enabled;
     bool interrupt_pending;
+    bool irq_pending;
+    bool nmi_pending;
     
     /* Execution state */
     bool running;
@@ -204,6 +229,8 @@ struct CPUState {
     int error_code;
     uint64_t total_cycles;
     bool pc_modified;
+    uint8_t current_instruction_cycles;
+    uint16_t io_read_phase_ppu_dots;
     uint16_t hook_pc;
     uint8_t hook_prefix;
     uint8_t hook_opcode;
@@ -229,6 +256,7 @@ struct CPUState {
     ComponentState_video_c64 comp_video_c64;
     ComponentState_speaker_c64 comp_speaker_c64;
     ComponentState_host_c64 comp_host_c64;
+    ComponentState_c64_cart0 comp_c64_cart0;
 };
 
 /* ===== Constants ===== */
@@ -236,17 +264,17 @@ struct CPUState {
 #define CPU_ERROR_INVALID_OPCODE 1
 #define CPU_ERROR_INVALID_MEMORY 2
 #define CPU_ERROR_HALT 3
-#define CPU_SYSTEM_NAME "C64InteractiveSystem"
+#define CPU_SYSTEM_NAME "C64CartridgeInteractiveSystem"
 #define CPU_SYSTEM_VERSION "1.0"
 #define CPU_SYSTEM_CLOCK_HZ 1022727ULL
 #define CPU_AUDIO_SAMPLE_RATE 44100ULL
 #define CPU_AUDIO_CHANNELS 1
 #define CPU_AUDIO_FORMAT "s16le"
-/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"c64_interactive\"} */
+/* CPU_SYSTEM_INTEGRATIONS_JSON: {\"profile\": \"c64_cartridge_interactive\"} */
 #define CPU_IC_COUNT 1
 #define CPU_DEVICE_COUNT 4
 #define CPU_HOST_COUNT 1
-#define CPU_CARTRIDGE_COUNT 0
+#define CPU_CARTRIDGE_COUNT 1
 
 /* ===== Register Enum ===== */
 typedef enum {
@@ -278,6 +306,7 @@ void mos6510_reset(CPUState *cpu);
 int mos6510_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int mos6510_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int mos6510_load_cartridge_rom(CPUState *cpu, const char *path);
+int mos6510_set_cartridge_dir(CPUState *cpu, const char *path);
 int mos6510_load_keyboard_map(CPUState *cpu, const char *path);
 int mos6510_load_controller_map(CPUState *cpu, const char *path);
 

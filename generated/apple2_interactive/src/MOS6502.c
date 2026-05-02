@@ -45,38 +45,6 @@ static void cpu_sleep_seconds(uint32_t seconds) {
 #endif
 }
 
-static FILE *cpu_irq_trace_file(void) {
-    static int initialized = -1;
-    static FILE *fp = NULL;
-    if (initialized < 0) {
-        const char *env = getenv("PASM_IRQ_TRACE");
-        initialized = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-        if (initialized != 0) {
-            const char *path = getenv("PASM_IRQ_TRACE_FILE");
-            if (path == NULL || path[0] == '\0') path = "pasm_irq_trace.log";
-            fp = fopen(path, "a");
-            if (fp == NULL) initialized = 0;
-        }
-    }
-    return (initialized != 0) ? fp : NULL;
-}
-
-static void cpu_irq_trace(CPUState *cpu, const char *phase, uint8_t vector, uint16_t vector_addr) {
-    FILE *fp = cpu_irq_trace_file();
-    if (fp == NULL || cpu == NULL) return;
-    fprintf(fp, "irq %s cyc=%llu pc=%04X sp=%04X vec=%02X vaddr=%04X pend=%u en=%u flags=%02X\n",
-            (phase != NULL) ? phase : "?",
-            (unsigned long long)cpu->total_cycles,
-            (unsigned int)(cpu->pc & 0xFFFFu),
-            (unsigned int)(cpu->sp & 0xFFFFu),
-            (unsigned int)vector,
-            (unsigned int)(vector_addr & 0xFFFFu),
-            (unsigned int)(cpu->interrupt_pending ? 1u : 0u),
-            (unsigned int)(cpu->interrupts_enabled ? 1u : 0u),
-            (unsigned int)cpu->flags.raw);
-    fflush(fp);
-}
-
 static bool cpu_check_condition(CPUState *cpu, uint8_t cc) {
     switch (cc) {
         case 0: return !(cpu->flags.Z);
@@ -166,6 +134,13 @@ static void cpu_apply_mos6502_runtime_cycles(CPUState *cpu, DecodedInstruction *
             return;
     }
 }
+#include <errno.h>
+#include <limits.h>
+#include <sys/stat.h>
+#if !defined(_WIN32)
+#include <dirent.h>
+#endif
+
 typedef struct {
     const char *from_component;
     const char *from_kind;
@@ -190,6 +165,8 @@ static void cpu_component_emit_signal(
     const uint64_t *args,
     uint8_t argc
 );
+static int cpu_component_cartridge_picker_set_dir(const char *path);
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);
 
 typedef struct {
     uint8_t row;
@@ -1208,9 +1185,13 @@ int mos6502_load_keyboard_map(CPUState *cpu, const char *path) {
         s = cpu_component_trim(line);
         if (s == NULL || s[0] == '\0') continue;
         if (strcmp(s, "keyboard:") == 0) continue;
+        if (strcmp(s, "system_keys:") == 0) continue;
         if (strcmp(s, "bindings:") == 0) continue;
         if (strcmp(s, "presses:") == 0) continue;
         if (strcmp(s, "-") == 0) continue;
+        /* UI-only metadata entries. */
+        if (strncmp(s, "- id:", 5) == 0 || strncmp(s, "id:", 3) == 0) continue;
+        if (strncmp(s, "visual_feedback:", 16) == 0) continue;
         if (strncmp(s, "kind:", 5) == 0) {
             s = cpu_component_trim(s + 5);
             if (strcmp(s, "matrix") == 0) g_runtime_keyboard_map.kind = 1u;
@@ -1287,6 +1268,12 @@ int mos6502_load_keyboard_map(CPUState *cpu, const char *path) {
         }
         if (strncmp(s, "emulator_key_id:", 15) == 0) {
             const char *eid = cpu_component_unquote(cpu_component_trim(s + 15));
+            if (eid == NULL || eid[0] == '\0') { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
+            (void)snprintf(current->emulator_key_id, sizeof(current->emulator_key_id), "%s", eid);
+            continue;
+        }
+        if (strncmp(s, "system_key_id:", 14) == 0) {
+            const char *eid = cpu_component_unquote(cpu_component_trim(s + 14));
             if (eid == NULL || eid[0] == '\0') { fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }
             (void)snprintf(current->emulator_key_id, sizeof(current->emulator_key_id), "%s", eid);
             continue;
@@ -1566,8 +1553,8 @@ int mos6502_load_controller_map(CPUState *cpu, const char *path) {
             continue;
         }
         if (!in_bindings) continue;
-        if (strncmp(s, "- target_control_id:", 18) == 0 || strncmp(s, "target_control_id:", 16) == 0) {
-            const int pref = (s[0] == '-') ? 18 : 16;
+        if (strncmp(s, "- target_control_id:", 20) == 0 || strncmp(s, "target_control_id:", 18) == 0) {
+            const int pref = (s[0] == '-') ? 20 : 18;
             s = cpu_component_unquote(cpu_component_trim(s + pref));
             current = cpu_component_controller_binding_add();
             if (current == NULL) { fclose(f); cpu_component_runtime_controller_clear(); return -1; }
@@ -1583,15 +1570,16 @@ int mos6502_load_controller_map(CPUState *cpu, const char *path) {
             continue;
         }
         if (current == NULL) continue;
-        if (strncmp(s, "host_scancode:", 14) == 0) {
-            s = cpu_component_trim(s + 14);
+        if (strncmp(s, "- host_scancode:", 16) == 0 || strncmp(s, "host_scancode:", 14) == 0 || strncmp(s, "- host_key:", 11) == 0 || strncmp(s, "host_key:", 9) == 0) {
+            const int pref = (strncmp(s, "- host_scancode:", 16) == 0) ? 16 : ((strncmp(s, "host_scancode:", 14) == 0) ? 14 : ((s[0] == '-') ? 11 : 9));
+            s = cpu_component_unquote(cpu_component_trim(s + pref));
             current->source_kind = 1u;
             current->scancode = cpu_component_scancode_for_host_token(s);
             if (current->scancode < 0) { fprintf(stderr, "Controller map parse error: unknown host_scancode token: '%s'\n", s); fclose(f); cpu_component_runtime_controller_clear(); return -1; }
             continue;
         }
-        if (strcmp(s, "host_gamepad:") == 0) { in_host_gamepad = 1u; in_host_joystick = 0u; continue; }
-        if (strcmp(s, "host_joystick:") == 0) { in_host_gamepad = 0u; in_host_joystick = 1u; continue; }
+        if (strcmp(s, "host_gamepad:") == 0 || strcmp(s, "- host_gamepad:") == 0) { in_host_gamepad = 1u; in_host_joystick = 0u; continue; }
+        if (strcmp(s, "host_joystick:") == 0 || strcmp(s, "- host_joystick:") == 0) { in_host_gamepad = 0u; in_host_joystick = 1u; continue; }
         if (in_host_gamepad) {
             if (strncmp(s, "control:", 8) == 0) {
                 char *ct = cpu_component_unquote(cpu_component_trim(s + 8));
@@ -1639,6 +1627,13 @@ int mos6502_load_controller_map(CPUState *cpu, const char *path) {
         }
     }
     fclose(f);
+    for (size_t i = 0; i < g_runtime_controller_map.binding_count; ++i) {
+        if (g_runtime_controller_map.bindings[i].source_kind == 0u) {
+            fprintf(stderr, "Controller map parse error: binding '%s' is missing host source (need host_scancode/host_gamepad/host_joystick)\n", g_runtime_controller_map.bindings[i].target_id);
+            cpu_component_runtime_controller_clear();
+            return -1;
+        }
+    }
     for (size_t i = 0; i < g_runtime_controller_map.binding_count; ++i) {
         cpu_component_controller_target_get(g_runtime_controller_map.bindings[i].target_id, 1u);
     }
@@ -1721,7 +1716,7 @@ static void cpu_component_controller_map_poll(CPUState *cpu, uint8_t has_focus) 
             if (active != 0u) {
                 t->pressed = 1u;
                 if (b->source_kind == 3u || b->source_kind == 5u) {
-                    if (fabsf(av) > fabsf(t->axis)) t->axis = av;
+                    { float aabs = (av < 0.0f) ? -av : av; float tabs = (t->axis < 0.0f) ? -t->axis : t->axis; if (aabs > tabs) t->axis = av; }
                 }
             }
         }
@@ -1807,6 +1802,26 @@ static void cpu_component_keyboard_ascii_feed(
 static uint8_t cpu_component_keyboard_ascii_pop(void) {
     if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return 0u;
     return cpu_component_keyboard_ascii_queue_pop();
+}
+
+static int cpu_component_cartridge_picker_set_dir(const char *path) {
+    (void)path;
+    return -1;
+}
+static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu) {
+    (void)cpu;
+    return 0;
+}
+static uint8_t cpu_component_cartridge_picker_is_active(void) { return 0u; }
+static void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {
+    (void)cpu;
+    (void)has_focus;
+}
+static void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {
+    (void)cpu;
+    (void)pixels;
+    (void)w;
+    (void)h;
 }
 
 static const ComponentConnection g_component_connections[] = {
@@ -2221,6 +2236,12 @@ static void component_host_apple2_handler_video_frame(CPUState *cpu, const uint6
     (void)argc;
     ComponentState_host_apple2 *comp = &cpu->comp_host_apple2;
     cpu->active_component_id = "host_apple2";
+    if (argc >= 4u) {
+        uint32_t *picker_pixels = (uint32_t *)(uintptr_t)args[1];
+        uint32_t picker_w = (uint32_t)(args[2] & 0xFFFFFFFFu);
+        uint32_t picker_h = (uint32_t)(args[3] & 0xFFFFFFFFu);
+        cpu_component_cartridge_picker_draw_overlay(cpu, picker_pixels, picker_w, picker_h);
+    }
     if (comp->host_inited == 0u || argc < 4) return;
     void *renderer = comp->renderer;
     void *texture = comp->texture;
@@ -3054,6 +3075,7 @@ static void inst_TAS_ABSY_UD(CPUState *cpu, DecodedInstruction *inst) {
 /* JMP_ABS - control */
 static void inst_JMP_ABS(CPUState *cpu, DecodedInstruction *inst) {
     cpu->pc = inst->addr;
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
 }
 
@@ -4609,6 +4631,7 @@ static void inst_BPL(CPUState *cpu, DecodedInstruction *inst) {
     if (!cpu->flags.N) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
     }
 }
 
@@ -4617,6 +4640,7 @@ static void inst_BMI(CPUState *cpu, DecodedInstruction *inst) {
     int8_t off = (int8_t)inst->rel;
     if (cpu->flags.N) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
     }
 }
@@ -4627,6 +4651,7 @@ static void inst_BVC(CPUState *cpu, DecodedInstruction *inst) {
     if (!cpu->flags.V) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
     }
 }
 
@@ -4635,6 +4660,7 @@ static void inst_BVS(CPUState *cpu, DecodedInstruction *inst) {
     int8_t off = (int8_t)inst->rel;
     if (cpu->flags.V) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
     }
 }
@@ -4645,6 +4671,7 @@ static void inst_BCC(CPUState *cpu, DecodedInstruction *inst) {
     if (!cpu->flags.C) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
     }
 }
 
@@ -4653,6 +4680,7 @@ static void inst_BCS(CPUState *cpu, DecodedInstruction *inst) {
     int8_t off = (int8_t)inst->rel;
     if (cpu->flags.C) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
     }
 }
@@ -4663,6 +4691,7 @@ static void inst_BNE(CPUState *cpu, DecodedInstruction *inst) {
     if (!cpu->flags.Z) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
     }
 }
 
@@ -4671,6 +4700,7 @@ static void inst_BEQ(CPUState *cpu, DecodedInstruction *inst) {
     int8_t off = (int8_t)inst->rel;
     if (cpu->flags.Z) {
     cpu->pc = (uint16_t)(((uint16_t)(cpu->pc + inst->length)) + (int16_t)off);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
     }
 }
@@ -4686,6 +4716,7 @@ static void inst_JSR_ABS(CPUState *cpu, DecodedInstruction *inst) {
     cpu->sp = sp8;
     cpu->pc = inst->addr;
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
 }
 
 /* RTS - control */
@@ -4698,6 +4729,7 @@ static void inst_RTS(CPUState *cpu, DecodedInstruction *inst) {
     cpu->sp = sp8;
     uint16_t ret = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
     cpu->pc = (uint16_t)(ret + 1u);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
 }
 
@@ -4714,6 +4746,7 @@ static void inst_RTI(CPUState *cpu, DecodedInstruction *inst) {
     cpu->sp = sp8;
     cpu->pc = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
     cpu->pc_modified = true;
+    cpu->pc_modified = true;
 }
 
 /* JMP_IND - control */
@@ -4723,6 +4756,7 @@ static void inst_JMP_IND(CPUState *cpu, DecodedInstruction *inst) {
     uint8_t lo = mos6502_read_byte(cpu, ptr);
     uint8_t hi = mos6502_read_byte(cpu, ptr_hi_wrap);
     cpu->pc = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+    cpu->pc_modified = true;
     cpu->pc_modified = true;
 }
 
@@ -5627,9 +5661,10 @@ int mos6502_step(CPUState *cpu) {
         return 0;
     }
 
-    if (cpu->interrupt_pending && (cpu->interrupt_vector == 0xFFu || cpu->interrupts_enabled)) {
-        uint8_t irq_vector = cpu->interrupt_vector;
-        cpu->interrupt_pending = false;
+    if (cpu->nmi_pending || (cpu->irq_pending && cpu->interrupts_enabled)) {
+        uint8_t irq_vector = cpu->nmi_pending ? 0xFFu : 0x00u;
+        if (cpu->nmi_pending) cpu->nmi_pending = false; else cpu->irq_pending = false;
+        cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
         cpu->halted = false;
         {
             uint8_t sp8 = (uint8_t)cpu->sp;
@@ -5650,17 +5685,11 @@ int mos6502_step(CPUState *cpu) {
         cpu->flags.I = true;
         cpu->interrupts_enabled = false;
         cpu->pc = (irq_vector == 0xFFu) ? mos6502_read_word(cpu, 0xFFFAu) : mos6502_read_word(cpu, 0xFFFEu);
-        cpu_irq_trace(cpu, "take", irq_vector, (irq_vector == 0xFFu) ? 0xFFFAu : 0xFFFEu);
         cpu->total_cycles += 7u;
         return 0;
     }
 
     if (cpu->halted) {
-        if (cpu->interrupt_pending && !cpu->interrupts_enabled) {
-            cpu->interrupt_pending = false;
-            cpu->halted = false;
-            return 0;
-        }
         uint16_t halted_pc = cpu->pc;
         DecodedInstruction halted_inst = {0};
         halted_inst.pc = halted_pc;
@@ -5695,13 +5724,11 @@ int mos6502_step(CPUState *cpu) {
     if (!inst.valid) {
         cpu->running = false;
         cpu->error_code = CPU_ERROR_INVALID_OPCODE;
-        fprintf(stderr, "Invalid opcode at 0x%04X: 0x%06X\n", pc_before, (unsigned int)raw);
+        fprintf(stderr, "KIL instruction at 0x%04X: 0x%02X\n", pc_before, b0);
         return -1;
     }
+    if (cpu->tracing_enabled) { mos6502_trace_instruction(cpu, &inst); }
 
-    if (cpu->tracing_enabled) {
-        mos6502_trace_instruction(cpu, &inst);
-    }
 
     uint8_t x_before = cpu->registers[REG_X];
     uint8_t y_before = cpu->registers[REG_Y];
@@ -5712,6 +5739,8 @@ int mos6502_step(CPUState *cpu) {
 
     bool executed = false;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = inst.cycles;
+    cpu->io_read_phase_ppu_dots = (uint16_t)((uint16_t)inst.cycles * 6u);
     cpu_components_step_pre(cpu, &inst, pc_before);
     switch (inst.category) {
         case CAT_CONTROL:
@@ -7015,20 +7044,28 @@ int mos6502_step(CPUState *cpu) {
         cpu->running = false;
         return -1;
     }
-
     cpu_apply_mos6502_runtime_cycles(cpu, &inst, pc_before, x_before, y_before, c_before, z_before, n_before, v_before);
-
+    if (!cpu->pc_modified) {
+        cpu->pc = (uint16_t)(pc_before + inst.length);
+        cpu->pc_modified = true;
+    }
+    cpu->total_cycles += inst.cycles;
     cpu_components_step_post(cpu, &inst, pc_before);
+    /* After step_post, PPU may have signalled NMI — take it immediately. */
+    if (cpu->nmi_pending || (cpu->irq_pending && cpu->interrupts_enabled)) {
+        cpu->current_instruction_cycles = 0u;
+        cpu->io_read_phase_ppu_dots = 0u;
+        return 0;
+    }
+
+    cpu->current_instruction_cycles = 0u;
+    cpu->io_read_phase_ppu_dots = 0u;
 
     if (cpu->halted && !cpu->pc_modified) {
         cpu->pc = (uint16_t)(pc_before + inst.length);
         cpu->pc_modified = true;
     }
 
-    if (!cpu->pc_modified) {
-        cpu->pc = (uint16_t)(pc_before + inst.length);
-    }
-    cpu->total_cycles += inst.cycles;
 
     return 0;
 }
@@ -7040,7 +7077,7 @@ void mos6502_run(CPUState *cpu) {
 void mos6502_run_until(CPUState *cpu, uint64_t cycles) {
     while (cpu->running) {
         if (cycles > 0 && cpu->total_cycles >= cycles) break;
-        if (cpu->halted && !cpu->interrupt_pending) break;
+        if (cpu->halted && !(cpu->nmi_pending || cpu->irq_pending)) break;
         if (mos6502_step(cpu) != 0) break;
     }
 }
@@ -7067,6 +7104,7 @@ CPUState *mos6502_create(size_t memory_size) {
         cpu->hooks[i].func = NULL;
         cpu->hooks[i].context = NULL;
     }
+    cpu->debug_overlay_enabled = false;
     cpu->active_component_id = NULL;
     cpu->component_last_return = 0;
     cpu->comp_apple2_io.keyboard_latch = 0;
@@ -7258,11 +7296,13 @@ void mos6502_reset(CPUState *cpu) {
     cpu->flags.raw = 0;
     /* No shadow flag bank */
     cpu->interrupt_vector = 0;
-    cpu->sp = 0xFDu;
-    cpu->flags.I = true;
-    cpu->pc = mos6502_read_word(cpu, 0xFFFCu);
+    cpu->sp = 0xF8u;
+    cpu->registers[REG_Y] = 0x1Au;
+    cpu->flags.raw = 0x34u;
     cpu->interrupts_enabled = false;
     cpu->interrupt_pending = false;
+    cpu->irq_pending = false;
+    cpu->nmi_pending = false;
     cpu->active_component_id = NULL;
     cpu->component_last_return = 0;
     cpu->comp_apple2_io.keyboard_latch = 0;
@@ -7312,17 +7352,22 @@ void mos6502_reset(CPUState *cpu) {
             cpu_host_hal_audio_clear(comp->audio_out_dev);
         }
     }
+    cpu->pc = mos6502_read_word(cpu, 0xFFFCu);
     cpu->running = true;
     cpu->halted = false;
     cpu->error_code = CPU_ERROR_NONE;
     cpu->total_cycles = 0;
     cpu->pc_modified = false;
+    cpu->current_instruction_cycles = 0;
+    cpu->io_read_phase_ppu_dots = 0;
     cpu->hook_pc = 0;
     cpu->hook_prefix = 0;
     cpu->hook_opcode = 0;
     cpu->hook_raw = 0;
-    cpu->tracing_enabled = false;
-    cpu->debug_overlay_enabled = true;
+    {
+        const char *pasm_trace_env = getenv("PASM_TRACE");
+        cpu->tracing_enabled = (pasm_trace_env && (pasm_trace_env[0] == '1' || pasm_trace_env[0] == 'y' || pasm_trace_env[0] == 'Y'));
+    }
     cpu->reset_delay_pending = true;
 }
 
@@ -7427,6 +7472,11 @@ int mos6502_load_system_roms(CPUState *cpu, const char *system_base_dir) {
 }
 
 int mos6502_load_cartridge_rom(CPUState *cpu, const char *path) {
+    (void)cpu;
+    (void)path;
+    return -1;
+}
+int mos6502_set_cartridge_dir(CPUState *cpu, const char *path) {
     (void)cpu;
     (void)path;
     return -1;
@@ -7609,8 +7659,12 @@ void mos6502_write_port(CPUState *cpu, uint16_t port, uint8_t value) {
 /* ===== Interrupts ===== */
 void mos6502_interrupt(CPUState *cpu, uint8_t vector) {
     cpu->interrupt_vector = vector;
-    cpu->interrupt_pending = true;
-    cpu_irq_trace(cpu, "request", vector, 0u);
+    if (vector == 0xFFu) {
+        cpu->nmi_pending = true;
+    } else {
+        cpu->irq_pending = true;
+    }
+    cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
 }
 
 void mos6502_set_irq(CPUState *cpu, bool enabled) {
@@ -10750,14 +10804,33 @@ char *mos6502_disassemble_instruction(uint16_t pc, uint32_t raw) {
     return buf;
 }
 
+static FILE *cpu_trace_file(void) {
+    static FILE *fp = NULL;
+    if (fp == NULL) {
+        const char *path = getenv("PASM_TRACE_FILE");
+        if (path && path[0]) { fp = fopen(path, "w"); }
+        if (fp == NULL) { fp = stdout; }
+    }
+    return fp;
+}
+
 void mos6502_trace_instruction(CPUState *cpu, DecodedInstruction *inst) {
-    (void)cpu;
     if (!inst) return;
     uint32_t raw_for_disasm = inst->raw;
     if (inst->prefix != 0) {
         raw_for_disasm = ((uint32_t)inst->prefix) | (inst->raw << 8);
     }
-    printf("[TRACE] %s\n", mos6502_disassemble_instruction(inst->pc, raw_for_disasm));
+
+    FILE *fp = cpu_trace_file();
+    fprintf(fp, "[TRACE] PC:0x%04X  %-20s A:0x%02X X:0x%02X Y:0x%02X SP:0x%02X P:0x%02X\n",
+            inst->pc,
+            mos6502_disassemble_instruction(inst->pc, raw_for_disasm),
+            cpu->registers[REG_A],
+            cpu->registers[REG_X],
+            cpu->registers[REG_Y],
+            cpu->sp,
+            cpu->flags.raw);
+    fflush(fp);
 }
 
 /* ===== Hook API ===== */

@@ -4,6 +4,12 @@ metadata:
   model: sms_mapper_korean_msx_8k
   version: "1.0"
 
+allowed_extensions:
+  - sms
+  - gg
+  - rom
+  - bin
+
 state:
   - name: rom_data
     type: uint8_t *

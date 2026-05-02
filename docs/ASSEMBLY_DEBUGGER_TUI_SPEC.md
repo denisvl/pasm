@@ -14,6 +14,7 @@ This is the canonical debugger spec for current behavior.
 - `PASM_EMU_DIR=<generated_out_dir>`.
 - `--system-dir <dir>` so runtime ROM manifests can be loaded.
 - Optional `--cart-rom <file>` for cartridge-enabled systems.
+- Optional `--cartridge-dir <dir>` to enable runtime cartridge picker overlays (system-dependent).
 - Optional `--start-pc <addr>` (hex like `0xC000` or decimal).
 - Optional `--run-speed realtime|max` (alias: `--speed`).
 
@@ -76,6 +77,11 @@ Current keymap:
 - `o`: toggle overlay
 - `q` or `Ctrl+C`: quit
 
+Cartridge picker key (emulator window focus):
+- `F12`: Toggle cartridge picker overlay (for systems that support picker + `--cartridge-dir`).
+- Navigation: `Up` / `Down`; `Enter` to queue+load+reset; `Esc` to cancel.
+- Picker controls are handled in the emulator SDL window, not the TUI terminal.
+
 ## Run Control Semantics
 - Step commands execute through backend (`step_into`, `step_over`, `step_out`).
 - `Run To Cursor` sets a temporary breakpoint when needed, starts run mode, and cleans the temporary breakpoint on stop.
@@ -90,6 +96,10 @@ The linked backend relies on generated debug ABI symbols, including:
 - ROM loading: `pasm_dbg_load_system_roms`, `pasm_dbg_load_cartridge_rom`
 
 This keeps the TUI generic; processor/system-specific behavior comes from generated emulator data.
+
+Status line behavior:
+- While running, TUI updates the top status line/ROM label without forcing a full snapshot refresh.
+- Cartridge swaps via picker update the `ROM ...` label based on emulator-reported status.
 
 ## Current Constraints
 - Linked mode requires building generated emulator artifacts before running the TUI.

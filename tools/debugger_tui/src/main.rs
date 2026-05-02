@@ -103,6 +103,7 @@ fn run_ui(mut app: App, use_alt_screen: bool) -> Result<(), String> {
     let mut terminal = Terminal::new(backend).map_err(|e| e.to_string())?;
 
     let mut last_tick = Instant::now();
+    let mut last_draw = Instant::now();
     let mut needs_draw = true;
 
     loop {
@@ -111,6 +112,7 @@ fn run_ui(mut app: App, use_alt_screen: bool) -> Result<(), String> {
                 .draw(|frame| ui::draw(frame, &app))
                 .map_err(|e| e.to_string())?;
             needs_draw = false;
+            last_draw = Instant::now();
         }
 
         if app.should_quit {
@@ -118,7 +120,10 @@ fn run_ui(mut app: App, use_alt_screen: bool) -> Result<(), String> {
         }
 
         let tick_rate = if app.snapshot.core.mode == DebuggerMode::Running {
-            Duration::from_millis(16)
+            match app.run_speed_mode {
+                RunSpeedMode::Max => Duration::from_millis(1),
+                RunSpeedMode::Realtime => Duration::from_millis(16),
+            }
         } else {
             // Keep paused refreshes sparse so terminal selection/copy is usable.
             Duration::from_millis(1500)
@@ -145,7 +150,14 @@ fn run_ui(mut app: App, use_alt_screen: bool) -> Result<(), String> {
             // Anchor the next tick to the timestamp captured before running
             // the emulation slice so runtime cost is included in pacing.
             last_tick = now;
-            needs_draw = true;
+            if app.snapshot.core.mode == DebuggerMode::Running
+                && matches!(app.run_speed_mode, RunSpeedMode::Max)
+            {
+                // Prioritize throughput; redraw ~10 FPS while running max.
+                needs_draw = now.saturating_duration_since(last_draw) >= Duration::from_millis(100);
+            } else {
+                needs_draw = true;
+            }
         }
     }
 

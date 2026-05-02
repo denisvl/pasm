@@ -93,6 +93,10 @@ GLFW_SCANCODE_KEYS = {
     "F6",
     "F7",
     "F8",
+    "F9",
+    "F10",
+    "F11",
+    "F12",
     "G",
     "GRAVE",
     "H",
@@ -257,6 +261,7 @@ def generate_cpu_impl(
     dispatch_code = _generate_dispatch(isa_data, cpu_prefix, dispatch_mode)
     disassembler_code = _generate_disassembler(isa_data, cpu_prefix)
     interrupt_reset = _generate_interrupt_reset(isa_data, cpu_prefix)
+    interrupt_reset_post = _generate_interrupt_reset_post(isa_data, cpu_prefix)
     register_field_reset = _generate_register_field_reset(isa_data)
     shadow_flags_reset = _generate_shadow_flags_reset(isa_data)
     interrupt_impl = _generate_interrupt_impl(isa_data, cpu_prefix)
@@ -307,6 +312,7 @@ def generate_cpu_impl(
         dispatch_code=dispatch_code,
         disassembler_code=disassembler_code,
         interrupt_reset=interrupt_reset,
+        interrupt_reset_post=interrupt_reset_post,
         register_field_reset=register_field_reset,
         shadow_flags_reset=shadow_flags_reset,
         interrupt_impl=interrupt_impl,
@@ -931,48 +937,6 @@ def _generate_helpers(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     lines.append("}")
     lines.append("")
 
-    if interrupt_model != "none":
-        lines.append("static FILE *cpu_irq_trace_file(void) {")
-        lines.append("    static int initialized = -1;")
-        lines.append("    static FILE *fp = NULL;")
-        lines.append("    if (initialized < 0) {")
-        lines.append('        const char *env = getenv("PASM_IRQ_TRACE");')
-        lines.append(
-            "        initialized = (env != NULL && env[0] != '\\0' && env[0] != '0') ? 1 : 0;"
-        )
-        lines.append("        if (initialized != 0) {")
-        lines.append('            const char *path = getenv("PASM_IRQ_TRACE_FILE");')
-        lines.append(
-            '            if (path == NULL || path[0] == \'\\0\') path = "pasm_irq_trace.log";'
-        )
-        lines.append('            fp = fopen(path, "a");')
-        lines.append("            if (fp == NULL) initialized = 0;")
-        lines.append("        }")
-        lines.append("    }")
-        lines.append("    return (initialized != 0) ? fp : NULL;")
-        lines.append("}")
-        lines.append("")
-        lines.append(
-            "static void cpu_irq_trace(CPUState *cpu, const char *phase, uint8_t vector, uint16_t vector_addr) {"
-        )
-        lines.append("    FILE *fp = cpu_irq_trace_file();")
-        lines.append("    if (fp == NULL || cpu == NULL) return;")
-        lines.append(
-            '    fprintf(fp, "irq %s cyc=%llu pc=%04X sp=%04X vec=%02X vaddr=%04X pend=%u en=%u flags=%02X\\n",'
-        )
-        lines.append('            (phase != NULL) ? phase : "?",')
-        lines.append("            (unsigned long long)cpu->total_cycles,")
-        lines.append("            (unsigned int)(cpu->pc & 0xFFFFu),")
-        lines.append("            (unsigned int)(cpu->sp & 0xFFFFu),")
-        lines.append("            (unsigned int)vector,")
-        lines.append("            (unsigned int)(vector_addr & 0xFFFFu),")
-        lines.append("            (unsigned int)(cpu->interrupt_pending ? 1u : 0u),")
-        lines.append("            (unsigned int)(cpu->interrupts_enabled ? 1u : 0u),")
-        lines.append("            (unsigned int)cpu->flags.raw);")
-        lines.append("    fflush(fp);")
-        lines.append("}")
-        lines.append("")
-
     register_names = {
         str(register.get("name", "")).upper() for register in isa_data.get("registers", [])
     }
@@ -1289,6 +1253,10 @@ def _generate_cartridge_rom_loader(isa_data: Dict[str, Any], cpu_prefix: str) ->
         raise ValueError(
             f"Cartridge '{comp_id}' must declare state fields rom_data and rom_size"
         )
+    has_enabled_flag = "cart_enabled" in state_names
+    has_image_parsed = "image_parsed" in state_names
+    has_image_off = "image_off" in state_names
+    has_image_len = "image_len" in state_names
 
     lines: List[str] = [
         f"int {cpu_prefix}_load_cartridge_rom(CPUState *cpu, const char *path) {{",
@@ -1317,6 +1285,26 @@ def _generate_cartridge_rom_loader(isa_data: Dict[str, Any], cpu_prefix: str) ->
         "    }",
         "    comp->rom_data = buf;",
         "    comp->rom_size = (uint32_t)file_size;",
+        *(
+            ["    comp->image_parsed = 0u;"]
+            if has_image_parsed
+            else []
+        ),
+        *(
+            ["    comp->image_off = 0u;"]
+            if has_image_off
+            else []
+        ),
+        *(
+            ["    comp->image_len = 0u;"]
+            if has_image_len
+            else []
+        ),
+        *(
+            ["    comp->cart_enabled = 1u;"]
+            if has_enabled_flag
+            else []
+        ),
         "    snprintf(",
         "        cpu->loaded_rom_debug,",
         "        sizeof(cpu->loaded_rom_debug),",
@@ -1355,6 +1343,37 @@ def _generate_ic_runtime_blocks(
     )
     cartridge = isa_data.get("cartridge", {}) or {}
     has_runtime_cartridge = bool(cartridge)
+    default_cart_exts = [
+        "rom",
+        "bin",
+        "a26",
+        "nes",
+        "sms",
+        "gg",
+        "sg",
+        "mx1",
+        "col",
+        "atr",
+        "car",
+        "cas",
+        "tap",
+        "d64",
+    ]
+    cart_exts_raw = cartridge.get("allowed_extensions", []) if cartridge else []
+    cart_exts: List[str] = []
+    if isinstance(cart_exts_raw, list):
+        for item in cart_exts_raw:
+            ext = str(item).strip().lower()
+            if ext.startswith("."):
+                ext = ext[1:]
+            if not ext or len(ext) >= 16:
+                continue
+            if not re.fullmatch(r"[a-z0-9_+-]+", ext):
+                continue
+            if ext not in cart_exts:
+                cart_exts.append(ext)
+    if not cart_exts:
+        cart_exts = default_cart_exts
     if cartridge:
         components.append(cartridge)
     if not components:
@@ -1386,6 +1405,17 @@ def _generate_ic_runtime_blocks(
     host_backend_target = _single_host_backend_target(isa_data)
     host_uses_sdl2_backend = host_backend_target == "sdl2"
     host_uses_glfw_backend = host_backend_target == "glfw"
+    picker_font_scale = 1
+    for host in isa_data.get("hosts", []):
+        if not isinstance(host, dict):
+            continue
+        ui = host.get("ui", {})
+        if not isinstance(ui, dict):
+            continue
+        raw_scale = ui.get("cartridge_picker_font_scale")
+        if isinstance(raw_scale, int):
+            picker_font_scale = max(0, min(4, raw_scale))
+            break
 
     def _ident(name: str) -> str:
         return _to_c_ident(name)
@@ -1445,6 +1475,7 @@ def _generate_ic_runtime_blocks(
         ");",
         "static int cpu_component_cartridge_picker_set_dir(const char *path);",
         "static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);",
+        f"static const int g_runtime_cartridge_picker_font_scale = {picker_font_scale};",
         "",
         "typedef struct {",
         "    uint8_t row;",
@@ -1694,6 +1725,10 @@ def _generate_ic_runtime_blocks(
                 "#define GLFW_KEY_F6 295",
                 "#define GLFW_KEY_F7 296",
                 "#define GLFW_KEY_F8 297",
+                "#define GLFW_KEY_F9 298",
+                "#define GLFW_KEY_F10 299",
+                "#define GLFW_KEY_F11 300",
+                "#define GLFW_KEY_F12 301",
                 "#define GLFW_KEY_KP_0 320",
                 "#define GLFW_KEY_KP_1 321",
                 "#define GLFW_KEY_KP_2 322",
@@ -1748,6 +1783,10 @@ def _generate_ic_runtime_blocks(
                 "    CPU_GLFW_SC_F6,",
                 "    CPU_GLFW_SC_F7,",
                 "    CPU_GLFW_SC_F8,",
+                "    CPU_GLFW_SC_F9,",
+                "    CPU_GLFW_SC_F10,",
+                "    CPU_GLFW_SC_F11,",
+                "    CPU_GLFW_SC_F12,",
                 "    CPU_GLFW_SC_G,",
                 "    CPU_GLFW_SC_GRAVE,",
                 "    CPU_GLFW_SC_H,",
@@ -2529,6 +2568,10 @@ def _generate_ic_runtime_blocks(
                 "        case CPU_GLFW_SC_F6: return GLFW_KEY_F6;",
                 "        case CPU_GLFW_SC_F7: return GLFW_KEY_F7;",
                 "        case CPU_GLFW_SC_F8: return GLFW_KEY_F8;",
+                "        case CPU_GLFW_SC_F9: return GLFW_KEY_F9;",
+                "        case CPU_GLFW_SC_F10: return GLFW_KEY_F10;",
+                "        case CPU_GLFW_SC_F11: return GLFW_KEY_F11;",
+                "        case CPU_GLFW_SC_F12: return GLFW_KEY_F12;",
                 "        case CPU_GLFW_SC_G: return GLFW_KEY_G;",
                 "        case CPU_GLFW_SC_GRAVE: return GLFW_KEY_GRAVE_ACCENT;",
                 "        case CPU_GLFW_SC_H: return GLFW_KEY_H;",
@@ -2712,6 +2755,10 @@ def _generate_ic_runtime_blocks(
                 "        case GLFW_KEY_F6: return \"F6\";",
                 "        case GLFW_KEY_F7: return \"F7\";",
                 "        case GLFW_KEY_F8: return \"F8\";",
+                "        case GLFW_KEY_F9: return \"F9\";",
+                "        case GLFW_KEY_F10: return \"F10\";",
+                "        case GLFW_KEY_F11: return \"F11\";",
+                "        case GLFW_KEY_F12: return \"F12\";",
                 "        case GLFW_KEY_LEFT_CONTROL: return \"LCTRL\";",
                 "        case GLFW_KEY_RIGHT_CONTROL: return \"RCTRL\";",
                 "        case GLFW_KEY_LEFT_SHIFT: return \"LSHIFT\";",
@@ -4933,20 +4980,10 @@ def _generate_ic_runtime_blocks(
                 "        ext[i] = c;",
                 "    }",
                 "    ext[n] = '\\0';",
-                "    if (strcmp(ext, \"rom\") == 0) return 1u;",
-                "    if (strcmp(ext, \"bin\") == 0) return 1u;",
-                "    if (strcmp(ext, \"a26\") == 0) return 1u;",
-                "    if (strcmp(ext, \"nes\") == 0) return 1u;",
-                "    if (strcmp(ext, \"sms\") == 0) return 1u;",
-                "    if (strcmp(ext, \"gg\") == 0) return 1u;",
-                "    if (strcmp(ext, \"sg\") == 0) return 1u;",
-                "    if (strcmp(ext, \"mx1\") == 0) return 1u;",
-                "    if (strcmp(ext, \"col\") == 0) return 1u;",
-                "    if (strcmp(ext, \"atr\") == 0) return 1u;",
-                "    if (strcmp(ext, \"car\") == 0) return 1u;",
-                "    if (strcmp(ext, \"cas\") == 0) return 1u;",
-                "    if (strcmp(ext, \"tap\") == 0) return 1u;",
-                "    if (strcmp(ext, \"d64\") == 0) return 1u;",
+                *[
+                    f'    if (strcmp(ext, "{_escape_c_string(ext)}") == 0) return 1u;'
+                    for ext in cart_exts
+                ],
                 "    return 0u;",
                 "}",
                 "",
@@ -5101,6 +5138,7 @@ def _generate_ic_runtime_blocks(
                 "static void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {",
                 "    int key_count = 0;",
                 "    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);",
+                "    static int raw_picker_keys_enabled = -1;",
                 "    uint8_t trig;",
                 "    uint8_t raw_trig = 0u;",
                 "    uint8_t up;",
@@ -5109,11 +5147,13 @@ def _generate_ic_runtime_blocks(
                 "    uint8_t esc;",
                 "    if (!cpu) return;",
                 "    if (g_runtime_cartridge_picker.supported == 0u) return;",
+                "    if (raw_picker_keys_enabled < 0) {",
+                "        const char *env = getenv(\"PASM_EMU_CART_PICKER_RAW_KEYS\");",
+                "        raw_picker_keys_enabled = (env == NULL || env[0] == '\\0' || env[0] != '0') ? 1 : 0;",
+                "    }",
                 "    trig = cpu_component_keyboard_emulator_action_pressed(\"EMU_CART_PICKER\", ks, (size_t)((key_count < 0) ? 0 : key_count), has_focus);",
-                "    if (ks != NULL && key_count > 0) {",
-                "        if ((size_t)CPU_HOST_SCANCODE(F6) < (size_t)key_count && ks[CPU_HOST_SCANCODE(F6)] != 0u) raw_trig = 1u;",
-                "        if ((size_t)CPU_HOST_SCANCODE(F5) < (size_t)key_count && ks[CPU_HOST_SCANCODE(F5)] != 0u) raw_trig = 1u;",
-                "        if ((size_t)CPU_HOST_SCANCODE(P) < (size_t)key_count && ks[CPU_HOST_SCANCODE(P)] != 0u) raw_trig = 1u;",
+                "    if (raw_picker_keys_enabled != 0 && ks != NULL && key_count > 0) {",
+                "        if ((size_t)CPU_HOST_SCANCODE(F12) < (size_t)key_count && ks[CPU_HOST_SCANCODE(F12)] != 0u) raw_trig = 1u;",
                 "    }",
                 "    if (raw_trig != 0u) trig = 1u;",
                 "    if (trig != 0u && g_runtime_cartridge_picker.action_prev == 0u) {",
@@ -5151,6 +5191,12 @@ def _generate_ic_runtime_blocks(
                 "            const RuntimeCartridgeEntry *sel = &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.selected];",
                 "            snprintf(g_runtime_cartridge_picker.pending_path, sizeof(g_runtime_cartridge_picker.pending_path), \"%s\", sel->rom_path);",
                 "            g_runtime_cartridge_picker.pending_swap = 1u;",
+                "            snprintf(",
+                "                cpu->loaded_rom_debug,",
+                "                sizeof(cpu->loaded_rom_debug),",
+                "                \"name=cartridge path=%s\",",
+                "                sel->rom_path",
+                "            );",
                 "            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), \"queued: %s\", sel->file_name);",
                 "        }",
                 "        g_runtime_cartridge_picker.active = 0u;",
@@ -5170,31 +5216,164 @@ def _generate_ic_runtime_blocks(
                 "        g_runtime_cartridge_picker.pending_path[0] = '\\0';",
                 "        return -1;",
                 "    }",
-                "    if (cpu->memory != NULL && cpu->memory_size > 0u) memset(cpu->memory, 0, cpu->memory_size);",
-                "    if (cpu->port_memory != NULL && cpu->port_size > 0u) memset(cpu->port_memory, 0, cpu->port_size);",
-                f"    {cpu_prefix}_reset(cpu);",
+                "    {",
+                "        const char *sysdir = getenv(\"PASM_SYSTEM_DIR\");",
+                "        if (sysdir != NULL && sysdir[0] != '\\0') {",
+                "            if (cpu->memory != NULL && cpu->memory_size > 0u) {",
+                "                memset(cpu->memory, 0, (size_t)cpu->memory_size);",
+                "            }",
+                "            if (cpu->port_memory != NULL && cpu->port_size > 0u) {",
+                "                memset(cpu->port_memory, 0, (size_t)cpu->port_size);",
+                "            }",
+                f"            if ({cpu_prefix}_load_system_roms(cpu, sysdir) != 0) {{",
+                "                snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), \"system ROM reload failed\");",
+                "                g_runtime_cartridge_picker.pending_swap = 0u;",
+                "                g_runtime_cartridge_picker.pending_path[0] = '\\0';",
+                "                return -1;",
+                "            }",
+                "        } else {",
+                "            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), \"system dir missing; reusing current memory image\");",
+                "        }",
+                "    }",
                 f"    {cpu_prefix}_reset(cpu);",
                 "    cpu->running = true;",
                 "    cpu->halted = false;",
                 "    cpu->error_code = CPU_ERROR_NONE;",
+                "    snprintf(",
+                "        cpu->loaded_rom_debug,",
+                "        sizeof(cpu->loaded_rom_debug),",
+                "        \"name=cartridge path=%s\",",
+                "        g_runtime_cartridge_picker.pending_path",
+                "    );",
                 "    g_runtime_cartridge_picker.pending_swap = 0u;",
                 "    g_runtime_cartridge_picker.pending_path[0] = '\\0';",
                 "    return 1;",
                 "}",
                 "",
+                "static void cpu_component_cartridge_picker_draw_text(",
+                "    uint32_t *pixels,",
+                "    uint32_t w,",
+                "    uint32_t h,",
+                "    int x,",
+                "    int y,",
+                "    const char *text,",
+                "    int scale,",
+                "    uint32_t color",
+                ") {",
+                "    if (!text || text[0] == '\\0') return;",
+                "    if (scale > 0) {",
+                "        sms_overlay_draw_text(pixels, w, h, x, y, text, scale, color);",
+                "        return;",
+                "    }",
+                "    {",
+                "        int cx = x;",
+                "        for (const char *p = text; *p; ++p) {",
+                "            const uint8_t *glyph = sms_overlay_glyph(*p);",
+                "            for (int row = 0; row < 7; row += 2) {",
+                "                uint8_t bits = glyph[row];",
+                "                int ty = y + (row / 2);",
+                "                for (int col = 0; col < 5; col += 2) {",
+                "                    if ((bits & (uint8_t)(1u << (4 - col))) == 0u) continue;",
+                "                    sms_overlay_put_pixel(pixels, w, h, cx + (col / 2), ty, color);",
+                "                }",
+                "            }",
+                "            cx += 4;",
+                "        }",
+                "    }",
+                "}",
+                "",
+                "static void cpu_component_cartridge_picker_draw_text_fit(",
+                "    uint32_t *pixels,",
+                "    uint32_t w,",
+                "    uint32_t h,",
+                "    int x,",
+                "    int y,",
+                "    const char *text,",
+                "    int scale,",
+                "    uint32_t color,",
+                "    int max_px",
+                ") {",
+                "    char buf[320];",
+                "    size_t n = 0u;",
+                "    int cell_px = (scale > 0) ? (6 * scale) : 4;",
+                "    int max_chars;",
+                "    if (!text || text[0] == '\\0') return;",
+                "    if (cell_px <= 0) cell_px = 1;",
+                "    max_chars = (max_px > 0) ? (max_px / cell_px) : 0;",
+                "    if (max_chars <= 0) return;",
+                "    while (text[n] != '\\0' && n < (size_t)max_chars && n < sizeof(buf) - 1u) {",
+                "        buf[n] = text[n];",
+                "        n++;",
+                "    }",
+                "    if (text[n] != '\\0' && n >= 3u) {",
+                "        buf[n - 3u] = '.';",
+                "        buf[n - 2u] = '.';",
+                "        buf[n - 1u] = '.';",
+                "    }",
+                "    buf[n] = '\\0';",
+                "    cpu_component_cartridge_picker_draw_text(pixels, w, h, x, y, buf, scale, color);",
+                "}",
+                "",
+                "static int cpu_component_cartridge_picker_draw_text_wrap(",
+                "    uint32_t *pixels,",
+                "    uint32_t w,",
+                "    uint32_t h,",
+                "    int x,",
+                "    int y,",
+                "    const char *text,",
+                "    int scale,",
+                "    uint32_t color,",
+                "    int max_px,",
+                "    int max_lines",
+                ") {",
+                "    char line[320];",
+                "    int cell_px = (scale > 0) ? (6 * scale) : 4;",
+                "    int max_chars;",
+                "    int lines_drawn = 0;",
+                "    const char *p = text;",
+                "    if (!text || text[0] == '\\0' || max_lines <= 0) return 0;",
+                "    if (cell_px <= 0) cell_px = 1;",
+                "    max_chars = (max_px > 0) ? (max_px / cell_px) : 0;",
+                "    if (max_chars <= 0) return 0;",
+                "    while (*p != '\\0' && lines_drawn < max_lines) {",
+                "        int n = 0;",
+                "        int last_space = -1;",
+                "        const char *seg = p;",
+                "        while (seg[n] != '\\0' && seg[n] != '\\n' && n < max_chars && n < (int)sizeof(line) - 1) {",
+                "            if (seg[n] == ' ') last_space = n;",
+                "            n++;",
+                "        }",
+                "        if (seg[n] != '\\0' && seg[n] != '\\n' && n == max_chars && last_space > 0) {",
+                "            n = last_space;",
+                "        }",
+                "        if (n <= 0) n = (seg[0] != '\\0') ? 1 : 0;",
+                "        if (n <= 0) break;",
+                "        memcpy(line, seg, (size_t)n);",
+                "        line[n] = '\\0';",
+                "        cpu_component_cartridge_picker_draw_text(pixels, w, h, x, y + lines_drawn * ((scale > 0) ? (8 * scale + 1) : 5), line, scale, color);",
+                "        lines_drawn++;",
+                "        p = seg + n;",
+                "        while (*p == ' ') p++;",
+                "        if (*p == '\\n') p++;",
+                "    }",
+                "    return lines_drawn;",
+                "}",
+                "",
                 "static void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {",
-                "    int scale = 1;",
+                "    int scale = g_runtime_cartridge_picker_font_scale;",
                 "    int x = 10;",
                 "    int y = 24;",
-                "    int row_h = 9;",
+                "    int row_h = (scale > 0) ? (8 * scale + 1) : 5;",
                 "    int max_rows = 10;",
+                "    int right_pad = 14;",
+                "    int text_w = (int)w - x - right_pad;",
                 "    size_t first;",
                 "    (void)cpu;",
                 "    if (!pixels || w == 0u || h == 0u) return;",
                 "    if (g_runtime_cartridge_picker.active == 0u) return;",
                 "    if (g_runtime_cartridge_picker.entry_count == 0u) return;",
                 "    sms_overlay_fill_rect_alpha(pixels, w, h, 6, 20, (int)w - 12, (int)h - 26, 0x00101010u, 190u);",
-                "    sms_overlay_draw_text(pixels, w, h, x, y, \"CARTRIDGE PICKER\", scale, 0xFFFFFFFFu);",
+                "    cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, y, \"CARTRIDGE PICKER\", scale, 0xFFFFFFFFu, text_w);",
                 "    y += row_h * 2;",
                 "    first = (g_runtime_cartridge_picker.selected >= 4u) ? (g_runtime_cartridge_picker.selected - 4u) : 0u;",
                 "    for (int i = 0; i < max_rows; ++i) {",
@@ -5205,24 +5384,25 @@ def _generate_ic_runtime_blocks(
                 "        uint32_t fg = (idx == g_runtime_cartridge_picker.selected) ? 0xFF00FF9Fu : 0xFFE0E0E0u;",
                 "        if (e->title[0] != '\\0') snprintf(line, sizeof(line), \"%s (%s)\", e->title, (e->release_year[0] ? e->release_year : \"?\"));",
                 "        else snprintf(line, sizeof(line), \"%s\", e->file_name);",
-                "        sms_overlay_draw_text(pixels, w, h, x, y + i * row_h, line, scale, fg);",
+                "        cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, y + i * row_h, line, scale, fg, text_w);",
                 "    }",
                 "    {",
                 "        const RuntimeCartridgeEntry *sel = &g_runtime_cartridge_picker.entries[g_runtime_cartridge_picker.selected];",
                 "        int info_y = y + max_rows * row_h + 8;",
                 "        char info[384];",
                 "        snprintf(info, sizeof(info), \"FILE: %s\", sel->file_name);",
-                "        sms_overlay_draw_text(pixels, w, h, x, info_y, info, scale, 0xFFC8C8FFu);",
+                "        int file_lines = cpu_component_cartridge_picker_draw_text_wrap(pixels, w, h, x, info_y, info, scale, 0xFFC8C8FFu, text_w, 6);",
+                "        if (file_lines <= 0) file_lines = 1;",
                 "        if (sel->description[0] != '\\0') {",
-                "            sms_overlay_draw_text(pixels, w, h, x, info_y + row_h, sel->description, scale, 0xFFDDDDDDu);",
+                "            cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, info_y + (file_lines * row_h), sel->description, scale, 0xFFDDDDDDu, text_w);",
                 "        }",
                 "        if (sel->image_path[0] != '\\0') {",
                 "            char img[320];",
                 "            snprintf(img, sizeof(img), \"IMG: %s\", sel->image_path);",
-                "            sms_overlay_draw_text(pixels, w, h, x, info_y + row_h * 2, img, scale, 0xFFBBBBBBu);",
+                "            cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, info_y + ((file_lines + 1) * row_h), img, scale, 0xFFBBBBBBu, text_w);",
                 "        }",
                 "    }",
-                "    sms_overlay_draw_text(pixels, w, h, x, (int)h - 14, \"UP/DOWN SELECT  ENTER LOAD+RESET  ESC CANCEL\", scale, 0xFFFFFFA0u);",
+                "    cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, (int)h - ((scale > 0) ? (14 * scale) : 8), \"UP/DOWN SELECT  ENTER LOAD+RESET  ESC CANCEL\", scale, 0xFFFFFFA0u, text_w);",
                 "}",
                 "",
             ]
@@ -5904,18 +6084,61 @@ def _generate_disassembler(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     lines.append("}")
     lines.append("")
 
+    lines.append("static FILE *cpu_trace_file(void) {")
+    lines.append("    static FILE *fp = NULL;")
+    lines.append("    if (fp == NULL) {")
+    lines.append('        const char *path = getenv("PASM_TRACE_FILE");')
+    lines.append('        if (path && path[0]) { fp = fopen(path, "w"); }')
+    lines.append("        if (fp == NULL) { fp = stdout; }")
+    lines.append("    }")
+    lines.append("    return fp;")
+    lines.append("}")
+    lines.append("")
+
     lines.append(
         f"void {cpu_prefix}_trace_instruction(CPUState *cpu, DecodedInstruction *inst) {{"
     )
-    lines.append("    (void)cpu;")
     lines.append("    if (!inst) return;")
     lines.append("    uint32_t raw_for_disasm = inst->raw;")
     lines.append("    if (inst->prefix != 0) {")
     lines.append("        raw_for_disasm = ((uint32_t)inst->prefix) | (inst->raw << 8);")
     lines.append("    }")
-    lines.append(
-        f'    printf("[TRACE] %s\\n", {cpu_prefix}_disassemble_instruction(inst->pc, raw_for_disasm));'
-    )
+    lines.append("")
+
+    # Collect registers for trace
+    registers = isa_data.get("registers", [])
+    trace_fmt = "[TRACE] PC:0x%04X  %-20s"
+    trace_args = ["inst->pc", f"{cpu_prefix}_disassemble_instruction(inst->pc, raw_for_disasm)"]
+
+    for reg in registers:
+        name = reg.get("name", "").upper()
+        c_name = name.replace("'", "_PRIME")
+        reg_type = reg.get("type", "general")
+        bits = int(reg.get("bits", 8))
+        fmt_width = bits // 4
+        if fmt_width == 0: fmt_width = 2
+
+        if reg_type == "program_counter":
+            continue
+
+        trace_fmt += f" {name}:0x%0{fmt_width}X"
+        if reg_type == "stack_pointer":
+            trace_args.append("cpu->sp")
+        elif reg_type in ("index", "special"):
+            trace_args.append(f"cpu->{name.lower()}")
+        else:
+            trace_args.append(f"cpu->registers[REG_{c_name}]")
+
+    if isa_data.get("flags"):
+        trace_fmt += " P:0x%02X"
+        trace_args.append("cpu->flags.raw")
+
+    lines.append("    FILE *fp = cpu_trace_file();")
+    lines.append(f'    fprintf(fp, "{trace_fmt}\\n",')
+    for i, arg in enumerate(trace_args):
+        comma = "," if i < len(trace_args) - 1 else ");"
+        lines.append(f"            {arg}{comma}")
+    lines.append("    fflush(fp);")
     lines.append("}")
 
     return "\n".join(lines)
@@ -5934,9 +6157,9 @@ def _generate_interrupt_reset(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
 
     lines.extend(["    cpu->interrupt_vector = 0;"])
     if model == "mos6502":
-        lines.append("    cpu->sp = 0xFDu;")
-        lines.append("    cpu->flags.I = true;")
-        lines.append(f"    cpu->pc = {cpu_prefix}_read_word(cpu, 0xFFFCu);")
+        lines.append("    cpu->sp = 0xF8u;")
+        lines.append("    cpu->registers[REG_Y] = 0x1Au;")
+        lines.append("    cpu->flags.raw = 0x34u;")
     elif model == "mc6809":
         # MC6809 RESET masks both IRQ (I) and FIRQ (F).
         lines.append("    cpu->flags.I = true;")
@@ -5947,7 +6170,18 @@ def _generate_interrupt_reset(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
             "    cpu->interrupt_pending = false;",
         ]
     )
+    if model == "mos6502":
+        lines.append("    cpu->irq_pending = false;")
+        lines.append("    cpu->nmi_pending = false;")
     return "\n".join(lines)
+
+
+def _generate_interrupt_reset_post(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
+    """Generate reset assignments that must happen after component reset."""
+    model = resolve_interrupt_model(isa_data)
+    if model == "mos6502":
+        return f"    cpu->pc = {cpu_prefix}_read_word(cpu, 0xFFFCu);"
+    return ""
 
 
 def _generate_register_field_reset(isa_data: Dict[str, Any]) -> str:
@@ -5997,9 +6231,17 @@ def _generate_interrupt_impl(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
         return "\n".join(lines)
 
     lines.append(f"void {cpu_prefix}_interrupt(CPUState *cpu, uint8_t vector) {{")
-    lines.append("    cpu->interrupt_vector = vector;")
-    lines.append("    cpu->interrupt_pending = true;")
-    lines.append('    cpu_irq_trace(cpu, "request", vector, 0u);')
+    if model == "mos6502":
+        lines.append("    cpu->interrupt_vector = vector;")
+        lines.append("    if (vector == 0xFFu) {")
+        lines.append("        cpu->nmi_pending = true;")
+        lines.append("    } else {")
+        lines.append("        cpu->irq_pending = true;")
+        lines.append("    }")
+        lines.append("    cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);")
+    else:
+        lines.append("    cpu->interrupt_vector = vector;")
+        lines.append("    cpu->interrupt_pending = true;")
     lines.append("}")
     lines.append("")
 
@@ -6168,10 +6410,11 @@ def _generate_dispatch(
     if has_interrupts and interrupt_model != "none":
         if interrupt_model == "mos6502":
             lines.append(
-                "    if (cpu->interrupt_pending && (cpu->interrupt_vector == 0xFFu || cpu->interrupts_enabled)) {"
+                "    if (cpu->nmi_pending || (cpu->irq_pending && cpu->interrupts_enabled)) {"
             )
-            lines.append("        uint8_t irq_vector = cpu->interrupt_vector;")
-            lines.append("        cpu->interrupt_pending = false;")
+            lines.append("        uint8_t irq_vector = cpu->nmi_pending ? 0xFFu : 0x00u;")
+            lines.append("        if (cpu->nmi_pending) cpu->nmi_pending = false; else cpu->irq_pending = false;")
+            lines.append("        cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);")
             lines.append("        cpu->halted = false;")
             lines.append("        {")
             lines.append("            uint8_t sp8 = (uint8_t)cpu->sp;")
@@ -6201,9 +6444,6 @@ def _generate_dispatch(
             lines.append("        cpu->interrupts_enabled = false;")
             lines.append(
                 f"        cpu->pc = (irq_vector == 0xFFu) ? {cpu_prefix}_read_word(cpu, 0xFFFAu) : {cpu_prefix}_read_word(cpu, 0xFFFEu);"
-            )
-            lines.append(
-                '        cpu_irq_trace(cpu, "take", irq_vector, (irq_vector == 0xFFu) ? 0xFFFAu : 0xFFFEu);'
             )
             lines.append("        cpu->total_cycles += 7u;")
             lines.append("        return 0;")
@@ -6307,7 +6547,6 @@ def _generate_dispatch(
                 lines.append("            if (irq_kind == 0x02u || irq_kind == 0x01u) cpu->flags.F = true;")
             lines.append("            cpu->interrupts_enabled = false;")
             lines.append(f"            cpu->pc = {cpu_prefix}_read_word(cpu, vector_addr);")
-            lines.append('            cpu_irq_trace(cpu, "take", irq_kind, vector_addr);')
             lines.append("            cpu->total_cycles += irq_cycles;")
             lines.append("            return 0;")
             lines.append("        }")
@@ -6371,18 +6610,12 @@ def _generate_dispatch(
                 raise ValueError(
                     f"Unsupported interrupt model for generation: {interrupt_model}"
                 )
-            lines.append('        cpu_irq_trace(cpu, "take", cpu->interrupt_vector, cpu->pc);')
             lines.append("        cpu->total_cycles += irq_cycles;")
             lines.append("        return 0;")
             lines.append("    }")
             lines.append("")
 
     lines.append("    if (cpu->halted) {")
-    lines.append("        if (cpu->interrupt_pending && !cpu->interrupts_enabled) {")
-    lines.append("            cpu->interrupt_pending = false;")
-    lines.append("            cpu->halted = false;")
-    lines.append("            return 0;")
-    lines.append("        }")
     lines.append("        uint16_t halted_pc = cpu->pc;")
     lines.append("        DecodedInstruction halted_inst = {0};")
     lines.append("        halted_inst.pc = halted_pc;")
@@ -6499,14 +6732,13 @@ def _generate_dispatch(
         lines.append("        cpu->running = false;")
         lines.append("        cpu->error_code = CPU_ERROR_INVALID_OPCODE;")
         lines.append(
-            '        fprintf(stderr, "Invalid opcode at 0x%04X: 0x%06X\\n", pc_before, (unsigned int)raw);'
+            '        fprintf(stderr, "KIL instruction at 0x%04X: 0x%02X\\n", pc_before, b0);'
         )
         lines.append("        return -1;")
     lines.append("    }")
+    if (cpu_prefix == 'mos6502'):
+        lines.append('    if (cpu->tracing_enabled) { mos6502_trace_instruction(cpu, &inst); }')
     lines.append("")
-    lines.append("    if (cpu->tracing_enabled) {")
-    lines.append(f"        {cpu_prefix}_trace_instruction(cpu, &inst);")
-    lines.append("    }")
     lines.append("")
     if interrupt_model == "mos6502":
         lines.append("    uint8_t x_before = cpu->registers[REG_X];")
@@ -6548,13 +6780,23 @@ def _generate_dispatch(
     lines.append("        cpu->running = false;")
     lines.append("        return -1;")
     lines.append("    }")
-    lines.append("")
-    if interrupt_model == "mos6502":
+    if (interrupt_model == "mos6502"):
         lines.append("    cpu_apply_mos6502_runtime_cycles(cpu, &inst, pc_before, x_before, y_before, c_before, z_before, n_before, v_before);")
-        lines.append("")
     if has_components:
+        lines.append("    if (!cpu->pc_modified) {")
+        lines.append("        cpu->pc = (uint16_t)(pc_before + inst.length);")
+        lines.append("        cpu->pc_modified = true;")
+        lines.append("    }")
+        lines.append("    cpu->total_cycles += inst.cycles;")
         lines.append("    cpu_components_step_post(cpu, &inst, pc_before);")
-        lines.append("")
+        if interrupt_model == "mos6502":
+            lines.append("    /* After step_post, PPU may have signalled NMI — take it immediately. */")
+            lines.append("    if (cpu->nmi_pending || (cpu->irq_pending && cpu->interrupts_enabled)) {")
+            lines.append("        cpu->current_instruction_cycles = 0u;")
+            lines.append("        cpu->io_read_phase_ppu_dots = 0u;")
+            lines.append("        return 0;")
+            lines.append("    }")
+            lines.append("")
     lines.append("    cpu->current_instruction_cycles = 0u;")
     lines.append("    cpu->io_read_phase_ppu_dots = 0u;")
     lines.append("")
@@ -6583,11 +6825,11 @@ def _generate_dispatch(
     lines.append("        cpu->pc_modified = true;")
     lines.append("    }")
     lines.append("")
-
-    lines.append("    if (!cpu->pc_modified) {")
-    lines.append("        cpu->pc = (uint16_t)(pc_before + inst.length);")
-    lines.append("    }")
-    lines.append("    cpu->total_cycles += inst.cycles;")
+    if not has_components:
+        lines.append("    if (!cpu->pc_modified) {")
+        lines.append("        cpu->pc = (uint16_t)(pc_before + inst.length);")
+        lines.append("    }")
+        lines.append("    cpu->total_cycles += inst.cycles;")
     lines.append("")
     lines.append("    return 0;")
     lines.append("}")
@@ -6601,7 +6843,10 @@ def _generate_dispatch(
     lines.append(f"void {cpu_prefix}_run_until(CPUState *cpu, uint64_t cycles) {{")
     lines.append("    while (cpu->running) {")
     lines.append("        if (cycles > 0 && cpu->total_cycles >= cycles) break;")
-    lines.append("        if (cpu->halted && !cpu->interrupt_pending) break;")
+    if interrupt_model == "mos6502":
+        lines.append("        if (cpu->halted && !(cpu->nmi_pending || cpu->irq_pending)) break;")
+    else:
+        lines.append("        if (cpu->halted && !cpu->interrupt_pending) break;")
     lines.append(f"        if ({cpu_prefix}_step(cpu) != 0) break;")
     lines.append("    }")
     lines.append("}")

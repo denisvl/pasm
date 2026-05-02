@@ -2,7 +2,7 @@
   "schema_version": 1,
   "processor_name": "MOS6510",
   "processor_version": "1.0",
-  "system_name": "C64InteractiveSystem",
+  "system_name": "C64CartridgeInteractiveSystem",
   "cpu_name": "MOS6510",
   "cpu_prefix": "mos6510",
   "cmake_library_target": "mos6510_emu",
@@ -27,8 +27,8 @@
   },
   "memory_default_size": 65536,
   "cartridge": {
-    "enabled": false,
-    "id": "",
-    "default_rom_path": ""
+    "enabled": true,
+    "id": "c64_cart0",
+    "default_rom_path": "/home/dvlop/projects/pasm/examples/roms/c64/basic.901226-01.bin"
   }
 }

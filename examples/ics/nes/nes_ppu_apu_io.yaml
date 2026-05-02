@@ -634,9 +634,8 @@ behavior:
                   comp->ppu_prevent_vbl_flag = 1u;
               }
               /* Reading $2002 acknowledges/clears a latched NMI line. Do not clear IRQs. */
-              if (cpu->interrupt_pending && cpu->interrupt_vector == 0xFFu) {
-                  cpu->interrupt_pending = false;
-              }
+              cpu->nmi_pending = false;
+              cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               comp->ppu_addr_latch = 0u;
               comp->ppu_scroll_latch = 0u;
               comp->ppu_w = 0u;
@@ -819,13 +818,9 @@ behavior:
           comp->apu_frame_irq_pending = 0u;
           {
               uint8_t cart_irq = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_irq_pending", NULL, 0);
-              if (
-                  comp->apu_dmc_irq_pending == 0u &&
-                  cart_irq == 0u &&
-                  cpu->interrupt_pending &&
-                  cpu->interrupt_vector != 0xFFu
-              ) {
-                  cpu->interrupt_pending = false;
+              if (comp->apu_dmc_irq_pending == 0u && cart_irq == 0u) {
+                  cpu->irq_pending = false;
+                  cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               }
           }
           return status;
@@ -919,7 +914,8 @@ behavior:
                   (comp->ppu_status & 0x80u) != 0u
               ) {
                   cpu->interrupt_vector = 0xFFu;
-                  cpu->interrupt_pending = true;
+                  cpu->nmi_pending = true;
+                  cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               }
               if (ppu_status_trace_fp != NULL) {
                   fprintf(
@@ -1267,14 +1263,9 @@ behavior:
           }
           {
               uint8_t cart_irq = (uint8_t)cpu_component_call(cpu, "nes_io", "cart_irq_pending", NULL, 0);
-              if (
-                  comp->apu_frame_irq_pending == 0u &&
-                  comp->apu_dmc_irq_pending == 0u &&
-                  cart_irq == 0u &&
-                  cpu->interrupt_pending &&
-                  cpu->interrupt_vector != 0xFFu
-              ) {
-                  cpu->interrupt_pending = false;
+              if (comp->apu_frame_irq_pending == 0u && comp->apu_dmc_irq_pending == 0u && cart_irq == 0u) {
+                  cpu->irq_pending = false;
+                  cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               }
           }
           return;
@@ -1377,7 +1368,8 @@ behavior:
               }
               if (comp->ppu_prevent_nmi_flag == 0u && (comp->ppu_ctrl & 0x80u) != 0u) {
                   cpu->interrupt_vector = 0xFFu;
-                  cpu->interrupt_pending = true;
+                  cpu->nmi_pending = true;
+                  cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
               }
               comp->ppu_prevent_vbl_flag = 0u;
               comp->ppu_prevent_nmi_flag = 0u;
@@ -2091,13 +2083,14 @@ behavior:
           }
 
           if (irq_now != 0u) {
-              /* Do not clobber a latched NMI (vector marker 0xFF). */
-              if (!(cpu->interrupt_pending && cpu->interrupt_vector == 0xFFu)) {
+              if (!cpu->nmi_pending) {
                   cpu->interrupt_vector = 0x00u;
-                  cpu->interrupt_pending = true;
               }
-          } else if (cpu->interrupt_pending && cpu->interrupt_vector != 0xFFu) {
-              cpu->interrupt_pending = false;
+              cpu->irq_pending = true;
+              cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
+          } else {
+              cpu->irq_pending = false;
+              cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
           }
       }
   callback_handlers: {}

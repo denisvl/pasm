@@ -12,6 +12,12 @@ set -euo pipefail
 #   OUTPUT_DIR=generated/c64_interactive
 #   EXTRA_CARGO_ARGS="--release"
 #   RUN_SPEED=realtime|max
+#   CARTRIDGE_MAP=examples/cartridges/c64/c64_cart_auto.yaml
+#   CARTRIDGE_ROM_GEN=../../roms/c64/basic.901226-01.bin
+#   CARTRIDGE_ROM_RUNTIME=/abs/path/to/cart.bin
+#   CARTRIDGE_DIR=/abs/path/to/c64/roms
+#   BOOT_CARTRIDGE=0|1
+#   PASM_EMU_CART_PICKER_RAW_KEYS=0|1
 
 PROFILE="${1:-interactive}"
 START_PC="${START_PC:-0xFCE2}"
@@ -21,12 +27,21 @@ CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/c64/host_keyboard_c64.yaml}"
 CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/c64/host_controller_c64.yaml}"
+CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/c64/c64_cart_auto.yaml}"
+CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/c64/basic.901226-01.bin}"
+CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
+CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
+BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-0}"
+PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
 mkdir -p "${UV_CACHE_DIR}"
+if [[ -z "${CARTRIDGE_DIR}" ]]; then
+  CARTRIDGE_DIR="${REPO_ROOT}/examples/roms/c64"
+fi
 
 PROCESSOR="examples/processors/mos6510.yaml"
 IC_IO="examples/ics/c64/c64_io.yaml"
@@ -38,11 +53,11 @@ HOST_INTERACTIVE="examples/hosts/c64/c64_host_hal_interactive.yaml"
 
 case "${PROFILE}" in
   default)
-    SYSTEM="examples/systems/c64/c64_default.yaml"
+    SYSTEM="examples/systems/c64/c64_cartridge_default.yaml"
     DEFAULT_OUTPUT="generated/c64"
     ;;
   interactive)
-    SYSTEM="examples/systems/c64/c64_interactive.yaml"
+    SYSTEM="examples/systems/c64/c64_cartridge_interactive.yaml"
     DEFAULT_OUTPUT="generated/c64_interactive"
     ;;
   *)
@@ -53,6 +68,28 @@ case "${PROFILE}" in
 esac
 
 SYSTEM_DIR="$(dirname "${SYSTEM}")"
+SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
+ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
+GEN_CARTRIDGE_ARGS=()
+RUN_CARTRIDGE_ARGS=()
+if [[ -n "${CARTRIDGE_ROM_RUNTIME}" ]]; then
+  ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME}"
+elif command -v realpath >/dev/null 2>&1; then
+  ROM_RUNTIME="$(realpath "${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}")"
+elif command -v readlink >/dev/null 2>&1; then
+  ROM_RUNTIME="$(readlink -f "${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}")"
+else
+  ROM_RUNTIME="${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}"
+fi
+GEN_CARTRIDGE_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_GEN}")
+if [[ ! -d "${CARTRIDGE_DIR}" ]]; then
+  echo "warning: CARTRIDGE_DIR does not exist: ${CARTRIDGE_DIR}" >&2
+  echo "         picker hotkey will appear to do nothing until this is fixed." >&2
+fi
+RUN_CARTRIDGE_ARGS+=(--cartridge-dir "${CARTRIDGE_DIR}")
+if [[ "${BOOT_CARTRIDGE}" != "0" ]]; then
+  RUN_CARTRIDGE_ARGS+=(--cart-rom "${ROM_RUNTIME}")
+fi
 
 OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
@@ -71,11 +108,13 @@ if [[ "${PROFILE}" == "interactive" ]]; then
     --device "${DEVICE_SPK}" \
     --host "${HOST_INTERACTIVE}" \
     --host-backend "${HOST_BACKEND:-sdl2}" \
+    "${GEN_CARTRIDGE_ARGS[@]}" \
     --output "${OUTPUT_DIR}"
 else
   uv run python -m src.main generate \
     --processor "${PROCESSOR}" \
     --system "${SYSTEM}" \
+    "${GEN_CARTRIDGE_ARGS[@]}" \
     --output "${OUTPUT_DIR}"
 fi
 
@@ -85,6 +124,12 @@ cmake --build "${BUILD_DIR}"
 
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED}"
+echo "    cartridge_map=${CARTRIDGE_MAP}"
+echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
+echo "    cartridge_rom_runtime=${ROM_RUNTIME}"
+echo "    cartridge_dir=${CARTRIDGE_DIR}"
+echo "    boot_cartridge=${BOOT_CARTRIDGE}"
+echo "    cart_picker_raw_keys=${PASM_EMU_CART_PICKER_RAW_KEYS}"
 
 RUN_ARGS=(
   --backend linked
@@ -97,7 +142,9 @@ if [[ "${PROFILE}" == "interactive" ]]; then
   RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
   RUN_ARGS+=(--controller-map "${CONTROLLER_MAP}")
 fi
+RUN_ARGS+=("${RUN_CARTRIDGE_ARGS[@]}")
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
+PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   "${RUN_ARGS[@]}"

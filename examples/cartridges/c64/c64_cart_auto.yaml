@@ -1,0 +1,412 @@
+metadata:
+  id: c64_cart0
+  type: cartridge_mapper
+  model: c64_cart_auto
+  version: "1.0"
+
+allowed_extensions:
+  - crt
+  - bin
+  - rom
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+  - name: image_lo_off
+    type: uint32_t
+    initial: "0"
+  - name: image_lo_len
+    type: uint32_t
+    initial: "0"
+  - name: image_hi_off
+    type: uint32_t
+    initial: "0"
+  - name: image_hi_len
+    type: uint32_t
+    initial: "0"
+  - name: image_parsed
+    type: uint8_t
+    initial: "0"
+  - name: mapper_kind
+    type: uint8_t
+    initial: "0"
+  - name: crt_hw_type
+    type: uint16_t
+    initial: "0"
+  - name: md_bank_off
+    type: uint32_t *
+    initial: "NULL"
+  - name: md_bank_len
+    type: uint16_t *
+    initial: "NULL"
+  - name: md_bank_count
+    type: uint16_t
+    initial: "0"
+  - name: md_bank_sel
+    type: uint8_t
+    initial: "0"
+  - name: md_cart_disabled
+    type: uint8_t
+    initial: "0"
+  - name: crt_exrom
+    type: uint8_t
+    initial: "1"
+  - name: crt_game
+    type: uint8_t
+    initial: "1"
+  - name: ram_lo
+    type: uint8_t *
+    initial: "NULL"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cart_window
+        start: 0x8000
+        size: 0x2000
+        access: [read, write]
+
+behavior:
+  snippets:
+    reset: |
+      if (comp->ram_lo == NULL) {
+          comp->ram_lo = (uint8_t *)calloc(0x2000u, 1u);
+      } else {
+          memset(comp->ram_lo, 0, 0x2000u);
+      }
+      if (comp->rom_data != NULL && comp->rom_size > 0u) {
+          if (comp->image_parsed == 0u) {
+              comp->image_lo_off = 0u;
+              comp->image_lo_len = 0u;
+              comp->image_hi_off = 0u;
+              comp->image_hi_len = 0u;
+              comp->crt_hw_type = 0u;
+              comp->crt_exrom = 1u;
+              comp->crt_game = 1u;
+              comp->md_bank_count = 0u;
+              comp->md_bank_sel = 0u;
+              comp->md_cart_disabled = 0u;
+              if (comp->md_bank_off != NULL) {
+                  free(comp->md_bank_off);
+                  comp->md_bank_off = NULL;
+              }
+              if (comp->md_bank_len != NULL) {
+                  free(comp->md_bank_len);
+                  comp->md_bank_len = NULL;
+              }
+              /* .crt support: parse ROML ($8000) and ROMH ($A000) CHIP packets. */
+              if (comp->rom_size >= 0x40u && memcmp(comp->rom_data, "C64 CARTRIDGE   ", 16u) == 0) {
+                  comp->crt_hw_type = (uint16_t)(((uint16_t)comp->rom_data[0x16] << 8u) | (uint16_t)comp->rom_data[0x17]);
+                  comp->crt_exrom = (uint8_t)(comp->rom_data[0x18] & 0x01u);
+                  comp->crt_game = (uint8_t)(comp->rom_data[0x19] & 0x01u);
+                  if (comp->crt_hw_type == 0x0013u) {
+                      comp->mapper_kind = 5u; /* CRT Magic Desk */
+                      comp->md_bank_off = (uint32_t *)calloc(128u, sizeof(uint32_t));
+                      comp->md_bank_len = (uint16_t *)calloc(128u, sizeof(uint16_t));
+                      if (comp->md_bank_off == NULL || comp->md_bank_len == NULL) {
+                          if (comp->md_bank_off != NULL) free(comp->md_bank_off);
+                          if (comp->md_bank_len != NULL) free(comp->md_bank_len);
+                          comp->md_bank_off = NULL;
+                          comp->md_bank_len = NULL;
+                          comp->mapper_kind = 3u;
+                      }
+                  } else {
+                      comp->mapper_kind = 3u; /* CRT */
+                  }
+                  uint32_t pos = 0x40u;
+                  while (pos + 0x10u <= comp->rom_size) {
+                      const uint8_t *h = comp->rom_data + pos;
+                      uint32_t packet_len;
+                      uint16_t chip_type;
+                      uint16_t chip_bank;
+                      uint16_t load_addr;
+                      uint16_t chip_len;
+                      if (memcmp(h, "CHIP", 4u) != 0) {
+                          break;
+                      }
+                      packet_len = ((uint32_t)h[4] << 24u) | ((uint32_t)h[5] << 16u) | ((uint32_t)h[6] << 8u) | (uint32_t)h[7];
+                      chip_type = (uint16_t)(((uint16_t)h[8] << 8u) | (uint16_t)h[9]);
+                      chip_bank = (uint16_t)(((uint16_t)h[10] << 8u) | (uint16_t)h[11]);
+                      load_addr = (uint16_t)(((uint16_t)h[12] << 8u) | (uint16_t)h[13]);
+                      chip_len = (uint16_t)(((uint16_t)h[14] << 8u) | (uint16_t)h[15]);
+                      if (packet_len < 0x10u) {
+                          break;
+                      }
+                      if (chip_type == 0u && chip_len != 0u) {
+                          uint32_t data_off = pos + 0x10u;
+                          uint32_t data_len = (uint32_t)chip_len;
+                          if (data_off <= comp->rom_size && data_len <= (comp->rom_size - data_off)) {
+                              if (comp->mapper_kind == 5u && comp->md_bank_off != NULL && comp->md_bank_len != NULL &&
+                                  load_addr == 0x8000u && chip_bank < 128u) {
+                                  uint32_t use_len = (data_len > 0x2000u) ? 0x2000u : data_len;
+                                  if (use_len != 0u) {
+                                      comp->md_bank_off[chip_bank] = data_off;
+                                      comp->md_bank_len[chip_bank] = (uint16_t)use_len;
+                                      if ((uint16_t)(chip_bank + 1u) > comp->md_bank_count) {
+                                          comp->md_bank_count = (uint16_t)(chip_bank + 1u);
+                                      }
+                                  }
+                              } else if (load_addr == 0x8000u && comp->image_lo_len == 0u) {
+                                  uint32_t use_len = (data_len > 0x2000u) ? 0x2000u : data_len;
+                                  comp->image_lo_off = data_off;
+                                  comp->image_lo_len = use_len;
+                                  if (data_len > 0x2000u && comp->image_hi_len == 0u) {
+                                      uint32_t hi_len = data_len - 0x2000u;
+                                      if (hi_len > 0x2000u) hi_len = 0x2000u;
+                                      comp->image_hi_off = data_off + 0x2000u;
+                                      comp->image_hi_len = hi_len;
+                                  }
+                              } else if (load_addr == 0xA000u && comp->image_hi_len == 0u) {
+                                  comp->image_hi_off = data_off;
+                                  comp->image_hi_len = data_len;
+                              }
+                          }
+                      }
+                      if (packet_len > (comp->rom_size - pos)) {
+                          break;
+                      }
+                      pos += packet_len;
+                  }
+                  if (comp->mapper_kind == 5u && comp->md_bank_off != NULL && comp->md_bank_len != NULL && comp->md_bank_count != 0u) {
+                      uint16_t b = 0u;
+                      while (b < comp->md_bank_count && comp->md_bank_len[b] == 0u) {
+                          b = (uint16_t)(b + 1u);
+                      }
+                      if (b < comp->md_bank_count) {
+                          comp->md_bank_sel = (uint8_t)b;
+                          comp->image_lo_off = comp->md_bank_off[b];
+                          comp->image_lo_len = comp->md_bank_len[b];
+                      }
+                  }
+              }
+              /* Raw binary fallback:
+                 - 8KB: map at $8000
+                 - >=16KB: map first 8KB at $8000 and second 8KB at $A000 */
+              if (comp->image_lo_len == 0u && comp->image_hi_len == 0u) {
+                  if (comp->rom_size >= 0x4000u) {
+                      comp->mapper_kind = 2u; /* RAW 16K */
+                      comp->image_lo_off = 0u;
+                      comp->image_lo_len = 0x2000u;
+                      comp->image_hi_off = 0x2000u;
+                      comp->image_hi_len = 0x2000u;
+                  } else {
+                      comp->mapper_kind = 1u; /* RAW 8K */
+                      comp->image_lo_off = 0u;
+                      comp->image_lo_len = (comp->rom_size >= 0x2000u) ? 0x2000u : comp->rom_size;
+                  }
+              } else if (comp->image_hi_len != 0u) {
+                  comp->mapper_kind = 4u; /* CRT 16K */
+              }
+              comp->image_parsed = 1u;
+          }
+          /* Let KERNAL reset flow perform standard cartridge autostart check at $FD02. */
+      }
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      comp->rom_size = 0u;
+      comp->image_lo_off = 0u;
+      comp->image_lo_len = 0u;
+      comp->image_hi_off = 0u;
+      comp->image_hi_len = 0u;
+      comp->image_parsed = 0u;
+      comp->mapper_kind = 0u;
+      comp->crt_hw_type = 0u;
+      comp->crt_exrom = 1u;
+      comp->crt_game = 1u;
+      comp->md_cart_disabled = 0u;
+      if (comp->ram_lo != NULL) {
+          free(comp->ram_lo);
+          comp->ram_lo = NULL;
+      }
+      if (comp->md_bank_off != NULL) {
+          free(comp->md_bank_off);
+          comp->md_bank_off = NULL;
+      }
+      if (comp->md_bank_len != NULL) {
+          free(comp->md_bank_len);
+          comp->md_bank_len = NULL;
+      }
+      comp->md_bank_count = 0u;
+      comp->md_bank_sel = 0u;
+    mem_read_pre: |
+      if ((addr >= 0x8000u && addr < 0xA000u) || (addr >= 0xA000u && addr < 0xC000u)) {
+          ComponentState_c64_io *io = &cpu->comp_c64_io;
+          uint8_t effective = (uint8_t)((io->io_data & io->io_ddr) | (uint8_t)(~io->io_ddr));
+          uint8_t hiram = (uint8_t)((effective >> 1u) & 0x01u);
+          uint8_t roml_visible = 0u;
+          uint8_t romh_visible = 0u;
+          if (comp->rom_data == NULL || comp->rom_size == 0u) return cpu->memory[addr];
+          if (comp->image_parsed == 0u) {
+              /* Reuse reset parser path by inlining the same parse/fallback behavior. */
+              comp->image_lo_off = 0u;
+              comp->image_lo_len = 0u;
+              comp->image_hi_off = 0u;
+              comp->image_hi_len = 0u;
+              comp->crt_hw_type = 0u;
+              comp->crt_exrom = 1u;
+              comp->crt_game = 1u;
+              comp->md_bank_count = 0u;
+              comp->md_bank_sel = 0u;
+              comp->md_cart_disabled = 0u;
+              if (comp->md_bank_off != NULL) {
+                  free(comp->md_bank_off);
+                  comp->md_bank_off = NULL;
+              }
+              if (comp->md_bank_len != NULL) {
+                  free(comp->md_bank_len);
+                  comp->md_bank_len = NULL;
+              }
+              if (comp->rom_size >= 0x40u && memcmp(comp->rom_data, "C64 CARTRIDGE   ", 16u) == 0) {
+                  comp->crt_hw_type = (uint16_t)(((uint16_t)comp->rom_data[0x16] << 8u) | (uint16_t)comp->rom_data[0x17]);
+                  comp->crt_exrom = (uint8_t)(comp->rom_data[0x18] & 0x01u);
+                  comp->crt_game = (uint8_t)(comp->rom_data[0x19] & 0x01u);
+                  if (comp->crt_hw_type == 0x0013u) {
+                      comp->mapper_kind = 5u;
+                      comp->md_bank_off = (uint32_t *)calloc(128u, sizeof(uint32_t));
+                      comp->md_bank_len = (uint16_t *)calloc(128u, sizeof(uint16_t));
+                      if (comp->md_bank_off == NULL || comp->md_bank_len == NULL) {
+                          if (comp->md_bank_off != NULL) free(comp->md_bank_off);
+                          if (comp->md_bank_len != NULL) free(comp->md_bank_len);
+                          comp->md_bank_off = NULL;
+                          comp->md_bank_len = NULL;
+                          comp->mapper_kind = 3u;
+                      }
+                  } else {
+                      comp->mapper_kind = 3u;
+                  }
+                  uint32_t pos = 0x40u;
+                  while (pos + 0x10u <= comp->rom_size) {
+                      const uint8_t *h = comp->rom_data + pos;
+                      uint32_t packet_len = ((uint32_t)h[4] << 24u) | ((uint32_t)h[5] << 16u) | ((uint32_t)h[6] << 8u) | (uint32_t)h[7];
+                      uint16_t chip_type = (uint16_t)(((uint16_t)h[8] << 8u) | (uint16_t)h[9]);
+                      uint16_t chip_bank = (uint16_t)(((uint16_t)h[10] << 8u) | (uint16_t)h[11]);
+                      uint16_t load_addr = (uint16_t)(((uint16_t)h[12] << 8u) | (uint16_t)h[13]);
+                      uint16_t chip_len = (uint16_t)(((uint16_t)h[14] << 8u) | (uint16_t)h[15]);
+                      if (memcmp(h, "CHIP", 4u) != 0 || packet_len < 0x10u) break;
+                      if (chip_type == 0u && chip_len != 0u) {
+                          uint32_t data_off = pos + 0x10u;
+                          uint32_t data_len = (uint32_t)chip_len;
+                          if (data_off <= comp->rom_size && data_len <= (comp->rom_size - data_off)) {
+                              if (comp->mapper_kind == 5u && comp->md_bank_off != NULL && comp->md_bank_len != NULL &&
+                                  load_addr == 0x8000u && chip_bank < 128u) {
+                                  uint32_t use_len = (data_len > 0x2000u) ? 0x2000u : data_len;
+                                  if (use_len != 0u) {
+                                      comp->md_bank_off[chip_bank] = data_off;
+                                      comp->md_bank_len[chip_bank] = (uint16_t)use_len;
+                                      if ((uint16_t)(chip_bank + 1u) > comp->md_bank_count) {
+                                          comp->md_bank_count = (uint16_t)(chip_bank + 1u);
+                                      }
+                                  }
+                              } else if (load_addr == 0x8000u && comp->image_lo_len == 0u) {
+                                  uint32_t use_len = (data_len > 0x2000u) ? 0x2000u : data_len;
+                                  comp->image_lo_off = data_off;
+                                  comp->image_lo_len = use_len;
+                                  if (data_len > 0x2000u && comp->image_hi_len == 0u) {
+                                      uint32_t hi_len = data_len - 0x2000u;
+                                      if (hi_len > 0x2000u) hi_len = 0x2000u;
+                                      comp->image_hi_off = data_off + 0x2000u;
+                                      comp->image_hi_len = hi_len;
+                                  }
+                              } else if (load_addr == 0xA000u && comp->image_hi_len == 0u) {
+                                  comp->image_hi_off = data_off; comp->image_hi_len = data_len;
+                              }
+                          }
+                      }
+                      if (packet_len > (comp->rom_size - pos)) break;
+                      pos += packet_len;
+                  }
+                  if (comp->mapper_kind == 5u && comp->md_bank_off != NULL && comp->md_bank_len != NULL && comp->md_bank_count != 0u) {
+                      uint16_t b = 0u;
+                      while (b < comp->md_bank_count && comp->md_bank_len[b] == 0u) {
+                          b = (uint16_t)(b + 1u);
+                      }
+                      if (b < comp->md_bank_count) {
+                          comp->md_bank_sel = (uint8_t)b;
+                          comp->image_lo_off = comp->md_bank_off[b];
+                          comp->image_lo_len = comp->md_bank_len[b];
+                      }
+                  }
+              }
+              if (comp->image_lo_len == 0u && comp->image_hi_len == 0u) {
+                  if (comp->rom_size >= 0x4000u) {
+                      comp->mapper_kind = 2u;
+                      comp->image_lo_off = 0u; comp->image_lo_len = 0x2000u;
+                      comp->image_hi_off = 0x2000u; comp->image_hi_len = 0x2000u;
+                  } else {
+                      comp->mapper_kind = 1u;
+                      comp->image_lo_off = 0u;
+                      comp->image_lo_len = (comp->rom_size >= 0x2000u) ? 0x2000u : comp->rom_size;
+                  }
+              } else if (comp->image_hi_len != 0u) {
+                  comp->mapper_kind = 4u;
+              }
+              comp->image_parsed = 1u;
+          }
+          /* PLA behavior: when /EXROM is asserted (0), ROML stays visible
+             regardless of LORAM/HIRAM ($01) state. */
+          if (comp->crt_exrom == 0u) {
+              roml_visible = 1u;
+          }
+          if (comp->crt_exrom == 0u && comp->crt_game == 0u) {
+              /* 16K C64 cart mode: ROMH is visible at $A000-$BFFF. */
+              romh_visible = 1u;
+          } else if (comp->crt_exrom == 1u && comp->crt_game == 0u) {
+              /* Ultimax keeps ROML visible at $8000. */
+              roml_visible = 1u;
+          }
+          if (addr < 0xA000u) {
+              uint32_t off = (uint32_t)(addr - 0x8000u);
+              if (roml_visible != 0u && off < comp->image_lo_len) return comp->rom_data[comp->image_lo_off + off];
+              if (comp->ram_lo != NULL) return comp->ram_lo[off & 0x1FFFu];
+              return 0xFFu;
+          } else {
+              uint32_t off = (uint32_t)(addr - 0xA000u);
+              if (romh_visible != 0u && off < comp->image_hi_len) return comp->rom_data[comp->image_hi_off + off];
+              return cpu->memory[addr];
+          }
+      }
+    mem_write_pre: |
+      if (addr >= 0x8000u && addr < 0xA000u) {
+          if (comp->ram_lo != NULL) {
+              comp->ram_lo[(uint16_t)(addr - 0x8000u)] = value;
+          }
+          return;
+      }
+      if (comp->mapper_kind == 5u &&
+          addr == 0xDE00u &&
+          comp->md_bank_off != NULL && comp->md_bank_len != NULL && comp->md_bank_count != 0u) {
+          uint8_t bank = (uint8_t)(value & 0x7Fu);
+          comp->md_cart_disabled = (uint8_t)((value & 0x80u) ? 1u : 0u);
+          if (comp->md_cart_disabled != 0u) {
+              return;
+          }
+          if (bank < (uint8_t)comp->md_bank_count && comp->md_bank_len[bank] != 0u) {
+              comp->md_bank_sel = bank;
+              comp->image_lo_off = comp->md_bank_off[bank];
+              comp->image_lo_len = comp->md_bank_len[bank];
+          }
+          return;
+      }
+      if (addr >= 0x8000u && addr < 0xC000u) {
+          return;
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

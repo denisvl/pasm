@@ -15,7 +15,7 @@ memory:
     - name: CART_8K
       start: 0xA000
       size: 0x2000
-      read_only: true
+      read_write: true
     - name: RAM_B000
       start: 0xB000
       size: 0x1000
@@ -48,6 +48,10 @@ memory:
     - name: atari800xl_selftest
       file: ../../roms/atari800xl/ATARIXL_SELFTEST.ROM
       target_region: ROM_SELFTEST
+      offset: 0
+    - name: atari800xl_basic
+      file: ../../roms/atari800xl/BASIC_C.ROM
+      target_region: CART_8K
       offset: 0
 
 hooks:

@@ -1,0 +1,198 @@
+metadata:
+  id: c64_cart0
+  type: cartridge_mapper
+  model: c64_cart_generic
+  version: "1.0"
+
+allowed_extensions:
+  - crt
+  - bin
+  - rom
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+  - name: image_lo_off
+    type: uint32_t
+    initial: "0"
+  - name: image_lo_len
+    type: uint32_t
+    initial: "0"
+  - name: image_hi_off
+    type: uint32_t
+    initial: "0"
+  - name: image_hi_len
+    type: uint32_t
+    initial: "0"
+  - name: image_parsed
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cart_window
+        start: 0x8000
+        size: 0x2000
+        access: [read, write]
+
+behavior:
+  snippets:
+    reset: |
+      if (comp->rom_data != NULL && comp->rom_size > 0u) {
+          if (comp->image_parsed == 0u) {
+              comp->image_lo_off = 0u;
+              comp->image_lo_len = 0u;
+              comp->image_hi_off = 0u;
+              comp->image_hi_len = 0u;
+              /* .crt support: parse ROML ($8000) and ROMH ($A000) CHIP packets. */
+              if (comp->rom_size >= 0x40u && memcmp(comp->rom_data, "C64 CARTRIDGE   ", 16u) == 0) {
+                  uint32_t pos = 0x40u;
+                  while (pos + 0x10u <= comp->rom_size) {
+                      const uint8_t *h = comp->rom_data + pos;
+                      uint32_t packet_len;
+                      uint16_t chip_type;
+                      uint16_t load_addr;
+                      uint16_t chip_len;
+                      if (memcmp(h, "CHIP", 4u) != 0) {
+                          break;
+                      }
+                      packet_len = ((uint32_t)h[4] << 24u) | ((uint32_t)h[5] << 16u) | ((uint32_t)h[6] << 8u) | (uint32_t)h[7];
+                      chip_type = (uint16_t)(((uint16_t)h[8] << 8u) | (uint16_t)h[9]);
+                      load_addr = (uint16_t)(((uint16_t)h[12] << 8u) | (uint16_t)h[13]);
+                      chip_len = (uint16_t)(((uint16_t)h[14] << 8u) | (uint16_t)h[15]);
+                      if (packet_len < 0x10u) {
+                          break;
+                      }
+                      if (chip_type == 0u && chip_len != 0u) {
+                          uint32_t data_off = pos + 0x10u;
+                          uint32_t data_len = (uint32_t)chip_len;
+                          if (data_off <= comp->rom_size && data_len <= (comp->rom_size - data_off)) {
+                              if (load_addr == 0x8000u && comp->image_lo_len == 0u) {
+                                  comp->image_lo_off = data_off;
+                                  comp->image_lo_len = data_len;
+                              } else if (load_addr == 0xA000u && comp->image_hi_len == 0u) {
+                                  comp->image_hi_off = data_off;
+                                  comp->image_hi_len = data_len;
+                              }
+                          }
+                      }
+                      if (packet_len > (comp->rom_size - pos)) {
+                          break;
+                      }
+                      pos += packet_len;
+                  }
+              }
+              /* Raw binary fallback:
+                 - 8KB: map at $8000
+                 - >=16KB: map first 8KB at $8000 and second 8KB at $A000 */
+              if (comp->image_lo_len == 0u && comp->image_hi_len == 0u) {
+                  if (comp->rom_size >= 0x4000u) {
+                      comp->image_lo_off = 0u;
+                      comp->image_lo_len = 0x2000u;
+                      comp->image_hi_off = 0x2000u;
+                      comp->image_hi_len = 0x2000u;
+                  } else {
+                      comp->image_lo_off = 0u;
+                      comp->image_lo_len = (comp->rom_size >= 0x2000u) ? 0x2000u : comp->rom_size;
+                  }
+              }
+              comp->image_parsed = 1u;
+          }
+          if (comp->image_lo_len >= 2u) {
+              const uint8_t *img = comp->rom_data + comp->image_lo_off;
+              uint16_t cold = (uint16_t)((uint16_t)img[0] | ((uint16_t)img[1] << 8u));
+              uint8_t has_cbm80 = (comp->image_lo_len >= 9u &&
+                                   img[4] == 'C' && img[5] == 'B' && img[6] == 'M' &&
+                                   img[7] == '8' && img[8] == '0') ? 1u : 0u;
+              if (has_cbm80 != 0u || (cold >= 0x8000u && cold < 0xA000u)) {
+                  cpu->pc = cold;
+              }
+          }
+      }
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      comp->rom_size = 0u;
+      comp->image_lo_off = 0u;
+      comp->image_lo_len = 0u;
+      comp->image_hi_off = 0u;
+      comp->image_hi_len = 0u;
+      comp->image_parsed = 0u;
+    mem_read_pre: |
+      if ((addr >= 0x8000u && addr < 0xA000u) || (addr >= 0xA000u && addr < 0xC000u)) {
+          if (comp->rom_data == NULL || comp->rom_size == 0u) return cpu->memory[addr];
+          if (comp->image_parsed == 0u) {
+              /* Reuse reset parser path by inlining the same parse/fallback behavior. */
+              comp->image_lo_off = 0u;
+              comp->image_lo_len = 0u;
+              comp->image_hi_off = 0u;
+              comp->image_hi_len = 0u;
+              if (comp->rom_size >= 0x40u && memcmp(comp->rom_data, "C64 CARTRIDGE   ", 16u) == 0) {
+                  uint32_t pos = 0x40u;
+                  while (pos + 0x10u <= comp->rom_size) {
+                      const uint8_t *h = comp->rom_data + pos;
+                      uint32_t packet_len = ((uint32_t)h[4] << 24u) | ((uint32_t)h[5] << 16u) | ((uint32_t)h[6] << 8u) | (uint32_t)h[7];
+                      uint16_t chip_type = (uint16_t)(((uint16_t)h[8] << 8u) | (uint16_t)h[9]);
+                      uint16_t load_addr = (uint16_t)(((uint16_t)h[12] << 8u) | (uint16_t)h[13]);
+                      uint16_t chip_len = (uint16_t)(((uint16_t)h[14] << 8u) | (uint16_t)h[15]);
+                      if (memcmp(h, "CHIP", 4u) != 0 || packet_len < 0x10u) break;
+                      if (chip_type == 0u && chip_len != 0u) {
+                          uint32_t data_off = pos + 0x10u;
+                          uint32_t data_len = (uint32_t)chip_len;
+                          if (data_off <= comp->rom_size && data_len <= (comp->rom_size - data_off)) {
+                              if (load_addr == 0x8000u && comp->image_lo_len == 0u) {
+                                  comp->image_lo_off = data_off; comp->image_lo_len = data_len;
+                              } else if (load_addr == 0xA000u && comp->image_hi_len == 0u) {
+                                  comp->image_hi_off = data_off; comp->image_hi_len = data_len;
+                              }
+                          }
+                      }
+                      if (packet_len > (comp->rom_size - pos)) break;
+                      pos += packet_len;
+                  }
+              }
+              if (comp->image_lo_len == 0u && comp->image_hi_len == 0u) {
+                  if (comp->rom_size >= 0x4000u) {
+                      comp->image_lo_off = 0u; comp->image_lo_len = 0x2000u;
+                      comp->image_hi_off = 0x2000u; comp->image_hi_len = 0x2000u;
+                  } else {
+                      comp->image_lo_off = 0u;
+                      comp->image_lo_len = (comp->rom_size >= 0x2000u) ? 0x2000u : comp->rom_size;
+                  }
+              }
+              comp->image_parsed = 1u;
+          }
+          if (addr < 0xA000u) {
+              uint32_t off = (uint32_t)(addr - 0x8000u);
+              if (off < comp->image_lo_len) return comp->rom_data[comp->image_lo_off + off];
+              return 0xFFu;
+          } else {
+              uint32_t off = (uint32_t)(addr - 0xA000u);
+              if (off < comp->image_hi_len) return comp->rom_data[comp->image_hi_off + off];
+              return cpu->memory[addr];
+          }
+      }
+    mem_write_pre: |
+      if (addr >= 0x8000u && addr < 0xA000u) {
+          return;
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []
