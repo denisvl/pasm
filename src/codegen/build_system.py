@@ -222,7 +222,10 @@ endif()
     extra_link_libs = ""
     if cmake_lib_entries:
         extra_link_libs = (
-            f"target_link_libraries({project_name}_test PRIVATE\n"
+            f"target_link_libraries({system_target} PRIVATE\n"
+            + "\n".join(f"    {entry}" for entry in cmake_lib_entries)
+            + "\n)\n"
+            + f"target_link_libraries({project_name}_test PRIVATE\n"
             + "\n".join(f"    {entry}" for entry in cmake_lib_entries)
             + "\n)\n"
         )

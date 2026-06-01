@@ -6,6 +6,7 @@ __pycache__/
 build/
 *.o
 tools/debugger_tui/target/
+pasm.egg-info/
 
 examples/roms/
 

@@ -26,6 +26,10 @@ if not defined EXTRA_CMAKE_ARGS set "EXTRA_CMAKE_ARGS="
 if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
+if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/apple2/host_keyboard_apple2.yaml"
+if not defined JOYSTICK_KEYBOARD_MAP set "JOYSTICK_KEYBOARD_MAP=examples/hosts/apple2/host_keyboard_apple2_joystick.yaml"
+if not defined CONTROLLER_MAP set "CONTROLLER_MAP=examples/hosts/apple2/host_controller_apple2.yaml"
+if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
@@ -35,13 +39,14 @@ if not defined UV_CACHE_DIR set "UV_CACHE_DIR=%REPO_ROOT%\.uv-cache"
 if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%" >nul 2>&1
 
 set "PROCESSOR=examples/processors/mos6502.yaml"
-set "SYSTEM_DIR=examples/systems"
+set "SYSTEM_DIR=examples/systems/apple2"
 set "IC_KBD=examples/ics/apple2/apple2_keyboard_encoder_ay_5_3600.yaml"
 set "IC_GAMEIO=examples/ics/apple2/apple2_gameio_ne558.yaml"
 set "IC_VIDEO_SW=examples/ics/apple2/apple2_video_softswitches.yaml"
 set "IC_SPK_SW=examples/ics/apple2/apple2_speaker_toggle.yaml"
 set "IC_CHAR_ROM=examples/ics/apple2/apple2_char_generator_rom.yaml"
 set "IC_SLOT_DEC=examples/ics/apple2/apple2_slot_decoder_ttl.yaml"
+set "IC_MAIN_RAM=examples/ics/apple2/apple2_main_ram.yaml"
 set "DEVICE_KB=examples/devices/apple2/apple2_keyboard.yaml"
 set "DEVICE_GP=examples/devices/apple2/apple2_gameport.yaml"
 set "DEVICE_VIDEO=examples/devices/apple2/apple2_video.yaml"
@@ -139,11 +144,13 @@ uv run python -m src.main generate ^
   --ic "%IC_SPK_SW%" ^
   --ic "%IC_CHAR_ROM%" ^
   --ic "%IC_SLOT_DEC%" ^
+  --ic "%IC_MAIN_RAM%" ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_GP%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
   --host "%HOST_INTERACTIVE%" ^
+  --host-backend "%HOST_BACKEND%" ^
   --output "%OUTPUT_DIR%"
 
 :gen_done
@@ -188,6 +195,8 @@ if defined START_PC goto :run_with_start_pc
   --backend linked ^
   --memory-size "%MEMORY_SIZE%" ^
   --system-dir "%SYSTEM_DIR%" ^
+  --keyboard-map "%KEYBOARD_MAP%" ^
+  --controller-map "%CONTROLLER_MAP%" ^
   --run-speed "%RUN_SPEED%"
 goto :run_done
 
@@ -196,6 +205,8 @@ goto :run_done
   --backend linked ^
   --memory-size "%MEMORY_SIZE%" ^
   --system-dir "%SYSTEM_DIR%" ^
+  --keyboard-map "%KEYBOARD_MAP%" ^
+  --controller-map "%CONTROLLER_MAP%" ^
   --start-pc "%START_PC%" ^
   --run-speed "%RUN_SPEED%"
 :run_done

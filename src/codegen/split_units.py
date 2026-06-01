@@ -718,7 +718,28 @@ def generate_system_interrupt_glue(isa_data: Dict[str, Any], cpu_name: str) -> s
     backend_target = _single_host_backend_target(isa_data)
     backend_include = ""
     if backend_target == "sdl2":
-        backend_include = "#include <SDL2/SDL.h>\n\n"
+        backend_include = (
+            "#include <SDL2/SDL.h>\n"
+            "#ifndef CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE\n"
+            "#define CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE 0x00000001\n"
+            "#endif\n"
+            "#ifndef CPU_HOST_AUDIO_ALLOW_FORMAT_CHANGE\n"
+            "#define CPU_HOST_AUDIO_ALLOW_FORMAT_CHANGE 0x00000002\n"
+            "#endif\n"
+            "#ifndef CPU_HOST_AUDIO_ALLOW_CHANNELS_CHANGE\n"
+            "#define CPU_HOST_AUDIO_ALLOW_CHANNELS_CHANGE 0x00000004\n"
+            "#endif\n"
+            "#ifndef CPU_HOST_AUDIO_ALLOW_SAMPLES_CHANGE\n"
+            "#define CPU_HOST_AUDIO_ALLOW_SAMPLES_CHANGE 0x00000008\n"
+            "#endif\n"
+            "#ifndef SDL_AUDIO_ALLOW_ANY_CHANGE\n"
+            "#define SDL_AUDIO_ALLOW_ANY_CHANGE ("
+            "SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | "
+            "SDL_AUDIO_ALLOW_FORMAT_CHANGE | "
+            "SDL_AUDIO_ALLOW_CHANNELS_CHANGE | "
+            "SDL_AUDIO_ALLOW_SAMPLES_CHANGE)\n"
+            "#endif\n\n"
+        )
     component_runtime = generate_component_runtime_dispatch_glue(isa_data)
     component_lifecycle = generate_component_lifecycle_dispatch_glue(isa_data)
     component_dispatch = generate_component_dispatch_glue(isa_data, cpu_name)

@@ -253,7 +253,11 @@ def _generate_ic_types(isa_data: Dict[str, Any]) -> str:
     for component in components:
         comp_id = _to_c_ident(component.get("metadata", {}).get("id", "component"))
         lines.append(f"typedef struct ComponentState_{comp_id} {{")
-        for field in component.get("state", []):
+        state_fields = list(component.get("state", []))
+        if not state_fields:
+            # MSVC rejects empty structs; keep a tiny placeholder for ABI safety.
+            lines.append("    uint8_t _placeholder;")
+        for field in state_fields:
             field_type = str(field.get("type", "uint64_t")).strip()
             field_name = _to_c_ident(str(field.get("name", "field")))
             lines.append(f"    {field_type} {field_name};")

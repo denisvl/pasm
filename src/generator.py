@@ -522,6 +522,14 @@ int main(int argc, char *argv[]) {{
         if host_backend_target == "glfw" and "glfw" not in link_library_names:
             link_library_names.append("glfw")
 
+        is_windows = os.name == "nt"
+        if is_windows:
+            cpu_core_static = f"{self.cpu_prefix}_cpu_core.lib"
+            system_static = f"{self.system_prefix}_system.lib"
+        else:
+            cpu_core_static = f"lib{self.cpu_prefix}_cpu_core.a"
+            system_static = f"lib{self.system_prefix}_system.a"
+
         return {
             "schema_version": 1,
             "processor_name": metadata.get("name", self.cpu_name),
@@ -551,11 +559,11 @@ int main(int argc, char *argv[]) {{
                 ],
             },
             "split_artifacts": {
-                "cpu_core_static": f"lib{self.cpu_prefix}_cpu_core.a",
-                "system_static": f"lib{self.system_prefix}_system.a",
+                "cpu_core_static": cpu_core_static,
+                "system_static": system_static,
             },
             "artifacts": {
-                "static": f"lib{self.system_prefix}_system.a",
+                "static": system_static,
             },
             "headers": {
                 "cpu": f"src/{self.cpu_name}.h",

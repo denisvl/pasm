@@ -28,7 +28,9 @@ if not defined EXTRA_CMAKE_ARGS set "EXTRA_CMAKE_ARGS="
 if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
-if not defined PASM_SDL_AUDIO set "PASM_SDL_AUDIO=1"
+if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=1"
+if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/trs80_model4/host_keyboard_trs80.yaml"
+if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
@@ -56,7 +58,7 @@ if /I "%PROFILE%"=="default" (
   set "DEFAULT_OUTPUT=generated/z80_trs80_model4"
 ) else if /I "%PROFILE%"=="interactive" (
   set "SYSTEM=examples/systems/trs80_model4/trs80_model4_interactive.yaml"
-  set "HOST=examples/hosts/trs80_model4/trs80_host_sdl2_interactive.yaml"
+  set "HOST=examples/hosts/trs80_model4/trs80_host_hal_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/z80_trs80_model4_sdl"
 ) else (
   >&2 echo Unsupported profile: %PROFILE%
@@ -73,6 +75,8 @@ for %%I in ("%OUTPUT_DIR%") do (
 )
 if not exist "%OUTPUT_PARENT%" mkdir "%OUTPUT_PARENT%"
 if errorlevel 1 exit /b %errorlevel%
+for %%I in ("%SYSTEM%") do set "SYSTEM_DIR_ABS=%%~dpI"
+if "%SYSTEM_DIR_ABS:~-1%"=="\" set "SYSTEM_DIR_ABS=%SYSTEM_DIR_ABS:~0,-1%"
 
 if not defined EXTRA_CMAKE_ARGS (
   if defined VCPKG_ROOT (
@@ -131,6 +135,7 @@ uv run python -m src.main generate ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
   --host "%HOST%" ^
+  --host-backend "%HOST_BACKEND%" ^
   --output "%OUTPUT_DIR%"
 if errorlevel 1 exit /b %errorlevel%
 
@@ -149,7 +154,7 @@ set "PASM_EMU_DIR=%OUTPUT_DIR_ABS%"
 set "PASM_EMU_BUILD_DIR=%BUILD_DIR_ABS%"
 if exist "%CMAKE_CONFIG_BUILD_DIR%" set "PASM_EMU_BUILD_DIR=%CMAKE_CONFIG_BUILD_DIR_ABS%"
 set "PASM_EMU_MANIFEST=%OUTPUT_DIR_ABS%\debugger_link.json"
-set "PASM_SDL_AUDIO=%PASM_SDL_AUDIO%"
+set "PASM_HOST_AUDIO=%PASM_HOST_AUDIO%"
 
 set "CARGO_BIN=cargo"
 where cargo >nul 2>&1
@@ -163,12 +168,22 @@ if errorlevel 1 (
   )
 )
 
-"%CARGO_BIN%" run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
-  --backend linked ^
-  --memory-size "%MEMORY_SIZE%" ^
-  --system-dir "%SYSTEM_DIR%" ^
-  --start-pc "%START_PC%" ^
-  --run-speed "%RUN_SPEED%"
+if /I "%PROFILE%"=="interactive" (
+  "%CARGO_BIN%" run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
+    --backend linked ^
+    --memory-size "%MEMORY_SIZE%" ^
+    --system-dir "%SYSTEM_DIR_ABS%" ^
+    --start-pc "%START_PC%" ^
+    --keyboard-map "%KEYBOARD_MAP%" ^
+    --run-speed "%RUN_SPEED%"
+) else (
+  "%CARGO_BIN%" run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
+    --backend linked ^
+    --memory-size "%MEMORY_SIZE%" ^
+    --system-dir "%SYSTEM_DIR_ABS%" ^
+    --start-pc "%START_PC%" ^
+    --run-speed "%RUN_SPEED%"
+)
 if errorlevel 1 exit /b %errorlevel%
 
 exit /b 0

@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 rem One-shot helper: generate + build + run PASM Rust debugger for MSX.
 rem
@@ -40,22 +40,26 @@ if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
 if not defined USE_CARTRIDGE set "USE_CARTRIDGE=1"
 if not defined CARTRIDGE_MAP set "CARTRIDGE_MAP=examples/cartridges/msx1/msx_mapper_konami.yaml"
-if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN=../roms/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
+if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN=../../roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
+if not defined BOOT_CARTRIDGE set "BOOT_CARTRIDGE=0"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
 cd /d "%REPO_ROOT%"
 if errorlevel 1 exit /b %errorlevel%
-if not defined CARTRIDGE_ROM_RUNTIME set "CARTRIDGE_ROM_RUNTIME=%REPO_ROOT%\examples\roms\Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
+if not defined CARTRIDGE_DIR set "CARTRIDGE_DIR=%REPO_ROOT%\examples\roms\msx1"
+if not defined CARTRIDGE_ROM_RUNTIME set "CARTRIDGE_ROM_RUNTIME=%REPO_ROOT%\examples\roms\msx1\Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
 
 set "PROCESSOR=examples/processors/z80.yaml"
 set "IC_VDP=examples/ics/msx1/msx1_vdp_tms9918a.yaml"
 set "IC_PPI=examples/ics/msx1/msx1_ppi_8255.yaml"
 set "IC_PSG=examples/ics/msx1/msx1_psg_ay8910.yaml"
+set "IC_MAIN_RAM=examples/ics/msx1/msx1_main_ram.yaml"
 set "DEVICE_KB=examples/devices/msx1/msx_keyboard.yaml"
+set "DEVICE_CTRL=examples/devices/msx1/msx_controller.yaml"
 set "DEVICE_VIDEO=examples/devices/msx1/msx_video.yaml"
 set "DEVICE_SPK=examples/devices/msx1/msx_speaker.yaml"
-set "SYSTEM_DIR=examples/systems"
+set "SYSTEM_DIR=examples/systems/msx1"
 
 if /I "%PROFILE%"=="default" (
   if "%USE_CARTRIDGE%"=="0" (
@@ -71,7 +75,7 @@ if /I "%PROFILE%"=="default" (
   ) else (
     set "SYSTEM=examples/systems/msx1/msx1_cartridge_interactive.yaml"
   )
-  set "HOST=examples/hosts/msx1/msx_host_sdl2_interactive.yaml"
+  set "HOST=examples/hosts/msx1/msx_host_hal_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/z80_msx1_sdl"
 ) else (
   >&2 echo Unsupported profile: %PROFILE%
@@ -148,7 +152,9 @@ if "%USE_CARTRIDGE%"=="0" (
     --ic "%IC_VDP%" ^
     --ic "%IC_PPI%" ^
     --ic "%IC_PSG%" ^
+    --ic "%IC_MAIN_RAM%" ^
     --device "%DEVICE_KB%" ^
+    --device "%DEVICE_CTRL%" ^
     --device "%DEVICE_VIDEO%" ^
     --device "%DEVICE_SPK%" ^
     --host "%HOST%" ^
@@ -160,7 +166,9 @@ if "%USE_CARTRIDGE%"=="0" (
     --ic "%IC_VDP%" ^
     --ic "%IC_PPI%" ^
     --ic "%IC_PSG%" ^
+    --ic "%IC_MAIN_RAM%" ^
     --device "%DEVICE_KB%" ^
+    --device "%DEVICE_CTRL%" ^
     --device "%DEVICE_VIDEO%" ^
     --device "%DEVICE_SPK%" ^
     --host "%HOST%" ^
@@ -184,9 +192,9 @@ if errorlevel 1 exit /b %errorlevel%
 echo [3/3] Running Rust debugger ^(linked backend^)
 echo     profile=%PROFILE% memory_size=%MEMORY_SIZE% start_pc=%START_PC% sdl_audio=%PASM_SDL_AUDIO% run_speed=%RUN_SPEED% cmake_build_type=%CMAKE_BUILD_TYPE%
 if not "%USE_CARTRIDGE%"=="0" (
-  echo     cartridge_map=%CARTRIDGE_MAP%
-  echo     cartridge_rom_gen=%CARTRIDGE_ROM_GEN%
-  echo     cartridge_rom_runtime=%CARTRIDGE_ROM_RUNTIME%
+  echo     cartridge_map=!CARTRIDGE_MAP!
+  echo     cartridge_rom_gen=!CARTRIDGE_ROM_GEN!
+  echo     cartridge_rom_runtime=!CARTRIDGE_ROM_RUNTIME!
 )
 if /I "%PROFILE%"=="interactive" (
   if not "%PASM_SDL_DEBUG%"=="0" echo     SDL debug log -^> %PASM_SDL_LOGFILE%
@@ -223,13 +231,24 @@ if "%USE_CARTRIDGE%"=="0" (
     --start-pc "%START_PC%" ^
     --run-speed "%RUN_SPEED%"
 ) else (
-  "%CARGO_BIN%" run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
-    --backend linked ^
-    --memory-size "%MEMORY_SIZE%" ^
-    --system-dir "%SYSTEM_DIR%" ^
-    --cart-rom "%CARTRIDGE_ROM_RUNTIME%" ^
-    --start-pc "%START_PC%" ^
-    --run-speed "%RUN_SPEED%"
+  if "%BOOT_CARTRIDGE%"=="0" (
+    "%CARGO_BIN%" run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
+      --backend linked ^
+      --memory-size "%MEMORY_SIZE%" ^
+      --system-dir "%SYSTEM_DIR%" ^
+      --cartridge-dir "%CARTRIDGE_DIR%" ^
+      --start-pc "%START_PC%" ^
+      --run-speed "%RUN_SPEED%"
+  ) else (
+    "%CARGO_BIN%" run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
+      --backend linked ^
+      --memory-size "%MEMORY_SIZE%" ^
+      --system-dir "%SYSTEM_DIR%" ^
+      --cartridge-dir "%CARTRIDGE_DIR%" ^
+      --cart-rom "!CARTRIDGE_ROM_RUNTIME!" ^
+      --start-pc "%START_PC%" ^
+      --run-speed "%RUN_SPEED%"
+  )
 )
 if errorlevel 1 exit /b %errorlevel%
 

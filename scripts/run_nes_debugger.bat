@@ -23,11 +23,15 @@ if not defined MEMORY_SIZE set "MEMORY_SIZE=65536"
 if not defined EXTRA_CARGO_ARGS set "EXTRA_CARGO_ARGS=--release"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
+if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=1"
+if not defined PASM_HOST_DEBUG set "PASM_HOST_DEBUG=0"
+if not defined PASM_NES_JOY2_CONNECTED set "PASM_NES_JOY2_CONNECTED=0"
 if not defined CARTRIDGE_MAP set "CARTRIDGE_MAP=examples/cartridges/nes/nes_mapper_auto.yaml"
 if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN=../../roms/nes/Super Mario Bros. 2 (USA) (Rev 1).nes"
 if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/nes/host_console_nes.yaml"
 if not defined CONTROLLER_MAP set "CONTROLLER_MAP=examples/hosts/nes/host_controller_nes.yaml"
 if not defined CARTRIDGE_DIR set "CARTRIDGE_DIR=examples/roms/nes"
+if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
@@ -89,6 +93,7 @@ uv run python -m src.main generate ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
   --host "%HOST%" ^
+  --host-backend "%HOST_BACKEND%" ^
   --cartridge-map "%CARTRIDGE_MAP%" ^
   --cartridge-rom "%CARTRIDGE_ROM_GEN%" ^
   --output "%OUTPUT_DIR%"
@@ -103,6 +108,19 @@ if errorlevel 1 exit /b %errorlevel%
 set "PASM_EMU_DIR=%OUTPUT_DIR_ABS%"
 set "PASM_EMU_BUILD_DIR=%BUILD_DIR%"
 set "PASM_EMU_MANIFEST=%OUTPUT_DIR_ABS%\debugger_link.json"
+set "PASM_HOST_AUDIO=%PASM_HOST_AUDIO%"
+set "PASM_HOST_DEBUG=%PASM_HOST_DEBUG%"
+set "PASM_NES_JOY2_CONNECTED=%PASM_NES_JOY2_CONNECTED%"
+set "PASM_NES_MMC3_TRACE=0"
+set "PASM_NES_IRQ_TRACE=0"
+set "PASM_NES_PAD_TRACE=0"
+set "PASM_NES_PPUSTATUS_TRACE=0"
+set "PASM_NES_PAD_ZP_TRACE=0"
+set "PASM_NES_ZP_TRACE=0"
+set "PASM_NES_4016_TRACE=0"
+set "PASM_CYC_DEBUG=0"
+set "PASM_TRACE=0"
+set "PASM_IRQ_TRACE=0"
 
 set "CARGO_BIN=cargo"
 where cargo >nul 2>&1
@@ -116,6 +134,7 @@ if errorlevel 1 (
 )
 
 echo [3/3] Running Rust debugger ^(linked backend^)
+if defined START_PC goto :run_with_start_pc
 "%CARGO_BIN%" run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
   --backend linked ^
   --memory-size "%MEMORY_SIZE%" ^
@@ -125,6 +144,20 @@ echo [3/3] Running Rust debugger ^(linked backend^)
   --controller-map "%CONTROLLER_MAP%" ^
   --cartridge-dir "%CARTRIDGE_DIR%" ^
   --run-speed "%RUN_SPEED%"
+goto :run_done
+
+:run_with_start_pc
+"%CARGO_BIN%" run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
+  --backend linked ^
+  --memory-size "%MEMORY_SIZE%" ^
+  --system-dir "%SYSTEM_DIR%" ^
+  --cart-rom "%ROM_RUNTIME%" ^
+  --keyboard-map "%KEYBOARD_MAP%" ^
+  --controller-map "%CONTROLLER_MAP%" ^
+  --cartridge-dir "%CARTRIDGE_DIR%" ^
+  --start-pc "%START_PC%" ^
+  --run-speed "%RUN_SPEED%"
+:run_done
 if errorlevel 1 exit /b %errorlevel%
 
 exit /b 0

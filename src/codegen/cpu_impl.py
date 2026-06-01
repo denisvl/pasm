@@ -896,16 +896,12 @@ def generate_input_runtime_contract_support(isa_data: Dict[str, Any], cpu_name: 
 
 def _generate_coding_includes(isa_data: Dict[str, Any]) -> str:
     headers = isa_data.get("coding", {}).get("headers", [])
-    backend_target = _single_host_backend_target(isa_data)
-    auto_headers: List[str] = []
-    if backend_target == "sdl2":
-        auto_headers.append("SDL2/SDL.h")
-    if not headers and not auto_headers:
+    if not headers:
         return ""
 
     lines: List[str] = []
     seen: set[str] = set()
-    for header in [*auto_headers, *headers]:
+    for header in headers:
         h = str(header).strip()
         if not h or h in seen:
             continue
@@ -1986,7 +1982,9 @@ def _generate_ic_runtime_blocks(
                 "#define CPU_HOST_RENDERER_ACCELERATED SDL_RENDERER_ACCELERATED",
                 "#define CPU_HOST_PIXELFORMAT_ARGB8888 SDL_PIXELFORMAT_ARGB8888",
                 "#define CPU_HOST_TEXTUREACCESS_STREAMING SDL_TEXTUREACCESS_STREAMING",
+                "#ifndef CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE",
                 "#define CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE SDL_AUDIO_ALLOW_FREQUENCY_CHANGE",
+                "#endif",
                 "#define CPU_HOST_AUDIO_FORMAT_S16 AUDIO_S16SYS",
                 "#define CPU_HOST_SCANCODE(name) SDL_SCANCODE_##name",
                 "#define CPU_HOST_HAS_SCANCODE_MAP 1",

@@ -762,7 +762,7 @@ behavior:
       }
     step_post: |
       static uint32_t framebuf[320u * 192u];
-      #define ATARI_BUS_READ8(_addr) ({ uint64_t _ra[1] = { (uint64_t)(_addr) }; (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", _ra, 1) & 0xFFu); })
+      #define ATARI_BUS_READ8(_addr) ((uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", (uint64_t[]){ (uint64_t)(_addr) }, 1) & 0xFFu))
       {
           /* POKEY serial timing/IRQ, aligned with Altirra register-level behavior. */
           if (

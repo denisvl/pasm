@@ -27,6 +27,9 @@ if not defined EXTRA_CMAKE_ARGS set "EXTRA_CMAKE_ARGS="
 if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
+if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
+if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/zx_spectrum48k/host_keyboard_zx48.yaml"
+if not defined CONTROLLER_MAP set "CONTROLLER_MAP=examples/hosts/zx_spectrum48k/host_controller_zx48_kempston.yaml"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
@@ -67,6 +70,8 @@ for %%I in ("%OUTPUT_DIR%") do (
 )
 if not exist "%OUTPUT_PARENT%" mkdir "%OUTPUT_PARENT%"
 if errorlevel 1 exit /b %errorlevel%
+for %%I in ("%SYSTEM%") do set "SYSTEM_DIR_ABS=%%~dpI"
+if "%SYSTEM_DIR_ABS:~-1%"=="\" set "SYSTEM_DIR_ABS=%SYSTEM_DIR_ABS:~0,-1%"
 
 if not defined EXTRA_CMAKE_ARGS (
   if defined VCPKG_ROOT (
@@ -132,6 +137,7 @@ uv run python -m src.main generate ^
   --device "%DEVICE_SPK%" ^
   --device "%DEVICE_MIC%" ^
   --host "%HOST%" ^
+  --host-backend "%HOST_BACKEND%" ^
   --output "%OUTPUT_DIR%"
 if errorlevel 1 exit /b %errorlevel%
 
@@ -169,12 +175,23 @@ if errorlevel 1 (
   )
 )
 
-"%CARGO_BIN%" run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
-  --backend linked ^
-  --memory-size "%MEMORY_SIZE%" ^
-  --system-dir "%SYSTEM_DIR%" ^
-  --start-pc "%START_PC%" ^
-  --run-speed "%RUN_SPEED%"
+if /I "%PROFILE%"=="interactive" (
+  "%CARGO_BIN%" run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
+    --backend linked ^
+    --memory-size "%MEMORY_SIZE%" ^
+    --system-dir "%SYSTEM_DIR_ABS%" ^
+    --start-pc "%START_PC%" ^
+    --keyboard-map "%KEYBOARD_MAP%" ^
+    --controller-map "%CONTROLLER_MAP%" ^
+    --run-speed "%RUN_SPEED%"
+) else (
+  "%CARGO_BIN%" run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
+    --backend linked ^
+    --memory-size "%MEMORY_SIZE%" ^
+    --system-dir "%SYSTEM_DIR_ABS%" ^
+    --start-pc "%START_PC%" ^
+    --run-speed "%RUN_SPEED%"
+)
 if errorlevel 1 exit /b %errorlevel%
 
 exit /b 0
