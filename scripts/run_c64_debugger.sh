@@ -44,7 +44,13 @@ if [[ -z "${CARTRIDGE_DIR}" ]]; then
 fi
 
 PROCESSOR="examples/processors/mos6510.yaml"
-IC_IO="examples/ics/c64/c64_io.yaml"
+IC_PLA="examples/ics/c64/c64_pla_906114.yaml"
+IC_VIC="examples/ics/c64/c64_vic_ii_6569.yaml"
+IC_SID="examples/ics/c64/c64_sid_6581.yaml"
+IC_CIA1="examples/ics/c64/c64_cia1_6526.yaml"
+IC_CIA2="examples/ics/c64/c64_cia2_6526.yaml"
+IC_COLOR_RAM="examples/ics/c64/c64_color_ram_2114.yaml"
+IC_MAIN_RAM="examples/ics/c64/c64_main_ram.yaml"
 DEVICE_KB="examples/devices/c64/c64_keyboard.yaml"
 DEVICE_JOY="examples/devices/c64/c64_joystick.yaml"
 DEVICE_VIDEO="examples/devices/c64/c64_video.yaml"
@@ -101,7 +107,13 @@ if [[ "${PROFILE}" == "interactive" ]]; then
   uv run python -m src.main generate \
     --processor "${PROCESSOR}" \
     --system "${SYSTEM}" \
-    --ic "${IC_IO}" \
+    --ic "${IC_PLA}" \
+    --ic "${IC_VIC}" \
+    --ic "${IC_SID}" \
+    --ic "${IC_CIA1}" \
+    --ic "${IC_CIA2}" \
+    --ic "${IC_COLOR_RAM}" \
+    --ic "${IC_MAIN_RAM}" \
     --device "${DEVICE_KB}" \
     --device "${DEVICE_JOY}" \
     --device "${DEVICE_VIDEO}" \

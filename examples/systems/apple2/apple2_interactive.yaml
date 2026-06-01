@@ -12,7 +12,7 @@ memory:
       start: 0x0000
       size: 0xC000     # RAM from $0000 to $BFFF
       read_write: true
-    # Note: $C000-$CFFF is usually handled by your apple2_io component
+    # Note: $C000-$CFFF is handled by Apple II softswitch IC components.
     - name: ROM_SYSTEM
       start: 0xD000    # Standard Apple II ROM start
       size: 0x3000     # 12KB (Applesoft + Monitor)
@@ -41,7 +41,13 @@ hooks:
 
 components:
   ics:
-    - apple2_io
+    - apple2_keyboard_encoder
+    - apple2_gameio
+    - apple2_video_softswitches
+    - apple2_speaker_toggle
+    - apple2_char_rom
+    - apple2_slot_decoder
+    - apple2_main_ram
   devices:
     - keyboard_apple2
     - gameport_apple2
@@ -52,7 +58,7 @@ components:
 
 connections:
   - from:
-      component: apple2_io
+      component: apple2_keyboard_encoder
       kind: callback
       name: keyboard_ascii
     to:
@@ -68,6 +74,42 @@ connections:
       component: host_apple2
       kind: callback
       name: keyboard_ascii
+
+  - from:
+      component: apple2_gameio
+      kind: callback
+      name: read_paddle0
+    to:
+      component: gameport_apple2
+      kind: callback
+      name: read_paddle0
+
+  - from:
+      component: apple2_gameio
+      kind: callback
+      name: read_paddle1
+    to:
+      component: gameport_apple2
+      kind: callback
+      name: read_paddle1
+
+  - from:
+      component: apple2_gameio
+      kind: callback
+      name: read_button0
+    to:
+      component: gameport_apple2
+      kind: callback
+      name: read_button0
+
+  - from:
+      component: apple2_gameio
+      kind: callback
+      name: read_button1
+    to:
+      component: gameport_apple2
+      kind: callback
+      name: read_button1
 
   - from:
       component: gameport_apple2
@@ -106,7 +148,7 @@ connections:
       name: joystick_button1
 
   - from:
-      component: apple2_io
+      component: apple2_video_softswitches
       kind: signal
       name: frame_ready
     to:
@@ -124,7 +166,7 @@ connections:
       name: video_frame
 
   - from:
-      component: apple2_io
+      component: apple2_speaker_toggle
       kind: signal
       name: audio_level
     to:

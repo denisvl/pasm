@@ -1,0 +1,204 @@
+metadata:
+  id: atari2600_riot
+  type: io_controller
+  model: mos_6532_riot
+  version: "1.0"
+
+state:
+  - name: riot_timer
+    type: uint8_t
+    initial: "0"
+  - name: riot_swcha_out
+    type: uint8_t
+    initial: "0"
+  - name: riot_swacnt
+    type: uint8_t
+    initial: "0"
+  - name: riot_swchb_out
+    type: uint8_t
+    initial: "0"
+  - name: riot_swbcnt
+    type: uint8_t
+    initial: "0"
+  - name: riot_timer_interval
+    type: uint32_t
+    initial: "0"
+  - name: riot_timer_div
+    type: uint32_t
+    initial: "0"
+  - name: riot_timer_wrap_pending
+    type: uint8_t
+    initial: "0"
+  - name: riot_instat
+    type: uint8_t
+    initial: "0"
+  - name: riot_pa7_last
+    type: uint8_t
+    initial: "1"
+  - name: riot_pa7_irq_enable
+    type: uint8_t
+    initial: "1"
+  - name: riot_pa7_posedge
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: joy0_read
+      args: []
+      returns: u8
+    - name: joy1_read
+      args: []
+      returns: u8
+    - name: console_read
+      args: []
+      returns: u8
+    - name: read_io
+      args: [u16]
+      returns: u8
+    - name: write_io
+      args: [u16, u8]
+      returns: u8
+    - name: step_timer
+      args: [u32]
+      returns: u8
+    - name: sample_pa7
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->riot_timer = 0u;
+      comp->riot_swcha_out = 0u;
+      comp->riot_swacnt = 0u;
+      comp->riot_swchb_out = 0u;
+      comp->riot_swbcnt = 0u;
+      comp->riot_timer_interval = 0u;
+      comp->riot_timer_div = 0u;
+      comp->riot_timer_wrap_pending = 0u;
+      comp->riot_instat = 0u;
+      comp->riot_pa7_last = 1u;
+      comp->riot_pa7_irq_enable = 1u;
+      comp->riot_pa7_posedge = 0u;
+    destroy: |
+      (void)cpu;
+  callback_handlers:
+    read_io: |
+      if (argc < 1u) return 0u;
+      uint16_t a = (uint16_t)(args[0] & 0x1FFFu);
+      if ((a & 0xFF80u) != 0x0280u) return 0u;
+      uint8_t reg = (uint8_t)(a & 0x1Fu);
+      uint8_t r = (uint8_t)(reg & 0x07u);
+      if (r == 0x00u) {
+          uint8_t joy0 = (uint8_t)cpu_component_call(cpu, "atari2600_riot", "joy0_read", NULL, 0);
+          uint8_t joy1 = (uint8_t)cpu_component_call(cpu, "atari2600_riot", "joy1_read", NULL, 0);
+          uint8_t in = 0xFFu;
+          if ((joy0 & 0x01u) != 0u) in &= (uint8_t)~0x10u;
+          if ((joy0 & 0x02u) != 0u) in &= (uint8_t)~0x20u;
+          if ((joy0 & 0x04u) != 0u) in &= (uint8_t)~0x40u;
+          if ((joy0 & 0x08u) != 0u) in &= (uint8_t)~0x80u;
+          if ((joy1 & 0x01u) != 0u) in &= (uint8_t)~0x01u;
+          if ((joy1 & 0x02u) != 0u) in &= (uint8_t)~0x02u;
+          if ((joy1 & 0x04u) != 0u) in &= (uint8_t)~0x04u;
+          if ((joy1 & 0x08u) != 0u) in &= (uint8_t)~0x08u;
+          return (uint8_t)((in & (uint8_t)~comp->riot_swacnt) | (comp->riot_swcha_out & comp->riot_swacnt));
+      }
+      if (r == 0x01u) return comp->riot_swacnt;
+      if (r == 0x02u) {
+          uint8_t in = (uint8_t)cpu_component_call(cpu, "atari2600_riot", "console_read", NULL, 0);
+          return (uint8_t)((in & (uint8_t)~comp->riot_swbcnt) | (comp->riot_swchb_out & comp->riot_swbcnt));
+      }
+      if (r == 0x03u) return comp->riot_swbcnt;
+      if (r == 0x04u || r == 0x06u) {
+          comp->riot_instat = (uint8_t)(comp->riot_instat & 0x7Fu);
+          return comp->riot_timer;
+      }
+      if (r == 0x05u || r == 0x07u) {
+          uint8_t v = comp->riot_instat;
+          comp->riot_instat = (uint8_t)(comp->riot_instat & 0xBFu);
+          return v;
+      }
+      return 0u;
+    write_io: |
+      if (argc < 2u) return 0u;
+      uint16_t a = (uint16_t)(args[0] & 0x1FFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      if ((a & 0xFF80u) != 0x0280u) return 0u;
+      uint8_t reg = (uint8_t)(a & 0x1Fu);
+      if (reg == 0x00u || reg == 0x08u || reg == 0x10u || reg == 0x18u) { comp->riot_swcha_out = value; return 0u; }
+      if (reg == 0x01u || reg == 0x09u || reg == 0x11u || reg == 0x19u) { comp->riot_swacnt = value; return 0u; }
+      if (reg == 0x02u || reg == 0x0Au || reg == 0x12u || reg == 0x1Au) { comp->riot_swchb_out = value; return 0u; }
+      if (reg == 0x03u || reg == 0x0Bu || reg == 0x13u || reg == 0x1Bu) { comp->riot_swbcnt = value; return 0u; }
+      if (reg == 0x14u || reg == 0x1Cu) { comp->riot_timer = value; comp->riot_timer_interval = 1u; comp->riot_timer_div = 0u; comp->riot_timer_wrap_pending = 0u; comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u); return 0u; }
+      if (reg == 0x15u || reg == 0x1Du) { comp->riot_timer = value; comp->riot_timer_interval = 8u; comp->riot_timer_div = 0u; comp->riot_timer_wrap_pending = 0u; comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u); return 0u; }
+      if (reg == 0x16u || reg == 0x1Eu) { comp->riot_timer = value; comp->riot_timer_interval = 64u; comp->riot_timer_div = 0u; comp->riot_timer_wrap_pending = 0u; comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u); return 0u; }
+      if (reg == 0x17u || reg == 0x1Fu) { comp->riot_timer = value; comp->riot_timer_interval = 1024u; comp->riot_timer_div = 0u; comp->riot_timer_wrap_pending = 0u; comp->riot_instat = (uint8_t)(comp->riot_instat & 0x40u); return 0u; }
+      if (reg == 0x04u || reg == 0x0Cu) { comp->riot_pa7_irq_enable = 1u; comp->riot_pa7_posedge = 0u; comp->riot_instat = (uint8_t)(comp->riot_instat & 0xBFu); return 0u; }
+      if (reg == 0x05u || reg == 0x0Du) { comp->riot_pa7_irq_enable = 1u; comp->riot_pa7_posedge = 1u; comp->riot_instat = (uint8_t)(comp->riot_instat & 0xBFu); return 0u; }
+      if (reg == 0x06u || reg == 0x0Eu) { comp->riot_pa7_irq_enable = 0u; comp->riot_instat = (uint8_t)(comp->riot_instat & 0xBFu); return 0u; }
+      if (reg == 0x07u || reg == 0x0Fu) { comp->riot_pa7_irq_enable = 1u; comp->riot_instat = (uint8_t)(comp->riot_instat & 0xBFu); return 0u; }
+      return 0u;
+    step_timer: |
+      if (argc < 1u) return 0u;
+      uint32_t add = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      if (comp->riot_timer_interval == 0u) return 0u;
+      comp->riot_timer_div += add;
+      while (comp->riot_timer_div >= comp->riot_timer_interval) {
+          comp->riot_timer_div -= comp->riot_timer_interval;
+          if (comp->riot_timer > 0u) {
+              comp->riot_timer = (uint8_t)(comp->riot_timer - 1u);
+              if (comp->riot_timer == 0u) {
+                  comp->riot_instat = (uint8_t)(comp->riot_instat | 0x80u);
+                  comp->riot_timer_interval = 1u;
+                  comp->riot_timer_wrap_pending = 1u;
+                  break;
+              }
+          } else {
+              if (comp->riot_timer_wrap_pending != 0u) {
+                  comp->riot_timer = 0xFFu;
+                  comp->riot_timer_wrap_pending = 0u;
+              } else {
+                  comp->riot_timer = (uint8_t)(comp->riot_timer - 1u);
+              }
+              comp->riot_instat = (uint8_t)(comp->riot_instat | 0x80u);
+              comp->riot_timer_interval = 1u;
+          }
+      }
+      return 0u;
+    sample_pa7: |
+      uint8_t joy0 = (uint8_t)cpu_component_call(cpu, "atari2600_riot", "joy0_read", NULL, 0);
+      uint8_t joy1 = (uint8_t)cpu_component_call(cpu, "atari2600_riot", "joy1_read", NULL, 0);
+      uint8_t in = 0xFFu;
+      if ((joy0 & 0x01u) != 0u) in &= (uint8_t)~0x10u;
+      if ((joy0 & 0x02u) != 0u) in &= (uint8_t)~0x20u;
+      if ((joy0 & 0x04u) != 0u) in &= (uint8_t)~0x40u;
+      if ((joy0 & 0x08u) != 0u) in &= (uint8_t)~0x80u;
+      if ((joy1 & 0x01u) != 0u) in &= (uint8_t)~0x01u;
+      if ((joy1 & 0x02u) != 0u) in &= (uint8_t)~0x02u;
+      if ((joy1 & 0x04u) != 0u) in &= (uint8_t)~0x04u;
+      if ((joy1 & 0x08u) != 0u) in &= (uint8_t)~0x08u;
+      uint8_t swcha = (uint8_t)((in & (uint8_t)~comp->riot_swacnt) | (comp->riot_swcha_out & comp->riot_swacnt));
+      uint8_t pa7 = (uint8_t)((swcha & 0x80u) != 0u);
+      uint8_t rising = (uint8_t)(comp->riot_pa7_last == 0u && pa7 != 0u);
+      uint8_t falling = (uint8_t)(comp->riot_pa7_last != 0u && pa7 == 0u);
+      if (comp->riot_pa7_irq_enable != 0u && ((comp->riot_pa7_posedge != 0u && rising != 0u) || (comp->riot_pa7_posedge == 0u && falling != 0u))) {
+          comp->riot_instat = (uint8_t)(comp->riot_instat | 0x40u);
+      }
+      comp->riot_pa7_last = pa7;
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

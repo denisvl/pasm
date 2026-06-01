@@ -19,8 +19,6 @@ controller_map:
   - target_control_id: P1_RIGHT
     host_scancode: RIGHT
   - target_control_id: P1_FIRE
-    host_scancode: SPACE
-  - target_control_id: P1_FIRE
     host_scancode: LCTRL
   - target_control_id: P1_UP
     host_gamepad:

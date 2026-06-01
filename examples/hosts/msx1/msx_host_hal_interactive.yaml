@@ -166,7 +166,7 @@ behavior:
       \ | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) {\n        break;\n  \
       \  }\n    comp->window = cpu_host_hal_create_window(\n        \"PASM MSX1\"\
       ,\n        CPU_HOST_WINDOWPOS_CENTERED,\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
-      \        768,\n        576,\n        CPU_HOST_WINDOW_RESIZABLE\n    );\n   \
+      \        256,\n        192,\n        0\n    );\n   \
       \ if (comp->window == NULL) break;\n    comp->renderer = cpu_host_hal_create_renderer(comp->window,\
       \ -1, CPU_HOST_RENDERER_ACCELERATED);\n    if (comp->renderer == NULL) {\n \
       \       comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);\n\
@@ -182,14 +182,14 @@ behavior:
       \            want.channels = 1;\n            want.samples = 512;\n         \
       \   want.callback = NULL;\n            comp->audio_device_samples = 0u;\n  \
       \          comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have,\
-      \ CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE);\n            if (comp->audio_out_dev\
-      \ != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels == 1) {\n\
+      \ SDL_AUDIO_ALLOW_ANY_CHANGE);\n            if (comp->audio_out_dev\
+      \ != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels <= 2u && have.channels >= 1u) {\n\
       \                uint32_t ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq\
       \ * 2u) : 88200u;\n                if (ring_capacity < 8192u) ring_capacity\
       \ = 8192u;\n                comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity\
       \ * sizeof(int16_t));\n                if (comp->audio_ring != NULL) {\n   \
       \                 comp->audio_rate = (have.freq > 0) ? (uint32_t)have.freq :\
-      \ 44100u;\n                    comp->audio_device_samples = (uint32_t)have.samples;\n\
+      \ 44100u;\n                    comp->audio_device_samples = (uint32_t)have.samples * (uint32_t)have.channels;\n\
       \                    comp->audio_ring_capacity = ring_capacity;\n          \
       \          comp->audio_ring_read_idx = 0u;\n                    comp->audio_ring_write_idx\
       \ = 0u;\n                    comp->audio_ring_fill = 0u;\n                 \
@@ -380,15 +380,10 @@ return (uint64_t)joy;\n"
       \    texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888,\
       \ CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);\n    if (texture == NULL)\
       \ return;\n    comp->texture = (void *)texture;\n    comp->texture_w = w;\n\
-      \    comp->texture_h = h;\n}\nif (cpu_host_hal_update_texture(texture, NULL,\
+      \    comp->texture_h = h;\n    if (comp->window != NULL) {\n        (void)cpu_host_hal_set_window_size(comp->window, (int)w, (int)h);\n    }\n}\nif (cpu_host_hal_update_texture(texture, NULL,\
       \ pixels, (int)(w * sizeof(uint32_t))) != 0) return;\ncpu_host_hal_render_set_draw_color(renderer,\
-      \ 0, 0, 0, 255);\ncpu_host_hal_render_clear(renderer);\nint ww = 0;\nint wh\
-      \ = 0;\nif (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww\
-      \ <= 0 || wh <= 0) return;\nCPUHostRect dst;\nint scaled_w = ww;\nint scaled_h\
-      \ = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);\nif (scaled_h > wh) {\n\
-      \    scaled_h = wh;\n    scaled_w = (int)((((int64_t)wh) * (int64_t)w) / (int64_t)h);\n\
-      }\ndst.w = (scaled_w > 0) ? scaled_w : ww;\ndst.h = (scaled_h > 0) ? scaled_h\
-      \ : wh;\ndst.x = (ww - dst.w) / 2;\ndst.y = (wh - dst.h) / 2;\nif (cpu_host_hal_render_copy(renderer,\
+      \ 0, 0, 0, 255);\ncpu_host_hal_render_clear(renderer);\nCPUHostRect dst;\n\
+      \ dst.x = 0;\ndst.y = 0;\ndst.w = (int)w;\ndst.h = (int)h;\nif (cpu_host_hal_render_copy(renderer,\
       \ texture, NULL, &dst) != 0) return;\ncpu_host_hal_render_present(renderer);\n"
     irq_edge: "if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {\n    comp->irq_edges +=\
       \ 1u;\n}\n"

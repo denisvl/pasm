@@ -208,7 +208,7 @@ def test_ricoh2a03_matches_nestest_golden_log():
             "-O2",
             "-I",
             str(outdir / "src"),
-            str(outdir / "src" / "MOS6502.c"),
+            str(outdir / "src" / "MOS6502_core.c"),
             str(outdir / "src" / "MOS6502_decoder.c"),
             str(harness_c),
             "-o",

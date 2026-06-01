@@ -1,0 +1,88 @@
+metadata:
+  id: nes_cpu_bus
+  type: bus_interface
+  model: nes_cpu_address_bus
+  version: "1.0"
+
+clock_hz: 1789773
+
+state: []
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cpu_ram_mirror
+        start: 0x0000
+        size: 0x2000
+        access: [read, write]
+      - name: ppu_regs_mirror
+        start: 0x2000
+        size: 0x2000
+        access: [read, write]
+      - name: apu_io
+        start: 0x4000
+        size: 0x0020
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      (void)cpu;
+    mem_read_pre: |
+      if (cpu->comp_nes_ppu_regs.ppu_vram == NULL || cpu->comp_nes_ppu_regs.palette_ram == NULL || cpu->comp_nes_ppu_regs.oam == NULL) return 0u;
+
+      if (addr < 0x2000u) {
+          uint64_t cb_args[1] = { (uint64_t)addr };
+          return (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cpu_ram", "ram_read", cb_args, 1);
+      }
+
+      if (addr < 0x4000u) {
+          uint64_t cb_args[1] = { (uint64_t)addr };
+          return (uint8_t)cpu_component_dispatch_callback(cpu, "nes_ppu_regs", "ppu_reg_read", cb_args, 1);
+      }
+
+      if (addr <= 0x4017u) {
+          uint64_t cb_args[1] = { (uint64_t)addr };
+          return (uint8_t)cpu_component_dispatch_callback(cpu, "nes_io_ports", "io_read", cb_args, 1);
+      }
+    mem_write_pre: |
+      if (cpu->comp_nes_ppu_regs.ppu_vram == NULL || cpu->comp_nes_ppu_regs.palette_ram == NULL || cpu->comp_nes_ppu_regs.oam == NULL) return;
+
+      if (addr < 0x2000u) {
+          uint64_t cb_args[2] = { (uint64_t)addr, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "nes_cpu_ram", "ram_write", cb_args, 2);
+          return;
+      }
+
+      if (addr < 0x4000u) {
+          uint64_t cb_args[2] = { (uint64_t)addr, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "nes_ppu_regs", "ppu_reg_write", cb_args, 2);
+          return;
+      }
+
+      if (addr <= 0x4017u) {
+          uint64_t cb_args[2] = { (uint64_t)addr, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "nes_io_ports", "io_write", cb_args, 2);
+          return;
+      }
+    step_pre: |
+      (void)cpu;
+    step_post: |
+      (void)cpu;
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

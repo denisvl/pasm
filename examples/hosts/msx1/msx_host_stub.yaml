@@ -59,6 +59,7 @@ behavior:
 
 coding:
   headers: []
-  include_paths: []
+  include_paths:
+  - ../include
   linked_libraries: []
   library_paths: []

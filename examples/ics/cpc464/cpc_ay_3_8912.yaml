@@ -1,0 +1,317 @@
+metadata:
+  id: cpc_psg
+  type: sound_generator
+  model: ay_3_8912
+  version: "1.0"
+
+state:
+  - name: regs
+    type: uint8_t *
+    initial: "NULL"
+  - name: reg_index
+    type: uint8_t
+    initial: "0"
+  - name: ctrl_last
+    type: uint8_t
+    initial: "0"
+  - name: level
+    type: uint8_t
+    initial: "128"
+  - name: last_mix
+    type: uint8_t
+    initial: "128"
+  - name: phase_a
+    type: uint32_t
+    initial: "0"
+  - name: phase_b
+    type: uint32_t
+    initial: "0"
+  - name: phase_c
+    type: uint32_t
+    initial: "0"
+  - name: phase_noise
+    type: uint32_t
+    initial: "0"
+  - name: tone_a
+    type: uint8_t
+    initial: "1"
+  - name: tone_b
+    type: uint8_t
+    initial: "1"
+  - name: tone_c
+    type: uint8_t
+    initial: "1"
+  - name: noise_bit
+    type: uint8_t
+    initial: "1"
+  - name: noise_lfsr
+    type: uint32_t
+    initial: "0x1FFFF"
+  - name: env_phase
+    type: uint32_t
+    initial: "0"
+  - name: env_value
+    type: uint8_t
+    initial: "0"
+  - name: env_dir
+    type: int8_t
+    initial: "-1"
+  - name: env_hold
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: bus_apply
+      args: [u8, u8]
+      returns: u8
+    - name: tick_audio
+      args: [u32]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+  ports:
+    read: []
+    write: []
+
+behavior:
+  snippets:
+    init: |
+      if (comp->regs == NULL) {
+          comp->regs = (uint8_t *)calloc(16u, sizeof(uint8_t));
+      }
+      comp->reg_index = 0u;
+      comp->ctrl_last = 0u;
+      comp->level = 128u;
+      comp->last_mix = 128u;
+      comp->phase_a = 0u;
+      comp->phase_b = 0u;
+      comp->phase_c = 0u;
+      comp->phase_noise = 0u;
+      comp->tone_a = 1u;
+      comp->tone_b = 1u;
+      comp->tone_c = 1u;
+      comp->noise_bit = 1u;
+      comp->noise_lfsr = 0x1FFFFu;
+      comp->env_phase = 0u;
+      comp->env_value = 0u;
+      comp->env_dir = -1;
+      comp->env_hold = 0u;
+      if (comp->regs != NULL) {
+          memset(comp->regs, 0, 16u);
+          comp->regs[7] = 0xFFu;
+          comp->regs[14] = 0xFFu;
+      }
+    destroy: |
+      if (comp->regs != NULL) {
+          free(comp->regs);
+          comp->regs = NULL;
+      }
+  callback_handlers:
+    bus_apply: |
+      uint8_t ctrl = (uint8_t)(args[0] & 0xC0u);
+      uint8_t data = (uint8_t)(args[1] & 0xFFu);
+      uint8_t prev_ctrl = (uint8_t)(comp->ctrl_last & 0xC0u);
+      uint8_t changed = 0u;
+      if (comp->regs == NULL) {
+          comp->ctrl_last = ctrl;
+          return 0u;
+      }
+      if (ctrl == 0xC0u) {
+          comp->reg_index = (uint8_t)(data & 0x0Fu);
+          changed = 1u;
+      } else if (ctrl == 0x80u) {
+          uint8_t ridx_now = (uint8_t)(comp->reg_index & 0x0Fu);
+          comp->regs[ridx_now] = data;
+          if (ridx_now == 13u) {
+              uint8_t shape = (uint8_t)(data & 0x0Fu);
+              uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+              comp->env_value = attack != 0u ? 0u : 15u;
+              comp->env_dir = attack != 0u ? 1 : -1;
+              comp->env_hold = 0u;
+              comp->env_phase = 0u;
+          }
+          {
+              uint8_t v0 = (uint8_t)(comp->regs[8] & 0x0Fu);
+              uint8_t v1 = (uint8_t)(comp->regs[9] & 0x0Fu);
+              uint8_t v2 = (uint8_t)(comp->regs[10] & 0x0Fu);
+              uint8_t level = (uint8_t)(((uint32_t)(v0 + v1 + v2) * 255u) / 45u);
+              comp->level = level;
+          }
+          changed = 2u;
+      }
+      if (ctrl == 0x00u && (prev_ctrl == 0xC0u || prev_ctrl == 0x80u)) {
+          if (prev_ctrl == 0xC0u) {
+              comp->reg_index = (uint8_t)(data & 0x0Fu);
+              changed = 3u;
+          } else {
+              uint8_t ridx = (uint8_t)(comp->reg_index & 0x0Fu);
+              comp->regs[ridx] = data;
+              if (ridx == 13u) {
+                  uint8_t shape = (uint8_t)(data & 0x0Fu);
+                  uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                  comp->env_value = attack != 0u ? 0u : 15u;
+                  comp->env_dir = attack != 0u ? 1 : -1;
+                  comp->env_hold = 0u;
+                  comp->env_phase = 0u;
+              }
+              {
+                  uint8_t v0 = (uint8_t)(comp->regs[8] & 0x0Fu);
+                  uint8_t v1 = (uint8_t)(comp->regs[9] & 0x0Fu);
+                  uint8_t v2 = (uint8_t)(comp->regs[10] & 0x0Fu);
+                  uint8_t level = (uint8_t)(((uint32_t)(v0 + v1 + v2) * 255u) / 45u);
+                  comp->level = level;
+              }
+              changed = 4u;
+          }
+      }
+      comp->ctrl_last = ctrl;
+      return changed;
+    tick_audio: |
+      static const uint8_t ay_vol_table[16] = {
+          0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 9u, 11u, 14u, 17u, 21u, 26u, 31u, 38u
+      };
+      uint32_t ay_ticks = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      uint32_t pA = 1u;
+      uint32_t pB = 1u;
+      uint32_t pC = 1u;
+      uint32_t pN = 1u;
+      uint8_t mix = 0x3Fu;
+      uint8_t ch0 = 0u;
+      uint8_t ch1 = 0u;
+      uint8_t ch2 = 0u;
+      uint32_t sum = 0u;
+      uint8_t out_level = comp->level;
+
+      if (ay_ticks == 0u) ay_ticks = 1u;
+      if (comp->regs != NULL) {
+          pA = (uint32_t)(comp->regs[0] | ((uint16_t)(comp->regs[1] & 0x0Fu) << 8u));
+          pB = (uint32_t)(comp->regs[2] | ((uint16_t)(comp->regs[3] & 0x0Fu) << 8u));
+          pC = (uint32_t)(comp->regs[4] | ((uint16_t)(comp->regs[5] & 0x0Fu) << 8u));
+          pN = (uint32_t)(comp->regs[6] & 0x1Fu);
+          mix = comp->regs[7];
+          if (pA == 0u) pA = 1u;
+          if (pB == 0u) pB = 1u;
+          if (pC == 0u) pC = 1u;
+          if (pN == 0u) pN = 1u;
+      }
+      pA *= 16u;
+      pB *= 16u;
+      pC *= 16u;
+      pN *= 16u;
+
+      comp->phase_a += ay_ticks;
+      while (comp->phase_a >= pA) {
+          comp->phase_a -= pA;
+          comp->tone_a ^= 1u;
+      }
+      comp->phase_b += ay_ticks;
+      while (comp->phase_b >= pB) {
+          comp->phase_b -= pB;
+          comp->tone_b ^= 1u;
+      }
+      comp->phase_c += ay_ticks;
+      while (comp->phase_c >= pC) {
+          comp->phase_c -= pC;
+          comp->tone_c ^= 1u;
+      }
+      comp->phase_noise += ay_ticks;
+      while (comp->phase_noise >= pN) {
+          uint32_t fb;
+          comp->phase_noise -= pN;
+          if (comp->noise_lfsr == 0u) comp->noise_lfsr = 0x1FFFFu;
+          fb = (comp->noise_lfsr ^ (comp->noise_lfsr >> 3u)) & 1u;
+          comp->noise_lfsr = (comp->noise_lfsr >> 1u) | (fb << 16u);
+          comp->noise_bit = (uint8_t)(comp->noise_lfsr & 1u);
+      }
+
+      {
+          uint16_t env_reg = (comp->regs != NULL)
+              ? (uint16_t)(comp->regs[11] | ((uint16_t)comp->regs[12] << 8u))
+              : 1u;
+          uint32_t env_period = (env_reg == 0u) ? 1u : (uint32_t)env_reg;
+          env_period *= 16u;
+          comp->env_phase += ay_ticks;
+          while (comp->env_phase >= env_period) {
+              comp->env_phase -= env_period;
+              if (comp->env_hold != 0u) break;
+              if (comp->env_dir > 0) {
+                  if (comp->env_value < 15u) {
+                      comp->env_value += 1u;
+                  } else {
+                      uint8_t shape = (comp->regs != NULL) ? (uint8_t)(comp->regs[13] & 0x0Fu) : 0u;
+                      uint8_t cont = (uint8_t)((shape & 0x08u) != 0u);
+                      uint8_t alt = (uint8_t)((shape & 0x02u) != 0u);
+                      uint8_t hold = (uint8_t)((shape & 0x01u) != 0u);
+                      uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                      if (cont == 0u || hold != 0u) {
+                          comp->env_hold = 1u;
+                      } else if (alt != 0u) {
+                          comp->env_dir = -comp->env_dir;
+                      } else {
+                          comp->env_value = attack != 0u ? 0u : 15u;
+                          comp->env_dir = attack != 0u ? 1 : -1;
+                      }
+                  }
+              } else {
+                  if (comp->env_value > 0u) {
+                      comp->env_value -= 1u;
+                  } else {
+                      uint8_t shape = (comp->regs != NULL) ? (uint8_t)(comp->regs[13] & 0x0Fu) : 0u;
+                      uint8_t cont = (uint8_t)((shape & 0x08u) != 0u);
+                      uint8_t alt = (uint8_t)((shape & 0x02u) != 0u);
+                      uint8_t hold = (uint8_t)((shape & 0x01u) != 0u);
+                      uint8_t attack = (uint8_t)((shape & 0x04u) != 0u);
+                      if (cont == 0u || hold != 0u) {
+                          comp->env_hold = 1u;
+                      } else if (alt != 0u) {
+                          comp->env_dir = -comp->env_dir;
+                      } else {
+                          comp->env_value = attack != 0u ? 0u : 15u;
+                          comp->env_dir = attack != 0u ? 1 : -1;
+                      }
+                  }
+              }
+          }
+      }
+
+      {
+          uint8_t v0 = (comp->regs != NULL) ? (uint8_t)(comp->regs[8] & 0x1Fu) : 0u;
+          uint8_t v1 = (comp->regs != NULL) ? (uint8_t)(comp->regs[9] & 0x1Fu) : 0u;
+          uint8_t v2 = (comp->regs != NULL) ? (uint8_t)(comp->regs[10] & 0x1Fu) : 0u;
+          uint8_t env = comp->env_value & 0x0Fu;
+          uint8_t a0 = ((v0 & 0x10u) != 0u) ? env : (v0 & 0x0Fu);
+          uint8_t a1 = ((v1 & 0x10u) != 0u) ? env : (v1 & 0x0Fu);
+          uint8_t a2 = ((v2 & 0x10u) != 0u) ? env : (v2 & 0x0Fu);
+          uint8_t t0 = ((mix & 0x01u) == 0u) ? comp->tone_a : 1u;
+          uint8_t t1 = ((mix & 0x02u) == 0u) ? comp->tone_b : 1u;
+          uint8_t t2 = ((mix & 0x04u) == 0u) ? comp->tone_c : 1u;
+          uint8_t n0 = ((mix & 0x08u) == 0u) ? comp->noise_bit : 1u;
+          uint8_t n1 = ((mix & 0x10u) == 0u) ? comp->noise_bit : 1u;
+          uint8_t n2 = ((mix & 0x20u) == 0u) ? comp->noise_bit : 1u;
+          ch0 = ((t0 & n0) != 0u) ? ay_vol_table[a0] : 0u;
+          ch1 = ((t1 & n1) != 0u) ? ay_vol_table[a1] : 0u;
+          ch2 = ((t2 & n2) != 0u) ? ay_vol_table[a2] : 0u;
+      }
+
+      sum = (uint32_t)ch0 + (uint32_t)ch1 + (uint32_t)ch2;
+      {
+          int mixed = 128 + (int)((sum * 127u) / 114u);
+          if (mixed < 0) mixed = 0;
+          if (mixed > 255) mixed = 255;
+          out_level = (uint8_t)mixed;
+      }
+      comp->last_mix = out_level;
+      comp->level = out_level;
+      return out_level;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

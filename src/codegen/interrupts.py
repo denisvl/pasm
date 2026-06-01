@@ -2,7 +2,6 @@
 
 from typing import Any, Dict, List
 
-
 INTERRUPT_MODE_IDS = {"IM0": 0, "IM1": 1, "IM2": 2}
 SUPPORTED_INTERRUPT_MODELS = {"none", "fixed_vector", "z80", "mos6502", "mc6809"}
 
@@ -41,3 +40,11 @@ def resolve_interrupt_model(isa_data: Dict[str, Any]) -> str:
     if configured_interrupt_modes(isa_data):
         return "z80"
     return "fixed_vector"
+
+
+def generate_interrupt_impl(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Emit interrupt API implementation for split system glue units."""
+    # Local import avoids cpu_impl <-> interrupts import cycle.
+    from .cpu_impl import _generate_interrupt_impl
+
+    return _generate_interrupt_impl(isa_data, cpu_name.lower())

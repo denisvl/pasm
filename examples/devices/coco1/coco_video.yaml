@@ -252,6 +252,8 @@ behavior:
             fflush(video_trace_fp);
         }
 
+        uint32_t out_w = 256u;
+        uint32_t out_h = 192u;
         for (uint32_t i = 0u; i < 256u * 192u; ++i) {
             framebuf[i] = COLOR_BLACK;
         }
@@ -339,24 +341,59 @@ behavior:
             uint32_t bits_per_pixel;
 
             {
+                /* MC6847 graphics mode dimensions are selected by GM2..0 (not SAM mode). */
                 uint32_t row_bytes;
-                switch (mode) {
-                    case 1u: logical_h = 64u;  row_bytes = 16u; break;
-                    case 2u: logical_h = 64u;  row_bytes = 32u; break;
-                    case 3u: logical_h = 96u;  row_bytes = 16u; break;
-                    case 4u: logical_h = 96u;  row_bytes = 32u; break;
-                    case 5u: logical_h = 192u; row_bytes = 16u; break;
-                    case 6u: logical_h = 192u; row_bytes = 32u; break;
-                    default: logical_h = 192u; row_bytes = 32u; break;
+                switch (gm & 0x07u) {
+                    case 0u: /* CG1:  64x64,  2bpp, 1024 bytes */
+                        logical_h = 64u;
+                        row_bytes = 16u;
+                        bits_per_pixel = 2u;
+                        break;
+                    case 1u: /* RG1: 128x64,  1bpp, 1024 bytes */
+                        logical_h = 64u;
+                        row_bytes = 16u;
+                        bits_per_pixel = 1u;
+                        break;
+                    case 2u: /* CG2: 128x64,  2bpp, 2048 bytes */
+                        logical_h = 64u;
+                        row_bytes = 32u;
+                        bits_per_pixel = 2u;
+                        break;
+                    case 3u: /* RG2: 128x96,  1bpp, 1536 bytes */
+                        logical_h = 96u;
+                        row_bytes = 16u;
+                        bits_per_pixel = 1u;
+                        break;
+                    case 4u: /* CG3: 128x96,  2bpp, 3072 bytes */
+                        logical_h = 96u;
+                        row_bytes = 32u;
+                        bits_per_pixel = 2u;
+                        break;
+                    case 5u: /* RG3: 128x192, 1bpp, 3072 bytes */
+                        logical_h = 192u;
+                        row_bytes = 16u;
+                        bits_per_pixel = 1u;
+                        break;
+                    case 6u: /* CG6: 128x192, 2bpp, 6144 bytes */
+                        logical_h = 192u;
+                        row_bytes = 32u;
+                        bits_per_pixel = 2u;
+                        break;
+                    default: /* 7u: RG6: 256x192, 1bpp, 6144 bytes */
+                        logical_h = 192u;
+                        row_bytes = 32u;
+                        bits_per_pixel = 1u;
+                        break;
                 }
-                bits_per_pixel = (uint32_t)((gm & 0x01u) != 0u ? 1u : 2u);
                 logical_w = (row_bytes * 8u) / bits_per_pixel;
                 if (logical_w == 0u) logical_w = 256u;
             }
+            out_w = logical_w;
+            out_h = logical_h;
 
             {
-                uint32_t sx = 256u / logical_w;
-                uint32_t sy = 192u / logical_h;
+                uint32_t sx = 1u;
+                uint32_t sy = 1u;
                 uint32_t stride = (logical_w * bits_per_pixel) / 8u;
                 static const uint8_t sam_ydiv_tbl[8] = { 12u, 1u, 3u, 1u, 2u, 1u, 1u, 1u };
                 static const uint8_t sam_xdiv_tbl[8] = { 1u, 3u, 1u, 2u, 1u, 1u, 1u, 1u };
@@ -492,7 +529,7 @@ behavior:
                                     uint32_t py0 = y * sy;
                                     for (uint32_t yy = 0u; yy < sy; ++yy) {
                                         for (uint32_t xx = 0u; xx < sx; ++xx) {
-                                            framebuf[(py0 + yy) * 256u + (px0 + xx)] = color;
+                                            framebuf[(py0 + yy) * out_w + (px0 + xx)] = color;
                                         }
                                     }
                                 }
@@ -547,7 +584,7 @@ behavior:
 
                                 for (uint32_t yy = 0u; yy < sy; ++yy) {
                                     for (uint32_t xx = 0u; xx < sx; ++xx) {
-                                        framebuf[(py0 + yy) * 256u + (px0 + xx)] = color;
+                                        framebuf[(py0 + yy) * out_w + (px0 + xx)] = color;
                                     }
                                 }
                             }
@@ -566,7 +603,7 @@ behavior:
                                 uint32_t py0 = y * sy;
                                 for (uint32_t yy = 0u; yy < sy; ++yy) {
                                     for (uint32_t xx = 0u; xx < sx; ++xx) {
-                                        framebuf[(py0 + yy) * 256u + (px0 + xx)] = color;
+                                        framebuf[(py0 + yy) * out_w + (px0 + xx)] = color;
                                     }
                                 }
                             }
@@ -579,7 +616,7 @@ behavior:
                                 uint32_t py0 = y * sy;
                                 for (uint32_t yy = 0u; yy < sy; ++yy) {
                                     for (uint32_t xx = 0u; xx < sx; ++xx) {
-                                        framebuf[(py0 + yy) * 256u + (px0 + xx)] = color;
+                                        framebuf[(py0 + yy) * out_w + (px0 + xx)] = color;
                                     }
                                 }
                             }
@@ -599,14 +636,14 @@ behavior:
             uint64_t out_args[4] = {
                 (uint64_t)comp->frame_count,
                 (uint64_t)(uintptr_t)framebuf,
-                256u,
-                192u
+                (uint64_t)out_w,
+                (uint64_t)out_h
             };
             cpu_component_emit_signal(cpu, "video_coco", "frame_present", out_args, 4);
         }
 
 coding:
   headers: ["pasm_overlay.h", "stdio.h", "stdlib.h"]
-  include_paths: ["../hosts/include"]
+  include_paths: ["../../hosts/include"]
   linked_libraries: []
   library_paths: []

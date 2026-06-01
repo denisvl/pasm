@@ -60,91 +60,56 @@ fn extract_json_array_strings(text: &str, key: &str) -> Vec<String> {
     out
 }
 
-fn detect_library_entry(
-    search_dir: &Path,
-    lib_basename: Option<&str>,
-) -> Option<(String, String, PathBuf)> {
-    let mut entries: Vec<PathBuf> = fs::read_dir(search_dir)
-        .ok()?
-        .filter_map(|e| e.ok().map(|v| v.path()))
-        .collect();
-    entries.sort();
-
-    if let Some(base) = lib_basename {
-        #[cfg(target_env = "msvc")]
-        let candidates = [(format!("{base}.lib"), base.to_string())];
-
-        #[cfg(not(target_env = "msvc"))]
-        let candidates = [
-            (format!("lib{base}.a"), format!("static={base}")),
-            (format!("lib{base}.so"), format!("dylib={base}")),
-            (format!("lib{base}.dylib"), format!("dylib={base}")),
-            (format!("{base}.lib"), base.to_string()),
-        ];
-
-        for (filename, link_spec) in candidates {
-            let full_path = search_dir.join(&filename);
-            if full_path.exists() {
-                return Some((search_dir.display().to_string(), link_spec, full_path));
-            }
-        }
+fn static_link_spec_from_filename(file_name: &str) -> Option<String> {
+    #[cfg(target_env = "msvc")]
+    {
+        let base = file_name.strip_suffix(".lib")?;
+        return Some(base.to_string());
     }
 
-    for path in entries {
-        let Some(file_name) = path.file_name().and_then(|v| v.to_str()) else {
+    #[cfg(not(target_env = "msvc"))]
+    {
+        let base = file_name.strip_prefix("lib")?.strip_suffix(".a")?;
+        return Some(format!("static={base}"));
+    }
+}
+
+fn emit_split_static_links(search_dirs: &[PathBuf], manifest_text: &str) -> bool {
+    let system_static = extract_json_string(manifest_text, "system_static");
+    let cpu_core_static = extract_json_string(manifest_text, "cpu_core_static");
+    let (Some(system_static), Some(cpu_core_static)) = (system_static, cpu_core_static) else {
+        return false;
+    };
+
+    for dir in search_dirs {
+        let system_path = dir.join(&system_static);
+        let cpu_core_path = dir.join(&cpu_core_static);
+        if !(system_path.exists() && cpu_core_path.exists()) {
+            continue;
+        }
+
+        let Some(system_file) = system_path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Some(cpu_core_file) = cpu_core_path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Some(system_link) = static_link_spec_from_filename(system_file) else {
+            continue;
+        };
+        let Some(cpu_core_link) = static_link_spec_from_filename(cpu_core_file) else {
             continue;
         };
 
-        #[cfg(target_env = "msvc")]
-        {
-            // Avoid selecting MinGW/GCC archives when linking with MSVC.
-            if file_name.ends_with(".a")
-                || file_name.ends_with(".so")
-                || file_name.ends_with(".dylib")
-            {
-                continue;
-            }
-        }
-
-        if file_name.starts_with("lib") && file_name.ends_with("_emu.a") {
-            let base = file_name
-                .trim_start_matches("lib")
-                .trim_end_matches(".a")
-                .to_string();
-            return Some((
-                search_dir.display().to_string(),
-                format!("static={base}"),
-                path,
-            ));
-        }
-        if file_name.starts_with("lib") && file_name.ends_with("_emu.so") {
-            let base = file_name
-                .trim_start_matches("lib")
-                .trim_end_matches(".so")
-                .to_string();
-            return Some((
-                search_dir.display().to_string(),
-                format!("dylib={base}"),
-                path,
-            ));
-        }
-        if file_name.starts_with("lib") && file_name.ends_with("_emu.dylib") {
-            let base = file_name
-                .trim_start_matches("lib")
-                .trim_end_matches(".dylib")
-                .to_string();
-            return Some((
-                search_dir.display().to_string(),
-                format!("dylib={base}"),
-                path,
-            ));
-        }
-        if file_name.ends_with("_emu.lib") {
-            let base = file_name.trim_end_matches(".lib").to_string();
-            return Some((search_dir.display().to_string(), base, path));
-        }
+        let search_path = dir.display().to_string();
+        println!("cargo:rustc-link-search=native={search_path}");
+        println!("cargo:rustc-link-lib={system_link}");
+        println!("cargo:rustc-link-lib={cpu_core_link}");
+        println!("cargo:rerun-if-changed={}", system_path.display());
+        println!("cargo:rerun-if-changed={}", cpu_core_path.display());
+        return true;
     }
-    None
+    false
 }
 
 fn add_if_exists_unique(vec: &mut Vec<PathBuf>, path: PathBuf) {
@@ -255,7 +220,6 @@ fn discover_vcpkg_lib_dirs() -> Vec<String> {
 fn main() {
     println!("cargo:rerun-if-env-changed=PASM_EMU_DIR");
     println!("cargo:rerun-if-env-changed=PASM_EMU_BUILD_DIR");
-    println!("cargo:rerun-if-env-changed=PASM_EMU_LIB_BASENAME");
     println!("cargo:rerun-if-env-changed=PASM_EMU_MANIFEST");
     println!("cargo:rerun-if-env-changed=PASM_EMU_EXTRA_LIBS");
     println!("cargo:rerun-if-env-changed=PASM_EMU_EXTRA_LIB_DIRS");
@@ -278,21 +242,10 @@ fn main() {
     if let Some(path) = &manifest_path {
         println!("cargo:rerun-if-changed={}", path.display());
     }
-    let mut lib_basename = env::var("PASM_EMU_LIB_BASENAME").ok();
     let mut manifest_text: Option<String> = None;
 
-    if lib_basename.is_none() {
-        if let Some(path) = &manifest_path {
-            if let Ok(text) = fs::read_to_string(path) {
-                manifest_text = Some(text.clone());
-                lib_basename = extract_json_string(&text, "library_basename");
-            }
-        }
-    }
-    if manifest_text.is_none() {
-        if let Some(path) = &manifest_path {
-            manifest_text = fs::read_to_string(path).ok();
-        }
+    if let Some(path) = &manifest_path {
+        manifest_text = fs::read_to_string(path).ok();
     }
 
     let mut search_dirs: Vec<PathBuf> = Vec::new();
@@ -313,131 +266,111 @@ fn main() {
         panic!("unable to locate generated emulator artifacts.\nSet PASM_EMU_DIR to your generated output directory (contains debugger_link.json), build it with CMake, then retry.");
     }
 
-    for dir in &search_dirs {
-        if let Some((search_path, link_spec, lib_path)) =
-            detect_library_entry(dir, lib_basename.as_deref())
-        {
-            println!("cargo:rustc-link-search=native={search_path}");
-            println!("cargo:rustc-link-lib={link_spec}");
-            println!("cargo:rerun-if-changed={}", lib_path.display());
-
-            let mut extra_link_paths: HashSet<String> = HashSet::new();
-            let mut extra_link_libs: HashSet<String> = HashSet::new();
-            let mut extra_link_files: HashSet<String> = HashSet::new();
-
-            let effective_manifest_text = if manifest_text.is_some() {
-                manifest_text.clone()
+    if manifest_text.is_none() {
+        for dir in &search_dirs {
+            let candidate = if dir.ends_with("build") {
+                dir.parent().map(|p| p.join("debugger_link.json"))
             } else {
-                let search_path_buf = PathBuf::from(&search_path);
-                let candidate = if search_path_buf.ends_with("build") {
-                    search_path_buf
-                        .parent()
-                        .map(|p| p.join("debugger_link.json"))
-                } else {
-                    Some(search_path_buf.join("debugger_link.json"))
-                };
-                candidate.and_then(|p| fs::read_to_string(p).ok())
+                Some(dir.join("debugger_link.json"))
             };
-
-            if let Some(text) = &effective_manifest_text {
-                for p in extract_json_array_strings(text, "library_paths") {
-                    if !p.is_empty() {
-                        let resolved = resolve_input_path(&p);
-                        extra_link_paths.insert(resolved.to_string_lossy().to_string());
-                    }
-                }
-                for l in extract_json_array_strings(text, "library_names") {
-                    if !l.is_empty() {
-                        extra_link_libs.insert(l);
-                    }
-                }
-                for f in extract_json_array_strings(text, "library_files") {
-                    if !f.is_empty() {
-                        extra_link_files.insert(f);
-                    }
+            if let Some(path) = candidate {
+                if let Ok(text) = fs::read_to_string(&path) {
+                    println!("cargo:rerun-if-changed={}", path.display());
+                    manifest_text = Some(text);
+                    break;
                 }
             }
-
-            if let Ok(extra_libs) = env::var("PASM_EMU_EXTRA_LIBS") {
-                for lib in extra_libs
-                    .split(',')
-                    .map(|s| s.trim())
-                    .filter(|s| !s.is_empty())
-                {
-                    extra_link_libs.insert(lib.to_string());
-                }
-            }
-            if let Ok(extra_lib_dirs) = env::var("PASM_EMU_EXTRA_LIB_DIRS") {
-                for dir in extra_lib_dirs
-                    .split(',')
-                    .map(|s| s.trim())
-                    .filter(|s| !s.is_empty())
-                {
-                    extra_link_paths.insert(dir.to_string());
-                }
-            }
-            for dir in discover_vcpkg_lib_dirs() {
-                extra_link_paths.insert(dir);
-            }
-
-            for dir in extra_link_paths {
-                println!("cargo:rustc-link-search=native={dir}");
-            }
-            for lib in extra_link_libs {
-                println!("cargo:rustc-link-lib={lib}");
-            }
-            for file in extra_link_files {
-                println!("cargo:rerun-if-changed={file}");
-                println!("cargo:rustc-link-arg={file}");
-            }
-            return;
         }
     }
 
-    let placeholder_hint = if emu_dir_str
-        .as_deref()
-        .map(|v| v.contains("/path/to/generated/emulator"))
-        .unwrap_or(false)
-        || build_dir_str
-            .as_deref()
-            .map(|v| v.contains("/path/to/generated/emulator"))
-            .unwrap_or(false)
-    {
-        "\nDetected placeholder path '/path/to/generated/emulator'. Replace it with a real generated output path."
-    } else {
-        ""
+    let Some(text) = &manifest_text else {
+        panic!(
+            "missing debugger_link.json for linked emulator build.\nSet PASM_EMU_DIR (or PASM_EMU_MANIFEST) to a generated output directory containing debugger_link.json."
+        );
     };
-
-    #[cfg(target_env = "msvc")]
-    let msvc_archive_hint = {
-        let mut found_gnu_archive = false;
+    let mut selected_manifest_text = text.clone();
+    if !emit_split_static_links(&search_dirs, &selected_manifest_text) {
+        let mut linked = false;
         for dir in &search_dirs {
-            if let Ok(entries) = fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        if name.starts_with("lib") && name.ends_with("_emu.a") {
-                            found_gnu_archive = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            if found_gnu_archive {
+            let candidate = if dir.ends_with("build") {
+                dir.parent().map(|p| p.join("debugger_link.json"))
+            } else {
+                Some(dir.join("debugger_link.json"))
+            };
+            let Some(path) = candidate else { continue };
+            let Ok(candidate_text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            if emit_split_static_links(&search_dirs, &candidate_text) {
+                println!("cargo:rerun-if-changed={}", path.display());
+                selected_manifest_text = candidate_text;
+                linked = true;
                 break;
             }
         }
-        if found_gnu_archive {
-            "\nDetected GCC/MinGW archive (*.a) in selected emulator build directory. With rustc-msvc/link.exe you must build the emulator with MSVC so a *.lib import/static library is produced (for example, use the .bat launcher or CMake Visual Studio generator)."
-        } else {
-            ""
+        if !linked {
+            panic!(
+                "unable to resolve split static artifacts from debugger_link.json in search directories: {}",
+                search_dirs
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
         }
-    };
+    }
 
-    #[cfg(not(target_env = "msvc"))]
-    let msvc_archive_hint = "";
+    let mut extra_link_paths: HashSet<String> = HashSet::new();
+    let mut extra_link_libs: HashSet<String> = HashSet::new();
+    let mut extra_link_files: HashSet<String> = HashSet::new();
 
-    panic!(
-        "unable to locate generated emulator library.\nChecked directories: {:?}\nExpected basename: {:?}{}{}\nHint:\n  1) uv run python -m src.main generate --processor <processor.yaml> --system <system.yaml> --output <out>\n  2) cmake -S <out> -B <out>/build && cmake --build <out>/build\n  3) PASM_EMU_DIR=<out> cargo run --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- --backend linked",
-        search_dirs, lib_basename, placeholder_hint, msvc_archive_hint
-    );
+    for p in extract_json_array_strings(&selected_manifest_text, "library_paths") {
+        if !p.is_empty() {
+            let resolved = resolve_input_path(&p);
+            extra_link_paths.insert(resolved.to_string_lossy().to_string());
+        }
+    }
+    for l in extract_json_array_strings(&selected_manifest_text, "library_names") {
+        if !l.is_empty() {
+            extra_link_libs.insert(l);
+        }
+    }
+    for f in extract_json_array_strings(&selected_manifest_text, "library_files") {
+        if !f.is_empty() {
+            extra_link_files.insert(f);
+        }
+    }
+
+    if let Ok(extra_libs) = env::var("PASM_EMU_EXTRA_LIBS") {
+        for lib in extra_libs
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            extra_link_libs.insert(lib.to_string());
+        }
+    }
+    if let Ok(extra_lib_dirs) = env::var("PASM_EMU_EXTRA_LIB_DIRS") {
+        for dir in extra_lib_dirs
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            extra_link_paths.insert(dir.to_string());
+        }
+    }
+    for dir in discover_vcpkg_lib_dirs() {
+        extra_link_paths.insert(dir);
+    }
+
+    for dir in extra_link_paths {
+        println!("cargo:rustc-link-search=native={dir}");
+    }
+    for lib in extra_link_libs {
+        println!("cargo:rustc-link-lib={lib}");
+    }
+    for file in extra_link_files {
+        println!("cargo:rerun-if-changed={file}");
+        println!("cargo:rustc-link-arg={file}");
+    }
 }

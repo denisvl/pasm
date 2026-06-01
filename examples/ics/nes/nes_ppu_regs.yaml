@@ -1,0 +1,901 @@
+metadata:
+  id: nes_ppu_regs
+  type: video_controller
+  model: nes_ppu_register_access
+  version: "1.0"
+
+state:
+  - name: ppu_vram
+    type: uint8_t *
+    initial: "NULL"
+  - name: palette_ram
+    type: uint8_t *
+    initial: "NULL"
+  - name: oam
+    type: uint8_t *
+    initial: "NULL"
+  - name: ppu_ctrl
+    type: uint8_t
+    initial: "0"
+  - name: ppu_mask
+    type: uint8_t
+    initial: "0"
+  - name: ppu_status
+    type: uint8_t
+    initial: "0"
+  - name: oam_addr
+    type: uint8_t
+    initial: "0"
+  - name: ppu_open_bus
+    type: uint8_t
+    initial: "0"
+  - name: ppu_scroll_latch
+    type: uint8_t
+    initial: "0"
+  - name: ppu_addr_latch
+    type: uint8_t
+    initial: "0"
+  - name: scroll_x
+    type: uint8_t
+    initial: "0"
+  - name: scroll_y
+    type: uint8_t
+    initial: "0"
+  - name: ppu_addr
+    type: uint16_t
+    initial: "0"
+  - name: ppu_data_buffer
+    type: uint8_t
+    initial: "0"
+  - name: ppu_v
+    type: uint16_t
+    initial: "0"
+  - name: ppu_t
+    type: uint16_t
+    initial: "0"
+  - name: ppu_x
+    type: uint8_t
+    initial: "0"
+  - name: ppu_w
+    type: uint8_t
+    initial: "0"
+
+  - name: ppu_scanline
+    type: int16_t
+    initial: "261"
+  - name: ppu_cycle
+    type: uint16_t
+    initial: "0"
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: cycle_accum
+    type: uint64_t
+    initial: "0"
+  - name: ppu_dot_accum
+    type: uint64_t
+    initial: "0"
+  - name: ppu_abs_tick
+    type: uint64_t
+    initial: "0"
+  - name: odd_frame
+    type: uint8_t
+    initial: "0"
+  - name: vblank_set_this_frame
+    type: uint8_t
+    initial: "0"
+  - name: ppu_prevent_vbl_flag
+    type: uint8_t
+    initial: "0"
+  - name: ppu_prevent_nmi_flag
+    type: uint8_t
+    initial: "0"
+  - name: sprite0_hit_pending
+    type: uint8_t
+    initial: "0"
+  - name: sprite0_hit_cycle
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: ppu_reg_read
+      args: [u16]
+      returns: u8
+    - name: ppu_reg_write
+      args: [u16, u8]
+      returns: u8
+    - name: oam_dma
+      args: [u8]
+      returns: u8
+    - name: accumulate_timing
+      args: [u64]
+      returns: u8
+    - name: ppu_step_loop
+      args: []
+      returns: u8
+    - name: post_step_finalize
+      args: [u64]
+      returns: u8
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32]
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      if (comp->ppu_vram == NULL) comp->ppu_vram = (uint8_t *)calloc(2048u, sizeof(uint8_t));
+      if (comp->palette_ram == NULL) comp->palette_ram = (uint8_t *)calloc(32u, sizeof(uint8_t));
+      if (comp->oam == NULL) comp->oam = (uint8_t *)calloc(256u, sizeof(uint8_t));
+    reset: |
+      (void)cpu;
+      if (comp->ppu_vram != NULL) memset(comp->ppu_vram, 0, 2048u);
+      if (comp->palette_ram != NULL) memset(comp->palette_ram, 0, 32u);
+      if (comp->oam != NULL) memset(comp->oam, 0, 256u);
+      comp->ppu_ctrl = 0u;
+      comp->ppu_mask = 0u;
+      comp->ppu_status = 0u;
+      comp->oam_addr = 0u;
+      comp->ppu_open_bus = 0u;
+      comp->ppu_scroll_latch = 0u;
+      comp->ppu_addr_latch = 0u;
+      comp->scroll_x = 0u;
+      comp->scroll_y = 0u;
+      comp->ppu_addr = 0u;
+      comp->ppu_data_buffer = 0u;
+      comp->ppu_v = 0u;
+      comp->ppu_t = 0u;
+      comp->ppu_x = 0u;
+      comp->ppu_w = 0u;
+    destroy: |
+      if (comp->ppu_vram != NULL) {
+          free(comp->ppu_vram);
+          comp->ppu_vram = NULL;
+      }
+      if (comp->palette_ram != NULL) {
+          free(comp->palette_ram);
+          comp->palette_ram = NULL;
+      }
+      if (comp->oam != NULL) {
+          free(comp->oam);
+          comp->oam = NULL;
+      }
+    step_pre: |
+      (void)cpu;
+    step_post: |
+      if (cpu->comp_nes_ppu_regs.ppu_vram == NULL || cpu->comp_nes_ppu_regs.palette_ram == NULL || cpu->comp_nes_ppu_regs.oam == NULL) return;
+      {
+          uint64_t inst_cycles = (uint64_t)inst->cycles;
+          cpu->comp_nes_ppu_regs.cycle_accum += inst_cycles;
+          cpu->comp_nes_ppu_regs.ppu_dot_accum += (inst_cycles * 3u);
+      }
+      (void)cpu_component_dispatch_callback(cpu, "nes_ppu_regs", "ppu_step_loop", NULL, 0);
+      {
+          uint64_t inst_cycles = (uint64_t)inst->cycles;
+          uint64_t base_cycle = (cpu->total_cycles >= inst_cycles) ? (cpu->total_cycles - inst_cycles) : cpu->total_cycles;
+          uint64_t cb_args[2] = { inst_cycles, base_cycle };
+          (void)cpu_component_dispatch_callback(cpu, "nes_apu", "apu_step", cb_args, 2);
+      }
+  callback_handlers:
+    ppu_reg_read: |
+      if (argc < 1u) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      if (cpu->comp_nes_ppu_regs.ppu_vram == NULL || cpu->comp_nes_ppu_regs.palette_ram == NULL || cpu->comp_nes_ppu_regs.oam == NULL) return 0u;
+      uint16_t reg = (uint16_t)(0x2000u + (addr & 0x0007u));
+      if (reg == 0x2002u) {
+          static int ppu_status_trace_enabled = -1;
+          static FILE *ppu_status_trace_fp = NULL;
+          if (ppu_status_trace_enabled < 0) {
+              const char *env = NULL;
+              ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (ppu_status_trace_enabled != 0) {
+                  ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                  if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+              }
+          }
+          int16_t sample_scanline = cpu->comp_nes_ppu_regs.ppu_scanline;
+          uint16_t sample_cycle = cpu->comp_nes_ppu_regs.ppu_cycle;
+          {
+              uint16_t read_bias = ((cpu->pc == 0xFF5Au) || (cpu->pc == 0xFF61u)) ? 352u : 0u;
+              uint16_t adv = (uint16_t)(cpu->io_read_phase_ppu_dots + read_bias);
+              while (adv != 0u) {
+                  sample_cycle = (uint16_t)(sample_cycle + 1u);
+                  if (sample_cycle >= 341u) {
+                      sample_cycle = 0u;
+                      sample_scanline = (int16_t)(sample_scanline + 1);
+                      if (sample_scanline >= 262) sample_scanline = 0;
+                  }
+                  adv = (uint16_t)(adv - 1u);
+              }
+          }
+
+          uint8_t status_snapshot = cpu->comp_nes_ppu_regs.ppu_status;
+          uint8_t before_vblank_now =
+              (cpu->comp_nes_ppu_regs.ppu_scanline < 241) ||
+              (cpu->comp_nes_ppu_regs.ppu_scanline == 241 && cpu->comp_nes_ppu_regs.ppu_cycle < 1u);
+          uint8_t synthetic_vblank_read = 0u;
+          if (
+              (status_snapshot & 0x80u) == 0u &&
+              cpu->comp_nes_ppu_regs.ppu_prevent_vbl_flag == 0u &&
+              before_vblank_now != 0u &&
+              (
+                  sample_scanline > 241 ||
+                  (sample_scanline == 241 && sample_cycle >= 1u)
+              ) &&
+              sample_scanline < 261
+          ) {
+              status_snapshot = (uint8_t)(status_snapshot | 0x80u);
+              synthetic_vblank_read = 1u;
+          }
+          if (
+              (status_snapshot & 0x80u) != 0u &&
+              sample_scanline == 261 &&
+              sample_cycle >= 1u
+          ) {
+              status_snapshot = (uint8_t)(status_snapshot & 0x7Fu);
+          }
+
+          uint8_t v = (uint8_t)((status_snapshot & 0xE0u) | (cpu->comp_nes_ppu_regs.ppu_open_bus & 0x1Fu));
+          if (ppu_status_trace_fp != NULL) {
+              fprintf(
+                  ppu_status_trace_fp,
+                  "read2002 pc=%04X sl=%d cy=%u sample_sl=%d sample_cy=%u abs=%llu status=%02X ret=%02X ctrl=%02X mask=%02X\n",
+                  (unsigned)cpu->pc,
+                  (int)cpu->comp_nes_ppu_regs.ppu_scanline,
+                  (unsigned)cpu->comp_nes_ppu_regs.ppu_cycle,
+                  (int)sample_scanline,
+                  (unsigned)sample_cycle,
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)cpu->comp_nes_ppu_regs.ppu_status,
+                  (unsigned)v,
+                  (unsigned)cpu->comp_nes_ppu_regs.ppu_ctrl,
+                  (unsigned)cpu->comp_nes_ppu_regs.ppu_mask
+              );
+              fflush(ppu_status_trace_fp);
+          }
+          cpu->comp_nes_ppu_regs.ppu_status = (uint8_t)(cpu->comp_nes_ppu_regs.ppu_status & 0x7Fu);
+          if (cpu->comp_nes_ppu_regs.ppu_scanline == 241 && cpu->comp_nes_ppu_regs.ppu_cycle == 0u) {
+              cpu->comp_nes_ppu_regs.ppu_prevent_vbl_flag = 1u;
+              cpu->comp_nes_ppu_regs.ppu_prevent_nmi_flag = 1u;
+          }
+          if (synthetic_vblank_read != 0u) {
+              cpu->comp_nes_ppu_regs.ppu_prevent_vbl_flag = 1u;
+          }
+          cpu->nmi_pending = false;
+          cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
+          cpu->comp_nes_ppu_regs.ppu_addr_latch = 0u;
+          cpu->comp_nes_ppu_regs.ppu_scroll_latch = 0u;
+          cpu->comp_nes_ppu_regs.ppu_w = 0u;
+          cpu->comp_nes_ppu_regs.ppu_open_bus = v;
+          return v;
+      }
+      if (reg == 0x2004u) {
+          uint8_t v = cpu->comp_nes_ppu_regs.oam[cpu->comp_nes_ppu_regs.oam_addr];
+          cpu->comp_nes_ppu_regs.ppu_open_bus = v;
+          return v;
+      }
+      if (reg == 0x2007u) {
+          uint16_t paddr = (uint16_t)(cpu->comp_nes_ppu_regs.ppu_v & 0x3FFFu);
+          uint8_t ret = 0u;
+          uint8_t direct = 0u;
+          uint8_t new_buf = 0u;
+          if (paddr < 0x2000u) {
+              uint64_t cb_args[3] = { (uint64_t)paddr, 0u, (uint64_t)cpu->comp_nes_ppu_regs.ppu_abs_tick };
+              new_buf = (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "chr_read", cb_args, 3);
+          } else if (paddr < 0x3F00u) {
+              uint16_t nt = (uint16_t)((paddr - 0x2000u) & 0x0FFFu);
+              uint8_t mir = (uint8_t)(cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "mirroring", NULL, 0) & 0x01u);
+              uint16_t table = (uint16_t)((nt >> 10) & 0x03u);
+              uint16_t offs = (uint16_t)(nt & 0x03FFu);
+              uint16_t phys = (mir != 0u)
+                  ? (uint16_t)(((table & 0x01u) << 10) | offs)
+                  : (uint16_t)((((table >> 1) & 0x01u) << 10) | offs);
+              new_buf = cpu->comp_nes_ppu_regs.ppu_vram[(uint16_t)(phys & 0x07FFu)];
+          } else {
+              uint8_t pi = (uint8_t)((paddr - 0x3F00u) & 0x1Fu);
+              if (pi == 0x10u || pi == 0x14u || pi == 0x18u || pi == 0x1Cu) pi = (uint8_t)(pi - 0x10u);
+              ret = cpu->comp_nes_ppu_regs.palette_ram[pi & 0x1Fu];
+              direct = 1u;
+              uint16_t ub = (uint16_t)(paddr - 0x1000u);
+              uint16_t nt = (uint16_t)((ub - 0x2000u) & 0x0FFFu);
+              uint8_t mir = (uint8_t)(cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "mirroring", NULL, 0) & 0x01u);
+              uint16_t table = (uint16_t)((nt >> 10) & 0x03u);
+              uint16_t offs = (uint16_t)(nt & 0x03FFu);
+              uint16_t phys = (mir != 0u)
+                  ? (uint16_t)(((table & 0x01u) << 10) | offs)
+                  : (uint16_t)((((table >> 1) & 0x01u) << 10) | offs);
+              new_buf = cpu->comp_nes_ppu_regs.ppu_vram[(uint16_t)(phys & 0x07FFu)];
+          }
+          if (direct == 0u) ret = cpu->comp_nes_ppu_regs.ppu_data_buffer;
+          cpu->comp_nes_ppu_regs.ppu_data_buffer = new_buf;
+          cpu->comp_nes_ppu_regs.ppu_v = (uint16_t)((cpu->comp_nes_ppu_regs.ppu_v + (((cpu->comp_nes_ppu_regs.ppu_ctrl & 0x04u) != 0u) ? 32u : 1u)) & 0x3FFFu);
+          cpu->comp_nes_ppu_regs.ppu_addr = cpu->comp_nes_ppu_regs.ppu_v;
+          cpu->comp_nes_ppu_regs.ppu_open_bus = ret;
+          return ret;
+      }
+      return cpu->comp_nes_ppu_regs.ppu_open_bus;
+    ppu_reg_write: |
+      if (argc < 2u) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      if (cpu->comp_nes_ppu_regs.ppu_vram == NULL || cpu->comp_nes_ppu_regs.palette_ram == NULL || cpu->comp_nes_ppu_regs.oam == NULL) return 0u;
+      uint16_t reg = (uint16_t)(0x2000u + (addr & 0x0007u));
+      if (reg == 0x2000u) {
+          uint8_t old_ctrl = cpu->comp_nes_ppu_regs.ppu_ctrl;
+          cpu->comp_nes_ppu_regs.ppu_ctrl = value;
+          cpu->comp_nes_ppu_regs.ppu_t = (uint16_t)((cpu->comp_nes_ppu_regs.ppu_t & 0xF3FFu) | (((uint16_t)value & 0x03u) << 10));
+          cpu->comp_nes_ppu_regs.ppu_open_bus = value;
+          if ((old_ctrl & 0x80u) == 0u && (value & 0x80u) != 0u && (cpu->comp_nes_ppu_regs.ppu_status & 0x80u) != 0u) {
+              cpu->interrupt_vector = 0xFFu;
+              cpu->nmi_pending = true;
+              cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
+          }
+          return 0u;
+      }
+      if (reg == 0x2001u) {
+          cpu->comp_nes_ppu_regs.ppu_mask = value;
+          cpu->comp_nes_ppu_regs.ppu_open_bus = value;
+          return 0u;
+      }
+      if (reg == 0x2003u) { cpu->comp_nes_ppu_regs.oam_addr = value; cpu->comp_nes_ppu_regs.ppu_open_bus = value; return 0u; }
+      if (reg == 0x2004u) {
+          uint8_t val = value;
+          uint8_t rendering_now = 0u;
+          if ((cpu->comp_nes_ppu_regs.ppu_mask & 0x18u) != 0u && ((cpu->comp_nes_ppu_regs.ppu_scanline >= 0 && cpu->comp_nes_ppu_regs.ppu_scanline < 240) || cpu->comp_nes_ppu_regs.ppu_scanline == 261)) rendering_now = 1u;
+          if ((cpu->comp_nes_ppu_regs.oam_addr & 0x03u) == 0x02u) val = (uint8_t)(val & 0xE3u);
+          if (rendering_now != 0u) cpu->comp_nes_ppu_regs.oam_addr = (uint8_t)(cpu->comp_nes_ppu_regs.oam_addr + 4u);
+          else { cpu->comp_nes_ppu_regs.oam[cpu->comp_nes_ppu_regs.oam_addr] = val; cpu->comp_nes_ppu_regs.oam_addr = (uint8_t)(cpu->comp_nes_ppu_regs.oam_addr + 1u); }
+          cpu->comp_nes_ppu_regs.ppu_open_bus = value;
+          return 0u;
+      }
+      if (reg == 0x2005u) {
+          if (cpu->comp_nes_ppu_regs.ppu_w == 0u) {
+              cpu->comp_nes_ppu_regs.scroll_x = value;
+              cpu->comp_nes_ppu_regs.ppu_x = (uint8_t)(value & 0x07u);
+              cpu->comp_nes_ppu_regs.ppu_t = (uint16_t)((cpu->comp_nes_ppu_regs.ppu_t & 0x7FE0u) | ((uint16_t)value >> 3));
+              cpu->comp_nes_ppu_regs.ppu_w = 1u;
+              cpu->comp_nes_ppu_regs.ppu_scroll_latch = 1u;
+          } else {
+              cpu->comp_nes_ppu_regs.scroll_y = value;
+              cpu->comp_nes_ppu_regs.ppu_t = (uint16_t)((cpu->comp_nes_ppu_regs.ppu_t & 0x0C1Fu) | ((((uint16_t)value & 0x07u) << 12) & 0x7000u) | ((((uint16_t)value & 0xF8u) << 2) & 0x03E0u));
+              cpu->comp_nes_ppu_regs.ppu_w = 0u;
+              cpu->comp_nes_ppu_regs.ppu_scroll_latch = 0u;
+          }
+          cpu->comp_nes_ppu_regs.ppu_open_bus = value;
+          return 0u;
+      }
+      if (reg == 0x2006u) {
+          if (cpu->comp_nes_ppu_regs.ppu_w == 0u) {
+              cpu->comp_nes_ppu_regs.ppu_t = (uint16_t)((cpu->comp_nes_ppu_regs.ppu_t & 0x00FFu) | (((uint16_t)value & 0x3Fu) << 8));
+              cpu->comp_nes_ppu_regs.ppu_w = 1u;
+              cpu->comp_nes_ppu_regs.ppu_addr_latch = 1u;
+          } else {
+              cpu->comp_nes_ppu_regs.ppu_t = (uint16_t)((cpu->comp_nes_ppu_regs.ppu_t & 0x7F00u) | (uint16_t)value);
+              cpu->comp_nes_ppu_regs.ppu_v = cpu->comp_nes_ppu_regs.ppu_t;
+              cpu->comp_nes_ppu_regs.ppu_addr = cpu->comp_nes_ppu_regs.ppu_v;
+              cpu->comp_nes_ppu_regs.ppu_w = 0u;
+              cpu->comp_nes_ppu_regs.ppu_addr_latch = 0u;
+          }
+          cpu->comp_nes_ppu_regs.ppu_open_bus = value;
+          return 0u;
+      }
+      if (reg == 0x2007u) {
+          uint16_t paddr = (uint16_t)(cpu->comp_nes_ppu_regs.ppu_v & 0x3FFFu);
+          if (paddr < 0x2000u) {
+              uint64_t cb_args[4] = { (uint64_t)paddr, (uint64_t)value, 0u, (uint64_t)cpu->comp_nes_ppu_regs.ppu_abs_tick };
+              (void)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "chr_write", cb_args, 4);
+          } else if (paddr < 0x3F00u) {
+              uint16_t nt = (uint16_t)((paddr - 0x2000u) & 0x0FFFu);
+              uint8_t mir = (uint8_t)(cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "mirroring", NULL, 0) & 0x01u);
+              uint16_t table = (uint16_t)((nt >> 10) & 0x03u);
+              uint16_t offs = (uint16_t)(nt & 0x03FFu);
+              uint16_t phys = (mir != 0u)
+                  ? (uint16_t)(((table & 0x01u) << 10) | offs)
+                  : (uint16_t)((((table >> 1) & 0x01u) << 10) | offs);
+              cpu->comp_nes_ppu_regs.ppu_vram[(uint16_t)(phys & 0x07FFu)] = value;
+          } else {
+              uint8_t pi = (uint8_t)((paddr - 0x3F00u) & 0x1Fu);
+              if (pi == 0x10u || pi == 0x14u || pi == 0x18u || pi == 0x1Cu) pi = (uint8_t)(pi - 0x10u);
+              cpu->comp_nes_ppu_regs.palette_ram[pi & 0x1Fu] = (uint8_t)(value & 0x3Fu);
+          }
+          cpu->comp_nes_ppu_regs.ppu_v = (uint16_t)((cpu->comp_nes_ppu_regs.ppu_v + (((cpu->comp_nes_ppu_regs.ppu_ctrl & 0x04u) != 0u) ? 32u : 1u)) & 0x3FFFu);
+          cpu->comp_nes_ppu_regs.ppu_addr = cpu->comp_nes_ppu_regs.ppu_v;
+          cpu->comp_nes_ppu_regs.ppu_open_bus = value;
+      }
+      return 0u;
+    oam_dma: |
+      if (argc < 1u) return 0u;
+      uint8_t value = (uint8_t)(args[0] & 0xFFu);
+      uint16_t base = (uint16_t)((uint16_t)value << 8);
+      for (uint16_t i = 0u; i < 256u; ++i) {
+          uint16_t src = (uint16_t)(base + i);
+          uint8_t b = mos6502_read_byte(cpu, src);
+          cpu->comp_nes_ppu_regs.oam[(uint8_t)(cpu->comp_nes_ppu_regs.oam_addr + (uint8_t)i)] = b;
+      }
+      {
+          uint64_t dma_cycles = 513u + (cpu->total_cycles & 1u);
+          cpu->total_cycles += dma_cycles;
+          /* Keep timing domains in sync after OAM DMA cycle steal. */
+          cpu->comp_nes_ppu_regs.cycle_accum += dma_cycles;
+          cpu->comp_nes_ppu_regs.ppu_dot_accum += (dma_cycles * 3u);
+      }
+      return 0u;
+    accumulate_timing: |
+      if (argc < 1u) return 0u;
+      uint64_t inst_cycles = args[0];
+      cpu->comp_nes_ppu_regs.cycle_accum += inst_cycles;
+      cpu->comp_nes_ppu_regs.ppu_dot_accum += (inst_cycles * 3u);
+      return 0u;
+    ppu_step_loop: |
+      /* __PASM_PPU_STEP_LOOP_BEGIN__ */
+      ComponentState_nes_ppu_regs *io = &cpu->comp_nes_ppu_regs;
+      static uint32_t framebuf[256u * 240u];
+      static uint16_t line_sprite_idx[8];
+      static uint8_t line_sprite_count = 0u;
+      static uint8_t line_sprite_ready = 0u;
+      static int16_t line_bg_scanline = -1;
+      static uint16_t line_bg_base_x = 0u;
+      static uint16_t line_bg_base_y = 0u;
+      static const uint32_t nes_palette[64] = {
+          0xFF7C7C7Cu,0xFF0000FCu,0xFF0000BCu,0xFF4428BCu,0xFF940084u,0xFFA80020u,0xFFA81000u,0xFF881400u,
+          0xFF503000u,0xFF007800u,0xFF006800u,0xFF005800u,0xFF004058u,0xFF000000u,0xFF000000u,0xFF000000u,
+          0xFFBCBCBCu,0xFF0078F8u,0xFF0058F8u,0xFF6844FCu,0xFFD800CCu,0xFFE40058u,0xFFF83800u,0xFFE45C10u,
+          0xFFAC7C00u,0xFF00B800u,0xFF00A800u,0xFF00A844u,0xFF008888u,0xFF000000u,0xFF000000u,0xFF000000u,
+          0xFFF8F8F8u,0xFF3CBCFCu,0xFF6888FCu,0xFF9878F8u,0xFFF878F8u,0xFFF85898u,0xFFF87858u,0xFFFCA044u,
+          0xFFF8B800u,0xFFB8F818u,0xFF58D854u,0xFF58F898u,0xFF00E8D8u,0xFF787878u,0xFF000000u,0xFF000000u,
+          0xFFFCFCFCu,0xFFA4E4FCu,0xFFB8B8F8u,0xFFD8B8F8u,0xFFF8B8F8u,0xFFF8A4C0u,0xFFF0D0B0u,0xFFFCE0A8u,
+          0xFFF8D878u,0xFFD8F878u,0xFFB8F8B8u,0xFFB8F8D8u,0xFF00FCFCu,0xFFF8D8F8u,0xFF000000u,0xFF000000u
+      };
+      while (io->ppu_dot_accum > 0u) {
+          int16_t scanline = io->ppu_scanline;
+          uint16_t cycle = io->ppu_cycle;
+          uint8_t rendering_enabled = ((io->ppu_mask & 0x18u) != 0u) ? 1u : 0u;
+          uint8_t show_bg = ((io->ppu_mask & 0x08u) != 0u) ? 1u : 0u;
+          uint8_t show_spr = ((io->ppu_mask & 0x10u) != 0u) ? 1u : 0u;
+          uint8_t show_bg_left8 = ((io->ppu_mask & 0x02u) != 0u) ? 1u : 0u;
+          uint8_t show_spr_left8 = ((io->ppu_mask & 0x04u) != 0u) ? 1u : 0u;
+          uint8_t visible_line = (scanline >= 0 && scanline < 240) ? 1u : 0u;
+          uint8_t prerender_line = (scanline == 261) ? 1u : 0u;
+
+          if (prerender_line != 0u && cycle == 1u) {
+              static int ppu_status_trace_enabled = -1;
+              static FILE *ppu_status_trace_fp = NULL;
+              if (ppu_status_trace_enabled < 0) {
+                  const char *env = NULL;
+                  ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                  if (ppu_status_trace_enabled != 0) {
+                      ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                      if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                  }
+              }
+              if (ppu_status_trace_fp != NULL) {
+                  fprintf(
+                      ppu_status_trace_fp,
+                      "vblank clear sl=%d cy=%u abs=%llu status_before=%02X\n",
+                      (int)scanline,
+                      (unsigned)cycle,
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)io->ppu_status
+                  );
+                  fflush(ppu_status_trace_fp);
+              }
+              io->ppu_status = (uint8_t)(io->ppu_status & 0x1Fu);
+              io->vblank_set_this_frame = 0u;
+              io->sprite0_hit_pending = 0u;
+              io->sprite0_hit_cycle = 0u;
+          }
+
+          if (scanline == 241 && cycle == 1u) {
+              static int ppu_status_trace_enabled = -1;
+              static FILE *ppu_status_trace_fp = NULL;
+              if (ppu_status_trace_enabled < 0) {
+                  const char *env = NULL;
+                  ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                  if (ppu_status_trace_enabled != 0) {
+                      ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                      if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                  }
+              }
+              if (io->ppu_prevent_vbl_flag == 0u) {
+                  io->ppu_status = (uint8_t)(io->ppu_status | 0x80u);
+                  io->vblank_set_this_frame = 1u;
+              }
+              if (ppu_status_trace_fp != NULL) {
+                  fprintf(
+                      ppu_status_trace_fp,
+                      "vblank set sl=%d cy=%u abs=%llu status_after=%02X ctrl=%02X mask=%02X oam0=[%02X,%02X,%02X,%02X]\n",
+                      (int)scanline,
+                      (unsigned)cycle,
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)io->ppu_status,
+                      (unsigned)io->ppu_ctrl,
+                      (unsigned)io->ppu_mask,
+                      (unsigned)io->oam[0],
+                      (unsigned)io->oam[1],
+                      (unsigned)io->oam[2],
+                      (unsigned)io->oam[3]
+                  );
+                  fflush(ppu_status_trace_fp);
+              }
+              if (io->ppu_prevent_nmi_flag == 0u && (io->ppu_ctrl & 0x80u) != 0u) {
+                  cpu->interrupt_vector = 0xFFu;
+                  cpu->nmi_pending = true;
+                  cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
+              }
+              io->ppu_prevent_vbl_flag = 0u;
+              io->ppu_prevent_nmi_flag = 0u;
+          }
+
+          if (visible_line != 0u && cycle == 1u) {
+              line_bg_scanline = scanline;
+              line_bg_base_x = (uint16_t)(
+                  (((io->ppu_v >> 10) & 0x01u) << 8) |
+                  (((io->ppu_v >> 0) & 0x1Fu) << 3) |
+                  (io->ppu_x & 0x07u)
+              );
+              /*
+               * At cycle 1, v already includes the two-tile prefetch advance
+               * (from cycles 321..336 of the previous scanline). Compensate so
+               * pixel 0 maps to the intended scroll origin.
+               */
+              line_bg_base_x = (uint16_t)((line_bg_base_x + 512u - 16u) & 0x01FFu);
+              line_bg_base_y = (uint16_t)(
+                  (((io->ppu_v >> 11) & 0x01u) * 240u) +
+                  ((((io->ppu_v >> 5) & 0x1Fu) << 3)) +
+                  ((io->ppu_v >> 12) & 0x07u)
+              );
+
+              line_sprite_count = 0u;
+              line_sprite_ready = 1u;
+              if ((show_bg | show_spr) != 0u) {
+                  uint8_t sprite_h = ((io->ppu_ctrl & 0x20u) != 0u) ? 16u : 8u;
+                  for (uint16_t si = 0u; si < 64u; ++si) {
+                      uint8_t sy = io->oam[(uint16_t)(si * 4u)];
+                      int top = (int)sy + 1;
+                      if ((int)scanline >= top && (int)scanline < (top + (int)sprite_h)) {
+                          if (si == 0u) {
+                              static int ppu_status_trace_enabled = -1;
+                              static FILE *ppu_status_trace_fp = NULL;
+                              if (ppu_status_trace_enabled < 0) {
+                                  const char *env = NULL;
+                                  ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                                  if (ppu_status_trace_enabled != 0) {
+                                      ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                                      if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                                  }
+                              }
+                              if (ppu_status_trace_fp != NULL) {
+                                  uint16_t base = (uint16_t)(si * 4u);
+                                  fprintf(
+                                      ppu_status_trace_fp,
+                                      "spr0 on line sl=%d sy=%u sx=%u tile=%u attr=%02X h=%u\n",
+                                      (int)scanline,
+                                      (unsigned)io->oam[base + 0u],
+                                      (unsigned)io->oam[base + 3u],
+                                      (unsigned)io->oam[base + 1u],
+                                      (unsigned)io->oam[base + 2u],
+                                      (unsigned)sprite_h
+                                  );
+                                  fflush(ppu_status_trace_fp);
+                              }
+                          }
+                          if (line_sprite_count < 8u) {
+                              line_sprite_idx[line_sprite_count] = si;
+                              line_sprite_count += 1u;
+                          } else {
+                              io->ppu_status = (uint8_t)(io->ppu_status | 0x20u);
+                              break;
+                          }
+                      }
+                  }
+              }
+          }
+
+          if (visible_line != 0u && cycle >= 1u && cycle <= 256u) {
+              uint16_t x = (uint16_t)(cycle - 1u);
+              uint16_t y = (uint16_t)scanline;
+              uint8_t bg_pixel = 0u;
+              uint8_t bg_color_idx = (uint8_t)(io->palette_ram[0] & 0x3Fu);
+
+              if (show_bg != 0u && (x >= 8u || show_bg_left8 != 0u)) {
+                  uint16_t sx_total = (uint16_t)((line_bg_base_x + x) % 512u);
+                  uint16_t sy_total = (uint16_t)(line_bg_base_y % 480u);
+                  uint8_t nt_sel = (uint8_t)(((sy_total >= 240u) ? 2u : 0u) | ((sx_total >= 256u) ? 1u : 0u));
+                  uint16_t lx = (uint16_t)(sx_total & 0x00FFu);
+                  uint16_t ly = (uint16_t)(sy_total % 240u);
+                  uint16_t tile_x = (uint16_t)(lx >> 3);
+                  uint16_t tile_y = (uint16_t)(ly >> 3);
+                  uint8_t fine_x = (uint8_t)(lx & 0x07u);
+                  uint8_t fine_y = (uint8_t)(ly & 0x07u);
+                    uint8_t mir = (uint8_t)(cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "mirroring", NULL, 0) & 0x01u);
+                    uint16_t nt_addr = (uint16_t)(nt_sel * 0x0400u + tile_y * 32u + tile_x);
+                    {
+                        uint64_t cb_nt[3] = { (uint64_t)(0x2000u | (nt_addr & 0x0FFFu)), 1u, (uint64_t)io->ppu_abs_tick };
+                        (void)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "chr_read", cb_nt, 3);
+                    }
+                    uint16_t nt_offs = (uint16_t)(nt_addr & 0x03FFu);
+                    uint16_t nt_table = (uint16_t)((nt_addr >> 10) & 0x03u);
+                    uint16_t nt_phys;
+                  if (mir != 0u) {
+                      nt_phys = (uint16_t)(((nt_table & 0x01u) << 10) | nt_offs);
+                  } else {
+                      nt_phys = (uint16_t)((((nt_table >> 1) & 0x01u) << 10) | nt_offs);
+                  }
+                  uint8_t tile = io->ppu_vram[(uint16_t)(nt_phys & 0x07FFu)];
+                    uint16_t attr_addr = (uint16_t)(nt_sel * 0x0400u + 0x03C0u + ((tile_y >> 2) * 8u) + (tile_x >> 2));
+                    {
+                        uint64_t cb_at[3] = { (uint64_t)(0x2000u | (attr_addr & 0x0FFFu)), 1u, (uint64_t)io->ppu_abs_tick };
+                        (void)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "chr_read", cb_at, 3);
+                    }
+                    uint16_t attr_offs = (uint16_t)(attr_addr & 0x03FFu);
+                  uint16_t attr_table = (uint16_t)((attr_addr >> 10) & 0x03u);
+                  uint16_t attr_phys;
+                  if (mir != 0u) {
+                      attr_phys = (uint16_t)(((attr_table & 0x01u) << 10) | attr_offs);
+                  } else {
+                      attr_phys = (uint16_t)((((attr_table >> 1) & 0x01u) << 10) | attr_offs);
+                  }
+                  uint8_t attr = io->ppu_vram[(uint16_t)(attr_phys & 0x07FFu)];
+                  uint8_t shift = (uint8_t)(((tile_y & 0x02u) << 1) | (tile_x & 0x02u));
+                  uint8_t pal_hi = (uint8_t)((attr >> shift) & 0x03u);
+                  uint16_t bg_table = ((io->ppu_ctrl & 0x10u) != 0u) ? 0x1000u : 0x0000u;
+                  uint16_t patt = (uint16_t)(bg_table + ((uint16_t)tile << 4) + (uint16_t)fine_y);
+                  uint64_t cb0[3] = { (uint64_t)patt, 1u, (uint64_t)io->ppu_abs_tick };
+                  uint64_t cb1[3] = { (uint64_t)(patt + 8u), 1u, (uint64_t)io->ppu_abs_tick };
+                  uint8_t lo = (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "chr_read", cb0, 3);
+                  uint8_t hi = (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "chr_read", cb1, 3);
+                  uint8_t bit = (uint8_t)(7u - fine_x);
+                  bg_pixel = (uint8_t)(((lo >> bit) & 0x01u) | (((hi >> bit) & 0x01u) << 1));
+                  if (bg_pixel != 0u) {
+                      bg_color_idx = (uint8_t)(io->palette_ram[(uint8_t)(((pal_hi << 2) | bg_pixel) & 0x1Fu)] & 0x3Fu);
+                  }
+              }
+
+              uint8_t spr_pixel = 0u;
+              uint8_t spr_color_idx = 0u;
+              uint8_t spr_behind_bg = 0u;
+              uint8_t spr_is_0 = 0u;
+
+              if (show_spr != 0u && (x >= 8u || show_spr_left8 != 0u) && line_sprite_ready != 0u) {
+                  uint8_t spr_8x16 = ((io->ppu_ctrl & 0x20u) != 0u) ? 1u : 0u;
+                  uint16_t spr_table = ((io->ppu_ctrl & 0x08u) != 0u) ? 0x1000u : 0x0000u;
+                  for (uint8_t i = 0u; i < line_sprite_count; ++i) {
+                      uint16_t si = line_sprite_idx[i];
+                      uint16_t base = (uint16_t)(si * 4u);
+                      uint8_t sy = io->oam[(uint16_t)(base + 0u)];
+                      uint8_t tile = io->oam[(uint16_t)(base + 1u)];
+                      uint8_t attr = io->oam[(uint16_t)(base + 2u)];
+                      uint8_t sx = io->oam[(uint16_t)(base + 3u)];
+                      if (x < sx || x >= (uint16_t)(sx + 8u)) continue;
+                      uint8_t sprite_h = (spr_8x16 != 0u) ? 16u : 8u;
+                      uint8_t row = (uint8_t)(y - (uint16_t)(sy + 1u));
+                      if (row >= sprite_h) continue;
+                      if ((attr & 0x80u) != 0u) {
+                          row = (uint8_t)(sprite_h - 1u - row);
+                      }
+                      uint8_t col = (uint8_t)(x - sx);
+                      if ((attr & 0x40u) != 0u) {
+                          col = (uint8_t)(7u - col);
+                      }
+                      uint16_t patt;
+                      if (spr_8x16 != 0u) {
+                          uint8_t tile_base = (uint8_t)(tile & 0xFEu);
+                          uint8_t tile_sel = (uint8_t)(tile_base + ((row >> 3) & 0x01u));
+                          uint16_t table16 = ((tile & 0x01u) != 0u) ? 0x1000u : 0x0000u;
+                          patt = (uint16_t)(table16 + ((uint16_t)tile_sel << 4) + (uint16_t)(row & 0x07u));
+                      } else {
+                          patt = (uint16_t)(spr_table + ((uint16_t)tile << 4) + (uint16_t)(row & 0x07u));
+                      }
+                      uint64_t cb0[3] = { (uint64_t)patt, 1u, (uint64_t)io->ppu_abs_tick };
+                      uint64_t cb1[3] = { (uint64_t)(patt + 8u), 1u, (uint64_t)io->ppu_abs_tick };
+                      uint8_t lo = (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "chr_read", cb0, 3);
+                      uint8_t hi = (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "chr_read", cb1, 3);
+                      uint8_t bit = (uint8_t)(7u - col);
+                      uint8_t p = (uint8_t)(((lo >> bit) & 0x01u) | (((hi >> bit) & 0x01u) << 1));
+                      if (p == 0u) continue;
+                      if (si == 0u) {
+                          static int ppu_status_trace_enabled = -1;
+                          static FILE *ppu_status_trace_fp = NULL;
+                          static int last_spr0_pix_scanline = -1;
+                          if (ppu_status_trace_enabled < 0) {
+                              const char *env = NULL;
+                              ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                              if (ppu_status_trace_enabled != 0) {
+                                  ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                                  if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                              }
+                          }
+                          if (ppu_status_trace_fp != NULL && last_spr0_pix_scanline != (int)scanline) {
+                              fprintf(
+                                  ppu_status_trace_fp,
+                                  "spr0 opaque sl=%d x=%u y=%u row=%u col=%u p=%u bg=%u\n",
+                                  (int)scanline,
+                                  (unsigned)x,
+                                  (unsigned)y,
+                                  (unsigned)row,
+                                  (unsigned)col,
+                                  (unsigned)p,
+                                  (unsigned)bg_pixel
+                              );
+                              fflush(ppu_status_trace_fp);
+                              last_spr0_pix_scanline = (int)scanline;
+                          }
+                      }
+                      spr_pixel = p;
+                      spr_behind_bg = (uint8_t)((attr & 0x20u) != 0u);
+                      spr_is_0 = (uint8_t)(si == 0u);
+                      {
+                          uint8_t pal_idx = (uint8_t)(0x10u + (((attr & 0x03u) << 2) | p));
+                          spr_color_idx = (uint8_t)(io->palette_ram[pal_idx & 0x1Fu] & 0x3Fu);
+                      }
+                      break;
+                  }
+              }
+
+              if (spr_is_0 != 0u && bg_pixel != 0u && spr_pixel != 0u) {
+                  uint8_t can_hit = 0u;
+                  if (
+                      x < 255u &&
+                      show_bg != 0u &&
+                      show_spr != 0u &&
+                      (x >= 8u || (show_bg_left8 != 0u && show_spr_left8 != 0u))
+                  ) {
+                      can_hit = 1u;
+                  }
+                  {
+                      static int ppu_status_trace_enabled = -1;
+                      static FILE *ppu_status_trace_fp = NULL;
+                      if (ppu_status_trace_enabled < 0) {
+                          const char *env = NULL;
+                          ppu_status_trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                          if (ppu_status_trace_enabled != 0) {
+                              ppu_status_trace_fp = fopen("log/nes_ppu_status_trace.log", "a");
+                              if (ppu_status_trace_fp == NULL) ppu_status_trace_fp = fopen("nes_ppu_status_trace.log", "a");
+                          }
+                      }
+                      if (ppu_status_trace_fp != NULL) {
+                          fprintf(
+                              ppu_status_trace_fp,
+                              "spr0 overlap pc=%04X sl=%d x=%u y=%u bg=%u spr=%u can_hit=%u bg_on=%u spr_on=%u bg8=%u spr8=%u\n",
+                              (unsigned)cpu->pc,
+                              (int)scanline,
+                              (unsigned)x,
+                              (unsigned)y,
+                              (unsigned)bg_pixel,
+                              (unsigned)spr_pixel,
+                              (unsigned)can_hit,
+                              (unsigned)show_bg,
+                              (unsigned)show_spr,
+                              (unsigned)show_bg_left8,
+                              (unsigned)show_spr_left8
+                          );
+                          fflush(ppu_status_trace_fp);
+                      }
+                  }
+                  if (can_hit != 0u) {
+                      io->ppu_status = (uint8_t)(io->ppu_status | 0x40u);
+                  }
+              }
+
+              {
+                  uint8_t final_ci = (uint8_t)(io->palette_ram[0] & 0x3Fu);
+                  if (bg_pixel == 0u && spr_pixel == 0u) {
+                      final_ci = (uint8_t)(io->palette_ram[0] & 0x3Fu);
+                  } else if (bg_pixel == 0u) {
+                      final_ci = spr_color_idx;
+                  } else if (spr_pixel == 0u) {
+                      final_ci = bg_color_idx;
+                  } else {
+                      final_ci = (spr_behind_bg != 0u) ? bg_color_idx : spr_color_idx;
+                  }
+                  framebuf[(uint32_t)y * 256u + (uint32_t)x] = nes_palette[final_ci & 0x3Fu];
+              }
+          }
+
+          if (scanline == 240 && cycle == 1u) {
+              uint64_t sig_args[4] = {
+                  (uint64_t)io->frame_counter,
+                  (uint64_t)(uintptr_t)framebuf,
+                  256u,
+                  240u
+              };
+              cpu_component_emit_signal(cpu, "nes_ppu_regs", "frame_ready", sig_args, 4);
+          }
+
+          if (rendering_enabled != 0u && (visible_line != 0u || prerender_line != 0u)) {
+              if (
+                  ((cycle >= 1u && cycle <= 256u) || (cycle >= 321u && cycle <= 336u)) &&
+                  (cycle & 0x07u) == 0u
+              ) {
+                  if ((io->ppu_v & 0x001Fu) == 0x001Fu) {
+                      io->ppu_v = (uint16_t)((io->ppu_v & (uint16_t)~0x001Fu) ^ 0x0400u);
+                  } else {
+                      io->ppu_v = (uint16_t)(io->ppu_v + 1u);
+                  }
+              }
+              if (cycle == 256u) {
+                  if ((io->ppu_v & 0x7000u) != 0x7000u) {
+                      io->ppu_v = (uint16_t)(io->ppu_v + 0x1000u);
+                  } else {
+                      uint16_t ycoarse;
+                      io->ppu_v = (uint16_t)(io->ppu_v & (uint16_t)~0x7000u);
+                      ycoarse = (uint16_t)((io->ppu_v & 0x03E0u) >> 5);
+                      if (ycoarse == 29u) {
+                          ycoarse = 0u;
+                          io->ppu_v ^= 0x0800u;
+                      } else if (ycoarse == 31u) {
+                          ycoarse = 0u;
+                      } else {
+                          ycoarse = (uint16_t)(ycoarse + 1u);
+                      }
+                      io->ppu_v = (uint16_t)((io->ppu_v & (uint16_t)~0x03E0u) | (uint16_t)(ycoarse << 5));
+                  }
+              }
+              if (cycle == 257u) {
+                  io->ppu_v = (uint16_t)((io->ppu_v & (uint16_t)~0x041Fu) | (io->ppu_t & 0x041Fu));
+              }
+              if (prerender_line != 0u && cycle >= 280u && cycle <= 304u) {
+                  io->ppu_v = (uint16_t)((io->ppu_v & (uint16_t)~0x7BE0u) | (io->ppu_t & 0x7BE0u));
+              }
+          }
+          io->ppu_addr = (uint16_t)(io->ppu_v & 0x3FFFu);
+
+          if (
+              rendering_enabled != 0u &&
+              io->odd_frame != 0u &&
+              scanline == 261 &&
+              cycle == 339u
+          ) {
+              io->ppu_cycle = 0u;
+              io->ppu_scanline = 0;
+              io->odd_frame ^= 1u;
+              io->frame_counter += 1u;
+              line_bg_scanline = -1;
+              line_sprite_ready = 0u;
+              io->ppu_abs_tick += 1u;
+              io->ppu_dot_accum -= 1u;
+              continue;
+          }
+
+          cycle = (uint16_t)(cycle + 1u);
+          if (cycle >= 341u) {
+              cycle = 0u;
+              scanline = (int16_t)(scanline + 1);
+              line_bg_scanline = -1;
+              line_sprite_ready = 0u;
+              if (scanline >= 262) {
+                  scanline = 0;
+                  io->odd_frame ^= 1u;
+                  io->frame_counter += 1u;
+              }
+          }
+          io->ppu_cycle = cycle;
+          io->ppu_scanline = scanline;
+          io->ppu_abs_tick += 1u;
+          io->ppu_dot_accum -= 1u;
+      }
+      return 0u;
+      /* __PASM_PPU_STEP_LOOP_END__ */
+    post_step_finalize: |
+      if (argc < 1u) return 0u;
+      uint64_t inst_cycles = args[0];
+      {
+          uint64_t base_cycle = (cpu->total_cycles >= inst_cycles) ? (cpu->total_cycles - inst_cycles) : cpu->total_cycles;
+          uint64_t cb_args[2] = { inst_cycles, base_cycle };
+          (void)cpu_component_dispatch_callback(cpu, "nes_apu", "apu_step", cb_args, 2);
+      }
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers:
+    - stdio.h
+    - stdlib.h
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

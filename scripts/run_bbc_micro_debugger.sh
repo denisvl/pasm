@@ -32,8 +32,16 @@ mkdir -p log
 
 PROCESSOR="examples/processors/mos6502.yaml"
 SYSTEM_DIR="examples/systems/bbcmicro"
-IC_IO="examples/ics/bbcmicro/bbc_micro_io.yaml"
-IC_PSG="examples/ics/common/psg_sn76489.yaml"
+IC_CRTC="examples/ics/bbcmicro/bbc_micro_crtc_6845.yaml"
+IC_VIDEO_ULA="examples/ics/bbcmicro/bbc_micro_video_ula.yaml"
+IC_SYSTEM_VIA="examples/ics/bbcmicro/bbc_micro_system_via_6522.yaml"
+IC_USER_VIA="examples/ics/bbcmicro/bbc_micro_user_via_6522.yaml"
+IC_TELETEXT="examples/ics/bbcmicro/bbc_micro_teletext_saa5050.yaml"
+IC_ADC="examples/ics/bbcmicro/bbc_micro_adc_upd7002.yaml"
+IC_ACIA="examples/ics/bbcmicro/bbc_micro_acia_6850.yaml"
+IC_MMU="examples/ics/bbcmicro/bbc_micro_mmu_paged_rom.yaml"
+IC_PSG="examples/ics/bbcmicro/sn76489_psg0.yaml"
+IC_MAIN_RAM="examples/ics/bbcmicro/bbc_micro_main_ram.yaml"
 DEVICE_KB="examples/devices/bbcmicro/bbc_micro_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/bbcmicro/bbc_micro_video.yaml"
 DEVICE_SPK="examples/devices/bbcmicro/bbc_micro_speaker.yaml"
@@ -72,8 +80,16 @@ echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 UV_CACHE_DIR="${UV_CACHE_DIR}" uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM}" \
-  --ic "${IC_IO}" \
+  --ic "${IC_CRTC}" \
+  --ic "${IC_VIDEO_ULA}" \
+  --ic "${IC_SYSTEM_VIA}" \
+  --ic "${IC_USER_VIA}" \
+  --ic "${IC_TELETEXT}" \
+  --ic "${IC_ADC}" \
+  --ic "${IC_ACIA}" \
+  --ic "${IC_MMU}" \
   --ic "${IC_PSG}" \
+  --ic "${IC_MAIN_RAM}" \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \

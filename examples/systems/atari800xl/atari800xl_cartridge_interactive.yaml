@@ -1,5 +1,5 @@
 metadata:
-  name: Atari800XLCartridgeInteractiveSystem
+  name: Atari800XLInteractiveSystem
   version: "0.1"
 
 clock_hz: 1789773
@@ -72,7 +72,12 @@ hooks:
 
 components:
   ics:
-    - atari_io
+    - atari800xl_antic
+    - atari800xl_gtia
+    - atari800xl_pokey
+    - atari800xl_pia_6520
+    - atari800xl_mmu
+    - atari800xl_main_ram
   devices:
     - keyboard_atari800xl
     - controller_atari800xl
@@ -84,7 +89,7 @@ components:
 
 connections:
   - from:
-      component: atari_io
+      component: atari800xl_antic
       kind: callback
       name: keyboard_ascii
     to:
@@ -92,7 +97,7 @@ connections:
       kind: callback
       name: read_ascii
   - from:
-      component: atari_io
+      component: atari800xl_antic
       kind: callback
       name: keyboard_mods
     to:
@@ -101,7 +106,7 @@ connections:
       name: read_mods
 
   - from:
-      component: atari_io
+      component: atari800xl_antic
       kind: callback
       name: break_state
     to:
@@ -110,7 +115,7 @@ connections:
       name: read_break
 
   - from:
-      component: atari_io
+      component: atari800xl_antic
       kind: callback
       name: consol_state
     to:
@@ -119,7 +124,7 @@ connections:
       name: read_consol
 
   - from:
-      component: atari_io
+      component: atari800xl_antic
       kind: callback
       name: joystick_porta
     to:
@@ -128,7 +133,7 @@ connections:
       name: read_porta
 
   - from:
-      component: atari_io
+      component: atari800xl_antic
       kind: callback
       name: trigger0
     to:
@@ -137,7 +142,7 @@ connections:
       name: read_trigger0
 
   - from:
-      component: atari_io
+      component: atari800xl_antic
       kind: callback
       name: trigger1
     to:
@@ -146,7 +151,7 @@ connections:
       name: read_trigger1
 
   - from:
-      component: atari_io
+      component: atari800xl_antic
       kind: callback
       name: trigger2
     to:
@@ -155,7 +160,7 @@ connections:
       name: read_trigger2
 
   - from:
-      component: atari_io
+      component: atari800xl_antic
       kind: callback
       name: trigger3
     to:
@@ -238,7 +243,7 @@ connections:
       name: trigger3
 
   - from:
-      component: atari_io
+      component: atari800xl_antic
       kind: signal
       name: frame_ready
     to:
@@ -256,7 +261,7 @@ connections:
       name: video_frame
 
   - from:
-      component: atari_io
+      component: atari800xl_antic
       kind: signal
       name: audio_level
     to:
@@ -272,6 +277,61 @@ connections:
       component: host_atari800xl
       kind: handler
       name: audio_pcm
+
+
+  - from:
+      component: atari800xl_antic
+      kind: callback
+      name: bus_read
+    to:
+      component: atari800xl_mmu
+      kind: callback
+      name: bus_read
+
+  - from:
+      component: atari800xl_antic
+      kind: callback
+      name: bus_write
+    to:
+      component: atari800xl_mmu
+      kind: callback
+      name: bus_write
+
+  - from:
+      component: atari800xl_antic
+      kind: callback
+      name: cart_present
+    to:
+      component: atari800xl_mmu
+      kind: callback
+      name: cart_present
+
+  - from:
+      component: atari800xl_antic
+      kind: callback
+      name: cart_read
+    to:
+      component: atari800xl_mmu
+      kind: callback
+      name: cart_read
+
+  - from:
+      component: atari800xl_antic
+      kind: callback
+      name: request_irq
+    to:
+      component: atari800xl_mmu
+      kind: callback
+      name: request_irq
+
+  - from:
+      component: atari800xl_antic
+      kind: callback
+      name: request_nmi
+    to:
+      component: atari800xl_mmu
+      kind: callback
+      name: request_nmi
 
 audio:
   sample_rate: 44100

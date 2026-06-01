@@ -161,6 +161,12 @@ def _compile_runtime_penalty_harness(outdir: pathlib.Path, cpu_name: str) -> pat
 
     binary_name = f"{cpu_name}_runtime_penalty_harness.exe" if os.name == "nt" else f"{cpu_name}_runtime_penalty_harness"
     binary = outdir / binary_name
+    src_dir = outdir / "src"
+    split_units = [
+        str(path)
+        for suffix in ("_system_bus.c", "_system_glue.c", "_host_glue.c", "_device_glue.c")
+        for path in src_dir.glob(f"*{suffix}")
+    ]
     subprocess.check_call(
         [
             compiler,
@@ -168,9 +174,10 @@ def _compile_runtime_penalty_harness(outdir: pathlib.Path, cpu_name: str) -> pat
             "-O2",
             "-D_POSIX_C_SOURCE=199309L",
             "-I",
-            str(outdir / "src"),
-            str(outdir / "src" / f"{cpu_upper}.c"),
-            str(outdir / "src" / f"{cpu_upper}_decoder.c"),
+            str(src_dir),
+            str(src_dir / f"{cpu_upper}_core.c"),
+            str(src_dir / f"{cpu_upper}_decoder.c"),
+            *split_units,
             str(harness_c),
             "-o",
             str(binary),

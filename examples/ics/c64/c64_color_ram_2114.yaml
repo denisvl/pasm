@@ -1,0 +1,28 @@
+metadata:
+  id: c64_color_ram
+  type: io_controller
+  model: sram_2114_color_ram
+  version: "1.0"
+
+state:
+  - { name: color_ram, type: uint8_t *, initial: "NULL" }
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

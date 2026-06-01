@@ -1,0 +1,912 @@
+metadata:
+  id: bbc_micro_crtc_6845
+  type: io_controller
+  model: bbc_micro_crtc_6845
+  version: "1.0"
+
+state:
+  - name: keyboard_latch
+    type: uint8_t
+    initial: "0"
+  - name: keyboard_strobe
+    type: uint8_t
+    initial: "0"
+  - name: shiftlock_latched
+    type: uint8_t
+    initial: "0"
+  - name: shiftlock_prev_raw
+    type: uint8_t
+    initial: "0"
+  - name: ic32
+    type: uint8_t
+    initial: "0"
+  - name: video_mode
+    type: uint8_t
+    initial: "7"
+  - name: screen_base
+    type: uint16_t
+    initial: "0x7C00"
+  - name: romsel
+    type: uint8_t
+    initial: "0x0F"
+  - name: crtc_index
+    type: uint8_t
+    initial: "0"
+  - name: crtc_start_addr
+    type: uint16_t
+    initial: "0x0F80"
+  - name: crtc_hdisp
+    type: uint8_t
+    initial: "40"
+  - name: crtc_vdisp
+    type: uint8_t
+    initial: "25"
+  - name: crtc_rmax
+    type: uint8_t
+    initial: "7"
+  - name: crtc_cursor_start
+    type: uint8_t
+    initial: "0x20"
+  - name: crtc_cursor_end
+    type: uint8_t
+    initial: "0x07"
+  - name: crtc_cursor_addr
+    type: uint16_t
+    initial: "0x0F80"
+  - name: palette_reg
+    type: uint8_t
+    initial: "0"
+  - name: ula_ctrl
+    type: uint8_t
+    initial: "0"
+  - name: sound_latch
+    type: uint8_t
+    initial: "0"
+  - name: serial_ula
+    type: uint8_t
+    initial: "0"
+  - name: adc_status
+    type: uint8_t
+    initial: "0x40"
+  - name: via_orb
+    type: uint8_t
+    initial: "0xFF"
+  - name: via_ora
+    type: uint8_t
+    initial: "0xFF"
+  - name: via_ddrb
+    type: uint8_t
+    initial: "0"
+  - name: via_ddra
+    type: uint8_t
+    initial: "0"
+  - name: via_acr
+    type: uint8_t
+    initial: "0"
+  - name: via_pcr
+    type: uint8_t
+    initial: "0"
+  - name: via_ca2
+    type: uint8_t
+    initial: "0"
+  - name: via_ifr
+    type: uint8_t
+    initial: "0"
+  - name: via_ier
+    type: uint8_t
+    initial: "0"
+  - name: via_t1_counter
+    type: uint16_t
+    initial: "0xFFFF"
+  - name: via_t1_latch
+    type: uint16_t
+    initial: "0xFFFF"
+  - name: via_t1_running
+    type: uint8_t
+    initial: "0"
+  - name: via_last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: uvia_orb
+    type: uint8_t
+    initial: "0xFF"
+  - name: uvia_ora
+    type: uint8_t
+    initial: "0xFF"
+  - name: uvia_ddrb
+    type: uint8_t
+    initial: "0"
+  - name: uvia_ddra
+    type: uint8_t
+    initial: "0"
+  - name: uvia_acr
+    type: uint8_t
+    initial: "0"
+  - name: uvia_pcr
+    type: uint8_t
+    initial: "0"
+  - name: uvia_ca2
+    type: uint8_t
+    initial: "0"
+  - name: uvia_ifr
+    type: uint8_t
+    initial: "0"
+  - name: uvia_ier
+    type: uint8_t
+    initial: "0"
+  - name: uvia_t1_counter
+    type: uint16_t
+    initial: "0xFFFF"
+  - name: uvia_t1_latch
+    type: uint16_t
+    initial: "0xFFFF"
+  - name: uvia_t1_running
+    type: uint8_t
+    initial: "0"
+  - name: uvia_last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: acia_control
+    type: uint8_t
+    initial: "0"
+  - name: acia_status
+    type: uint8_t
+    initial: "0x02"
+  - name: acia_rx_data
+    type: uint8_t
+    initial: "0"
+  - name: acia_tx_data
+    type: uint8_t
+    initial: "0"
+  - name: fdc_status
+    type: uint8_t
+    initial: "0x00"
+  - name: fdc_result
+    type: uint8_t
+    initial: "0x00"
+  - name: fdc_data
+    type: uint8_t
+    initial: "0x00"
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: last_frame_cycle
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_read_row
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32]
+    - name: audio_command
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges:
+      - name: sheila_page
+        start: 0xFE00
+        size: 0x0100
+        access: [read, write]
+
+behavior:
+  snippets:
+    mem_read_pre: |
+      static int io_trace = -1;
+      static FILE *io_trace_fp = NULL;
+      static int kb_trace = -1;
+      static FILE *kb_trace_fp = NULL;
+      /* Sideways ROM window 8000-BFFF: only BASIC (slot F) is present in current setup. */
+      if (addr >= 0x8000u && addr < 0xC000u) {
+          if ((comp->romsel & 0x0Fu) != 0x0Fu) {
+              /* Unpopulated sideways ROM socket (open bus approximation). */
+              return 0xFFu;
+          }
+      }
+      {
+          if (io_trace < 0) {
+              const char *e = getenv("PASM_BBC_IO_TRACE");
+              io_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+              if (io_trace != 0) {
+                  const char *p = getenv("PASM_BBC_IO_TRACE_FILE");
+                  if (p == NULL || p[0] == '\0') p = "log/bbc_micro_io_trace.log";
+                  io_trace_fp = fopen(p, "a");
+                  if (io_trace_fp != NULL) {
+                      fprintf(io_trace_fp, "# cycle,pc,op,addr,value,mode,ifr,ier,t1c,t1l,sbase\n");
+                      fflush(io_trace_fp);
+                  } else {
+                      io_trace = 0;
+                  }
+              }
+          }
+          if (kb_trace < 0) {
+              const char *e = getenv("PASM_BBC_KB_TRACE");
+              kb_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+              if (kb_trace != 0) {
+                  const char *p = getenv("PASM_BBC_KB_TRACE_FILE");
+                  if (p == NULL || p[0] == '\0') p = "log/bbc_micro_kb_trace.log";
+                  kb_trace_fp = fopen(p, "a");
+                  if (kb_trace_fp != NULL) {
+                      fprintf(kb_trace_fp, "# cycle,row,kb,orb,ddra,ora\n");
+                      fflush(kb_trace_fp);
+                  } else {
+                      kb_trace = 0;
+                  }
+              }
+          }
+      }
+      if ((addr & 0xFFF0u) == 0xFE40u || (addr & 0xFFF0u) == 0xFE60u) {
+          uint8_t is_user_via = (uint8_t)(((addr & 0xFFF0u) == 0xFE60u) ? 1u : 0u);
+          uint8_t reg = (uint8_t)(addr & 0x000Fu);
+          uint8_t *orb = is_user_via ? &comp->uvia_orb : &comp->via_orb;
+          uint8_t *ora = is_user_via ? &comp->uvia_ora : &comp->via_ora;
+          uint8_t *ddrb = is_user_via ? &comp->uvia_ddrb : &comp->via_ddrb;
+          uint8_t *ddra = is_user_via ? &comp->uvia_ddra : &comp->via_ddra;
+          uint8_t *acr = is_user_via ? &comp->uvia_acr : &comp->via_acr;
+          uint8_t *pcr = is_user_via ? &comp->uvia_pcr : &comp->via_pcr;
+          uint8_t *ifr = is_user_via ? &comp->uvia_ifr : &comp->via_ifr;
+          uint8_t *ier = is_user_via ? &comp->uvia_ier : &comp->via_ier;
+          uint16_t *t1c = is_user_via ? &comp->uvia_t1_counter : &comp->via_t1_counter;
+          uint16_t *t1l = is_user_via ? &comp->uvia_t1_latch : &comp->via_t1_latch;
+          uint8_t trace_before = 0xFFu;
+          if (reg == 0x00u) trace_before = (uint8_t)((*orb & *ddrb) | (0xFFu & (uint8_t)~(*ddrb)));
+          else if (reg == 0x01u || reg == 0x0Fu) trace_before = *ora;
+          else if (reg == 0x02u) trace_before = *ddrb;
+          else if (reg == 0x03u) trace_before = *ddra;
+          else if (reg == 0x04u) trace_before = (uint8_t)(*t1c & 0xFFu);
+          else if (reg == 0x05u) trace_before = (uint8_t)((*t1c >> 8u) & 0xFFu);
+          else if (reg == 0x06u) trace_before = (uint8_t)(*t1l & 0xFFu);
+          else if (reg == 0x07u) trace_before = (uint8_t)((*t1l >> 8u) & 0xFFu);
+          else if (reg == 0x0Bu) trace_before = *acr;
+          else if (reg == 0x0Cu) trace_before = *pcr;
+          else if (reg == 0x0Du) trace_before = *ifr;
+          else if (reg == 0x0Eu) trace_before = *ier;
+          if (io_trace != 0 && io_trace_fp != NULL) {
+              fprintf(io_trace_fp,
+                      "%llu,%04X,R,%04X,%02X,%u,%02X,%02X,%04X,%04X,%04X\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)cpu->pc,
+                      (unsigned)addr,
+                      (unsigned)trace_before,
+                      (unsigned)comp->video_mode,
+                      (unsigned)comp->via_ifr,
+                      (unsigned)comp->via_ier,
+                      (unsigned)comp->via_t1_counter,
+                      (unsigned)comp->via_t1_latch,
+                      (unsigned)comp->screen_base);
+              fflush(io_trace_fp);
+          }
+          if (reg == 0x00u) {
+              return (uint8_t)((*orb & *ddrb) | (0xFFu & (uint8_t)~(*ddrb)));
+          }
+          if (reg == 0x01u) {
+              if (is_user_via == 0u) {
+                  /* Reading ORA clears CA1 and, unless independent CA2 interrupt mode, clears CA2. */
+                  *ifr = (uint8_t)(*ifr & (uint8_t)~0x02u);
+                  if ((*pcr & 0x0Au) != 0x02u) {
+                      *ifr = (uint8_t)(*ifr & (uint8_t)~0x01u);
+                  }
+                  /* BBC-style key scan on slow data bus (System VIA port A):
+                     col=sdb&0x0F (0..10 valid), row=(sdb>>4)&0x07. */
+                  uint8_t sdb_out = *ora;
+                  uint8_t col = (uint8_t)(sdb_out & 0x0Fu);
+                  uint8_t row = (uint8_t)((sdb_out >> 4u) & 0x07u);
+                  uint8_t kb_row = 0xFFu;
+                  uint64_t cb_args[1] = { (uint64_t)col };
+                  if (col <= 10u) {
+                      kb_row = (uint8_t)cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", cb_args, 1);
+                  }
+                  uint8_t key_down = 0u;
+                  key_down = (uint8_t)(((kb_row & (uint8_t)(1u << row)) == 0u) ? 1u : 0u);
+                  /* BBC SHIFT LOCK (col6,row7) is a latch/toggle key, not momentary. */
+                  if (col == 6u && row == 7u) {
+                      uint8_t raw = key_down;
+                      if (raw != 0u && comp->shiftlock_prev_raw == 0u) {
+                          comp->shiftlock_latched ^= 1u;
+                      }
+                      comp->shiftlock_prev_raw = raw;
+                      key_down = comp->shiftlock_latched;
+                  }
+                  /* Reflect key sense in bit7 of input side. */
+                  uint8_t sdb_in = (uint8_t)(sdb_out & (uint8_t)~0x80u);
+                  if ((comp->ic32 & 0x08u) == 0u) {
+                      /* Drive keyboard sense on bit7 for MOS scan reads. */
+                      if (key_down != 0u) sdb_in = (uint8_t)(sdb_in | 0x80u);
+                  }
+                  if (kb_trace != 0 && kb_trace_fp != NULL) {
+                      fprintf(kb_trace_fp, "%llu,%u,%02X,%02X,%02X,%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)row,
+                              (unsigned)kb_row,
+                              (unsigned)(*orb),
+                              (unsigned)(*ddra),
+                              (unsigned)(*ora));
+                      fprintf(kb_trace_fp, "scan,%llu,%u,%u,%02X,%u,%02X,%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)row,
+                              (unsigned)col,
+                              (unsigned)kb_row,
+                              (unsigned)key_down,
+                              (unsigned)sdb_out,
+                              (unsigned)sdb_in);
+                      fflush(kb_trace_fp);
+                  }
+                  /* Return current slow-data-bus value directly for System VIA keyboard path.
+                     DDRA masking can hide key-sense bit7 on some ROM init sequences. */
+                  return sdb_in;
+              }
+              *ifr = (uint8_t)(*ifr & (uint8_t)~0x02u);
+              if ((*pcr & 0x0Au) != 0x02u) {
+                  *ifr = (uint8_t)(*ifr & (uint8_t)~0x01u);
+              }
+              return (uint8_t)((*ora & *ddra) | (0xFFu & (uint8_t)~(*ddra)));
+          }
+          if (reg == 0x02u) return *ddrb;
+          if (reg == 0x03u) return *ddra;
+          if (reg == 0x04u) { *ifr = (uint8_t)(*ifr & (uint8_t)~0x40u); return (uint8_t)(*t1c & 0xFFu); }
+          if (reg == 0x05u) { *ifr = (uint8_t)(*ifr & (uint8_t)~0x40u); return (uint8_t)((*t1c >> 8u) & 0xFFu); }
+          if (reg == 0x06u) return (uint8_t)(*t1l & 0xFFu);
+          if (reg == 0x07u) return (uint8_t)((*t1l >> 8u) & 0xFFu);
+          if (reg == 0x0Bu) return *acr;
+          if (reg == 0x0Cu) return *pcr;
+          if (reg == 0x0Du) { uint8_t v = *ifr; if (((*ifr & *ier) & 0x7Fu) != 0u) v = (uint8_t)(v | 0x80u); return v; }
+          if (reg == 0x0Eu) return (uint8_t)(*ier | 0x80u);
+          if (reg == 0x0Fu) {
+              if (is_user_via == 0u) {
+                  *ifr = (uint8_t)(*ifr & (uint8_t)~0x02u);
+                  if ((*pcr & 0x0Au) != 0x02u) {
+                      *ifr = (uint8_t)(*ifr & (uint8_t)~0x01u);
+                  }
+                  /* ORA no-handshake must still reflect live slow-data-bus keyboard state. */
+                  uint8_t sdb_out = *ora;
+                  uint8_t col = (uint8_t)(sdb_out & 0x0Fu);
+                  uint8_t row = (uint8_t)((sdb_out >> 4u) & 0x07u);
+                  uint8_t kb_row = 0xFFu;
+                  uint64_t cb_args[1] = { (uint64_t)col };
+                  if (col <= 10u) {
+                      kb_row = (uint8_t)cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", cb_args, 1);
+                  }
+                  uint8_t key_down = 0u;
+                  key_down = (uint8_t)(((kb_row & (uint8_t)(1u << row)) == 0u) ? 1u : 0u);
+                  if (col == 6u && row == 7u) {
+                      uint8_t raw = key_down;
+                      if (raw != 0u && comp->shiftlock_prev_raw == 0u) {
+                          comp->shiftlock_latched ^= 1u;
+                      }
+                      comp->shiftlock_prev_raw = raw;
+                      key_down = comp->shiftlock_latched;
+                  }
+                  {
+                      uint8_t sdb_in = (uint8_t)(sdb_out & (uint8_t)~0x80u);
+                      if ((comp->ic32 & 0x08u) == 0u) {
+                          if (key_down != 0u) sdb_in = (uint8_t)(sdb_in | 0x80u);
+                      }
+                      if (kb_trace != 0 && kb_trace_fp != NULL) {
+                          fprintf(kb_trace_fp, "scan,%llu,%u,%u,%02X,%u,%02X,%02X\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)row,
+                                  (unsigned)col,
+                                  (unsigned)kb_row,
+                                  (unsigned)key_down,
+                                  (unsigned)sdb_out,
+                                  (unsigned)sdb_in);
+                          fflush(kb_trace_fp);
+                      }
+                      return sdb_in;
+                  }
+              }
+              *ifr = (uint8_t)(*ifr & (uint8_t)~0x02u);
+              if ((*pcr & 0x0Au) != 0x02u) {
+                  *ifr = (uint8_t)(*ifr & (uint8_t)~0x01u);
+              }
+              return *ora;
+          }
+          return 0xFFu;
+      }
+      if (addr == 0xFE20u) {
+          return comp->ula_ctrl;
+      }
+      if (addr == 0xFE10u) {
+          return comp->serial_ula;
+      }
+      if (addr == 0xFE18u) {
+          return comp->adc_status;
+      }
+      if (addr == 0xFE21u) {
+          return comp->palette_reg;
+      }
+      if (addr == 0xFE30u) {
+          return (uint8_t)(comp->romsel & 0x0Fu);
+      }
+      if (addr == 0xFE08u) {
+          /* 6850 ACIA status (minimal): bit1 TDRE set when transmit register empty. */
+          return comp->acia_status;
+      }
+      if (addr == 0xFE09u) {
+          /* Reading data clears RDRF/IRQ in this minimal model. */
+          uint8_t v = comp->acia_rx_data;
+          comp->acia_status = (uint8_t)(comp->acia_status & (uint8_t)~0x81u);
+          comp->acia_status = (uint8_t)(comp->acia_status | 0x02u);
+          return v;
+      }
+      if (addr == 0xFEC0u) {
+          /* Intel 8271 status (minimal): idle/not busy. */
+          return comp->fdc_status;
+      }
+      if (addr == 0xFEC1u) {
+          return comp->fdc_result;
+      }
+      if (addr == 0xFEC2u) {
+          return comp->fdc_data;
+      }
+      if ((addr & 0xFFF0u) == 0xFEE0u) {
+          /* Tube ULA not present in this baseline model. */
+          return 0x00u;
+      }
+      if ((addr & 0xFF00u) == 0xFE00u) {
+          {
+              static int io_trace = -1;
+              static FILE *io_trace_fp = NULL;
+              if (io_trace < 0) {
+                  const char *e = getenv("PASM_BBC_IO_TRACE");
+                  io_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+                  if (io_trace != 0) {
+                      const char *p = getenv("PASM_BBC_IO_TRACE_FILE");
+                      if (p == NULL || p[0] == '\0') p = "log/bbc_micro_io_trace.log";
+                      io_trace_fp = fopen(p, "a");
+                      if (io_trace_fp != NULL) {
+                          fprintf(io_trace_fp, "# cycle,pc,op,addr,value,mode,ifr,ier,t1c,t1l,sbase\n");
+                          fflush(io_trace_fp);
+                      } else {
+                          io_trace = 0;
+                      }
+                  }
+              }
+              if (io_trace != 0 && io_trace_fp != NULL) {
+                  fprintf(
+                      io_trace_fp,
+                      "%llu,%04X,R,%04X,%02X,%u,%02X,%02X,%04X,%04X,%04X\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)cpu->pc,
+                      (unsigned)addr,
+                      0xFFu,
+                      (unsigned)comp->video_mode,
+                      (unsigned)comp->via_ifr,
+                      (unsigned)comp->via_ier,
+                      (unsigned)comp->via_t1_counter,
+                      (unsigned)comp->via_t1_latch,
+                      (unsigned)comp->screen_base
+                  );
+                  fflush(io_trace_fp);
+              }
+          }
+          return 0x00u;
+      }
+    mem_write_pre: |
+      /* BBC I/O page: consume writes in FE00-FEFF as device space (never ROM writes). */
+      if (addr == 0xFE00u) {
+          comp->crtc_index = (uint8_t)(value & 0x1Fu);
+          return;
+      }
+      if (addr == 0xFE01u) {
+          /* Minimal CRTC handling: use register 12/13 writes to approximate screen base. */
+          if (comp->crtc_index == 12u) {
+              comp->crtc_start_addr = (uint16_t)((comp->crtc_start_addr & 0x00FFu) | ((uint16_t)(value & 0xFFu) << 8u));
+              comp->screen_base = (uint16_t)(((uint32_t)(comp->crtc_start_addr & 0x3FFFu) << 3u) & 0xFFFFu);
+          } else if (comp->crtc_index == 13u) {
+              comp->crtc_start_addr = (uint16_t)((comp->crtc_start_addr & 0xFF00u) | (uint16_t)(value & 0xFFu));
+              comp->screen_base = (uint16_t)(((uint32_t)(comp->crtc_start_addr & 0x3FFFu) << 3u) & 0xFFFFu);
+          } else if (comp->crtc_index == 1u) {
+              comp->crtc_hdisp = (uint8_t)(value & 0x7Fu);
+          } else if (comp->crtc_index == 6u) {
+              comp->crtc_vdisp = (uint8_t)(value & 0x7Fu);
+          } else if (comp->crtc_index == 9u) {
+              comp->crtc_rmax = (uint8_t)(value & 0x1Fu);
+          } else if (comp->crtc_index == 10u) {
+              comp->crtc_cursor_start = (uint8_t)(value & 0x7Fu);
+          } else if (comp->crtc_index == 11u) {
+              comp->crtc_cursor_end = (uint8_t)(value & 0x1Fu);
+          } else if (comp->crtc_index == 14u) {
+              comp->crtc_cursor_addr = (uint16_t)((comp->crtc_cursor_addr & 0x00FFu) | ((uint16_t)(value & 0x3Fu) << 8u));
+          } else if (comp->crtc_index == 15u) {
+              comp->crtc_cursor_addr = (uint16_t)((comp->crtc_cursor_addr & 0xFF00u) | (uint16_t)(value & 0xFFu));
+          }
+          return;
+      }
+      if (addr == 0xFE20u) {
+          comp->ula_ctrl = (uint8_t)(value & 0xFFu);
+          /* Decode BBC mode from ULA control:
+             bit1=teletext select, bits2-3=chars/line, bit4=6845 clock (0:low modes4-7, 1:high modes0-3). */
+          if ((comp->ula_ctrl & 0x02u) != 0u) {
+              comp->video_mode = 7u;
+          } else {
+              uint8_t chars_sel = (uint8_t)((comp->ula_ctrl >> 2u) & 0x03u);
+              uint8_t high_clock = (uint8_t)((comp->ula_ctrl & 0x10u) != 0u);
+              if (high_clock != 0u) {
+                  /* Modes 0..3 */
+                  if (chars_sel == 0x03u) comp->video_mode = 0u;      /* 80 cols */
+                  else if (chars_sel == 0x02u) comp->video_mode = 1u; /* 40 cols */
+                  else if (chars_sel == 0x01u) comp->video_mode = 2u; /* 20 cols */
+                  else comp->video_mode = 3u;                         /* 10 cols */
+              } else {
+                  /* Modes 4..6 */
+                  if (chars_sel == 0x02u) comp->video_mode = 4u;      /* 40 cols */
+                  else if (chars_sel == 0x01u) comp->video_mode = 5u; /* 20 cols */
+                  else comp->video_mode = 6u;                         /* 80/10 on low clock -> text-like */
+              }
+          }
+          switch (comp->video_mode) {
+              case 7u: comp->screen_base = 0x7C00u; break;
+              case 0u: comp->screen_base = 0x3000u; break;
+              case 1u: comp->screen_base = 0x3000u; break;
+              case 2u: comp->screen_base = 0x3000u; break;
+              case 3u: comp->screen_base = 0x4000u; break;
+              case 4u: comp->screen_base = 0x5800u; break;
+              case 5u: comp->screen_base = 0x5800u; break;
+              case 6u: comp->screen_base = 0x6000u; break;
+              default: break;
+          }
+          return;
+      }
+      if (addr == 0xFE10u) {
+          comp->serial_ula = (uint8_t)(value & 0xFFu);
+          return;
+      }
+      if (addr == 0xFE18u) {
+          /* ADC control/status write (minimal idle model). */
+          comp->adc_status = (uint8_t)(value & 0xFFu);
+          return;
+      }
+      if (addr == 0xFE21u) {
+          comp->palette_reg = (uint8_t)(value & 0xFFu);
+          return;
+      }
+      if (addr == 0xFE30u) {
+          comp->romsel = (uint8_t)(value & 0x0Fu);
+          return;
+      }
+      if (addr == 0xFE08u) {
+          /* ACIA control write. */
+          comp->acia_control = (uint8_t)(value & 0xFFu);
+          /* Master reset command patterns in control register reset basic status. */
+          if ((comp->acia_control & 0x03u) == 0x03u) {
+              comp->acia_status = 0x02u;
+              comp->acia_rx_data = 0u;
+              comp->acia_tx_data = 0u;
+          }
+          return;
+      }
+      if (addr == 0xFE09u) {
+          /* ACIA transmit data write. Keep TDRE set in minimal model. */
+          comp->acia_tx_data = (uint8_t)(value & 0xFFu);
+          comp->acia_status = (uint8_t)(comp->acia_status | 0x02u);
+          return;
+      }
+      if (addr == 0xFEC0u) {
+          /* 8271 command/status write. Keep controller idle in minimal model. */
+          comp->fdc_status = 0x00u;
+          comp->fdc_result = 0x00u;
+          return;
+      }
+      if (addr == 0xFEC1u) {
+          /* 8271 parameter/result latch. */
+          comp->fdc_result = (uint8_t)(value & 0xFFu);
+          return;
+      }
+      if (addr == 0xFEC2u) {
+          /* 8271 data register. */
+          comp->fdc_data = (uint8_t)(value & 0xFFu);
+          return;
+      }
+      if ((addr & 0xFFF0u) == 0xFEE0u) {
+          /* Tube ULA not present; ignore writes. */
+          return;
+      }
+      if ((addr & 0xFFF0u) == 0xFE40u || (addr & 0xFFF0u) == 0xFE60u) {
+          uint8_t is_user_via = (uint8_t)(((addr & 0xFFF0u) == 0xFE60u) ? 1u : 0u);
+          uint8_t reg = (uint8_t)(addr & 0x000Fu);
+          uint8_t *orb = is_user_via ? &comp->uvia_orb : &comp->via_orb;
+          uint8_t *ora = is_user_via ? &comp->uvia_ora : &comp->via_ora;
+          uint8_t *ddrb = is_user_via ? &comp->uvia_ddrb : &comp->via_ddrb;
+          uint8_t *ddra = is_user_via ? &comp->uvia_ddra : &comp->via_ddra;
+          uint8_t *acr = is_user_via ? &comp->uvia_acr : &comp->via_acr;
+          uint8_t *pcr = is_user_via ? &comp->uvia_pcr : &comp->via_pcr;
+          uint8_t *ifr = is_user_via ? &comp->uvia_ifr : &comp->via_ifr;
+          uint8_t *ier = is_user_via ? &comp->uvia_ier : &comp->via_ier;
+          uint16_t *t1c = is_user_via ? &comp->uvia_t1_counter : &comp->via_t1_counter;
+          uint16_t *t1l = is_user_via ? &comp->uvia_t1_latch : &comp->via_t1_latch;
+          uint8_t *t1r = is_user_via ? &comp->uvia_t1_running : &comp->via_t1_running;
+          {
+              static int io_trace = -1;
+              static FILE *io_trace_fp = NULL;
+              if (io_trace < 0) {
+                  const char *e = getenv("PASM_BBC_IO_TRACE");
+                  io_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+                  if (io_trace != 0) {
+                      const char *p = getenv("PASM_BBC_IO_TRACE_FILE");
+                      if (p == NULL || p[0] == '\0') p = "log/bbc_micro_io_trace.log";
+                      io_trace_fp = fopen(p, "a");
+                      if (io_trace_fp != NULL) {
+                          fprintf(io_trace_fp, "# cycle,pc,op,addr,value,mode,ifr,ier,t1c,t1l,sbase\n");
+                          fflush(io_trace_fp);
+                      } else {
+                          io_trace = 0;
+                      }
+                  }
+              }
+              if (io_trace != 0 && io_trace_fp != NULL) {
+                  fprintf(io_trace_fp,
+                          "%llu,%04X,W,%04X,%02X,%u,%02X,%02X,%04X,%04X,%04X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)addr,
+                          (unsigned)value,
+                          (unsigned)comp->video_mode,
+                          (unsigned)comp->via_ifr,
+                          (unsigned)comp->via_ier,
+                          (unsigned)comp->via_t1_counter,
+                          (unsigned)comp->via_t1_latch,
+                          (unsigned)comp->screen_base);
+                  fflush(io_trace_fp);
+              }
+          }
+          if (reg == 0x00u) {
+              *orb = (uint8_t)(value & 0xFFu);
+              if (is_user_via == 0u) {
+                  uint8_t old_ic32 = comp->ic32;
+                  /* IC32 addressable latch on System VIA port B:
+                     bit3 selects set/reset, low 3 bits select latch bit. */
+                  {
+                      uint8_t bit = (uint8_t)(value & 0x07u);
+                      if ((value & 0x08u) != 0u) comp->ic32 = (uint8_t)(comp->ic32 | (uint8_t)(1u << bit));
+                      else comp->ic32 = (uint8_t)(comp->ic32 & (uint8_t)~(1u << bit));
+                  }
+                  /* Approximate SN latch write on IC32 bit0 high->low transition. */
+                  if (((old_ic32 & 0x01u) != 0u) && ((comp->ic32 & 0x01u) == 0u)) {
+                      comp->sound_latch = *ora;
+                  }
+                  {
+                      uint64_t sig_args[2] = {
+                          (uint64_t)comp->sound_latch,
+                          cpu->total_cycles
+                      };
+                      cpu_component_emit_signal(cpu, "bbc_micro_crtc_6845", "audio_command", sig_args, 2);
+                  }
+              }
+              return;
+          }
+          if (reg == 0x01u) {
+              *ora = (uint8_t)(value & 0xFFu);
+              return;
+          }
+          if (reg == 0x02u) { *ddrb = (uint8_t)(value & 0xFFu); return; }
+          if (reg == 0x03u) { *ddra = (uint8_t)(value & 0xFFu); return; }
+          if (reg == 0x04u) { *t1l = (uint16_t)((*t1l & 0xFF00u) | (uint16_t)(value & 0xFFu)); return; }
+          if (reg == 0x05u) { *t1l = (uint16_t)((*t1l & 0x00FFu) | ((uint16_t)(value & 0xFFu) << 8u)); *t1c = *t1l; *t1r = 1u; *ifr = (uint8_t)(*ifr & (uint8_t)~0x40u); return; }
+          if (reg == 0x06u) { *t1l = (uint16_t)((*t1l & 0xFF00u) | (uint16_t)(value & 0xFFu)); return; }
+          if (reg == 0x07u) { *t1l = (uint16_t)((*t1l & 0x00FFu) | ((uint16_t)(value & 0xFFu) << 8u)); return; }
+          if (reg == 0x0Bu) { *acr = (uint8_t)(value & 0xFFu); return; }
+          if (reg == 0x0Cu) { *pcr = (uint8_t)(value & 0xFFu); return; }
+          if (reg == 0x0Du) { *ifr = (uint8_t)(*ifr & (uint8_t)~(value & 0x7Fu)); return; }
+          if (reg == 0x0Eu) { if ((value & 0x80u) != 0u) *ier = (uint8_t)(*ier | (value & 0x7Fu)); else *ier = (uint8_t)(*ier & (uint8_t)~(value & 0x7Fu)); return; }
+          if (reg == 0x0Fu) { *ora = (uint8_t)(value & 0xFFu); return; }
+          return;
+      }
+      if ((addr & 0xFF00u) == 0xFE00u) {
+          {
+              static int io_trace = -1;
+              static FILE *io_trace_fp = NULL;
+              if (io_trace < 0) {
+                  const char *e = getenv("PASM_BBC_IO_TRACE");
+                  io_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+                  if (io_trace != 0) {
+                      const char *p = getenv("PASM_BBC_IO_TRACE_FILE");
+                      if (p == NULL || p[0] == '\0') p = "log/bbc_micro_io_trace.log";
+                      io_trace_fp = fopen(p, "a");
+                      if (io_trace_fp != NULL) {
+                          fprintf(io_trace_fp, "# cycle,pc,op,addr,value,mode,ifr,ier,t1c,t1l,sbase\n");
+                          fflush(io_trace_fp);
+                      } else {
+                          io_trace = 0;
+                      }
+                  }
+              }
+              if (io_trace != 0 && io_trace_fp != NULL) {
+                  fprintf(
+                      io_trace_fp,
+                      "%llu,%04X,W,%04X,%02X,%u,%02X,%02X,%04X,%04X,%04X\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)cpu->pc,
+                      (unsigned)addr,
+                      (unsigned)value,
+                      (unsigned)comp->video_mode,
+                      (unsigned)comp->via_ifr,
+                      (unsigned)comp->via_ier,
+                      (unsigned)comp->via_t1_counter,
+                      (unsigned)comp->via_t1_latch,
+                      (unsigned)comp->screen_base
+                  );
+                  fflush(io_trace_fp);
+              }
+          }
+          return;
+      }
+    step_post: |
+      {
+          /* BBC keyboard CA2-like strobe behavior. */
+          uint8_t strobe_level = 0u;
+          uint8_t any_key_down = 0u;
+          uint64_t cb_args[1];
+          if ((comp->ic32 & 0x08u) != 0u) {
+              /* Autoscan mode: for each selected column, if any row 1..7 key is down, assert strobe. */
+              for (uint8_t col = 0u; col < 11u; ++col) {
+                  for (uint8_t row = 1u; row < 8u; ++row) {
+                      cb_args[0] = (uint64_t)col;
+                      {
+                          uint8_t kb = (uint8_t)cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", cb_args, 1);
+                          if ((kb & (uint8_t)(1u << row)) == 0u) { strobe_level = 1u; any_key_down = 1u; break; }
+                      }
+                  }
+                  if (strobe_level != 0u) {
+                      break;
+                  }
+              }
+          } else {
+              /* Specific scan mode: selected column from ORA low nibble, rows 1..7. */
+              uint8_t col = (uint8_t)(comp->via_ora & 0x0Fu);
+              if (col <= 10u) {
+                  for (uint8_t row = 1u; row < 8u; ++row) {
+                      cb_args[0] = (uint64_t)col;
+                      {
+                          uint8_t kb = (uint8_t)cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", cb_args, 1);
+                          if ((kb & (uint8_t)(1u << row)) == 0u) { strobe_level = 1u; any_key_down = 1u; break; }
+                      }
+                  }
+              }
+          }
+          if (any_key_down == 0u) {
+              for (uint8_t col = 0u; col < 11u; ++col) {
+                  cb_args[0] = (uint64_t)col;
+                  if ((uint8_t)cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", cb_args, 1) != 0xFFu) {
+                      any_key_down = 1u;
+                      break;
+                  }
+              }
+          }
+          if (strobe_level != comp->keyboard_strobe) {
+              /* Emulate via_set_ca2 edge/pcr behavior for System VIA input CA2. */
+              if ((comp->via_pcr & 0x08u) == 0u) { /* input mode */
+                  if ((((comp->via_pcr & 0x04u) != 0u) && (strobe_level != 0u)) ||
+                      (((comp->via_pcr & 0x04u) == 0u) && (strobe_level == 0u))) {
+                      comp->via_ifr = (uint8_t)(comp->via_ifr | 0x01u);
+                  }
+              }
+              comp->via_ca2 = strobe_level;
+              comp->keyboard_strobe = strobe_level;
+          }
+          if (any_key_down != 0u) {
+              /* Force keyboard IRQ source while key is down to ensure MOS enters scan loop. */
+              comp->via_ifr = (uint8_t)(comp->via_ifr | 0x01u);
+          }
+          {
+              static int kb_step_trace = -1;
+              static FILE *kb_step_fp = NULL;
+              if (kb_step_trace < 0) {
+                  const char *e = getenv("PASM_BBC_KB_TRACE");
+                  kb_step_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+                  if (kb_step_trace != 0) {
+                      const char *p = getenv("PASM_BBC_KB_TRACE_FILE");
+                      if (p == NULL || p[0] == '\0') p = "log/bbc_micro_kb_trace.log";
+                      kb_step_fp = fopen(p, "a");
+                      if (kb_step_fp != NULL) {
+                          fprintf(kb_step_fp, "# step,cycle,strobe,any,ifr,ier,ic32,ora,orb\n");
+                          fflush(kb_step_fp);
+                      } else {
+                          kb_step_trace = 0;
+                      }
+                  }
+              }
+              if (kb_step_trace != 0 && kb_step_fp != NULL && any_key_down != 0u) {
+                  fprintf(kb_step_fp, "step,%llu,%u,%u,%02X,%02X,%02X,%02X,%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)strobe_level,
+                          (unsigned)any_key_down,
+                          (unsigned)comp->via_ifr,
+                          (unsigned)comp->via_ier,
+                          (unsigned)comp->ic32,
+                          (unsigned)comp->via_ora,
+                          (unsigned)comp->via_orb);
+                  fflush(kb_step_fp);
+              }
+          }
+      }
+      {
+          uint64_t elapsed_sys = 0u;
+          uint64_t elapsed_usr = 0u;
+          if (comp->via_last_cycle == 0u) comp->via_last_cycle = cpu->total_cycles;
+          if (comp->uvia_last_cycle == 0u) comp->uvia_last_cycle = cpu->total_cycles;
+          elapsed_sys = cpu->total_cycles - comp->via_last_cycle;
+          elapsed_usr = cpu->total_cycles - comp->uvia_last_cycle;
+          comp->via_last_cycle = cpu->total_cycles;
+          comp->uvia_last_cycle = cpu->total_cycles;
+
+          if (comp->via_t1_running != 0u && elapsed_sys > 0u) {
+              while (elapsed_sys > 0u && comp->via_t1_running != 0u) {
+                  uint32_t step = (elapsed_sys > 65535u) ? 65535u : (uint32_t)elapsed_sys;
+                  if (step <= (uint32_t)comp->via_t1_counter) {
+                      comp->via_t1_counter = (uint16_t)(comp->via_t1_counter - (uint16_t)step);
+                      elapsed_sys -= (uint64_t)step;
+                  } else {
+                      elapsed_sys -= (uint64_t)((uint32_t)comp->via_t1_counter + 1u);
+                      comp->via_ifr = (uint8_t)(comp->via_ifr | 0x40u);
+                      if ((comp->via_acr & 0x40u) != 0u) comp->via_t1_counter = comp->via_t1_latch;
+                      else { comp->via_t1_counter = 0xFFFFu; comp->via_t1_running = 0u; }
+                  }
+              }
+          }
+          if (comp->uvia_t1_running != 0u && elapsed_usr > 0u) {
+              while (elapsed_usr > 0u && comp->uvia_t1_running != 0u) {
+                  uint32_t step = (elapsed_usr > 65535u) ? 65535u : (uint32_t)elapsed_usr;
+                  if (step <= (uint32_t)comp->uvia_t1_counter) {
+                      comp->uvia_t1_counter = (uint16_t)(comp->uvia_t1_counter - (uint16_t)step);
+                      elapsed_usr -= (uint64_t)step;
+                  } else {
+                      elapsed_usr -= (uint64_t)((uint32_t)comp->uvia_t1_counter + 1u);
+                      comp->uvia_ifr = (uint8_t)(comp->uvia_ifr | 0x40u);
+                      if ((comp->uvia_acr & 0x40u) != 0u) comp->uvia_t1_counter = comp->uvia_t1_latch;
+                      else { comp->uvia_t1_counter = 0xFFFFu; comp->uvia_t1_running = 0u; }
+                  }
+              }
+          }
+      }
+      if (((comp->via_ifr & comp->via_ier & 0x7Fu) != 0u) || ((comp->uvia_ifr & comp->uvia_ier & 0x7Fu) != 0u)) {
+          mos6502_interrupt(cpu, 0u);
+      }
+      uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 50u) : 40000u;
+      if (frame_period == 0u) frame_period = 1u;
+      if ((cpu->total_cycles - comp->last_frame_cycle) >= frame_period) {
+          comp->last_frame_cycle = cpu->total_cycles;
+          /* Approximate ULA 50Hz interrupt into System VIA IFR bit1 (CA1-style). */
+          comp->via_ifr = (uint8_t)(comp->via_ifr | 0x02u);
+          comp->frame_counter += 1u;
+          {
+              /* Keep host frame size stable; CRTC register churn during runtime/boot
+                 must not force periodic texture reallocations/flicker. */
+              uint32_t width = 320u;
+              uint32_t height = 250u;
+              switch (comp->video_mode) {
+                  case 0u: width = 640u; break;
+                  case 1u: width = 320u; break;
+                  case 2u: width = 160u; break;
+                  case 3u: width = 480u; break;
+                  case 4u: width = 320u; break;
+                  case 5u: width = 160u; break;
+                  case 6u: width = 320u; break;
+                  case 7u: width = 480u; break;
+                  default: width = 320u; break;
+              }
+              uint64_t sig_args[4] = {
+                  (uint64_t)comp->frame_counter,
+                  (uint64_t)(uintptr_t)(&cpu->memory[comp->screen_base]),
+                  width,
+                  height
+              };
+              cpu_component_emit_signal(cpu, "bbc_micro_crtc_6845", "frame_ready", sig_args, 4);
+          }
+      }
+  callback_handlers:
+    keyboard_read_row: |
+      __result = cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", args, argc);
+      return __result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

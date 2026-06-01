@@ -40,7 +40,11 @@ hooks:
 
 components:
   ics:
-    - cpc_io
+    - cpc_gate_array
+    - cpc_crtc
+    - cpc_ppi
+    - cpc_psg
+    - cpc464_ram
   devices:
     - keyboard_cpc
     - gameport_cpc
@@ -51,7 +55,7 @@ components:
 
 connections:
   - from:
-      component: cpc_io
+      component: cpc_ppi
       kind: callback
       name: keyboard_read_row
     to:
@@ -69,13 +73,67 @@ connections:
       name: keyboard_matrix
 
   - from:
-      component: cpc_io
+      component: cpc_ppi
       kind: callback
       name: controller_read_row
     to:
       component: gameport_cpc
       kind: callback
       name: read_row
+
+  - from:
+      component: cpc_gate_array
+      kind: callback
+      name: crtc_read_reg
+    to:
+      component: cpc_crtc
+      kind: callback
+      name: read_reg
+
+  - from:
+      component: cpc_gate_array
+      kind: callback
+      name: ppi_write_io_page
+    to:
+      component: cpc_ppi
+      kind: callback
+      name: write_io_page
+
+  - from:
+      component: cpc_gate_array
+      kind: callback
+      name: ppi_read_port_c_raw
+    to:
+      component: cpc_ppi
+      kind: callback
+      name: read_port_c_latched
+
+  - from:
+      component: cpc_gate_array
+      kind: callback
+      name: ppi_read_io_page
+    to:
+      component: cpc_ppi
+      kind: callback
+      name: read_io_page
+
+  - from:
+      component: cpc_ppi
+      kind: callback
+      name: psg_bus_apply
+    to:
+      component: cpc_psg
+      kind: callback
+      name: bus_apply
+
+  - from:
+      component: cpc_gate_array
+      kind: callback
+      name: psg_tick_audio
+    to:
+      component: cpc_psg
+      kind: callback
+      name: tick_audio
 
   - from:
       component: gameport_cpc
@@ -87,7 +145,7 @@ connections:
       name: joystick_matrix
 
   - from:
-      component: cpc_io
+      component: cpc_gate_array
       kind: signal
       name: frame_ready
     to:
@@ -105,7 +163,7 @@ connections:
       name: video_frame
 
   - from:
-      component: cpc_io
+      component: cpc_gate_array
       kind: signal
       name: irq_edge
     to:
@@ -114,7 +172,7 @@ connections:
       name: irq_edge
 
   - from:
-      component: cpc_io
+      component: cpc_gate_array
       kind: signal
       name: audio_level
     to:

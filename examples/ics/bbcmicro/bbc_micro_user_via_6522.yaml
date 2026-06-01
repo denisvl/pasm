@@ -1,0 +1,27 @@
+metadata:
+  id: bbc_micro_user_via_6522
+  type: io_controller
+  model: mos_6522_user_via
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

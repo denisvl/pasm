@@ -1,0 +1,58 @@
+metadata:
+  id: nes_cpu_ram
+  type: memory
+  model: nes_2kb_internal_ram_mirror
+  version: "1.0"
+
+state:
+  - name: cpu_ram
+    type: uint8_t *
+    initial: "NULL"
+
+interfaces:
+  callbacks:
+    - name: ram_read
+      args: [u16]
+      returns: u8
+    - name: ram_write
+      args: [u16, u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      if (comp->cpu_ram == NULL) comp->cpu_ram = (uint8_t *)calloc(2048u, sizeof(uint8_t));
+    reset: |
+      (void)cpu;
+      if (comp->cpu_ram != NULL) memset(comp->cpu_ram, 0, 2048u);
+    destroy: |
+      if (comp->cpu_ram != NULL) {
+          free(comp->cpu_ram);
+          comp->cpu_ram = NULL;
+      }
+  callback_handlers:
+    ram_read: |
+      if (argc < 1u) return 0u;
+      if (cpu->comp_nes_cpu_ram.cpu_ram == NULL) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      return cpu->comp_nes_cpu_ram.cpu_ram[(uint16_t)(addr & 0x07FFu)];
+    ram_write: |
+      if (argc < 2u) return 0u;
+      if (cpu->comp_nes_cpu_ram.cpu_ram == NULL) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      cpu->comp_nes_cpu_ram.cpu_ram[(uint16_t)(addr & 0x07FFu)] = value;
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

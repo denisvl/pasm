@@ -45,9 +45,11 @@ cd /d "%REPO_ROOT%"
 if errorlevel 1 exit /b %errorlevel%
 
 set "PROCESSOR=examples/processors/z80.yaml"
+set "IC_BUS=examples/ics/sms/sms_cpu_bus.yaml"
+set "IC_RAM=examples/ics/sms/sms_main_ram.yaml"
 set "IC_VDP=examples/ics/sms/sms_vdp_sega315_5124.yaml"
 set "IC_JOY=examples/ics/sms/sms_joypad_io.yaml"
-set "IC_PSG=examples/ics/common/psg_sn76489.yaml"
+set "IC_PSG=examples/ics/sms/sms_psg_sn76489.yaml"
 set "DEVICE_VIDEO=examples/devices/sms/sms_video.yaml"
 set "DEVICE_SPK=examples/devices/sms/sms_speaker.yaml"
 set "SYSTEM_DIR=examples/systems"
@@ -129,6 +131,8 @@ echo [1/3] Generating emulator -^> %OUTPUT_DIR%
 uv run python -m src.main generate ^
   --processor "%PROCESSOR%" ^
   --system "%SYSTEM%" ^
+  --ic "%IC_BUS%" ^
+  --ic "%IC_RAM%" ^
   --ic "%IC_VDP%" ^
   --ic "%IC_JOY%" ^
   --ic "%IC_PSG%" ^

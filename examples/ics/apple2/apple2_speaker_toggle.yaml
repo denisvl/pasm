@@ -1,0 +1,60 @@
+metadata:
+  id: apple2_speaker_toggle
+  type: io_controller
+  model: apple2_speaker_click
+  version: "1.0"
+
+state:
+  - name: speaker_level
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals:
+    - name: audio_level
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges:
+      - name: speaker_softswitch
+        start: 0xC030
+        size: 0x0001
+        access: [read, write]
+
+behavior:
+  snippets:
+    mem_read_pre: |
+      if (addr == 0xC030u) {
+          comp->speaker_level ^= 1u;
+          {
+            uint64_t sig_args[2] = {
+              (uint64_t)comp->speaker_level,
+              cpu->total_cycles
+            };
+            cpu_component_emit_signal(cpu, "apple2_speaker_toggle", "audio_level", sig_args, 2);
+          }
+          return 0u;
+      }
+    mem_write_pre: |
+      if (addr == 0xC030u) {
+          comp->speaker_level ^= 1u;
+          {
+            uint64_t sig_args[2] = {
+              (uint64_t)comp->speaker_level,
+              cpu->total_cycles
+            };
+            cpu_component_emit_signal(cpu, "apple2_speaker_toggle", "audio_level", sig_args, 2);
+          }
+          return;
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

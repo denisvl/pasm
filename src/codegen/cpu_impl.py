@@ -2,6 +2,7 @@
 
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
+import textwrap
 
 from .interrupts import configured_interrupt_modes, resolve_interrupt_model
 from .templates import get_template
@@ -244,7 +245,12 @@ def _single_host_backend_target(isa_data: Dict[str, Any]) -> str:
 
 
 def generate_cpu_impl(
-    isa_data: Dict[str, Any], cpu_name: str, dispatch_mode: str = "switch"
+    isa_data: Dict[str, Any],
+    cpu_name: str,
+    dispatch_mode: str = "switch",
+    include_loader_impls: bool = True,
+    include_interrupt_impls: bool = True,
+    exclude_split_sections: Optional[List[str]] = None,
 ) -> str:
     """Generate the CPU implementation file."""
 
@@ -252,6 +258,9 @@ def generate_cpu_impl(
 
     # Generate helper functions
     helpers_code = _generate_helpers(isa_data, cpu_prefix)
+    excluded = set(exclude_split_sections or [])
+    for section in (exclude_split_sections or []):
+        helpers_code = _remove_split_sections(helpers_code, section)
     coding_includes = _generate_coding_includes(isa_data)
 
     # Generate instruction implementations
@@ -264,7 +273,9 @@ def generate_cpu_impl(
     interrupt_reset_post = _generate_interrupt_reset_post(isa_data, cpu_prefix)
     register_field_reset = _generate_register_field_reset(isa_data)
     shadow_flags_reset = _generate_shadow_flags_reset(isa_data)
-    interrupt_impl = _generate_interrupt_impl(isa_data, cpu_prefix)
+    interrupt_impl = (
+        _generate_interrupt_impl(isa_data, cpu_prefix) if include_interrupt_impls else ""
+    )
     hooks = isa_data.get("hooks", {})
     (
         port_read_hook_pre,
@@ -286,10 +297,72 @@ def generate_cpu_impl(
         ic_port_write_post,
         ic_impl,
     ) = _generate_ic_runtime_blocks(isa_data, cpu_prefix)
-    system_rom_loader = _generate_system_rom_loader(isa_data, cpu_prefix)
-    cartridge_rom_loader = _generate_cartridge_rom_loader(isa_data, cpu_prefix)
-    reset_delay_seconds = max(
-        0, int(isa_data.get("system", {}).get("reset_delay_seconds", 0))
+
+    def _indent_block(block: str, spaces: int = 4) -> str:
+        content = block.strip("\n")
+        if not content.strip():
+            return ""
+        return textwrap.indent(content, " " * spaces)
+
+    lifecycle_helpers = [
+        "void cpu_component_lifecycle_create(CPUState *cpu);",
+        "void cpu_component_lifecycle_destroy(CPUState *cpu);",
+        "void cpu_component_lifecycle_reset(CPUState *cpu);",
+        "/* PASM_SPLIT_BEGIN:COMPONENT_LIFECYCLE */",
+        "void cpu_component_lifecycle_create(CPUState *cpu) {",
+    ]
+    if ic_init.strip():
+        lifecycle_helpers.append(_indent_block(ic_init))
+    else:
+        lifecycle_helpers.append("    (void)cpu;")
+    lifecycle_helpers.extend(
+        [
+            "}",
+            "",
+            "void cpu_component_lifecycle_destroy(CPUState *cpu) {",
+        ]
+    )
+    if ic_destroy.strip():
+        lifecycle_helpers.append(_indent_block(ic_destroy))
+    else:
+        lifecycle_helpers.append("    (void)cpu;")
+    lifecycle_helpers.extend(
+        [
+            "}",
+            "",
+            "void cpu_component_lifecycle_reset(CPUState *cpu) {",
+        ]
+    )
+    if ic_reset.strip():
+        lifecycle_helpers.append(_indent_block(ic_reset))
+    else:
+        lifecycle_helpers.append("    (void)cpu;")
+    lifecycle_helpers.extend(["}", "/* PASM_SPLIT_END:COMPONENT_LIFECYCLE */", ""])
+    ic_helpers_code = "\n".join(lifecycle_helpers) + "\n" + ic_helpers_code
+    ic_init = "    cpu_component_lifecycle_create(cpu);"
+    ic_destroy = "        cpu_component_lifecycle_destroy(cpu);"
+    ic_reset = "    cpu_component_lifecycle_reset(cpu);"
+    host_hal_core_prelude = ""
+    host_hal_prototypes = []
+    for section in excluded:
+        ic_helpers_code = _remove_split_sections(ic_helpers_code, section)
+    # COMPONENT_DISPATCH and INPUT_RUNTIME are now split-owned in system_glue.
+    # Keep core emission untouched here; no linkage-promotion rewrite is needed.
+    # HOST_HAL ownership now lives outside core; no HAL contract reinjection here.
+    prefix_chunks: List[str] = []
+    if host_hal_core_prelude.strip():
+        prefix_chunks.append(host_hal_core_prelude.strip())
+    if host_hal_prototypes:
+        proto_lines = "\n".join(host_hal_prototypes).strip()
+        if proto_lines:
+            prefix_chunks.append(proto_lines)
+    if prefix_chunks:
+        ic_helpers_code = "\n\n".join(prefix_chunks) + "\n\n" + ic_helpers_code.lstrip()
+    system_rom_loader = (
+        _generate_system_rom_loader(isa_data, cpu_prefix) if include_loader_impls else ""
+    )
+    cartridge_rom_loader = (
+        _generate_cartridge_rom_loader(isa_data, cpu_prefix) if include_loader_impls else ""
     )
     debug_flags_expr = _generate_debug_flags_expr(isa_data)
 
@@ -337,7 +410,6 @@ def generate_cpu_impl(
         hooks_impl=hooks_impl,
         isa_name=isa_name,
         register_count=register_count,
-        reset_delay_seconds=reset_delay_seconds,
         debug_flags_expr=debug_flags_expr,
     )
 
@@ -391,6 +463,435 @@ def _generate_word_access_impl(isa_data: Dict[str, Any], cpu_prefix: str) -> str
         )
     lines.append("}")
     return "\n".join(lines)
+
+
+def _extract_split_sections(text: str, section: str) -> List[str]:
+    begin = f"/* PASM_SPLIT_BEGIN:{section} */"
+    end = f"/* PASM_SPLIT_END:{section} */"
+    blocks: List[str] = []
+    cursor = 0
+    while True:
+        start = text.find(begin, cursor)
+        if start < 0:
+            break
+        stop = text.find(end, start + len(begin))
+        if stop < 0:
+            break
+        blocks.append(text[start + len(begin) : stop].strip())
+        cursor = stop + len(end)
+    return blocks
+
+
+def _extract_host_hal_function_prototypes(blocks: List[str]) -> List[str]:
+    protos: List[str] = []
+    seen: set[str] = set()
+    sig_re = re.compile(
+        r"^(?P<prefix>(?:static\s+)?(?:inline\s+)?[\w\s\*]+?)\s*"
+        r"(?P<name>cpu_host_hal_[A-Za-z0-9_]+)\s*\((?P<args>[^)]*)\)\s*\{\s*$"
+    )
+    for block in blocks:
+        for raw in block.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            m = sig_re.match(line)
+            if not m:
+                continue
+            prefix = m.group("prefix").strip()
+            # Core needs external declarations; never emit static here.
+            if prefix.startswith("static "):
+                prefix = prefix[len("static ") :].strip()
+            joiner = "" if prefix.endswith("*") else " "
+            sig = f"{prefix}{joiner}{m.group('name')}({m.group('args').strip()});"
+            if sig not in seen:
+                seen.add(sig)
+                protos.append(sig)
+    return protos
+
+
+def _extract_host_hal_core_support(blocks: List[str]) -> Tuple[str, List[str]]:
+    """Extract core-side HAL support text + callable declarations.
+
+    When HOST_HAL implementation is split out, core still needs:
+    - HAL typedefs/macros/constants used in host runtime glue paths
+    - non cpu_host_hal_* local helpers (e.g. spec-zero helpers)
+    - non-static declarations for cpu_host_hal_* functions invoked by core
+    """
+    func_sig_re = re.compile(
+        r"^(?P<indent>\s*)(?P<prefix>(?:static\s+)?(?:inline\s+)?[\w\s\*]+?)\s*"
+        r"(?P<name>cpu_host_hal_[A-Za-z0-9_]+)\s*\((?P<args>[^)]*)\)\s*\{\s*$"
+    )
+    var_decl_re = re.compile(
+        r"^\s*static\s+.*\bcpu_host_hal_[A-Za-z0-9_]+\b.*;\s*$"
+    )
+
+    support_lines: List[str] = []
+    prototypes: List[str] = []
+    seen_protos: set[str] = set()
+
+    for block in blocks:
+        lines = block.splitlines()
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            m = func_sig_re.match(line.strip())
+            if m:
+                prefix = m.group("prefix").strip()
+                if prefix.startswith("static "):
+                    prefix = prefix[len("static ") :].strip()
+                joiner = "" if prefix.endswith("*") else " "
+                proto = f"{prefix}{joiner}{m.group('name')}({m.group('args').strip()});"
+                if proto not in seen_protos:
+                    seen_protos.add(proto)
+                    prototypes.append(proto)
+
+                # Skip the full function body from core support text.
+                brace_depth = line.count("{") - line.count("}")
+                i += 1
+                while i < len(lines) and brace_depth > 0:
+                    brace_depth += lines[i].count("{") - lines[i].count("}")
+                    i += 1
+                continue
+
+            if var_decl_re.match(line):
+                i += 1
+                continue
+
+            support_lines.append(line)
+            i += 1
+
+    # Normalize surrounding blank lines while preserving local formatting.
+    support_text = "\n".join(support_lines).strip()
+    return support_text, prototypes
+
+
+def _remove_split_sections(text: str, section: str) -> str:
+    begin = f"/* PASM_SPLIT_BEGIN:{section} */"
+    end = f"/* PASM_SPLIT_END:{section} */"
+    out = text
+    cursor = 0
+    while True:
+        start = out.find(begin, cursor)
+        if start < 0:
+            break
+        stop = out.find(end, start + len(begin))
+        if stop < 0:
+            break
+        out = out[:start] + out[stop + len(end) :]
+        cursor = start
+    return out
+
+
+def generate_host_hal_impl_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Generate marker-extracted host HAL implementation text for split host_glue ownership."""
+    impl = generate_cpu_impl(
+        isa_data,
+        cpu_name,
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = _extract_split_sections(impl, "HOST_HAL_IMPL")
+    if not blocks:
+        return "/* No HOST_HAL_IMPL section emitted */\n"
+    return "\n\n".join(blocks).strip() + "\n"
+
+
+def generate_host_hal_contract_support(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Generate non-owning host HAL support text required by split system_glue.
+
+    Includes typedefs/macros/non-cpu_host_hal helpers and callable prototypes,
+    but omits cpu_host_hal_* function bodies and static storage ownership.
+    """
+    impl = generate_cpu_impl(
+        isa_data,
+        cpu_name,
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = _extract_split_sections(impl, "HOST_HAL_IMPL")
+    if not blocks:
+        return ""
+    support_text, prototypes = _extract_host_hal_core_support(blocks)
+    chunks: List[str] = []
+    if support_text.strip():
+        chunks.append(support_text.strip())
+    if prototypes:
+        chunks.append("\n".join(prototypes).strip())
+    return "\n\n".join(chunks).strip() + ("\n" if chunks else "")
+
+
+def generate_component_dispatch_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Generate extracted component dispatch helpers for split system_glue ownership."""
+    impl = generate_cpu_impl(
+        isa_data,
+        cpu_name,
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = _extract_split_sections(impl, "COMPONENT_DISPATCH")
+    if not blocks:
+        return "/* No COMPONENT_DISPATCH section emitted */\n"
+    merged = "\n\n".join(blocks).strip()
+    # Routing can be emitted independently; keep dispatch-body extraction focused.
+    merged = _remove_split_sections(merged, "COMPONENT_ROUTING").strip()
+    if not merged:
+        return "/* No COMPONENT_DISPATCH body emitted */\n"
+    return merged + "\n"
+
+
+def generate_component_routing_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Generate extracted callback/signal routing helpers for split system_glue ownership."""
+    impl = generate_cpu_impl(
+        isa_data,
+        cpu_name,
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = _extract_split_sections(impl, "COMPONENT_ROUTING")
+    if not blocks:
+        return "/* No COMPONENT_ROUTING section emitted */\n"
+    return "\n\n".join(blocks).strip() + "\n"
+
+
+def generate_component_connections_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Generate extracted component connection table ownership for split system_glue."""
+    impl = generate_cpu_impl(
+        isa_data,
+        cpu_name,
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = _extract_split_sections(impl, "COMPONENT_CONNECTIONS")
+    if not blocks:
+        return "/* No COMPONENT_CONNECTIONS section emitted */\n"
+    return "\n\n".join(blocks).strip() + "\n"
+
+
+def generate_component_runtime_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Generate extracted full component runtime block for split system ownership."""
+    impl = generate_cpu_impl(
+        isa_data,
+        cpu_name,
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = _extract_split_sections(impl, "COMPONENT_RUNTIME")
+    if not blocks:
+        return "/* No COMPONENT_RUNTIME section emitted */\n"
+    return "\n\n".join(blocks).strip() + "\n"
+
+
+def generate_component_lifecycle_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Generate extracted component lifecycle helpers for split ownership."""
+    impl = generate_cpu_impl(
+        isa_data,
+        cpu_name,
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = _extract_split_sections(impl, "COMPONENT_LIFECYCLE")
+    if not blocks:
+        return "/* No COMPONENT_LIFECYCLE section emitted */\n"
+    return "\n\n".join(blocks).strip() + "\n"
+
+
+def generate_cartridge_picker_runtime_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Generate extracted cartridge picker runtime block for split ownership."""
+    impl = generate_cpu_impl(
+        isa_data,
+        cpu_name,
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = _extract_split_sections(impl, "CARTRIDGE_PICKER_RUNTIME")
+    if not blocks:
+        return "/* No CARTRIDGE_PICKER_RUNTIME section emitted */\n"
+    ui = isa_data.get("system", {}).get("ui", {}) or {}
+    try:
+        picker_scale = int(ui.get("cartridge_picker_font_scale", 1))
+    except (TypeError, ValueError):
+        picker_scale = 1
+    if picker_scale < 0:
+        picker_scale = 0
+    merged = "\n\n".join(blocks).strip()
+    return (
+        "#include <errno.h>\n"
+        "#include <limits.h>\n"
+        "#include <sys/stat.h>\n"
+        "#if !defined(_WIN32)\n"
+        "#include <dirent.h>\n"
+        "#endif\n"
+        f"static const int g_runtime_cartridge_picker_font_scale = {picker_scale};\n\n"
+        + merged
+        + "\n"
+    )
+
+
+def generate_input_runtime_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Extract runtime keyboard/controller helper block for future split ownership."""
+    impl = generate_cpu_impl(
+        isa_data,
+        cpu_name,
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = _extract_split_sections(impl, "INPUT_RUNTIME")
+    if not blocks:
+        return "/* No INPUT_RUNTIME section emitted */\n"
+    merged = "\n\n".join(blocks).strip()
+    merged = _remove_split_sections(merged, "HOST_HAL_IMPL").strip()
+    merged = re.sub(
+        r"(?m)^(\s*)static(\s+(?:inline\s+)?[\w\s\*]*\bcpu_host_hal_[A-Za-z0-9_]+\s*\([^;]*\)\s*;)",
+        r"\1\2",
+        merged,
+    )
+    if not merged:
+        return "/* No INPUT_RUNTIME body emitted */\n"
+    return (
+        "#include <errno.h>\n"
+        "#include <limits.h>\n"
+        "#include <sys/stat.h>\n"
+        "#if !defined(_WIN32)\n"
+        "#include <dirent.h>\n"
+        "#endif\n\n"
+        + merged
+        + "\n"
+    )
+
+
+def generate_input_runtime_contract_support(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Generate declaration-only support for INPUT_RUNTIME cross-TU ownership moves.
+
+    This extracts type/variable/function declarations from INPUT_RUNTIME while
+    omitting function bodies and static storage ownership.
+    """
+    impl = generate_cpu_impl(
+        isa_data,
+        cpu_name,
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = _extract_split_sections(impl, "INPUT_RUNTIME")
+    if not blocks:
+        return "/* No INPUT_RUNTIME support emitted */\n"
+
+    lines_out: List[str] = []
+    typedef_block: List[str] = []
+    in_typedef = False
+    brace_depth = 0
+    vars_seen: Set[str] = set()
+    funcs_seen: Set[str] = set()
+
+    static_var_re = re.compile(
+        r"^\s*static\s+([A-Za-z_][\w\s\*]*?)\s+([A-Za-z_]\w*)\s*=\s*\{?.*;\s*$"
+    )
+    func_re = re.compile(
+        r"^\s*(?:static\s+)?([A-Za-z_][\w\s\*]*?)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{\s*$",
+        re.DOTALL,
+    )
+
+    def _flush_typedef():
+        nonlocal typedef_block
+        if typedef_block:
+            block_text = "\n".join(typedef_block)
+            if "RuntimeKeyboard" in block_text or "RuntimeController" in block_text:
+                lines_out.extend(typedef_block)
+                lines_out.append("")
+            typedef_block = []
+
+    for block in blocks:
+        for raw in block.splitlines():
+            line = raw.rstrip()
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            if in_typedef:
+                typedef_block.append(line)
+                brace_depth += line.count("{") - line.count("}")
+                if brace_depth <= 0 and stripped.endswith(";"):
+                    in_typedef = False
+                    _flush_typedef()
+                continue
+
+            if stripped.startswith("typedef "):
+                in_typedef = True
+                brace_depth = line.count("{") - line.count("}")
+                typedef_block.append(line)
+                if brace_depth <= 0 and stripped.endswith(";"):
+                    in_typedef = False
+                    _flush_typedef()
+                continue
+
+            m_var = static_var_re.match(line)
+            if m_var:
+                type_name = m_var.group(1).strip()
+                var_name = m_var.group(2).strip()
+                if not var_name.startswith("g_runtime_"):
+                    continue
+                if var_name not in vars_seen:
+                    vars_seen.add(var_name)
+                    spacer = "" if type_name.endswith("*") else " "
+                    lines_out.append(f"extern {type_name}{spacer}{var_name};")
+                continue
+
+            # Support both single-line and multi-line static function signatures.
+            m_func = func_re.match(line)
+            if not m_func and not stripped.endswith(";") and "(" in stripped:
+                sig_lines = [line]
+                open_paren = line.count("(")
+                close_paren = line.count(")")
+                j = 0
+                # Walk forward inside this block until we close the signature and hit '{'.
+                tail_lines = block.splitlines()
+                # Find current line index by matching raw line position in this block.
+                # This is local/cheap for contract extraction and keeps logic self-contained.
+                try:
+                    j = tail_lines.index(raw) + 1
+                except ValueError:
+                    j = 0
+                while j < len(tail_lines):
+                    nxt = tail_lines[j].rstrip()
+                    sig_lines.append(nxt)
+                    open_paren += nxt.count("(")
+                    close_paren += nxt.count(")")
+                    if open_paren > 0 and open_paren == close_paren and nxt.strip().endswith("{"):
+                        break
+                    j += 1
+                sig_blob = "\n".join(sig_lines).strip()
+                m_func = func_re.match(sig_blob)
+            if m_func:
+                ret_type = m_func.group(1).strip()
+                fn_name = m_func.group(2).strip()
+                args = m_func.group(3).strip()
+                if not (
+                    fn_name.startswith("cpu_component_")
+                    or fn_name.endswith("_load_keyboard_map")
+                    or fn_name.endswith("_load_controller_map")
+                ):
+                    continue
+                if fn_name not in funcs_seen:
+                    funcs_seen.add(fn_name)
+                    spacer = "" if ret_type.endswith("*") else " "
+                    lines_out.append(f"{ret_type}{spacer}{fn_name}({args});")
+                continue
+
+    if in_typedef:
+        _flush_typedef()
+
+    if not lines_out:
+        return "/* No INPUT_RUNTIME support emitted */\n"
+    return "\n".join(lines_out).strip() + "\n"
 
 
 def _generate_coding_includes(isa_data: Dict[str, Any]) -> str:
@@ -925,18 +1426,6 @@ def _generate_helpers(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     lines.append("}")
     lines.append("")
 
-    # Cross-platform reset sleep helper.
-    lines.append("static void cpu_sleep_seconds(uint32_t seconds) {")
-    lines.append("    if (seconds == 0u) return;")
-    lines.append("#if defined(_WIN32)")
-    lines.append("    Sleep((DWORD)(seconds * 1000u));")
-    lines.append("#else")
-    lines.append("    unsigned int remaining = (unsigned int)seconds;")
-    lines.append("    while (remaining != 0u) remaining = sleep(remaining);")
-    lines.append("#endif")
-    lines.append("}")
-    lines.append("")
-
     register_names = {
         str(register.get("name", "")).upper() for register in isa_data.get("registers", [])
     }
@@ -1316,7 +1805,7 @@ def _generate_cartridge_rom_loader(isa_data: Dict[str, Any], cpu_prefix: str) ->
         "",
         f"int {cpu_prefix}_set_cartridge_dir(CPUState *cpu, const char *path) {{",
         "    (void)cpu;",
-        "    return cpu_component_cartridge_picker_set_dir(path);",
+        "    return cpu_component_host_picker_set_dir(path);",
         "}",
     ]
     return "\n".join(lines) + "\n"
@@ -1405,17 +1894,6 @@ def _generate_ic_runtime_blocks(
     host_backend_target = _single_host_backend_target(isa_data)
     host_uses_sdl2_backend = host_backend_target == "sdl2"
     host_uses_glfw_backend = host_backend_target == "glfw"
-    picker_font_scale = 1
-    for host in isa_data.get("hosts", []):
-        if not isinstance(host, dict):
-            continue
-        ui = host.get("ui", {})
-        if not isinstance(ui, dict):
-            continue
-        raw_scale = ui.get("cartridge_picker_font_scale")
-        if isinstance(raw_scale, int):
-            picker_font_scale = max(0, min(4, raw_scale))
-            break
 
     def _ident(name: str) -> str:
         return _to_c_ident(name)
@@ -1442,41 +1920,11 @@ def _generate_ic_runtime_blocks(
         return "\n".join(lines)
 
     helper_lines: List[str] = [
-        "#include <errno.h>",
-        "#include <limits.h>",
-        "#include <sys/stat.h>",
-        "#if !defined(_WIN32)",
-        "#include <dirent.h>",
-        "#endif",
+        "void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);",
+        "void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);",
+        "int cpu_components_runtime_pre_step(CPUState *cpu);",
         "",
-        "typedef struct {",
-        "    const char *from_component;",
-        "    const char *from_kind;",
-        "    const char *from_name;",
-        "    const char *to_component;",
-        "    const char *to_kind;",
-        "    const char *to_name;",
-        "} ComponentConnection;",
-        "",
-        "static uint64_t cpu_component_call(",
-        "    CPUState *cpu,",
-        "    const char *source_component,",
-        "    const char *callback_name,",
-        "    const uint64_t *args,",
-        "    uint8_t argc",
-        ");",
-        "",
-        "static void cpu_component_emit_signal(",
-        "    CPUState *cpu,",
-        "    const char *source_component,",
-        "    const char *signal_name,",
-        "    const uint64_t *args,",
-        "    uint8_t argc",
-        ");",
-        "static int cpu_component_cartridge_picker_set_dir(const char *path);",
-        "static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);",
-        f"static const int g_runtime_cartridge_picker_font_scale = {picker_font_scale};",
-        "",
+        "/* PASM_SPLIT_BEGIN:INPUT_RUNTIME */",
         "typedef struct {",
         "    uint8_t row;",
         "    uint8_t bit;",
@@ -1513,9 +1961,6 @@ def _generate_ic_runtime_blocks(
         "",
         "static RuntimeKeyboardMap g_runtime_keyboard_map = {0};",
         "",
-        "static int32_t cpu_host_hal_key_from_scancode(int scancode);",
-        "static int32_t cpu_host_hal_scancode_from_key(int32_t keycode);",
-        "",
         "#define CPU_HOST_HAT_UP 0x01u",
         "#define CPU_HOST_HAT_RIGHT 0x02u",
         "#define CPU_HOST_HAT_DOWN 0x04u",
@@ -1524,6 +1969,7 @@ def _generate_ic_runtime_blocks(
     ]
 
     if host_uses_sdl2_backend:
+        helper_lines.append("/* PASM_SPLIT_BEGIN:HOST_HAL_IMPL */")
         helper_lines.extend(
             [
                 "typedef SDL_Event CPUHostEvent;",
@@ -1558,7 +2004,9 @@ def _generate_ic_runtime_blocks(
                 "",
             ]
         )
+        helper_lines.append("/* PASM_SPLIT_END:HOST_HAL_IMPL */")
     elif host_uses_glfw_backend:
+        helper_lines.append("/* PASM_SPLIT_BEGIN:HOST_HAL_IMPL */")
         helper_lines.extend(
             [
                 "typedef struct {",
@@ -1878,7 +2326,9 @@ def _generate_ic_runtime_blocks(
                 "",
             ]
         )
+        helper_lines.append("/* PASM_SPLIT_END:HOST_HAL_IMPL */")
     else:
+        helper_lines.append("/* PASM_SPLIT_BEGIN:HOST_HAL_IMPL */")
         helper_lines.extend(
             [
                 "typedef struct {",
@@ -1937,8 +2387,10 @@ def _generate_ic_runtime_blocks(
                 "",
             ]
         )
+        helper_lines.append("/* PASM_SPLIT_END:HOST_HAL_IMPL */")
 
     if host_uses_sdl2_backend:
+        helper_lines.append("/* PASM_SPLIT_BEGIN:HOST_HAL_IMPL */")
         helper_lines.extend(
             [
                 "static uint8_t cpu_host_hal_sdl_inited = 0u;",
@@ -2444,6 +2896,16 @@ def _generate_ic_runtime_blocks(
                 "    return 0;",
                 "}",
                 "",
+                "static int cpu_host_hal_set_window_size(void *window, int w, int h) {",
+                "    if (cpu_host_hal_sdl_inited == 0u) return -1;",
+                "    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;",
+                "    if (!window) window = (void *)cpu_host_hal_sdl_primary_window;",
+                "    if (!window) return -1;",
+                "    if (w <= 0 || h <= 0) return -1;",
+                "    SDL_SetWindowSize((SDL_Window *)window, w, h);",
+                "    return 0;",
+                "}",
+                "",
                 "static const char *cpu_host_hal_scancode_name(int32_t scancode) {",
                 "    if (cpu_host_hal_sdl_inited == 0u) return \"UNKNOWN\";",
                 "    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return \"UNKNOWN\";",
@@ -2468,7 +2930,9 @@ def _generate_ic_runtime_blocks(
                 "",
             ]
         )
+        helper_lines.append("/* PASM_SPLIT_END:HOST_HAL_IMPL */")
     elif host_uses_glfw_backend:
+        helper_lines.append("/* PASM_SPLIT_BEGIN:HOST_HAL_IMPL */")
         helper_lines.extend(
             [
                 "static GLFWwindow *cpu_host_hal_glfw_primary_window = NULL;",
@@ -3610,6 +4074,16 @@ def _generate_ic_runtime_blocks(
                 "    return 0;",
                 "}",
                 "",
+                "static int cpu_host_hal_set_window_size(void *window, int w, int h) {",
+                "    if (cpu_host_hal_glfw_inited == 0u) return -1;",
+                "    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;",
+                "    if (!window) window = (void *)cpu_host_hal_glfw_primary_window;",
+                "    if (!window) return -1;",
+                "    if (w <= 0 || h <= 0) return -1;",
+                "    glfwSetWindowSize((GLFWwindow *)window, w, h);",
+                "    return 0;",
+                "}",
+                "",
                 "static const char *cpu_host_hal_scancode_name(int32_t scancode) {",
                 "    if (cpu_host_hal_glfw_inited == 0u) return \"UNKNOWN\";",
                 "    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return \"UNKNOWN\";",
@@ -3628,7 +4102,9 @@ def _generate_ic_runtime_blocks(
                 "",
             ]
         )
+        helper_lines.append("/* PASM_SPLIT_END:HOST_HAL_IMPL */")
     else:
+        helper_lines.append("/* PASM_SPLIT_BEGIN:HOST_HAL_IMPL */")
         helper_lines.extend(
             [
                 "typedef struct {",
@@ -4103,6 +4579,16 @@ def _generate_ic_runtime_blocks(
                 "    return 0;",
                 "}",
                 "",
+                "static int cpu_host_hal_set_window_size(void *window, int w, int h) {",
+                "    CPUHostStubWindow *ww = (window != NULL) ? (CPUHostStubWindow *)window : cpu_host_hal_stub_primary_window;",
+                "    if (cpu_host_hal_stub_inited == 0u || ww == NULL) return -1;",
+                "    if ((cpu_host_hal_stub_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;",
+                "    if (w <= 0 || h <= 0) return -1;",
+                "    ww->w = w;",
+                "    ww->h = h;",
+                "    return 0;",
+                "}",
+                "",
                 "static const char *cpu_host_hal_scancode_name(int32_t scancode) {",
                 "    (void)scancode;",
                 "    return \"UNKNOWN\";",
@@ -4119,22 +4605,43 @@ def _generate_ic_runtime_blocks(
                 "",
             ]
         )
+        helper_lines.append("/* PASM_SPLIT_END:HOST_HAL_IMPL */")
 
-    helper_lines.append(
-        "static int32_t cpu_component_scancode_for_host_key(const char *host_key) {"
-    )
+    helper_lines.append("static uint64_t cpu_component_host_key_hash(const char *s) {")
+    helper_lines.append("    uint64_t h = 1469598103934665603ull;")
+    helper_lines.append("    const unsigned char *p = (const unsigned char *)s;")
+    helper_lines.append("    if (p == NULL) return 0ull;")
+    helper_lines.append("    while (*p != 0u) {")
+    helper_lines.append("        h ^= (uint64_t)(*p++);")
+    helper_lines.append("        h *= 1099511628211ull;")
+    helper_lines.append("    }")
+    helper_lines.append("    return h;")
+    helper_lines.append("}")
+    helper_lines.append("static int32_t cpu_component_scancode_for_host_key(const char *host_key) {")
     helper_lines.append("#if CPU_HOST_HAS_SCANCODE_MAP")
     helper_lines.append("    if (!host_key || !host_key[0]) return -1;")
-    helper_lines.append("    if (0) return -1;")
+    helper_lines.append("    switch (cpu_component_host_key_hash(host_key)) {")
+    fnv_map: Dict[int, str] = {}
     for key in sorted(ALLOWED_HOST_KEYS):
         if host_uses_sdl2_backend and key in SDL_UNSUPPORTED_SCANCODE_KEYS:
             continue
         if host_uses_glfw_backend and key not in GLFW_SCANCODE_KEYS:
             continue
-        key_escaped = _escape_c_string(str(key))
+        key_bytes = str(key).encode("ascii", "strict")
+        h = 1469598103934665603
+        for b in key_bytes:
+            h ^= b
+            h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+        if h in fnv_map and fnv_map[h] != key:
+            raise RuntimeError(
+                f"FNV64 collision for host keys '{fnv_map[h]}' and '{key}'"
+            )
+        fnv_map[h] = key
         helper_lines.append(
-            f"    else if (strcmp(host_key, \"{key_escaped}\") == 0) return (int32_t)CPU_HOST_SCANCODE({key});"
+            f"        case 0x{h:016X}ull: return (int32_t)CPU_HOST_SCANCODE({key});"
         )
+    helper_lines.append("        default: return -1;")
+    helper_lines.append("    }")
     helper_lines.append("    return -1;")
     helper_lines.append("#else")
     helper_lines.append("    (void)host_key;")
@@ -4156,7 +4663,9 @@ def _generate_ic_runtime_blocks(
     helper_lines.append("        s = s + 1;")
     helper_lines.append("    }")
     helper_lines.append("    if (quoted == 0u) {")
-    helper_lines.append("        if (strncmp(s, \"KEY_\", 4) == 0) {")
+    helper_lines.append(
+        "        if (s[0] == 'K' && s[1] == 'E' && s[2] == 'Y' && s[3] == '_') {"
+    )
     helper_lines.append("            v = strtol(s + 4, &end, 10);")
     helper_lines.append("            if (end != (s + 4)) {")
     helper_lines.append("                p = end;")
@@ -4173,6 +4682,7 @@ def _generate_ic_runtime_blocks(
     helper_lines.append("    }")
     helper_lines.append("    return cpu_component_scancode_for_host_key(s);")
     helper_lines.append("}")
+    helper_lines.append("static uint64_t cpu_component_hash_str(const char *s);")
     helper_lines.extend(
         [
             "",
@@ -4448,6 +4958,7 @@ def _generate_ic_runtime_blocks(
             "typedef struct {",
             "    uint8_t port;",
             "    char id[64];",
+            "    uint64_t id_hash;",
             "    uint8_t pressed;",
             "    float axis;",
             "} RuntimeControllerTarget;",
@@ -4502,8 +5013,9 @@ def _generate_ic_runtime_blocks(
             "",
             "static RuntimeControllerTarget *cpu_component_controller_target_get(const char *id, uint8_t create) {",
             "    if (id == NULL || id[0] == '\\0') return NULL;",
+            "    const uint64_t id_hash = cpu_component_hash_str(id);",
             "    for (size_t i = 0; i < g_runtime_controller_map.target_count; ++i) {",
-            "        if (strncmp(g_runtime_controller_map.targets[i].id, id, sizeof(g_runtime_controller_map.targets[i].id)) == 0) {",
+            "        if (g_runtime_controller_map.targets[i].id_hash == id_hash) {",
             "            return &g_runtime_controller_map.targets[i];",
             "        }",
             "    }",
@@ -4521,6 +5033,7 @@ def _generate_ic_runtime_blocks(
             "        memset(t, 0, sizeof(*t));",
             "        t->port = cpu_component_controller_port_from_target(id);",
             "        snprintf(t->id, sizeof(t->id), \"%s\", id);",
+            "        t->id_hash = id_hash;",
             "        t->pressed = 0u;",
             "        t->axis = 0.0f;",
             "        return t;",
@@ -4922,10 +5435,12 @@ def _generate_ic_runtime_blocks(
             "    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return 0u;",
             "    return cpu_component_keyboard_ascii_queue_pop();",
             "}",
+            "/* PASM_SPLIT_END:INPUT_RUNTIME */",
             "",
         ]
     )
 
+    helper_lines.append("/* PASM_SPLIT_BEGIN:CARTRIDGE_PICKER_RUNTIME */")
     if has_runtime_cartridge:
         helper_lines.extend(
             [
@@ -5106,7 +5621,7 @@ def _generate_ic_runtime_blocks(
                 "#endif",
                 "}",
                 "",
-                "static int cpu_component_cartridge_picker_set_dir(const char *path) {",
+                "int cpu_component_cartridge_picker_set_dir(const char *path) {",
                 "    if (path == NULL || path[0] == '\\0') return -1;",
                 "    snprintf(g_runtime_cartridge_picker.directory, sizeof(g_runtime_cartridge_picker.directory), \"%s\", path);",
                 "    g_runtime_cartridge_picker.active = 0u;",
@@ -5131,11 +5646,11 @@ def _generate_ic_runtime_blocks(
                 "    return 0u;",
                 "}",
                 "",
-                "static uint8_t cpu_component_cartridge_picker_is_active(void) {",
+                "uint8_t cpu_component_cartridge_picker_is_active(void) {",
                 "    return g_runtime_cartridge_picker.active;",
                 "}",
                 "",
-                "static void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {",
+                "void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {",
                 "    int key_count = 0;",
                 "    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);",
                 "    static int raw_picker_keys_enabled = -1;",
@@ -5207,7 +5722,7 @@ def _generate_ic_runtime_blocks(
                 "    g_runtime_cartridge_picker.nav_esc_prev = esc;",
                 "}",
                 "",
-                "static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu) {",
+                "int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu) {",
                 "    if (!cpu) return -1;",
                 "    if (g_runtime_cartridge_picker.pending_swap == 0u) return 0;",
                 f"    if ({cpu_prefix}_load_cartridge_rom(cpu, g_runtime_cartridge_picker.pending_path) != 0) {{",
@@ -5359,7 +5874,7 @@ def _generate_ic_runtime_blocks(
                 "    return lines_drawn;",
                 "}",
                 "",
-                "static void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {",
+                "void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {",
                 "    int scale = g_runtime_cartridge_picker_font_scale;",
                 "    int x = 10;",
                 "    int y = 24;",
@@ -5410,20 +5925,20 @@ def _generate_ic_runtime_blocks(
     else:
         helper_lines.extend(
             [
-                "static int cpu_component_cartridge_picker_set_dir(const char *path) {",
+                "int cpu_component_cartridge_picker_set_dir(const char *path) {",
                 "    (void)path;",
                 "    return -1;",
                 "}",
-                "static int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu) {",
+                "int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu) {",
                 "    (void)cpu;",
                 "    return 0;",
                 "}",
-                "static uint8_t cpu_component_cartridge_picker_is_active(void) { return 0u; }",
-                "static void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {",
+                "uint8_t cpu_component_cartridge_picker_is_active(void) { return 0u; }",
+                "void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {",
                 "    (void)cpu;",
                 "    (void)has_focus;",
                 "}",
-                "static void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {",
+                "void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {",
                 "    (void)cpu;",
                 "    (void)pixels;",
                 "    (void)w;",
@@ -5433,35 +5948,86 @@ def _generate_ic_runtime_blocks(
             ]
         )
 
+    helper_lines.append("/* PASM_SPLIT_END:CARTRIDGE_PICKER_RUNTIME */")
+    helper_lines.append("/* PASM_SPLIT_BEGIN:COMPONENT_RUNTIME */")
+    helper_lines.append("/* PASM_SPLIT_BEGIN:COMPONENT_CONNECTIONS */")
+    def _fnv64_py(text: str) -> int:
+        h = 1469598103934665603
+        for b in text.encode("utf-8"):
+            h ^= b
+            h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+        return h
+
+    helper_lines.append("static uint64_t cpu_component_hash_str(const char *s) {")
+    helper_lines.append("    uint64_t h = 1469598103934665603ull;")
+    helper_lines.append("    const unsigned char *p = (const unsigned char *)s;")
+    helper_lines.append("    if (p == NULL) return 0ull;")
+    helper_lines.append("    while (*p != 0u) {")
+    helper_lines.append("        h ^= (uint64_t)(*p++);")
+    helper_lines.append("        h *= 1099511628211ull;")
+    helper_lines.append("    }")
+    helper_lines.append("    return h;")
+    helper_lines.append("}")
     if connections:
-        helper_lines.append("static const ComponentConnection g_component_connections[] = {")
+        helper_lines.append("const ComponentConnection g_component_connections[] = {")
         for conn in connections:
             from_ep = conn.get("from", {})
             to_ep = conn.get("to", {})
+            fk = str(from_ep.get("kind", ""))
+            tk = str(to_ep.get("kind", ""))
+            fk_id = 1 if fk == "callback" else (2 if fk == "signal" else 0)
+            tk_id = 1 if tk == "callback" else (2 if tk == "handler" else 0)
+            from_comp = str(from_ep.get("component", ""))
+            from_name = str(from_ep.get("name", ""))
+            to_comp = str(to_ep.get("component", ""))
+            to_name = str(to_ep.get("name", ""))
             helper_lines.append(
                 "    { "
-                f"\"{_escape_c_string(str(from_ep.get('component', '')))}\", "
-                f"\"{_escape_c_string(str(from_ep.get('kind', '')))}\", "
-                f"\"{_escape_c_string(str(from_ep.get('name', '')))}\", "
-                f"\"{_escape_c_string(str(to_ep.get('component', '')))}\", "
-                f"\"{_escape_c_string(str(to_ep.get('kind', '')))}\", "
-                f"\"{_escape_c_string(str(to_ep.get('name', '')))}\" "
+                f"\"{_escape_c_string(from_comp)}\", "
+                f"\"{_escape_c_string(fk)}\", "
+                f"\"{_escape_c_string(from_name)}\", "
+                f"\"{_escape_c_string(to_comp)}\", "
+                f"\"{_escape_c_string(tk)}\", "
+                f"\"{_escape_c_string(to_name)}\", "
+                f"0x{_fnv64_py(from_comp):016X}ull, "
+                f"0x{_fnv64_py(from_name):016X}ull, "
+                f"0x{_fnv64_py(to_comp):016X}ull, "
+                f"0x{_fnv64_py(to_name):016X}ull, "
+                f"{fk_id}u, "
+                f"{tk_id}u "
                 "},"
             )
         helper_lines.append("};")
     else:
         helper_lines.append(
-            "static const ComponentConnection g_component_connections[] = { { \"\", \"\", \"\", \"\", \"\", \"\" } };"
+            "const ComponentConnection g_component_connections[] = { { \"\", \"\", \"\", \"\", \"\", \"\", 0ull, 0ull, 0ull, 0ull, 0u, 0u } };"
         )
+    helper_lines.append(
+        "const size_t g_component_connections_count = sizeof(g_component_connections) / sizeof(g_component_connections[0]);"
+    )
+    helper_lines.append("/* PASM_SPLIT_END:COMPONENT_CONNECTIONS */")
+    helper_lines.append("/* PASM_SPLIT_BEGIN:COMPONENT_DISPATCH */")
     callback_dispatch_lines: List[str] = [
-        "static uint64_t cpu_component_dispatch_callback(",
+        "typedef uint64_t (*ComponentCallbackFn)(CPUState *, const uint64_t *, uint8_t);",
+        "static uint64_t g_callback_cache_key[256];",
+        "static ComponentCallbackFn g_callback_cache_fn[256];",
+        "",
+        "uint64_t cpu_component_dispatch_callback(",
         "    CPUState *cpu,",
         "    const char *component_id,",
         "    const char *callback_name,",
         "    const uint64_t *args,",
         "    uint8_t argc",
         ") {",
+        "    uint64_t __hk_comp = cpu_component_hash_str(component_id);",
+        "    uint64_t __hk_name = cpu_component_hash_str(callback_name);",
+        "    uint64_t __key = __hk_comp ^ ((__hk_name << 1u) | (__hk_name >> 63u));",
+        "    uintptr_t h = (uintptr_t)(__key & 255u);",
+        "    if (g_callback_cache_key[h] == __key && g_callback_cache_fn[h] != NULL) {",
+        "        return g_callback_cache_fn[h](cpu, args, argc);",
+        "    }",
     ]
+    cb_pair_hashes: Dict[int, Tuple[str, str]] = {}
     for component in components:
         comp_id = str(component.get("metadata", {}).get("id", "component"))
         comp_ident = _ident(comp_id)
@@ -5487,13 +6053,34 @@ def _generate_ic_runtime_blocks(
             if body:
                 for raw_line in body.splitlines():
                     helper_lines.append(f"    {raw_line.rstrip()}" if raw_line.strip() else "")
+            else:
+                # Fallback for callbacks without explicit handler code:
+                # if there is a declared callback->callback connection for this
+                # callback, forward to the target callback. This preserves
+                # behavior for call sites that may dispatch callbacks directly.
+                helper_lines.append("    for (size_t __i = 0; __i < g_component_connections_count; ++__i) {")
+                helper_lines.append("        const ComponentConnection *__conn = &g_component_connections[__i];")
+                helper_lines.append("        if (__conn->from_kind_id != 1u) continue;")
+                helper_lines.append(f"        if (__conn->from_component_hash != 0x{_fnv64_py(comp_id):016X}ull) continue;")
+                helper_lines.append(f"        if (__conn->from_name_hash != 0x{_fnv64_py(cb_name):016X}ull) continue;")
+                helper_lines.append(f"        if (__conn->to_component_hash == 0x{_fnv64_py(comp_id):016X}ull && __conn->to_name_hash == 0x{_fnv64_py(cb_name):016X}ull) continue;")
+                helper_lines.append("        return cpu_component_dispatch_callback(cpu, __conn->to_component, __conn->to_name, args, argc);")
+                helper_lines.append("    }")
+                helper_lines.append("    (void)args;")
             helper_lines.append("    return __result;")
             helper_lines.append("}")
             helper_lines.append("")
+            pair_h = _fnv64_py(comp_id) ^ (((_fnv64_py(cb_name) << 1) | (_fnv64_py(cb_name) >> 63)) & 0xFFFFFFFFFFFFFFFF)
+            if pair_h in cb_pair_hashes and cb_pair_hashes[pair_h] != (comp_id, cb_name):
+                raise RuntimeError(
+                    f"callback dispatch hash collision: {cb_pair_hashes[pair_h]} vs {(comp_id, cb_name)}"
+                )
+            cb_pair_hashes[pair_h] = (comp_id, cb_name)
             callback_dispatch_lines.append(
-                f"    if (strcmp(component_id, \"{_escape_c_string(comp_id)}\") == 0 && "
-                f"strcmp(callback_name, \"{_escape_c_string(cb_name)}\") == 0) "
-                f"return component_{comp_ident}_callback_{cb_ident}(cpu, args, argc);"
+                f"    if (__key == 0x{pair_h:016X}ull) "
+                f"{{ g_callback_cache_key[h] = __key; "
+                f"g_callback_cache_fn[h] = component_{comp_ident}_callback_{cb_ident}; "
+                f"return component_{comp_ident}_callback_{cb_ident}(cpu, args, argc); }}"
             )
     callback_dispatch_lines.append("    return 0;")
     callback_dispatch_lines.append("}")
@@ -5501,14 +6088,27 @@ def _generate_ic_runtime_blocks(
     helper_lines.extend(callback_dispatch_lines)
 
     handler_dispatch_lines: List[str] = [
-        "static void cpu_component_dispatch_handler(",
+        "typedef void (*ComponentHandlerFn)(CPUState *, const uint64_t *, uint8_t);",
+        "static uint64_t g_handler_cache_key[256];",
+        "static ComponentHandlerFn g_handler_cache_fn[256];",
+        "",
+        "void cpu_component_dispatch_handler(",
         "    CPUState *cpu,",
         "    const char *component_id,",
         "    const char *handler_name,",
         "    const uint64_t *args,",
         "    uint8_t argc",
         ") {",
+        "    uint64_t __hk_comp = cpu_component_hash_str(component_id);",
+        "    uint64_t __hk_name = cpu_component_hash_str(handler_name);",
+        "    uint64_t __key = __hk_comp ^ ((__hk_name << 1u) | (__hk_name >> 63u));",
+        "    uintptr_t h = (uintptr_t)(__key & 255u);",
+        "    if (g_handler_cache_key[h] == __key && g_handler_cache_fn[h] != NULL) {",
+        "        g_handler_cache_fn[h](cpu, args, argc);",
+        "        return;",
+        "    }",
     ]
+    h_pair_hashes: Dict[int, Tuple[str, str]] = {}
     for component in components:
         comp_id = str(component.get("metadata", {}).get("id", "component"))
         comp_ident = _ident(comp_id)
@@ -5537,10 +6137,17 @@ def _generate_ic_runtime_blocks(
                     helper_lines.append(f"    {raw_line.rstrip()}" if raw_line.strip() else "")
             helper_lines.append("}")
             helper_lines.append("")
+            pair_h = _fnv64_py(comp_id) ^ (((_fnv64_py(handler_name) << 1) | (_fnv64_py(handler_name) >> 63)) & 0xFFFFFFFFFFFFFFFF)
+            if pair_h in h_pair_hashes and h_pair_hashes[pair_h] != (comp_id, handler_name):
+                raise RuntimeError(
+                    f"handler dispatch hash collision: {h_pair_hashes[pair_h]} vs {(comp_id, handler_name)}"
+                )
+            h_pair_hashes[pair_h] = (comp_id, handler_name)
             handler_dispatch_lines.append(
-                f"    if (strcmp(component_id, \"{_escape_c_string(comp_id)}\") == 0 && "
-                f"strcmp(handler_name, \"{_escape_c_string(handler_name)}\") == 0) "
-                f"{{ component_{comp_ident}_handler_{handler_ident}(cpu, args, argc); return; }}"
+                f"    if (__key == 0x{pair_h:016X}ull) "
+                f"{{ g_handler_cache_key[h] = __key; "
+                f"g_handler_cache_fn[h] = component_{comp_ident}_handler_{handler_ident}; "
+                f"component_{comp_ident}_handler_{handler_ident}(cpu, args, argc); return; }}"
             )
     handler_dispatch_lines.append("    (void)cpu;")
     handler_dispatch_lines.append("    (void)component_id;")
@@ -5551,44 +6158,126 @@ def _generate_ic_runtime_blocks(
     handler_dispatch_lines.append("")
     helper_lines.extend(handler_dispatch_lines)
 
+    helper_lines.append("/* PASM_SPLIT_BEGIN:COMPONENT_ROUTING */")
     helper_lines.extend(
         [
-            "static uint64_t cpu_component_call(",
+            "typedef struct {",
+            "    uint64_t from_component_hash;",
+            "    uint64_t from_name_hash;",
+            "    const char *to_component;",
+            "    const char *to_name;",
+            "} CallbackRouteCacheEntry;",
+            "typedef struct {",
+            "    uint64_t from_component_hash;",
+            "    uint64_t from_name_hash;",
+            "    uint16_t first_idx;",
+            "    uint16_t count;",
+            "} SignalRouteCacheEntry;",
+            "static CallbackRouteCacheEntry g_cb_route_cache[256];",
+            "static SignalRouteCacheEntry g_sig_route_cache[256];",
+            "",
+            "uint64_t cpu_component_call(",
             "    CPUState *cpu,",
             "    const char *source_component,",
             "    const char *callback_name,",
             "    const uint64_t *args,",
             "    uint8_t argc",
             ") {",
-            "    size_t connection_count = sizeof(g_component_connections) / sizeof(g_component_connections[0]);",
+            "    uint64_t __src_h = cpu_component_hash_str(source_component);",
+            "    uint64_t __name_h = cpu_component_hash_str(callback_name);",
+            "    uint64_t __rkey = __src_h ^ ((__name_h << 1u) | (__name_h >> 63u));",
+            "    uintptr_t h = (uintptr_t)(__rkey & 255u);",
+            "    if (g_cb_route_cache[h].from_component_hash == __src_h &&",
+            "        g_cb_route_cache[h].from_name_hash == __name_h &&",
+            "        g_cb_route_cache[h].to_component != NULL &&",
+            "        g_cb_route_cache[h].to_name != NULL) {",
+            "        return cpu_component_dispatch_callback(cpu, g_cb_route_cache[h].to_component, g_cb_route_cache[h].to_name, args, argc);",
+            "    }",
+            "    size_t connection_count = g_component_connections_count;",
             "    for (size_t i = 0; i < connection_count; i++) {",
             "        const ComponentConnection *conn = &g_component_connections[i];",
-            "        if (strcmp(conn->from_component, source_component) != 0) continue;",
-            "        if (strcmp(conn->from_kind, \"callback\") != 0) continue;",
-            "        if (strcmp(conn->from_name, callback_name) != 0) continue;",
+            "        if (conn->from_kind_id != 1u) continue;",
+            "        if (conn->from_component_hash != __src_h) continue;",
+            "        if (conn->from_name_hash != __name_h) continue;",
+            "        g_cb_route_cache[h].from_component_hash = __src_h;",
+            "        g_cb_route_cache[h].from_name_hash = __name_h;",
+            "        g_cb_route_cache[h].to_component = conn->to_component;",
+            "        g_cb_route_cache[h].to_name = conn->to_name;",
             "        return cpu_component_dispatch_callback(cpu, conn->to_component, conn->to_name, args, argc);",
             "    }",
             "    return 0;",
             "}",
             "",
-            "static void cpu_component_emit_signal(",
+            "void cpu_component_emit_signal(",
             "    CPUState *cpu,",
             "    const char *source_component,",
             "    const char *signal_name,",
             "    const uint64_t *args,",
             "    uint8_t argc",
             ") {",
-            "    size_t connection_count = sizeof(g_component_connections) / sizeof(g_component_connections[0]);",
+            "    uint64_t __src_h = cpu_component_hash_str(source_component);",
+            "    uint64_t __name_h = cpu_component_hash_str(signal_name);",
+            "    uint64_t __rkey = __src_h ^ ((__name_h << 1u) | (__name_h >> 63u));",
+            "    uintptr_t h = (uintptr_t)(__rkey & 255u);",
+            "    if (g_sig_route_cache[h].from_component_hash == __src_h &&",
+            "        g_sig_route_cache[h].from_name_hash == __name_h &&",
+            "        g_sig_route_cache[h].count != 0u) {",
+            "        uint16_t first = g_sig_route_cache[h].first_idx;",
+            "        uint16_t count = g_sig_route_cache[h].count;",
+            "        for (uint16_t k = 0u; k < count; ++k) {",
+            "            const ComponentConnection *conn = &g_component_connections[(size_t)first + (size_t)k];",
+            "            cpu_component_dispatch_handler(cpu, conn->to_component, conn->to_name, args, argc);",
+            "        }",
+            "        return;",
+            "    }",
+            "    size_t connection_count = g_component_connections_count;",
+            "    uint16_t first_idx = 0xFFFFu;",
+            "    uint16_t count = 0u;",
             "    for (size_t i = 0; i < connection_count; i++) {",
             "        const ComponentConnection *conn = &g_component_connections[i];",
-            "        if (strcmp(conn->from_component, source_component) != 0) continue;",
-            "        if (strcmp(conn->from_kind, \"signal\") != 0) continue;",
-            "        if (strcmp(conn->from_name, signal_name) != 0) continue;",
+            "        if (conn->from_kind_id != 2u) continue;",
+            "        if (conn->from_component_hash != __src_h) continue;",
+            "        if (conn->from_name_hash != __name_h) continue;",
+            "        if (first_idx == 0xFFFFu) first_idx = (uint16_t)i;",
+            "        count = (uint16_t)(count + 1u);",
             "        cpu_component_dispatch_handler(cpu, conn->to_component, conn->to_name, args, argc);",
+            "    }",
+            "    if (count != 0u) {",
+            "        g_sig_route_cache[h].from_component_hash = __src_h;",
+            "        g_sig_route_cache[h].from_name_hash = __name_h;",
+            "        g_sig_route_cache[h].first_idx = first_idx;",
+            "        g_sig_route_cache[h].count = count;",
             "    }",
             "}",
             "",
-            "static void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {",
+        ]
+    )
+    helper_lines.append("/* PASM_SPLIT_END:COMPONENT_ROUTING */")
+    helper_lines.append("/* PASM_SPLIT_END:COMPONENT_DISPATCH */")
+
+    helper_lines.extend(
+        [
+            "int cpu_components_runtime_pre_step(CPUState *cpu) {",
+            "    if (cpu != NULL && cpu->reset_delay_pending) {",
+            "        cpu->reset_delay_pending = false;",
+            "    }",
+        ]
+    )
+    if has_runtime_cartridge:
+        helper_lines.extend(
+            [
+                "    if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {",
+                "        return -1;",
+                "    }",
+            ]
+        )
+    helper_lines.extend(
+        [
+            "    (void)cpu;",
+            "    return 0;",
+            "}",
+            "",
+            "void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {",
             "    (void)inst;",
             "    (void)pc_before;",
         ]
@@ -5601,7 +6290,7 @@ def _generate_ic_runtime_blocks(
     helper_lines.append("")
     helper_lines.extend(
         [
-            "static void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {",
+            "void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {",
             "    (void)inst;",
             "    (void)pc_before;",
         ]
@@ -5617,6 +6306,7 @@ def _generate_ic_runtime_blocks(
         if block:
             helper_lines.append(block)
     helper_lines.append("}")
+    helper_lines.append("/* PASM_SPLIT_END:COMPONENT_RUNTIME */")
 
     init_lines = [
         "    cpu->active_component_id = NULL;",
@@ -6157,10 +6847,11 @@ def _generate_interrupt_reset(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
 
     lines.extend(["    cpu->interrupt_vector = 0;"])
     if model == "mos6502":
-        lines.append("    cpu->sp = 0xF8u;")
-        lines.append("    cpu->registers[REG_Y] = 0x1Au;")
-        lines.append("    cpu->flags.raw = 0x34u;")
-    elif model == "mc6809":
+        # Keep the 6502 family reset baseline consistent with existing opcode
+        # behavior references (unused/status bit 2 set).
+        lines.append("    cpu->sp = 0xFDu;")
+        lines.append("    cpu->flags.raw = 0x04u;")
+    if model == "mc6809":
         # MC6809 RESET masks both IRQ (I) and FIRQ (F).
         lines.append("    cpu->flags.I = true;")
         lines.append("    cpu->flags.F = true;")
@@ -6369,10 +7060,6 @@ def _generate_dispatch(
     has_flag_b = "B" in flag_names
     has_flag_f = "F" in flag_names
     has_flag_e = "E" in flag_names
-    reset_delay_seconds = max(
-        0, int(isa_data.get("system", {}).get("reset_delay_seconds", 0))
-    )
-
     # Group instructions by category for efficient dispatch
     categories: Dict[str, List[Dict[str, Any]]] = {}
     for inst in instructions:
@@ -6390,14 +7077,8 @@ def _generate_dispatch(
     lines.append(f"int {cpu_prefix}_step(CPUState *cpu) {{")
     lines.append("    if (!cpu->running) return 0;")
     lines.append("")
-    lines.append("    if (cpu->reset_delay_pending) {")
-    lines.append("        cpu->reset_delay_pending = false;")
-    if reset_delay_seconds > 0:
-        lines.append(f"        cpu_sleep_seconds({reset_delay_seconds}u);")
-    lines.append("    }")
-    lines.append("")
-    if has_runtime_cartridge:
-        lines.append("    if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {")
+    if has_components:
+        lines.append("    if (cpu_components_runtime_pre_step(cpu) != 0) {")
         lines.append("        return 0;")
         lines.append("    }")
         lines.append("")

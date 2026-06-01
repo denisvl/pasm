@@ -12,9 +12,11 @@ def test_generate_minimal8(tmp_path):
     gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     src_dir = outdir / "src"
-    assert (src_dir / "Minimal8.c").exists()
+    assert (src_dir / "Minimal8_core.c").exists()
     assert (src_dir / "Minimal8.h").exists()
     assert (src_dir / "Minimal8_decoder.c").exists()
+    assert (src_dir / "minimal8_runtime.c").exists()
+    assert (src_dir / "minimal8_system_glue.c").exists()
     assert (outdir / "CMakeLists.txt").exists()
     assert (outdir / "Makefile").exists()
 
@@ -27,9 +29,11 @@ def test_generate_simple8_full(tmp_path):
 
     src_dir = outdir / "src"
     # Core files
-    assert (src_dir / "Simple8.c").exists()
+    assert (src_dir / "Simple8_core.c").exists()
     assert (src_dir / "Simple8.h").exists()
     assert (src_dir / "Simple8_decoder.c").exists()
+    assert (src_dir / "simple8_runtime.c").exists()
+    assert (src_dir / "simple8_system_glue.c").exists()
     # Hooks are disabled in simple8.yaml
     assert not (src_dir / "Simple8_hooks.c").exists()
     # Include dir and defs header
@@ -37,7 +41,7 @@ def test_generate_simple8_full(tmp_path):
     assert (include_dir / "cpu_defs.h").exists()
 
 
-def test_generate_trs80_model4_embeds_reset_delay(tmp_path):
+def test_generate_trs80_model4_moves_reset_delay_out_of_core(tmp_path):
     processor_path, system_path = example_pair(
         "z80", "trs80_model4_interactive.yaml"
     )
@@ -64,8 +68,13 @@ def test_generate_trs80_model4_embeds_reset_delay(tmp_path):
         host_paths=host_paths,
     )
 
-    cpu_impl = (outdir / "src" / "Z80.c").read_text(encoding="utf-8")
-    assert "cpu_sleep_seconds(5u);" in cpu_impl
+    cpu_impl = (outdir / "src" / "Z80_core.c").read_text(encoding="utf-8")
+    system_glue = (outdir / "src" / "trs80_model4_system_glue.c").read_text(
+        encoding="utf-8"
+    )
+    assert "cpu_sleep_seconds(" not in cpu_impl
+    assert "if (cpu->reset_delay_pending)" not in cpu_impl
+    assert "cpu->reset_delay_pending = false;" in system_glue
 
 
 def test_codegen_has_no_cpu_name_substring_heuristics():

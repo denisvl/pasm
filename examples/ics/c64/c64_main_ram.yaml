@@ -1,0 +1,40 @@
+metadata:
+  id: c64_main_ram
+  type: memory
+  model: dram_64k_8x4164
+  version: "1.0"
+
+state:
+  - name: bytes
+    type: uint8_t *
+    initial: "NULL"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      if (comp->bytes == NULL) comp->bytes = (uint8_t *)calloc(65536u, sizeof(uint8_t));
+    reset: |
+      (void)cpu;
+      if (comp->bytes != NULL) memset(comp->bytes, 0, 65536u);
+    destroy: |
+      if (comp->bytes != NULL) {
+          free(comp->bytes);
+          comp->bytes = NULL;
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

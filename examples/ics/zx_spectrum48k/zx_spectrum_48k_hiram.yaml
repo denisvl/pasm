@@ -1,0 +1,51 @@
+metadata:
+  id: zx48_hiram
+  type: memory_controller
+  model: zx_spectrum_48k_upper_ram
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: ram_read
+      args: [u16]
+      returns: u8
+    - name: ram_write
+      args: [u16, u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      (void)cpu;
+  callback_handlers:
+    ram_read: |
+      if (argc < 1u) return 0xFFu;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      if (addr < 0x8000u) return 0xFFu;
+      return (uint64_t)cpu->memory[addr];
+    ram_write: |
+      if (argc < 2u) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      if (addr < 0x8000u) return 0u;
+      cpu->memory[addr] = value;
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

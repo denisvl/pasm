@@ -257,6 +257,11 @@ def klaus65_runtime_assets(tmp_path_factory):
 
         binary_name = f"{cpu}_klaus65_harness.exe" if os.name == "nt" else f"{cpu}_klaus65_harness"
         binary = outdir / binary_name
+        generated_sources = [
+            str(path)
+            for path in sorted((outdir / "src").glob("*.c"))
+            if path.name != "main.c" and not path.name.endswith("debug_abi.c")
+        ]
         subprocess.check_call(
             [
                 compiler,
@@ -265,8 +270,7 @@ def klaus65_runtime_assets(tmp_path_factory):
                 "-D_POSIX_C_SOURCE=199309L",
                 "-I",
                 str(outdir / "src"),
-                str(outdir / "src" / f"{cpu_upper}.c"),
-                str(outdir / "src" / f"{cpu_upper}_decoder.c"),
+                *generated_sources,
                 str(harness_c),
                 "-o",
                 str(binary),

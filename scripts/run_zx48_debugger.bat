@@ -35,7 +35,10 @@ if errorlevel 1 exit /b %errorlevel%
 
 set "PROCESSOR=examples/processors/z80.yaml"
 set "IC=examples/ics/zx_spectrum48k/zx_spectrum_48k_ula.yaml"
+set "IC_LORAM=examples/ics/zx_spectrum48k/zx_spectrum_48k_loram.yaml"
+set "IC_HIRAM=examples/ics/zx_spectrum48k/zx_spectrum_48k_hiram.yaml"
 set "DEVICE_KB=examples/devices/zx_spectrum48k/zx48_keyboard.yaml"
+set "DEVICE_CTRL=examples/devices/zx_spectrum48k/zx48_controller.yaml"
 set "DEVICE_VIDEO=examples/devices/zx_spectrum48k/zx48_video.yaml"
 set "DEVICE_SPK=examples/devices/zx_spectrum48k/zx48_speaker.yaml"
 set "DEVICE_MIC=examples/devices/zx_spectrum48k/zx48_mic.yaml"
@@ -43,11 +46,11 @@ set "SYSTEM_DIR=examples/systems"
 
 if /I "%PROFILE%"=="default" (
   set "SYSTEM=examples/systems/zx_spectrum48k/spectrum48k_default.yaml"
-  set "HOST=examples/hosts/zx_spectrum48k/zx48_host_sdl2.yaml"
+  set "HOST=examples/hosts/zx_spectrum48k/zx48_host_hal.yaml"
   set "DEFAULT_OUTPUT=generated/z80_48k_sdl"
 ) else if /I "%PROFILE%"=="interactive" (
   set "SYSTEM=examples/systems/zx_spectrum48k/spectrum48k_interactive.yaml"
-  set "HOST=examples/hosts/zx_spectrum48k/zx48_host_sdl2_interactive.yaml"
+  set "HOST=examples/hosts/zx_spectrum48k/zx48_host_hal_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/z80_48k_sdl_interactive"
 ) else (
   >&2 echo Unsupported profile: %PROFILE%
@@ -121,7 +124,10 @@ uv run python -m src.main generate ^
   --processor "%PROCESSOR%" ^
   --system "%SYSTEM%" ^
   --ic "%IC%" ^
+  --ic "%IC_LORAM%" ^
+  --ic "%IC_HIRAM%" ^
   --device "%DEVICE_KB%" ^
+  --device "%DEVICE_CTRL%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
   --device "%DEVICE_MIC%" ^

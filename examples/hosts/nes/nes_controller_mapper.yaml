@@ -5,366 +5,68 @@ image:
   file: nes_joystick.png
 
 controls:
-  # Player 1 (visual, standard NES controller).
   - id: P1_UP
     kind: button
     port: 1
-    legend: [UP]
-    legend_combos: {}
-    bbox:
-      x: 130
-      y: 149
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
+    legend: [P1_UP]
+  - id: P1_DOWN
     kind: button
     port: 1
-    legend: [DOWN]
-    legend_combos: {}
-    bbox:
-      x: 130
-      y: 149
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
+    legend: [P1_DOWN]
+  - id: P1_LEFT
     kind: button
     port: 1
-    legend: [LEFT]
-    legend_combos: {}
-    bbox:
-      x: 130
-      y: 149
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
+    legend: [P1_LEFT]
+  - id: P1_RIGHT
     kind: button
     port: 1
-    legend: [RIGHT]
-    legend_combos: {}
-    bbox:
-      x: 130
-      y: 149
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
+    legend: [P1_RIGHT]
+  - id: P1_A
     kind: button
     port: 1
-    legend: [SELECT]
-    legend_combos: {}
-    bbox:
-      x: 130
-      y: 149
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
+    legend: [P1_A]
+  - id: P1_B
     kind: button
     port: 1
-    legend: [START]
-    legend_combos: {}
-    bbox:
-      x: 130
-      y: 149
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
+    legend: [P1_B]
+  - id: P1_SELECT
     kind: button
     port: 1
-    legend: [B]
-    legend_combos: {}
-    bbox:
-      x: 130
-      y: 149
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
+    legend: [P1_SELECT]
+  - id: P1_START
     kind: button
     port: 1
-    legend: [A]
-    legend_combos: {}
-    bbox:
-      x: 130
-      y: 149
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
-  # Player 2 (non-visual by default).
+    legend: [P1_START]
+
   - id: P2_UP
     kind: button
     port: 2
     legend: [P2_UP]
-    legend_combos: {}
   - id: P2_DOWN
     kind: button
     port: 2
     legend: [P2_DOWN]
-    legend_combos: {}
   - id: P2_LEFT
     kind: button
     port: 2
     legend: [P2_LEFT]
-    legend_combos: {}
   - id: P2_RIGHT
     kind: button
     port: 2
     legend: [P2_RIGHT]
-    legend_combos: {}
-  - id: P2_SELECT
-    kind: button
-    port: 2
-    legend: [P2_SELECT]
-    legend_combos: {}
-  - id: P2_START
-    kind: button
-    port: 2
-    legend: [P2_START]
-    legend_combos: {}
-  - id: P2_B
-    kind: button
-    port: 2
-    legend: [P2_B]
-    legend_combos: {}
   - id: P2_A
     kind: button
     port: 2
     legend: [P2_A]
-    legend_combos: {}
-
-  - id: P1_DOWN
+  - id: P2_B
     kind: button
-    port: 1
-    legend:
-    - P1_DOWN
-    legend_combos:
-      P1_DOWN:
-      - P1_DOWN
-    bbox:
-      x: 130
-      y: 249
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
+    port: 2
+    legend: [P2_B]
+  - id: P2_SELECT
     kind: button
-    port: 1
-    legend:
-    - P1_LEFT
-    legend_combos:
-      P1_LEFT:
-      - P1_LEFT
-    bbox:
-      x: 130
-      y: 249
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
+    port: 2
+    legend: [P2_SELECT]
+  - id: P2_START
     kind: button
-    port: 1
-    legend:
-    - P1_RIGHT
-    legend_combos:
-      P1_RIGHT:
-      - P1_RIGHT
-    bbox:
-      x: 130
-      y: 249
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
-    kind: button
-    port: 1
-    legend:
-    - P1_SELECT
-    legend_combos:
-      P1_SELECT:
-      - P1_SELECT
-    bbox:
-      x: 130
-      y: 249
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
-    kind: button
-    port: 1
-    legend:
-    - P1_START
-    legend_combos:
-      P1_START:
-      - P1_START
-    bbox:
-      x: 130
-      y: 249
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
-    kind: button
-    port: 1
-    legend:
-    - P1_B
-    legend_combos:
-      P1_B:
-      - P1_B
-    bbox:
-      x: 130
-      y: 249
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
-    kind: button
-    port: 1
-    legend:
-    - P1_A
-    legend_combos:
-      P1_A:
-      - P1_A
-    bbox:
-      x: 130
-      y: 249
-      width: 47
-      height: 39
-    overlay_color:
-      - 80
-      - 160
-      - 255
-  - id: P1_LEFT
-    kind: button
-    port: 1
-    legend:
-    - P1_LEFT
-    legend_combos:
-      P1_LEFT:
-      - P1_LEFT
-    bbox:
-      x: 82
-      y: 199
-      width: 47
-      height: 39
-    overlay_color:
-    - 80
-    - 160
-    - 255
-  - id: P1_RIGHT
-    kind: button
-    port: 1
-    legend:
-    - P1_RIGHT
-    legend_combos:
-      P1_RIGHT:
-      - P1_RIGHT
-    bbox:
-      x: 176
-      y: 199
-      width: 47
-      height: 39
-    overlay_color:
-    - 80
-    - 160
-    - 255
-  - id: P1_SELECT
-    kind: button
-    port: 1
-    legend:
-    - P1_SELECT
-    legend_combos:
-      P1_SELECT:
-      - P1_SELECT
-    bbox:
-      x: 308
-      y: 243
-      width: 69
-      height: 30
-    overlay_color:
-    - 80
-    - 160
-    - 255
-  - id: P1_START
-    kind: button
-    port: 1
-    legend:
-    - P1_START
-    legend_combos:
-      P1_START:
-      - P1_START
-    bbox:
-      x: 420
-      y: 243
-      width: 69
-      height: 30
-    overlay_color:
-    - 80
-    - 160
-    - 255
-  - id: P1_B
-    kind: button
-    port: 1
-    legend:
-    - P1_B
-    legend_combos:
-      P1_B:
-      - P1_B
-    bbox:
-      x: 556
-      y: 211
-      width: 93
-      height: 91
-    overlay_color:
-    - 80
-    - 160
-    - 255
-  - id: P1_A
-    kind: button
-    port: 1
-    legend:
-    - P1_A
-    legend_combos:
-      P1_A:
-      - P1_A
-    bbox:
-      x: 665
-      y: 211
-      width: 93
-      height: 91
-    overlay_color:
-    - 80
-    - 160
-    - 255
+    port: 2
+    legend: [P2_START]

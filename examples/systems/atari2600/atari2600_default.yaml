@@ -1,13 +1,10 @@
 metadata:
   name: MOS6502Atari2600DefaultSystem
-  version: "0.1"
-
+  version: '0.1'
 clock_hz: 1193191
 reset_delay_seconds: 0
-
 memory:
-  default_size: 8192
-
+  default_size: 65536
 hooks:
   pre_fetch:
     enabled: false
@@ -23,113 +20,174 @@ hooks:
     enabled: false
   port_write_post:
     enabled: false
-
 components:
   ics:
-    - atari2600_io
+  - atari2600_main_ram
+  - atari2600_tia
+  - atari2600_riot
   devices:
-    - controller_atari2600
-    - video_atari2600
-    - speaker_atari2600
+  - controller_atari2600
+  - video_atari2600
+  - speaker_atari2600
   hosts:
-    - host_atari2600
+  - host_atari2600
   cartridge: atari2600_cart0
-
 connections:
-  - from:
-      component: atari2600_io
-      kind: callback
-      name: joy0_read
-    to:
-      component: controller_atari2600
-      kind: callback
-      name: read_joy0
-
-  - from:
-      component: atari2600_io
-      kind: callback
-      name: joy1_read
-    to:
-      component: controller_atari2600
-      kind: callback
-      name: read_joy1
-
-  - from:
-      component: atari2600_io
-      kind: callback
-      name: console_read
-    to:
-      component: controller_atari2600
-      kind: callback
-      name: read_console
-
-  - from:
-      component: controller_atari2600
-      kind: callback
-      name: host_joy0
-    to:
-      component: host_atari2600
-      kind: callback
-      name: read_joy1
-
-  - from:
-      component: controller_atari2600
-      kind: callback
-      name: host_joy1
-    to:
-      component: host_atari2600
-      kind: callback
-      name: read_joy2
-
-  - from:
-      component: controller_atari2600
-      kind: callback
-      name: host_console
-    to:
-      component: host_atari2600
-      kind: callback
-      name: read_console
-
-  - from:
-      component: atari2600_io
-      kind: signal
-      name: frame_ready
-    to:
-      component: video_atari2600
-      kind: handler
-      name: on_frame_ready
-
-  - from:
-      component: video_atari2600
-      kind: signal
-      name: frame_present
-    to:
-      component: host_atari2600
-      kind: handler
-      name: video_frame
-
-  - from:
-      component: atari2600_io
-      kind: signal
-      name: audio_level
-    to:
-      component: speaker_atari2600
-      kind: handler
-      name: on_audio_level
-
-  - from:
-      component: speaker_atari2600
-      kind: signal
-      name: pcm_sample
-    to:
-      component: host_atari2600
-      kind: handler
-      name: audio_pcm
-
+- from:
+    component: atari2600_tia
+    kind: callback
+    name: joy0_read
+  to:
+    component: controller_atari2600
+    kind: callback
+    name: read_joy0
+- from:
+    component: atari2600_tia
+    kind: callback
+    name: joy1_read
+  to:
+    component: controller_atari2600
+    kind: callback
+    name: read_joy1
+- from:
+    component: atari2600_tia
+    kind: callback
+    name: console_read
+  to:
+    component: controller_atari2600
+    kind: callback
+    name: read_console
+- from:
+    component: atari2600_riot
+    kind: callback
+    name: joy0_read
+  to:
+    component: controller_atari2600
+    kind: callback
+    name: read_joy0
+- from:
+    component: atari2600_riot
+    kind: callback
+    name: joy1_read
+  to:
+    component: controller_atari2600
+    kind: callback
+    name: read_joy1
+- from:
+    component: atari2600_riot
+    kind: callback
+    name: console_read
+  to:
+    component: controller_atari2600
+    kind: callback
+    name: read_console
+- from:
+    component: atari2600_tia
+    kind: callback
+    name: ram_read
+  to:
+    component: atari2600_main_ram
+    kind: callback
+    name: ram_read
+- from:
+    component: atari2600_tia
+    kind: callback
+    name: ram_write
+  to:
+    component: atari2600_main_ram
+    kind: callback
+    name: ram_write
+- from:
+    component: atari2600_tia
+    kind: callback
+    name: riot_read_io
+  to:
+    component: atari2600_riot
+    kind: callback
+    name: read_io
+- from:
+    component: atari2600_tia
+    kind: callback
+    name: riot_write_io
+  to:
+    component: atari2600_riot
+    kind: callback
+    name: write_io
+- from:
+    component: atari2600_tia
+    kind: callback
+    name: riot_step_timer
+  to:
+    component: atari2600_riot
+    kind: callback
+    name: step_timer
+- from:
+    component: atari2600_tia
+    kind: callback
+    name: riot_sample_pa7
+  to:
+    component: atari2600_riot
+    kind: callback
+    name: sample_pa7
+- from:
+    component: controller_atari2600
+    kind: callback
+    name: host_joy0
+  to:
+    component: host_atari2600
+    kind: callback
+    name: read_joy1
+- from:
+    component: controller_atari2600
+    kind: callback
+    name: host_joy1
+  to:
+    component: host_atari2600
+    kind: callback
+    name: read_joy2
+- from:
+    component: controller_atari2600
+    kind: callback
+    name: host_console
+  to:
+    component: host_atari2600
+    kind: callback
+    name: read_console
+- from:
+    component: atari2600_tia
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_atari2600
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_atari2600
+    kind: signal
+    name: frame_present
+  to:
+    component: host_atari2600
+    kind: handler
+    name: video_frame
+- from:
+    component: atari2600_tia
+    kind: signal
+    name: audio_level
+  to:
+    component: speaker_atari2600
+    kind: handler
+    name: on_audio_level
+- from:
+    component: speaker_atari2600
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_atari2600
+    kind: handler
+    name: audio_pcm
 audio:
   sample_rate: 44100
   format: s16le
   channels: 1
-
 integrations:
   profile: atari2600_default

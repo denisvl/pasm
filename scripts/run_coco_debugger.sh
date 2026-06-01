@@ -45,7 +45,12 @@ export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
 mkdir -p "${UV_CACHE_DIR}"
 
 PROCESSOR="examples/processors/mc6809.yaml"
-IC_MAIN="examples/ics/coco1/coco1_peripherals.yaml"
+IC_SAM="examples/ics/coco1/coco1_sam_6883.yaml"
+IC_PIA0="examples/ics/coco1/coco1_pia0_6821.yaml"
+IC_PIA1="examples/ics/coco1/coco1_pia1_6821.yaml"
+IC_VDG="examples/ics/coco1/coco1_vdg_6847.yaml"
+IC_CART_EXP="examples/ics/coco1/coco1_cart_expansion.yaml"
+IC_MAIN_RAM="examples/ics/coco1/coco1_main_ram.yaml"
 DEVICE_KB="examples/devices/coco1/coco_keyboard.yaml"
 DEVICE_GP="examples/devices/coco1/coco_gameport.yaml"
 DEVICE_VIDEO="examples/devices/coco1/coco_video.yaml"
@@ -145,8 +150,10 @@ if [[ "${USE_CARTRIDGE}" == "1" ]]; then
 fi
 
 KEYBOARD_ARGS=()
-if [[ "${PROFILE}" == "interactive" ]]; then
+if [[ "${PROFILE}" == "interactive" || "${PROFILE}" == "default" ]]; then
   KEYBOARD_ARGS=(--keyboard-map "${KEYBOARD_MAP}")
+fi
+if [[ "${PROFILE}" == "interactive" ]]; then
   KEYBOARD_ARGS+=(--controller-map "${CONTROLLER_MAP}")
 fi
 
@@ -154,7 +161,12 @@ echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM}" \
-  --ic "${IC_MAIN}" \
+  --ic "${IC_SAM}" \
+  --ic "${IC_PIA0}" \
+  --ic "${IC_PIA1}" \
+  --ic "${IC_VDG}" \
+  --ic "${IC_CART_EXP}" \
+  --ic "${IC_MAIN_RAM}" \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_GP}" \
   --device "${DEVICE_VIDEO}" \

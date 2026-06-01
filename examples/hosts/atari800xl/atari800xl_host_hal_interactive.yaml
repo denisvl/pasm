@@ -181,14 +181,14 @@ behavior:
                   #endif
               }
           }
-          if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_EVENTS) != 0) break;
+          if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) break;
           cpu_host_hal_stop_text_input();
           comp->window = cpu_host_hal_create_window(
               "PASM Atari 800XL",
               CPU_HOST_WINDOWPOS_CENTERED,
               CPU_HOST_WINDOWPOS_CENTERED,
-              960,
-              576,
+              320,
+              192,
               CPU_HOST_WINDOW_RESIZABLE
           );
           if (comp->window == NULL) break;
@@ -232,8 +232,8 @@ behavior:
                   want.samples = 512;
                   want.callback = NULL;
                   comp->audio_device_samples = 0u;
-                  comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have, CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE);
-                  if (comp->audio_out_dev != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels == 1) {
+                  comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_ANY_CHANGE);
+                  if (comp->audio_out_dev != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels <= 2u && have.channels >= 1u) {
                       uint32_t ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq * 2u) : 88200u;
                       if (ring_capacity < 8192u) ring_capacity = 8192u;
                       comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));
@@ -243,7 +243,7 @@ behavior:
                           comp->audio_ring_read_idx = 0u;
                           comp->audio_ring_write_idx = 0u;
                           comp->audio_ring_fill = 0u;
-                          comp->audio_device_samples = (uint32_t)have.samples;
+                          comp->audio_device_samples = (uint32_t)have.samples * (uint32_t)have.channels;
                           comp->audio_out_ready = 1u;
                           cpu_host_hal_audio_pause(comp->audio_out_dev, 0);
                       } else {
@@ -714,45 +714,50 @@ behavior:
       void *texture = comp->texture;
       uint32_t frame = (uint32_t)(args[0] & 0xFFFFFFFFu);
       uint32_t *pixels = (uint32_t *)(uintptr_t)args[1];
-      uint32_t w = (uint32_t)(args[2] & 0xFFFFFFFFu);
-      uint32_t h = (uint32_t)(args[3] & 0xFFFFFFFFu);
-      if (renderer == NULL || texture == NULL || pixels == NULL || w == 0u || h == 0u) return;
+      uint32_t logical_w = (uint32_t)(args[2] & 0xFFFFFFFFu);
+      uint32_t logical_h = (uint32_t)(args[3] & 0xFFFFFFFFu);
+      const uint32_t buf_w = 320u;
+      const uint32_t buf_h = 192u;
+      if (renderer == NULL || texture == NULL || pixels == NULL || logical_w == 0u || logical_h == 0u) return;
       comp->frame_count = frame;
       if (cpu->debug_overlay_enabled) {
           sms_overlay_draw_perf(
               pixels,
-              w,
-              h,
+              buf_w,
+              buf_h,
               comp->overlay_fps_x100,
               comp->overlay_cpu_hz,
               comp->overlay_cpu_pct_x10
           );
       }
-      if (comp->texture_w != w || comp->texture_h != h) {
+      if (comp->texture_w != buf_w || comp->texture_h != buf_h) {
           cpu_host_hal_destroy_texture(texture);
-          texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888, CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);
+          texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888, CPU_HOST_TEXTUREACCESS_STREAMING, (int)buf_w, (int)buf_h);
           if (texture == NULL) return;
           comp->texture = (void *)texture;
-          comp->texture_w = w;
-          comp->texture_h = h;
+          comp->texture_w = buf_w;
+          comp->texture_h = buf_h;
       }
-      if (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
+      {
+          static uint32_t last_win_w = 0u;
+          static uint32_t last_win_h = 0u;
+          if (logical_w != last_win_w || logical_h != last_win_h) {
+              cpu_host_hal_set_window_size(comp->window, (int)logical_w, (int)logical_h);
+              last_win_w = logical_w;
+              last_win_h = logical_h;
+          }
+      }
+      if (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(buf_w * sizeof(uint32_t))) != 0) return;
       cpu_host_hal_render_set_draw_color(renderer, 0, 0, 0, 255);
       cpu_host_hal_render_clear(renderer);
       int ww = 0;
       int wh = 0;
       if (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
       CPUHostRect dst;
-      int scaled_w = ww;
-      int scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);
-      if (scaled_h > wh) {
-          scaled_h = wh;
-          scaled_w = (int)((((int64_t)wh) * (int64_t)w) / (int64_t)h);
-      }
-      dst.w = (scaled_w > 0) ? scaled_w : ww;
-      dst.h = (scaled_h > 0) ? scaled_h : wh;
-      dst.x = (ww - dst.w) / 2;
-      dst.y = (wh - dst.h) / 2;
+      dst.x = 0;
+      dst.y = 0;
+      dst.w = ww;
+      dst.h = wh;
       if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;
       cpu_host_hal_render_present(renderer);
     audio_pcm: |

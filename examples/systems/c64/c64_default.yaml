@@ -10,8 +10,12 @@ memory:
   regions:
     - name: RAM_LO
       start: 0x0000
-      size: 0xA000
+      size: 0x8000
       read_write: true
+    - name: CART_8K
+      start: 0x8000
+      size: 0x2000
+      read_only: true
     - name: ROM_BASIC
       start: 0xA000
       size: 0x2000

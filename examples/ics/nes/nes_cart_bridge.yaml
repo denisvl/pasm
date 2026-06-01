@@ -1,0 +1,45 @@
+metadata:
+  id: nes_cart_bridge
+  type: bus_interface
+  model: nes_cartridge_callback_bridge
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: chr_read
+      args: [u16, u8, u64]
+      returns: u8
+    - name: chr_write
+      args: [u16, u8, u8, u64]
+      returns: u8
+    - name: mirroring
+      args: []
+      returns: u8
+    - name: irq_pending
+      args: []
+      returns: u8
+    - name: irq_clock
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    reset: |
+      (void)cpu;
+      (void)comp;
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

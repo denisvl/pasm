@@ -1203,18 +1203,18 @@ keys:
   row: 6
   column: 1
   section: main
-  - id: K_RESET
-    section: system
-    row: 1
-    column: 1
-    multi_legend: false
-    legend:
+- id: K_RESET
+  section: system
+  row: 1
+  column: 1
+  multi_legend: false
+  legend:
+  - K_RESET
+  legend_combos:
+    K_RESET:
     - K_RESET
-    legend_combos:
-      K_RESET:
-      - K_RESET
-    bbox:
-      x: 614
-      y: 79
-      width: 27
-      height: 26
+  bbox:
+    x: 614
+    y: 79
+    width: 27
+    height: 26

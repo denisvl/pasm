@@ -242,7 +242,7 @@ behavior:
       comp->md_bank_sel = 0u;
     mem_read_pre: |
       if ((addr >= 0x8000u && addr < 0xA000u) || (addr >= 0xA000u && addr < 0xC000u)) {
-          ComponentState_c64_io *io = &cpu->comp_c64_io;
+          ComponentState_c64_pla *io = &cpu->comp_c64_pla;
           uint8_t effective = (uint8_t)((io->io_data & io->io_ddr) | (uint8_t)(~io->io_ddr));
           uint8_t hiram = (uint8_t)((effective >> 1u) & 0x01u);
           uint8_t roml_visible = 0u;

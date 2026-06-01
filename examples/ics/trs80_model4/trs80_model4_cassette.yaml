@@ -1,0 +1,64 @@
+metadata:
+  id: trs80_m4cass
+  type: io_controller
+  model: trs80_model4_cassette
+  version: "1.0"
+
+state:
+  - name: motor_on
+    type: uint8_t
+    initial: "0"
+  - name: out_level
+    type: uint8_t
+    initial: "0"
+  - name: in_level
+    type: uint8_t
+    initial: "1"
+
+interfaces:
+  callbacks:
+    - name: cass_port_read
+      args: [u8]
+      returns: u8
+    - name: cass_port_write
+      args: [u8, u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->motor_on = 0u;
+      comp->out_level = 0u;
+      comp->in_level = 1u;
+    destroy: |
+      (void)cpu;
+  callback_handlers:
+    cass_port_read: |
+      if (argc < 1u) return 0xFFu;
+      uint8_t p = (uint8_t)(args[0] & 0xFFu);
+      (void)p;
+      /* Cassette input idle-high for now. */
+      return (uint64_t)((comp->in_level != 0u) ? 0xFFu : 0x00u);
+    cass_port_write: |
+      if (argc < 2u) return 0u;
+      uint8_t p = (uint8_t)(args[0] & 0xFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      (void)p;
+      comp->motor_on = (uint8_t)((value & 0x01u) != 0u);
+      comp->out_level = (uint8_t)((value & 0x02u) != 0u);
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

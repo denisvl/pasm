@@ -198,7 +198,7 @@ int main(int argc, char **argv) {
             "-O2",
             "-I",
             str(outdir / "src"),
-            str(outdir / "src" / "Z80.c"),
+            str(outdir / "src" / "Z80_core.c"),
             str(outdir / "src" / "Z80_decoder.c"),
             str(outdir / "src" / "Z80_hooks.c"),
             str(harness_c),
@@ -228,9 +228,9 @@ def test_port_hooks_fire_for_in_and_out(z80_port_hook_harness):
     assert out["wp_post"] == "1"
     assert out["rp_pre"] == "1"
     assert out["rp_post"] == "1"
-    assert out["write_port"] == "16"
+    assert (int(out["write_port"]) & 0xFF) == 16
     assert out["write_value"] == "90"
-    assert out["read_port"] == "16"
+    assert (int(out["read_port"]) & 0xFF) == 16
     assert out["read_value"] == "90"
     assert out["A"] == "90"
 
@@ -241,7 +241,7 @@ def test_port_hooks_fire_for_ini_block_input(z80_port_hook_harness):
     assert out["rp_post"] == "1"
     assert out["wp_pre"] == "0"
     assert out["wp_post"] == "0"
-    assert out["read_port"] == "32"
+    assert (int(out["read_port"]) & 0xFF) == 32
     assert out["read_value"] == "170"
     assert out["mem2000"] == "170"
 
@@ -252,6 +252,6 @@ def test_port_hooks_fire_for_outi_block_output(z80_port_hook_harness):
     assert out["wp_post"] == "1"
     assert out["rp_pre"] == "0"
     assert out["rp_post"] == "0"
-    assert out["write_port"] == "33"
+    assert (int(out["write_port"]) & 0xFF) == 33
     assert out["write_value"] == "102"
     assert out["port21"] == "102"

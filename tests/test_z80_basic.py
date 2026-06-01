@@ -314,7 +314,7 @@ def test_generate_z80_minimal(tmp_path):
     gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     src_dir = outdir / "src"
-    assert (src_dir / "Z80.c").exists()
+    assert (src_dir / "Z80_core.c").exists()
     assert (src_dir / "Z80.h").exists()
     assert (src_dir / "Z80_decoder.c").exists()
 
@@ -397,7 +397,7 @@ def test_z80_disassembler_renders_operand_resolved_ld_rr(tmp_path):
             "-O2",
             "-I",
             str(outdir / "src"),
-            str(outdir / "src" / "Z80.c"),
+            str(outdir / "src" / "Z80_core.c"),
             str(outdir / "src" / "Z80_decoder.c"),
             str(harness_c),
             "-o",

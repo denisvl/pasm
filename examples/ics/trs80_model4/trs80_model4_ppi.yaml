@@ -1,0 +1,67 @@
+metadata:
+  id: trs80_m4ppi
+  type: io_controller
+  model: trs80_model4_ppi
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: keyboard_read_row
+      args: [u8]
+      returns: u8
+    - name: ppi_read_columns
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      (void)cpu;
+  callback_handlers:
+    ppi_read_columns: |
+      static const uint8_t kb_mask[8] = {
+          0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x7Fu
+      };
+      if (argc < 1u) return 0x00u;
+      uint8_t row_lines = (uint8_t)(args[0] & 0xFFu);
+      uint8_t row_values[8] = { 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu };
+      uint8_t v = 0x00u;
+      for (uint32_t row = 0u; row < 8u; ++row) {
+          uint64_t cb_args[1] = { (uint64_t)row };
+          uint8_t host_row = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ppi", "keyboard_read_row", cb_args, 1);
+          row_values[row] = (uint8_t)((host_row & kb_mask[row]) | ((uint8_t)(~kb_mask[row])));
+      }
+      for (uint32_t col = 0u; col < 8u; ++col) {
+          uint8_t col_pressed = 0u;
+          for (uint32_t row = 0u; row < 8u; ++row) {
+              if ((row_lines & (uint8_t)(1u << row)) != 0u) {
+                  if ((row_values[row] & (uint8_t)(1u << col)) == 0u) {
+                      col_pressed = 1u;
+                      break;
+                  }
+              }
+          }
+          if (col_pressed != 0u) {
+              v |= (uint8_t)(1u << col);
+          }
+      }
+      return v;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

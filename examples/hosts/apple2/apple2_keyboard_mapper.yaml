@@ -712,18 +712,18 @@ keys:
   legend_combos:
     SPACE:
     - SPACE
-  - id: EMU_POWER_TOGGLE
-    section: system
-    row: 1
-    column: 1
-    multi_legend: false
-    legend:
+- id: EMU_POWER_TOGGLE
+  section: system
+  row: 1
+  column: 1
+  multi_legend: false
+  legend:
+  - EMU_POWER_TOGGLE
+  legend_combos:
+    EMU_POWER_TOGGLE:
     - EMU_POWER_TOGGLE
-    legend_combos:
-      EMU_POWER_TOGGLE:
-      - EMU_POWER_TOGGLE
-    bbox:
-      x: 34
-      y: 243
-      width: 41
-      height: 42
+  bbox:
+    x: 34
+    y: 243
+    width: 41
+    height: 42

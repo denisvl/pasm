@@ -93,6 +93,13 @@ behavior:
                   cpu_component_emit_signal(cpu, "ula0", "frame_boundary", sig_args, 1);
               }
           }
+          {
+              uint64_t ram_args[1] = { (uint64_t)addr };
+              return (uint8_t)cpu_component_dispatch_callback(cpu, "zx48_loram", "ram_read", ram_args, 1);
+          }
+      } else if (addr >= 0x8000u) {
+          uint64_t ram_args[1] = { (uint64_t)addr };
+          return (uint8_t)cpu_component_dispatch_callback(cpu, "zx48_hiram", "ram_read", ram_args, 1);
       }
     mem_write_pre: |
       if (addr >= 0x4000u && addr < 0x8000u) {
@@ -112,6 +119,15 @@ behavior:
                   cpu_component_emit_signal(cpu, "ula0", "frame_boundary", sig_args, 1);
               }
           }
+          {
+              uint64_t ram_args[2] = { (uint64_t)addr, (uint64_t)value };
+              (void)cpu_component_dispatch_callback(cpu, "zx48_loram", "ram_write", ram_args, 2);
+              return;
+          }
+      } else if (addr >= 0x8000u) {
+          uint64_t ram_args[2] = { (uint64_t)addr, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "zx48_hiram", "ram_write", ram_args, 2);
+          return;
       }
     port_read_post: |
       if ((((uint16_t)port) & 0x0001u) == 0u) {

@@ -48,8 +48,16 @@ hooks:
 
 components:
   ics:
-    - bbc_micro_io
-    - sms_psg0
+    - bbc_micro_crtc_6845
+    - bbc_micro_video_ula
+    - bbc_micro_system_via_6522
+    - bbc_micro_user_via_6522
+    - bbc_micro_teletext_saa5050
+    - bbc_micro_adc_upd7002
+    - bbc_micro_acia_6850
+    - bbc_micro_mmu_paged_rom
+    - sn76489_psg0
+    - bbc_micro_main_ram
   devices:
     - keyboard_bbc_micro
     - video_bbc_micro
@@ -59,7 +67,7 @@ components:
 
 connections:
   - from:
-      component: bbc_micro_io
+      component: bbc_micro_crtc_6845
       kind: callback
       name: keyboard_read_row
     to:
@@ -68,7 +76,7 @@ connections:
       name: keyboard_read_row
 
   - from:
-      component: bbc_micro_io
+      component: bbc_micro_crtc_6845
       kind: signal
       name: frame_ready
     to:
@@ -86,16 +94,16 @@ connections:
       name: video_frame
 
   - from:
-      component: bbc_micro_io
+      component: bbc_micro_crtc_6845
       kind: signal
       name: audio_command
     to:
-      component: sms_psg0
+      component: sn76489_psg0
       kind: handler
       name: on_audio_command
 
   - from:
-      component: sms_psg0
+      component: sn76489_psg0
       kind: signal
       name: audio_level
     to:

@@ -1,0 +1,70 @@
+metadata:
+  id: nes_io_ports
+  type: io_controller
+  model: nes_cpu_io_port_dispatch
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: io_read
+      args: [u16]
+      returns: u8
+    - name: io_write
+      args: [u16, u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    reset: |
+      (void)cpu;
+      (void)comp;
+  callback_handlers:
+    io_read: |
+      if (argc < 1u) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      if (addr == 0x4016u) {
+          return (uint8_t)cpu_component_dispatch_callback(cpu, "nes_controller_ports", "read_4016", NULL, 0);
+      }
+      if (addr == 0x4017u) {
+          return (uint8_t)cpu_component_dispatch_callback(cpu, "nes_controller_ports", "read_4017", NULL, 0);
+      }
+      if (addr == 0x4015u) {
+          return (uint8_t)cpu_component_dispatch_callback(cpu, "nes_apu", "read_4015", NULL, 0);
+      }
+      if (addr >= 0x4000u && addr <= 0x4015u) return 0u;
+      return 0u;
+    io_write: |
+      if (argc < 2u) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      if (addr == 0x4014u) {
+          uint64_t cb_args[1] = { (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "nes_ppu_regs", "oam_dma", cb_args, 1);
+          return 0u;
+      }
+      if (addr == 0x4016u) {
+          uint64_t cb_args[1] = { (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "nes_controller_ports", "write_4016", cb_args, 1);
+          return 0u;
+      }
+      if (addr >= 0x4000u && addr <= 0x4017u) {
+          uint64_t cb_args[2] = { (uint64_t)addr, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "nes_apu", "write_reg", cb_args, 2);
+          return 0u;
+      }
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

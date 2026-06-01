@@ -1,0 +1,211 @@
+metadata:
+  id: trs80_m4fdc
+  type: io_controller
+  model: trs80_model4_fdc
+  version: "1.0"
+
+state:
+  - name: fdc_status
+    type: uint8_t
+    initial: "0x04"
+  - name: fdc_track
+    type: uint8_t
+    initial: "0"
+  - name: fdc_sector
+    type: uint8_t
+    initial: "1"
+  - name: fdc_data
+    type: uint8_t
+    initial: "0"
+  - name: fdc_drive_select
+    type: uint8_t
+    initial: "0"
+  - name: fdc_cmd_pending
+    type: uint8_t
+    initial: "0"
+  - name: fdc_deadline
+    type: uint64_t
+    initial: "0"
+  - name: fdc_last_cmd
+    type: uint8_t
+    initial: "0"
+  - name: fdc_busy
+    type: uint8_t
+    initial: "0"
+  - name: fdc_drq
+    type: uint8_t
+    initial: "0"
+  - name: fdc_irq_pending
+    type: uint8_t
+    initial: "0"
+  - name: fdc_data_index
+    type: uint16_t
+    initial: "0"
+  - name: fdc_data_count
+    type: uint16_t
+    initial: "0"
+  - name: fdc_sector_buffer
+    type: uint8_t *
+    initial: "NULL"
+
+interfaces:
+  callbacks:
+    - name: fdc_port_read
+      args: [u8]
+      returns: u8
+    - name: fdc_port_write
+      args: [u8, u8]
+      returns: u8
+    - name: fdc_step_tick
+      args: [u64]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      if (comp->fdc_sector_buffer == NULL) {
+          comp->fdc_sector_buffer = (uint8_t *)calloc(256u, sizeof(uint8_t));
+      }
+    reset: |
+      comp->fdc_status = 0x04u;
+      comp->fdc_track = 0u;
+      comp->fdc_sector = 1u;
+      comp->fdc_data = 0u;
+      comp->fdc_drive_select = 0u;
+      comp->fdc_cmd_pending = 0u;
+      comp->fdc_deadline = 0u;
+      comp->fdc_last_cmd = 0u;
+      comp->fdc_busy = 0u;
+      comp->fdc_drq = 0u;
+      comp->fdc_irq_pending = 0u;
+      comp->fdc_data_index = 0u;
+      comp->fdc_data_count = 0u;
+      if (comp->fdc_sector_buffer != NULL) {
+          memset(comp->fdc_sector_buffer, 0, 256u);
+      }
+    destroy: |
+      if (comp->fdc_sector_buffer != NULL) {
+          free(comp->fdc_sector_buffer);
+          comp->fdc_sector_buffer = NULL;
+      }
+  callback_handlers:
+    fdc_port_read: |
+      if (argc < 1u) return 0xFFu;
+      uint8_t p = (uint8_t)(args[0] & 0xFFu);
+      uint8_t value = 0xFFu;
+      if (p == 0xF0u) {
+          uint8_t status = (uint8_t)(comp->fdc_status & 0x7Cu);
+          if (comp->fdc_busy != 0u) status |= 0x01u;
+          if (comp->fdc_drq != 0u) status |= 0x02u;
+          if (comp->fdc_irq_pending != 0u) status |= 0x80u;
+          value = status;
+          comp->fdc_irq_pending = 0u;
+      } else if (p == 0xF1u) {
+          value = comp->fdc_track;
+      } else if (p == 0xF2u) {
+          value = comp->fdc_sector;
+      } else if (p == 0xF3u) {
+          if (comp->fdc_drq != 0u && comp->fdc_sector_buffer != NULL && comp->fdc_data_count > 0u) {
+              uint16_t idx = comp->fdc_data_index;
+              value = comp->fdc_sector_buffer[(idx < 256u) ? idx : 255u];
+              comp->fdc_data = value;
+              comp->fdc_data_index = (uint16_t)(comp->fdc_data_index + 1u);
+              comp->fdc_data_count = (uint16_t)(comp->fdc_data_count - 1u);
+              if (comp->fdc_data_count == 0u) {
+                  comp->fdc_drq = 0u;
+                  comp->fdc_irq_pending = 1u;
+                  {
+                      uint64_t irq_args[1] = { 2u };
+                      (void)cpu_component_dispatch_callback(cpu, "trs80_m4irq", "pulse_irq", irq_args, 1);
+                  }
+              }
+          } else {
+              value = comp->fdc_data;
+          }
+      }
+      return value;
+    fdc_port_write: |
+      if (argc < 2u) return 0u;
+      uint8_t p = (uint8_t)(args[0] & 0xFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      if (p == 0xF0u) {
+          uint8_t cmd = (uint8_t)(value & 0xF0u);
+          comp->fdc_last_cmd = value;
+          comp->fdc_irq_pending = 0u;
+          if (cmd == 0x80u) {
+              uint64_t cmd_cycles = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 150u) : 26667u;
+              if (cmd_cycles < 4000u) cmd_cycles = 4000u;
+              comp->fdc_busy = 1u;
+              comp->fdc_drq = 0u;
+              comp->fdc_data_index = 0u;
+              comp->fdc_data_count = 0u;
+              comp->fdc_cmd_pending = 1u;
+              comp->fdc_deadline = cpu->total_cycles + cmd_cycles;
+              comp->fdc_status = 0x04u;
+          } else if (cmd == 0xD0u) {
+              comp->fdc_busy = 0u;
+              comp->fdc_drq = 0u;
+              comp->fdc_cmd_pending = 0u;
+              comp->fdc_data_index = 0u;
+              comp->fdc_data_count = 0u;
+              comp->fdc_irq_pending = 1u;
+              {
+                  uint64_t irq_args[1] = { 2u };
+                  (void)cpu_component_dispatch_callback(cpu, "trs80_m4irq", "pulse_irq", irq_args, 1);
+              }
+          } else {
+              comp->fdc_busy = 0u;
+              comp->fdc_drq = 0u;
+              comp->fdc_cmd_pending = 0u;
+              comp->fdc_data_index = 0u;
+              comp->fdc_data_count = 0u;
+              comp->fdc_status = 0x04u;
+          }
+      } else if (p == 0xF1u) {
+          comp->fdc_track = value;
+      } else if (p == 0xF2u) {
+          comp->fdc_sector = value;
+      } else if (p == 0xF3u) {
+          comp->fdc_data = value;
+      } else if ((p & 0xFCu) == 0xF4u) {
+          comp->fdc_drive_select = value;
+      }
+      return 0u;
+    fdc_step_tick: |
+      uint64_t now = (argc > 0u) ? (uint64_t)args[0] : cpu->total_cycles;
+      if (comp->fdc_cmd_pending != 0u && now >= comp->fdc_deadline) {
+          comp->fdc_cmd_pending = 0u;
+          comp->fdc_busy = 0u;
+          comp->fdc_drq = 0u;
+          comp->fdc_data_index = 0u;
+          comp->fdc_data_count = 0u;
+          if ((comp->fdc_last_cmd & 0xF0u) == 0x80u && comp->fdc_sector_buffer != NULL) {
+              for (uint32_t i = 0u; i < 256u; ++i) {
+                  comp->fdc_sector_buffer[i] = (uint8_t)(
+                      (uint8_t)(comp->fdc_track + comp->fdc_sector) ^
+                      (uint8_t)i
+                  );
+              }
+              comp->fdc_drq = 1u;
+              comp->fdc_data_count = 256u;
+          }
+          comp->fdc_irq_pending = 1u;
+          {
+              uint64_t irq_args[1] = { 2u };
+              (void)cpu_component_dispatch_callback(cpu, "trs80_m4irq", "pulse_irq", irq_args, 1);
+          }
+      }
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

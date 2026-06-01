@@ -161,8 +161,8 @@ behavior:
               "PASM Apple II",
               CPU_HOST_WINDOWPOS_CENTERED,
               CPU_HOST_WINDOWPOS_CENTERED,
-              840,
-              576,
+              280,
+              192,
               CPU_HOST_WINDOW_RESIZABLE
           );
           if (comp->window == NULL) break;
@@ -192,8 +192,8 @@ behavior:
                   want.samples = 512;
                   want.callback = NULL;
                   comp->audio_device_samples = 0u;
-                  comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have, CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE);
-                  if (comp->audio_out_dev != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels == 1) {
+                  comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have, SDL_AUDIO_ALLOW_ANY_CHANGE);
+                  if (comp->audio_out_dev != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels <= 2u && have.channels >= 1u) {
                       uint32_t ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq * 2u) : 88200u;
                       if (ring_capacity < 8192u) ring_capacity = 8192u;
                       comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));
@@ -203,7 +203,7 @@ behavior:
                           comp->audio_ring_read_idx = 0u;
                           comp->audio_ring_write_idx = 0u;
                           comp->audio_ring_fill = 0u;
-                          comp->audio_device_samples = (uint32_t)have.samples;
+                          comp->audio_device_samples = (uint32_t)have.samples * (uint32_t)have.channels;
                           comp->audio_out_ready = 1u;
                           cpu_host_hal_audio_pause(comp->audio_out_dev, 0);
                       } else {
@@ -555,6 +555,7 @@ behavior:
           comp->texture = (void *)texture;
           comp->texture_w = w;
           comp->texture_h = h;
+          cpu_host_hal_set_window_size(comp->window, (int)w, (int)h);
       }
       if (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) != 0) return;
       cpu_host_hal_render_set_draw_color(renderer, 0, 0, 0, 255);
@@ -563,14 +564,8 @@ behavior:
       int wh = 0;
       if (cpu_host_hal_renderer_output_size(renderer, &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;
       CPUHostRect dst;
-      int scaled_w = ww;
-      int scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);
-      if (scaled_h > wh) {
-          scaled_h = wh;
-          scaled_w = (int)((((int64_t)wh) * (int64_t)w) / (int64_t)h);
-      }
-      dst.w = (scaled_w > 0) ? scaled_w : ww;
-      dst.h = (scaled_h > 0) ? scaled_h : wh;
+      dst.w = (int)w;
+      dst.h = (int)h;
       dst.x = (ww - dst.w) / 2;
       dst.y = (wh - dst.h) / 2;
       if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;

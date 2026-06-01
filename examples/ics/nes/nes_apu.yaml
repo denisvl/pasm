@@ -1,0 +1,637 @@
+metadata:
+  id: nes_apu
+  type: io_controller
+  model: nes_2a03_apu
+  version: "0.1"
+
+state:
+  - name: apu_level
+    type: uint8_t
+    initial: "128"
+  - name: apu_emit_accum
+    type: uint64_t
+    initial: "0"
+  - name: apu_mix_accum
+    type: uint64_t
+    initial: "0"
+  - name: apu_mix_cycles
+    type: uint32_t
+    initial: "0"
+  - name: apu_frame_seq_accum
+    type: uint64_t
+    initial: "0"
+  - name: apu_frame_mode
+    type: uint8_t
+    initial: "0"
+  - name: apu_frame_irq_inhibit
+    type: uint8_t
+    initial: "0"
+  - name: apu_frame_irq_pending
+    type: uint8_t
+    initial: "0"
+  - name: apu_dmc_irq_enable
+    type: uint8_t
+    initial: "0"
+  - name: apu_dmc_loop
+    type: uint8_t
+    initial: "0"
+  - name: apu_dmc_period_index
+    type: uint8_t
+    initial: "0"
+  - name: apu_dmc_period_cycles
+    type: uint16_t
+    initial: "428"
+  - name: apu_dmc_sample_addr
+    type: uint16_t
+    initial: "0xC000"
+  - name: apu_dmc_sample_len
+    type: uint16_t
+    initial: "1"
+  - name: apu_dmc_bytes_remaining
+    type: uint16_t
+    initial: "0"
+  - name: apu_dmc_accum
+    type: uint64_t
+    initial: "0"
+  - name: apu_dmc_active
+    type: uint8_t
+    initial: "0"
+  - name: apu_dmc_irq_pending
+    type: uint8_t
+    initial: "0"
+  - name: apu_frame_step
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_enabled
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_duty
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_volume
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_constant
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_halt
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_env_start
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_env_div
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_env_decay
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_sweep_enabled
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_sweep_period
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_sweep_negate
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_sweep_shift
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_sweep_reload
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_sweep_div
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_timer_period
+    type: uint16_t
+    initial: "0"
+  - name: apu_p1_timer_counter
+    type: uint16_t
+    initial: "0"
+  - name: apu_p1_seq_pos
+    type: uint8_t
+    initial: "0"
+  - name: apu_p1_length
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_enabled
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_duty
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_volume
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_constant
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_halt
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_env_start
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_env_div
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_env_decay
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_sweep_enabled
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_sweep_period
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_sweep_negate
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_sweep_shift
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_sweep_reload
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_sweep_div
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_timer_period
+    type: uint16_t
+    initial: "0"
+  - name: apu_p2_timer_counter
+    type: uint16_t
+    initial: "0"
+  - name: apu_p2_seq_pos
+    type: uint8_t
+    initial: "0"
+  - name: apu_p2_length
+    type: uint8_t
+    initial: "0"
+  - name: apu_tri_enabled
+    type: uint8_t
+    initial: "0"
+  - name: apu_tri_control
+    type: uint8_t
+    initial: "0"
+  - name: apu_tri_linear_reload
+    type: uint8_t
+    initial: "0"
+  - name: apu_tri_linear_counter
+    type: uint8_t
+    initial: "0"
+  - name: apu_tri_linear_reload_flag
+    type: uint8_t
+    initial: "0"
+  - name: apu_tri_timer_period
+    type: uint16_t
+    initial: "0"
+  - name: apu_tri_timer_counter
+    type: uint16_t
+    initial: "0"
+  - name: apu_tri_seq_pos
+    type: uint8_t
+    initial: "0"
+  - name: apu_tri_length
+    type: uint8_t
+    initial: "0"
+  - name: apu_noise_enabled
+    type: uint8_t
+    initial: "0"
+  - name: apu_noise_mode
+    type: uint8_t
+    initial: "0"
+  - name: apu_noise_volume
+    type: uint8_t
+    initial: "0"
+  - name: apu_noise_constant
+    type: uint8_t
+    initial: "0"
+  - name: apu_noise_halt
+    type: uint8_t
+    initial: "0"
+  - name: apu_noise_env_start
+    type: uint8_t
+    initial: "0"
+  - name: apu_noise_env_div
+    type: uint8_t
+    initial: "0"
+  - name: apu_noise_env_decay
+    type: uint8_t
+    initial: "0"
+  - name: apu_noise_period_idx
+    type: uint8_t
+    initial: "0"
+  - name: apu_noise_timer_period
+    type: uint16_t
+    initial: "4"
+  - name: apu_noise_timer_counter
+    type: uint16_t
+    initial: "0"
+  - name: apu_noise_shift
+    type: uint16_t
+    initial: "1"
+  - name: apu_noise_length
+    type: uint8_t
+    initial: "0"
+  - name: apu_dmc_output
+    type: uint8_t
+    initial: "0"
+  - name: apu_cpu_phase
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: read_4015
+      args: []
+      returns: u8
+    - name: write_reg
+      args: [u16, u8]
+      returns: u8
+    - name: apu_step
+      args: [u64, u64]
+      returns: u8
+  handlers: []
+  signals:
+    - name: audio_level
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+      comp->apu_level = 128u;
+    reset: |
+      (void)cpu;
+      comp->apu_level = 128u;
+      comp->apu_emit_accum = 0u;
+      comp->apu_mix_accum = 0u;
+      comp->apu_mix_cycles = 0u;
+      comp->apu_frame_seq_accum = 0u;
+      comp->apu_frame_mode = 0u;
+      comp->apu_frame_irq_inhibit = 0u;
+      comp->apu_frame_irq_pending = 0u;
+      comp->apu_dmc_irq_enable = 0u;
+      comp->apu_dmc_loop = 0u;
+      comp->apu_dmc_period_index = 0u;
+      comp->apu_dmc_period_cycles = 428u;
+      comp->apu_dmc_sample_addr = 0xC000u;
+      comp->apu_dmc_sample_len = 1u;
+      comp->apu_dmc_bytes_remaining = 0u;
+      comp->apu_dmc_accum = 0u;
+      comp->apu_dmc_active = 0u;
+      comp->apu_dmc_irq_pending = 0u;
+      comp->apu_cpu_phase = 0u;
+  callback_handlers:
+    read_4015: |
+      uint8_t status = 0u;
+      if (comp->apu_p1_enabled != 0u && comp->apu_p1_length > 0u) status |= 0x01u;
+      if (comp->apu_p2_enabled != 0u && comp->apu_p2_length > 0u) status |= 0x02u;
+      if (comp->apu_tri_enabled != 0u && comp->apu_tri_length > 0u) status |= 0x04u;
+      if (comp->apu_noise_enabled != 0u && comp->apu_noise_length > 0u) status |= 0x08u;
+      if (comp->apu_dmc_active != 0u) status |= 0x10u;
+      if (comp->apu_frame_irq_pending != 0u) status |= 0x40u;
+      if (comp->apu_dmc_irq_pending != 0u) status |= 0x80u;
+      comp->apu_frame_irq_pending = 0u;
+      {
+          uint8_t cart_irq = (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "irq_pending", NULL, 0);
+          if (comp->apu_dmc_irq_pending == 0u && cart_irq == 0u) {
+              cpu->irq_pending = false;
+              cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
+          }
+      }
+      return status;
+    write_reg: |
+      if (argc < 2u) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      static const uint8_t length_table[32] = {
+          10u, 254u, 20u,  2u, 40u,  4u, 80u,  6u,
+         160u,  8u, 60u, 10u, 14u, 12u, 26u, 14u,
+          12u, 16u, 24u, 18u, 48u, 20u, 96u, 22u,
+         192u, 24u, 72u, 26u, 16u, 28u, 32u, 30u
+      };
+      static const uint16_t noise_period_table[16] = {
+           4u,   8u,   16u,   32u,   64u,   96u,  128u,  160u,
+         202u, 254u,  380u,  508u,  762u, 1016u, 2034u, 4068u
+      };
+      static const uint16_t dmc_period_table[16] = {
+          428u, 380u, 340u, 320u, 286u, 254u, 226u, 214u,
+          190u, 160u, 142u, 128u, 106u,  84u,  72u,  54u
+      };
+      switch (addr) {
+          case 0x4000u:
+              comp->apu_p1_duty = (uint8_t)((value >> 6) & 0x03u);
+              comp->apu_p1_halt = (uint8_t)((value >> 5) & 0x01u);
+              comp->apu_p1_constant = (uint8_t)((value >> 4) & 0x01u);
+              comp->apu_p1_volume = (uint8_t)(value & 0x0Fu);
+              break;
+          case 0x4001u:
+              comp->apu_p1_sweep_enabled = (uint8_t)((value >> 7) & 0x01u);
+              comp->apu_p1_sweep_period = (uint8_t)((value >> 4) & 0x07u);
+              comp->apu_p1_sweep_negate = (uint8_t)((value >> 3) & 0x01u);
+              comp->apu_p1_sweep_shift = (uint8_t)(value & 0x07u);
+              comp->apu_p1_sweep_reload = 1u;
+              break;
+          case 0x4002u:
+              comp->apu_p1_timer_period = (uint16_t)((comp->apu_p1_timer_period & 0x0700u) | (uint16_t)value);
+              break;
+          case 0x4003u:
+              comp->apu_p1_timer_period = (uint16_t)((comp->apu_p1_timer_period & 0x00FFu) | (((uint16_t)value & 0x07u) << 8));
+              comp->apu_p1_length = length_table[(value >> 3) & 0x1Fu];
+              comp->apu_p1_seq_pos = 0u;
+              comp->apu_p1_env_start = 1u;
+              break;
+          case 0x4004u:
+              comp->apu_p2_duty = (uint8_t)((value >> 6) & 0x03u);
+              comp->apu_p2_halt = (uint8_t)((value >> 5) & 0x01u);
+              comp->apu_p2_constant = (uint8_t)((value >> 4) & 0x01u);
+              comp->apu_p2_volume = (uint8_t)(value & 0x0Fu);
+              break;
+          case 0x4005u:
+              comp->apu_p2_sweep_enabled = (uint8_t)((value >> 7) & 0x01u);
+              comp->apu_p2_sweep_period = (uint8_t)((value >> 4) & 0x07u);
+              comp->apu_p2_sweep_negate = (uint8_t)((value >> 3) & 0x01u);
+              comp->apu_p2_sweep_shift = (uint8_t)(value & 0x07u);
+              comp->apu_p2_sweep_reload = 1u;
+              break;
+          case 0x4006u:
+              comp->apu_p2_timer_period = (uint16_t)((comp->apu_p2_timer_period & 0x0700u) | (uint16_t)value);
+              break;
+          case 0x4007u:
+              comp->apu_p2_timer_period = (uint16_t)((comp->apu_p2_timer_period & 0x00FFu) | (((uint16_t)value & 0x07u) << 8));
+              comp->apu_p2_length = length_table[(value >> 3) & 0x1Fu];
+              comp->apu_p2_seq_pos = 0u;
+              comp->apu_p2_env_start = 1u;
+              break;
+          case 0x4008u:
+              comp->apu_tri_control = (uint8_t)((value >> 7) & 0x01u);
+              comp->apu_tri_linear_reload = (uint8_t)(value & 0x7Fu);
+              break;
+          case 0x400Au:
+              comp->apu_tri_timer_period = (uint16_t)((comp->apu_tri_timer_period & 0x0700u) | (uint16_t)value);
+              break;
+          case 0x400Bu:
+              comp->apu_tri_timer_period = (uint16_t)((comp->apu_tri_timer_period & 0x00FFu) | (((uint16_t)value & 0x07u) << 8));
+              comp->apu_tri_length = length_table[(value >> 3) & 0x1Fu];
+              comp->apu_tri_linear_reload_flag = 1u;
+              break;
+          case 0x400Cu:
+              comp->apu_noise_halt = (uint8_t)((value >> 5) & 0x01u);
+              comp->apu_noise_constant = (uint8_t)((value >> 4) & 0x01u);
+              comp->apu_noise_volume = (uint8_t)(value & 0x0Fu);
+              break;
+          case 0x400Eu:
+              comp->apu_noise_mode = (uint8_t)((value >> 7) & 0x01u);
+              comp->apu_noise_period_idx = (uint8_t)(value & 0x0Fu);
+              comp->apu_noise_timer_period = noise_period_table[comp->apu_noise_period_idx & 0x0Fu];
+              break;
+          case 0x400Fu:
+              comp->apu_noise_length = length_table[(value >> 3) & 0x1Fu];
+              comp->apu_noise_env_start = 1u;
+              break;
+          case 0x4010u:
+              comp->apu_dmc_irq_enable = (uint8_t)((value >> 7) & 0x01u);
+              comp->apu_dmc_loop = (uint8_t)((value >> 6) & 0x01u);
+              comp->apu_dmc_period_index = (uint8_t)(value & 0x0Fu);
+              comp->apu_dmc_period_cycles = dmc_period_table[comp->apu_dmc_period_index & 0x0Fu];
+              if (comp->apu_dmc_irq_enable == 0u) comp->apu_dmc_irq_pending = 0u;
+              break;
+          case 0x4011u:
+              comp->apu_dmc_output = (uint8_t)(value & 0x7Fu);
+              break;
+          case 0x4012u:
+              comp->apu_dmc_sample_addr = (uint16_t)(0xC000u + ((uint16_t)value << 6));
+              break;
+          case 0x4013u:
+              comp->apu_dmc_sample_len = (uint16_t)(((uint16_t)value << 4) | 0x0001u);
+              break;
+          case 0x4015u:
+              comp->apu_p1_enabled = (uint8_t)(value & 0x01u);
+              comp->apu_p2_enabled = (uint8_t)((value >> 1) & 0x01u);
+              comp->apu_tri_enabled = (uint8_t)((value >> 2) & 0x01u);
+              comp->apu_noise_enabled = (uint8_t)((value >> 3) & 0x01u);
+              if (comp->apu_p1_enabled == 0u) comp->apu_p1_length = 0u;
+              if (comp->apu_p2_enabled == 0u) comp->apu_p2_length = 0u;
+              if (comp->apu_tri_enabled == 0u) comp->apu_tri_length = 0u;
+              if (comp->apu_noise_enabled == 0u) comp->apu_noise_length = 0u;
+              comp->apu_dmc_irq_pending = 0u;
+              if ((value & 0x10u) != 0u) {
+                  if (comp->apu_dmc_active == 0u) {
+                      uint16_t len = (comp->apu_dmc_sample_len != 0u) ? comp->apu_dmc_sample_len : 1u;
+                      comp->apu_dmc_bytes_remaining = len;
+                      comp->apu_dmc_active = 1u;
+                      comp->apu_dmc_accum = 0u;
+                  }
+              } else {
+                  comp->apu_dmc_active = 0u;
+                  comp->apu_dmc_bytes_remaining = 0u;
+                  comp->apu_dmc_accum = 0u;
+              }
+              break;
+          case 0x4017u:
+              comp->apu_frame_mode = (uint8_t)((value >> 7) & 0x01u);
+              comp->apu_frame_irq_inhibit = (uint8_t)((value >> 6) & 0x01u);
+              comp->apu_frame_seq_accum = 0u;
+              comp->apu_frame_step = 0u;
+              if (comp->apu_frame_irq_inhibit != 0u) comp->apu_frame_irq_pending = 0u;
+              break;
+          default:
+              break;
+      }
+      {
+          uint8_t cart_irq = (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "irq_pending", NULL, 0);
+          if (comp->apu_frame_irq_pending == 0u && comp->apu_dmc_irq_pending == 0u && cart_irq == 0u) {
+              cpu->irq_pending = false;
+              cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
+          }
+      }
+      return 0u;
+    apu_step: |
+      if (argc < 2u) return 0u;
+      static const uint8_t duty_table[4][8] = {
+          {0u,1u,0u,0u,0u,0u,0u,0u},
+          {0u,1u,1u,0u,0u,0u,0u,0u},
+          {0u,1u,1u,1u,1u,0u,0u,0u},
+          {1u,0u,0u,1u,1u,1u,1u,1u}
+      };
+      static const uint8_t tri_table[32] = {
+          15u,14u,13u,12u,11u,10u,9u,8u,7u,6u,5u,4u,3u,2u,1u,0u,
+          0u,1u,2u,3u,4u,5u,6u,7u,8u,9u,10u,11u,12u,13u,14u,15u
+      };
+      uint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 1u) ? (CPU_SYSTEM_CLOCK_HZ / 2u) : 894886u;
+      uint64_t sample_rate = (CPU_AUDIO_SAMPLE_RATE > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u;
+      uint64_t cpu_cycles = (uint64_t)args[0];
+      uint64_t base_cycle = (uint64_t)args[1];
+      uint64_t apu_ticks = (cpu_cycles + (uint64_t)(comp->apu_cpu_phase & 0x01u)) >> 1u;
+      comp->apu_cpu_phase = (uint8_t)((cpu_cycles + (uint64_t)(comp->apu_cpu_phase & 0x01u)) & 0x01u);
+
+      for (uint64_t c = 0u; c < apu_ticks; ++c) {
+          uint8_t quarter_tick = 0u;
+          uint8_t half_tick = 0u;
+
+          comp->apu_frame_seq_accum += 1u;
+          if (comp->apu_frame_mode == 0u) {
+              switch (comp->apu_frame_step) {
+                  case 0u:
+                      if (comp->apu_frame_seq_accum >= 3729u) { quarter_tick = 1u; comp->apu_frame_step = 1u; }
+                      break;
+                  case 1u:
+                      if (comp->apu_frame_seq_accum >= 7457u) { quarter_tick = 1u; half_tick = 1u; comp->apu_frame_step = 2u; }
+                      break;
+                  case 2u:
+                      if (comp->apu_frame_seq_accum >= 11186u) { quarter_tick = 1u; comp->apu_frame_step = 3u; }
+                      break;
+                  default:
+                      if (comp->apu_frame_seq_accum >= 14915u) {
+                          quarter_tick = 1u; half_tick = 1u;
+                          if (comp->apu_frame_irq_inhibit == 0u) comp->apu_frame_irq_pending = 1u;
+                          comp->apu_frame_seq_accum -= 14915u;
+                          comp->apu_frame_step = 0u;
+                      }
+                      break;
+              }
+          } else {
+              switch (comp->apu_frame_step) {
+                  case 0u:
+                      if (comp->apu_frame_seq_accum >= 3729u) { quarter_tick = 1u; comp->apu_frame_step = 1u; }
+                      break;
+                  case 1u:
+                      if (comp->apu_frame_seq_accum >= 7457u) { quarter_tick = 1u; half_tick = 1u; comp->apu_frame_step = 2u; }
+                      break;
+                  case 2u:
+                      if (comp->apu_frame_seq_accum >= 11186u) { quarter_tick = 1u; comp->apu_frame_step = 3u; }
+                      break;
+                  case 3u:
+                      if (comp->apu_frame_seq_accum >= 14915u) { quarter_tick = 1u; half_tick = 1u; comp->apu_frame_step = 4u; }
+                      break;
+                  default:
+                      if (comp->apu_frame_seq_accum >= 18641u) { comp->apu_frame_seq_accum -= 18641u; comp->apu_frame_step = 0u; }
+                      break;
+              }
+          }
+
+          if (quarter_tick != 0u) {
+              if (comp->apu_p1_env_start != 0u) { comp->apu_p1_env_start = 0u; comp->apu_p1_env_decay = 15u; comp->apu_p1_env_div = comp->apu_p1_volume; }
+              else if (comp->apu_p1_env_div == 0u) { comp->apu_p1_env_div = comp->apu_p1_volume; if (comp->apu_p1_env_decay > 0u) comp->apu_p1_env_decay -= 1u; else if (comp->apu_p1_halt != 0u) comp->apu_p1_env_decay = 15u; }
+              else comp->apu_p1_env_div -= 1u;
+
+              if (comp->apu_p2_env_start != 0u) { comp->apu_p2_env_start = 0u; comp->apu_p2_env_decay = 15u; comp->apu_p2_env_div = comp->apu_p2_volume; }
+              else if (comp->apu_p2_env_div == 0u) { comp->apu_p2_env_div = comp->apu_p2_volume; if (comp->apu_p2_env_decay > 0u) comp->apu_p2_env_decay -= 1u; else if (comp->apu_p2_halt != 0u) comp->apu_p2_env_decay = 15u; }
+              else comp->apu_p2_env_div -= 1u;
+
+              if (comp->apu_noise_env_start != 0u) { comp->apu_noise_env_start = 0u; comp->apu_noise_env_decay = 15u; comp->apu_noise_env_div = comp->apu_noise_volume; }
+              else if (comp->apu_noise_env_div == 0u) { comp->apu_noise_env_div = comp->apu_noise_volume; if (comp->apu_noise_env_decay > 0u) comp->apu_noise_env_decay -= 1u; else if (comp->apu_noise_halt != 0u) comp->apu_noise_env_decay = 15u; }
+              else comp->apu_noise_env_div -= 1u;
+
+              if (comp->apu_tri_linear_reload_flag != 0u) comp->apu_tri_linear_counter = comp->apu_tri_linear_reload;
+              else if (comp->apu_tri_linear_counter > 0u) comp->apu_tri_linear_counter -= 1u;
+              if (comp->apu_tri_control == 0u) comp->apu_tri_linear_reload_flag = 0u;
+          }
+
+          if (half_tick != 0u) {
+              if (comp->apu_p1_halt == 0u && comp->apu_p1_length > 0u) comp->apu_p1_length -= 1u;
+              if (comp->apu_p2_halt == 0u && comp->apu_p2_length > 0u) comp->apu_p2_length -= 1u;
+              if (comp->apu_tri_control == 0u && comp->apu_tri_length > 0u) comp->apu_tri_length -= 1u;
+              if (comp->apu_noise_halt == 0u && comp->apu_noise_length > 0u) comp->apu_noise_length -= 1u;
+          }
+
+          if (comp->apu_p1_timer_counter == 0u) { comp->apu_p1_timer_counter = comp->apu_p1_timer_period; comp->apu_p1_seq_pos = (uint8_t)((comp->apu_p1_seq_pos + 1u) & 0x07u); }
+          else comp->apu_p1_timer_counter -= 1u;
+          if (comp->apu_p2_timer_counter == 0u) { comp->apu_p2_timer_counter = comp->apu_p2_timer_period; comp->apu_p2_seq_pos = (uint8_t)((comp->apu_p2_seq_pos + 1u) & 0x07u); }
+          else comp->apu_p2_timer_counter -= 1u;
+          for (uint8_t tri_sub = 0u; tri_sub < 2u; ++tri_sub) {
+              if (comp->apu_tri_timer_counter == 0u) {
+                  comp->apu_tri_timer_counter = comp->apu_tri_timer_period;
+                  if (comp->apu_tri_enabled != 0u && comp->apu_tri_length > 0u && comp->apu_tri_linear_counter > 0u && comp->apu_tri_timer_period > 1u) {
+                      comp->apu_tri_seq_pos = (uint8_t)((comp->apu_tri_seq_pos + 1u) & 0x1Fu);
+                  }
+              } else {
+                  comp->apu_tri_timer_counter -= 1u;
+              }
+          }
+          if (comp->apu_noise_timer_counter == 0u) {
+              uint16_t feedback;
+              comp->apu_noise_timer_counter = comp->apu_noise_timer_period;
+              feedback = (uint16_t)((comp->apu_noise_shift & 0x0001u) ^ ((comp->apu_noise_shift >> ((comp->apu_noise_mode != 0u) ? 6u : 1u)) & 0x0001u));
+              comp->apu_noise_shift = (uint16_t)((comp->apu_noise_shift >> 1u) | (feedback << 14u));
+          } else comp->apu_noise_timer_counter -= 1u;
+
+          if (comp->apu_dmc_active != 0u) {
+              uint64_t byte_period = ((uint64_t)comp->apu_dmc_period_cycles) * 8u;
+              if (byte_period == 0u) byte_period = 3424u;
+              comp->apu_dmc_accum += 2u;
+              if (comp->apu_dmc_accum >= byte_period) {
+                  comp->apu_dmc_accum -= byte_period;
+                  if (comp->apu_dmc_bytes_remaining > 0u) comp->apu_dmc_bytes_remaining = (uint16_t)(comp->apu_dmc_bytes_remaining - 1u);
+                  if (comp->apu_dmc_bytes_remaining == 0u) {
+                      if (comp->apu_dmc_loop != 0u) comp->apu_dmc_bytes_remaining = (comp->apu_dmc_sample_len != 0u) ? comp->apu_dmc_sample_len : 1u;
+                      else { comp->apu_dmc_active = 0u; if (comp->apu_dmc_irq_enable != 0u) comp->apu_dmc_irq_pending = 1u; }
+                  }
+              }
+          }
+
+          {
+              uint8_t p1 = 0u, p2 = 0u, tri = 0u, noi = 0u;
+              uint8_t p1_env = (comp->apu_p1_constant != 0u) ? comp->apu_p1_volume : comp->apu_p1_env_decay;
+              uint8_t p2_env = (comp->apu_p2_constant != 0u) ? comp->apu_p2_volume : comp->apu_p2_env_decay;
+              uint8_t n_env = (comp->apu_noise_constant != 0u) ? comp->apu_noise_volume : comp->apu_noise_env_decay;
+              uint16_t mixed;
+              if (comp->apu_p1_enabled != 0u && comp->apu_p1_length > 0u && comp->apu_p1_timer_period >= 8u && duty_table[comp->apu_p1_duty & 0x03u][comp->apu_p1_seq_pos & 0x07u] != 0u) p1 = p1_env;
+              if (comp->apu_p2_enabled != 0u && comp->apu_p2_length > 0u && comp->apu_p2_timer_period >= 8u && duty_table[comp->apu_p2_duty & 0x03u][comp->apu_p2_seq_pos & 0x07u] != 0u) p2 = p2_env;
+              if (comp->apu_tri_enabled != 0u && comp->apu_tri_length > 0u && comp->apu_tri_linear_counter > 0u) tri = tri_table[comp->apu_tri_seq_pos & 0x1Fu];
+              if (comp->apu_noise_enabled != 0u && comp->apu_noise_length > 0u && (comp->apu_noise_shift & 0x0001u) == 0u) noi = n_env;
+              /* Lightweight integer mix (SMS-style low-cost path): avoid LUT/double in hot loop. */
+              mixed = (uint16_t)(p1 + p2);
+              mixed += (uint16_t)((uint16_t)tri >> 1u);
+              mixed += (uint16_t)((uint16_t)noi >> 1u);
+              mixed += (uint16_t)((comp->apu_dmc_output & 0x7Fu) >> 2u);
+              if (mixed > 255u) mixed = 255u;
+              comp->apu_mix_accum += (uint64_t)mixed;
+              comp->apu_mix_cycles += 1u;
+          }
+
+          comp->apu_emit_accum += sample_rate;
+          while (comp->apu_emit_accum >= clock_hz) {
+              uint32_t avg = (uint32_t)comp->apu_level;
+              if (comp->apu_mix_cycles > 0u) avg = (uint32_t)((comp->apu_mix_accum + (uint64_t)(comp->apu_mix_cycles / 2u)) / (uint64_t)comp->apu_mix_cycles);
+              if (avg > 255u) avg = 255u;
+              comp->apu_level = (uint8_t)avg;
+              {
+                  uint64_t sig_args[2] = { (uint64_t)comp->apu_level, (uint64_t)(base_cycle + (c << 1u)) };
+                  cpu_component_emit_signal(cpu, "nes_apu", "audio_level", sig_args, 2);
+              }
+              comp->apu_mix_accum = 0u;
+              comp->apu_mix_cycles = 0u;
+              comp->apu_emit_accum -= clock_hz;
+          }
+      }
+
+      {
+          uint8_t cart_irq = (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "irq_pending", NULL, 0);
+          uint8_t irq_now = 0u;
+          if (comp->apu_frame_irq_pending != 0u || comp->apu_dmc_irq_pending != 0u || cart_irq != 0u) irq_now = 1u;
+          if (irq_now != 0u) {
+              if (!cpu->nmi_pending) cpu->interrupt_vector = 0x00u;
+              cpu->irq_pending = true;
+              cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
+          } else {
+              cpu->irq_pending = false;
+              cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
+          }
+      }
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

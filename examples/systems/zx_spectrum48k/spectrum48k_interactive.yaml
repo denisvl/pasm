@@ -57,6 +57,8 @@ hooks:
 components:
   ics:
     - ula0
+    - zx48_loram
+    - zx48_hiram
   devices:
     - keyboard0
     - controller_zx48

@@ -36,6 +36,8 @@ KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/sg1000/host_console_sg1000.yaml}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
+mkdir -p "${UV_CACHE_DIR}"
 
 if [[ -z "${CARTRIDGE_DIR}" ]]; then
   CARTRIDGE_DIR="${REPO_ROOT}/examples/roms/sg1000"
@@ -44,7 +46,9 @@ fi
 PROCESSOR="examples/processors/z80.yaml"
 IC_VDP="examples/ics/sg1000/sg1000_vdp_tms9918a.yaml"
 IC_JOY="examples/ics/sg1000/sg1000_joypad_io.yaml"
-IC_PSG="examples/ics/common/psg_sn76489.yaml"
+IC_BUS="examples/ics/sg1000/sg1000_cpu_bus.yaml"
+IC_RAM="examples/ics/sg1000/sg1000_main_ram.yaml"
+IC_PSG="examples/ics/sg1000/sg1000_psg_sn76489.yaml"
 DEVICE_VIDEO="examples/devices/sms/sms_video.yaml"
 DEVICE_SPK="examples/devices/sms/sms_speaker.yaml"
 SYSTEM_DIR="examples/systems"
@@ -89,6 +93,8 @@ uv run python -m src.main generate \
   --system "${SYSTEM}" \
   --ic "${IC_VDP}" \
   --ic "${IC_JOY}" \
+  --ic "${IC_BUS}" \
+  --ic "${IC_RAM}" \
   --ic "${IC_PSG}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \

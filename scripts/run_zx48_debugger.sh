@@ -28,6 +28,8 @@ cd "${REPO_ROOT}"
 
 PROCESSOR="examples/processors/z80.yaml"
 IC="examples/ics/zx_spectrum48k/zx_spectrum_48k_ula.yaml"
+IC_LORAM="examples/ics/zx_spectrum48k/zx_spectrum_48k_loram.yaml"
+IC_HIRAM="examples/ics/zx_spectrum48k/zx_spectrum_48k_hiram.yaml"
 DEVICE_KB="examples/devices/zx_spectrum48k/zx48_keyboard.yaml"
 DEVICE_CTRL="examples/devices/zx_spectrum48k/zx48_controller.yaml"
 DEVICE_VIDEO="examples/devices/zx_spectrum48k/zx48_video.yaml"
@@ -63,6 +65,8 @@ uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM}" \
   --ic "${IC}" \
+  --ic "${IC_LORAM}" \
+  --ic "${IC_HIRAM}" \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \

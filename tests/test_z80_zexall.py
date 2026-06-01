@@ -27,7 +27,9 @@ def _want_run_zexall() -> bool:
 def _zexall_max_steps() -> int:
     raw = os.environ.get(ZEXALL_MAX_STEPS_ENV, "").strip()
     if not raw:
-        return 400_000_000
+        # Split codegen adds some per-step overhead compared to the old harness.
+        # Keep default large enough for full zexall completion on CI/dev hosts.
+        return 12_000_000_000
     try:
         value = int(raw, 10)
     except ValueError as exc:
@@ -219,6 +221,11 @@ int main(int argc, char **argv) {
 
     binary_name = "zexall_harness.exe" if os.name == "nt" else "zexall_harness"
     binary = outdir / binary_name
+    generated_sources = [
+        str(path)
+        for path in sorted((outdir / "src").glob("*.c"))
+        if path.name != "main.c" and not path.name.endswith("debug_abi.c")
+    ]
     subprocess.check_call(
         [
             compiler,
@@ -227,8 +234,7 @@ int main(int argc, char **argv) {
             "-D_POSIX_C_SOURCE=199309L",
             "-I",
             str(outdir / "src"),
-            str(outdir / "src" / "Z80.c"),
-            str(outdir / "src" / "Z80_decoder.c"),
+            *generated_sources,
             str(harness_c),
             "-o",
             str(binary),

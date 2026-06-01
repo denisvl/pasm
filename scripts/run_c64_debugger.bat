@@ -37,17 +37,24 @@ if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%" >nul 2>&1
 
 set "PROCESSOR=examples/processors/mos6510.yaml"
 set "SYSTEM_DIR=examples/systems"
-set "IC_IO=examples/ics/c64/c64_io.yaml"
+set "IC_PLA=examples/ics/c64/c64_pla_906114.yaml"
+set "IC_VIC=examples/ics/c64/c64_vic_ii_6569.yaml"
+set "IC_SID=examples/ics/c64/c64_sid_6581.yaml"
+set "IC_CIA1=examples/ics/c64/c64_cia1_6526.yaml"
+set "IC_CIA2=examples/ics/c64/c64_cia2_6526.yaml"
+set "IC_COLOR_RAM=examples/ics/c64/c64_color_ram_2114.yaml"
+set "IC_MAIN_RAM=examples/ics/c64/c64_main_ram.yaml"
 set "DEVICE_KB=examples/devices/c64/c64_keyboard.yaml"
+set "DEVICE_JOY=examples/devices/c64/c64_joystick.yaml"
 set "DEVICE_VIDEO=examples/devices/c64/c64_video.yaml"
 set "DEVICE_SPK=examples/devices/c64/c64_speaker.yaml"
 set "HOST_INTERACTIVE=examples/hosts/c64/c64_host_sdl2_interactive.yaml"
 
 if /I "%PROFILE%"=="default" (
-  set "SYSTEM=examples/systems/c64/c64_default.yaml"
+  set "SYSTEM=examples/systems/c64/c64_cartridge_default.yaml"
   set "DEFAULT_OUTPUT=generated/c64"
 ) else if /I "%PROFILE%"=="interactive" (
-  set "SYSTEM=examples/systems/c64/c64_interactive.yaml"
+  set "SYSTEM=examples/systems/c64/c64_cartridge_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/c64_interactive"
 ) else (
   >&2 echo Unsupported profile: %PROFILE%
@@ -128,8 +135,15 @@ goto :gen_done
 uv run python -m src.main generate ^
   --processor "%PROCESSOR%" ^
   --system "%SYSTEM%" ^
-  --ic "%IC_IO%" ^
+  --ic "%IC_PLA%" ^
+  --ic "%IC_VIC%" ^
+  --ic "%IC_SID%" ^
+  --ic "%IC_CIA1%" ^
+  --ic "%IC_CIA2%" ^
+  --ic "%IC_COLOR_RAM%" ^
+  --ic "%IC_MAIN_RAM%" ^
   --device "%DEVICE_KB%" ^
+  --device "%DEVICE_JOY%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
   --host "%HOST_INTERACTIVE%" ^

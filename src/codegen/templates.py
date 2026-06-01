@@ -137,6 +137,13 @@ int {cpu_prefix}_load_cartridge_rom(CPUState *cpu, const char *path);
 int {cpu_prefix}_set_cartridge_dir(CPUState *cpu, const char *path);
 int {cpu_prefix}_load_keyboard_map(CPUState *cpu, const char *path);
 int {cpu_prefix}_load_controller_map(CPUState *cpu, const char *path);
+int cpu_component_host_picker_set_dir(const char *path);
+uint8_t cpu_component_host_picker_is_active(void);
+void cpu_component_host_picker_step(CPUState *cpu, uint8_t has_focus);
+void cpu_component_host_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);
+
+/* ===== Split Contracts (Core/System Glue) ===== */
+{dispatch_contract}
 
 /* ===== Execution ===== */
 int {cpu_prefix}_step(CPUState *cpu);
@@ -189,11 +196,6 @@ CPU_IMPL_TEMPLATE = (
 #include "{cpu_name}.h"
 #include "{cpu_name}_decoder.h"
 {coding_includes}
-#if defined(_WIN32)
-#include <windows.h>
-#else
-#include <unistd.h>
-#endif
 
 /* ===== Private Helper Functions ===== */
 {helpers_code}
@@ -305,7 +307,11 @@ int {cpu_prefix}_load_rom(CPUState *cpu, const char *filename, uint16_t address)
 
 /* ===== Memory Access ===== */
 uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
-{ic_mem_read_pre}
+    {{
+        uint8_t __handled = 0u;
+        uint8_t __value = cpu_components_bus_read(cpu, addr, &__handled);
+        if (__handled != 0u) return __value;
+    }}
     if (addr >= cpu->memory_size) {{
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return 0xFF;
@@ -314,7 +320,11 @@ uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
 }}
 
 void {cpu_prefix}_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {{
-{ic_mem_write_pre}
+    {{
+        uint8_t __handled = 0u;
+        (void)cpu_components_bus_write(cpu, addr, value, &__handled);
+        if (__handled != 0u) return;
+    }}
     if (addr >= cpu->memory_size) {{
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
@@ -328,19 +338,23 @@ void {cpu_prefix}_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {{
 /* ===== Port I/O ===== */
 uint8_t {cpu_prefix}_read_port(CPUState *cpu, uint16_t port) {{
 {port_read_hook_pre}
-{ic_port_read_pre}
-    uint8_t value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFF;
-{ic_port_read_post}
+    uint8_t __handled = 0u;
+    uint8_t value = cpu_components_port_read(cpu, port, &__handled);
+    if (__handled == 0u) {{
+        value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFF;
+    }}
 {port_read_hook_post}
     return value;
 }}
 
 void {cpu_prefix}_write_port(CPUState *cpu, uint16_t port, uint8_t value) {{
 {port_write_hook_pre}
-{ic_port_write_pre}
-    if (port >= cpu->port_size) return;
-    cpu->port_memory[port] = value;
-{ic_port_write_post}
+    uint8_t __handled = 0u;
+    cpu_components_port_write(cpu, port, value, &__handled);
+    if (__handled == 0u) {{
+        if (port >= cpu->port_size) return;
+        cpu->port_memory[port] = value;
+    }}
 {port_write_hook_post}
 }}
 
@@ -526,19 +540,26 @@ if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
 endif()
 {dispatch_cmake}
 
-# Emulator library sources
-set(EMU_SOURCES
-    src/{cpu_name}.c
+# Split libraries
+set(CPU_CORE_SOURCES
+    src/{cpu_name}_core.c
     src/{cpu_name}_decoder.c
-{extra_sources})
+{cpu_core_extra_sources}
+)
 
-# Linkable emulator library for external tools (debugger/TUI, harnesses).
-add_library({project_name}_emu STATIC ${{EMU_SOURCES}})
-target_include_directories({project_name}_emu PUBLIC include src)
+set(SYSTEM_SOURCES
+{system_sources})
+
+add_library({cpu_core_target} STATIC ${{CPU_CORE_SOURCES}})
+target_include_directories({cpu_core_target} PUBLIC include src)
+
+add_library({system_target} STATIC ${{SYSTEM_SOURCES}})
+target_include_directories({system_target} PUBLIC include src)
+target_link_libraries({system_target} PUBLIC {cpu_core_target})
 
 # CLI test executable
 add_executable({project_name}_test src/main.c)
-target_link_libraries({project_name}_test PRIVATE {project_name}_emu)
+target_link_libraries({project_name}_test PRIVATE {cpu_core_target} {system_target} {cpu_core_target})
 target_include_directories({project_name}_test PRIVATE include src)
 {auto_dependency_setup}
 {extra_include_dirs}

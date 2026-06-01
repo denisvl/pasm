@@ -27,6 +27,7 @@ The orchestrator of the code emission process. It creates the output directory s
 - Generates CMake build files.
 - Emits the main entry points and structural files.
 - Defers to specific `codegen/` modules for complex implementations.
+- Prunes stale artifacts from older naming/layouts during regeneration (legacy monolithic CPU TU, stale system-scoped split files/headers).
 
 ### 3. Code Generation Modules (`src/codegen/`)
 This is where the bulk of the logic resides. Key files include:
@@ -36,9 +37,11 @@ This is where the bulk of the logic resides. Key files include:
   - Flag calculation logic.
   - The core `step()` function.
   - The disassembler.
+- **`split_units.py`**: Emits system-side split translation units (`*_runtime.c`, `*_system_bus.c`, `*_system_glue.c`, `*_host_glue.c`, `*_device_glue.c`) from codegen-owned sections.
 - **`cpu_debug_abi.py`**: Generates the Debug ABI, providing an interface for debuggers (like the Rust TUI debugger) to inspect registers, memory, and CPU state without knowing the internal layout of the C structures.
 - **`interrupts.py`**: Handles generating the logic for interrupt requests (IRQ, NMI) based on the CPU's interrupt model.
 - **`templates.py`**: Contains the raw string templates for the C files, with placeholder tags that the Python logic fills in.
+- **`split_layout.py`**: Canonical naming/layout registry for split unit suffixes and system prefix normalization.
 
 ## Execution Flow Example: `pasm generate`
 
@@ -49,9 +52,25 @@ This is where the bulk of the logic resides. Key files include:
 5. `generator.generate()` begins creating files:
    - `CMakeLists.txt`
    - `Z80.h` (using `isa_data` to define the CPU struct)
-   - `Z80.c` (delegating to `cpu_impl.py` to generate the instruction switch and helper routines)
-   - `Z80_debug_abi.c` (delegating to `cpu_debug_abi.py`)
+   - CPU-owned units:
+     - `Z80_core.c` (delegating to `cpu_impl.py` for instruction dispatch and core CPU execution)
+     - `Z80_decoder.c`
+     - `Z80_debug_abi.c`
+   - System-owned split units:
+     - `<system_slug>_runtime.c`
+     - `<system_slug>_system_bus.c`
+     - `<system_slug>_system_glue.c`
+     - `<system_slug>_host_glue.c`
+     - `<system_slug>_device_glue.c`
+   - `debugger_link.json` (split linkage contract consumed by debugger tooling)
 6. The process exits, leaving behind a complete, compilable C11 emulator project in the output directory.
+
+### Build Graph (Current)
+- Generated CMake/Makefile use explicit split static libraries:
+  - `<cpu>_cpu_core`
+  - `<system>_system`
+- Test executable links split archives explicitly (including ordering for static symbol resolution).
+- The Rust TUI linked backend resolves split artifacts via `debugger_link.json` (no legacy single-library fallback).
 
 ## Design Philosophy
 

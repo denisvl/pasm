@@ -196,7 +196,7 @@ keyboard:
     mapper_key_id: K_EQUALS
     presses:
     - row: 5
-      bit: 5
+      bit: 2
   - host_scancode: RETURN
     mapper_key_id: K_ENTER
     presses:
@@ -207,7 +207,7 @@ keyboard:
     presses:
     - row: 6
       bit: 0
-  - host_key: RETURN2
+  - host_scancode: RETURN2
     mapper_key_id: K_ENTER
     presses:
     - row: 6
@@ -277,6 +277,11 @@ keyboard:
     presses:
     - row: 7
       bit: 3
+  - host_scancode: F4
+    mapper_key_id: K_CAPS
+    presses:
+    - row: 7
+      bit: 3
   - host_scancode: F1
     mapper_key_id: K_F1
     presses:
@@ -292,57 +297,57 @@ keyboard:
     presses:
     - row: 7
       bit: 6
-  - host_key: KP_1
+  - host_scancode: KP_1
     mapper_key_id: K_KP1
     presses:
     - row: 4
       bit: 1
-  - host_key: KP_2
+  - host_scancode: KP_2
     mapper_key_id: K_KP2
     presses:
     - row: 4
       bit: 2
-  - host_key: KP_3
+  - host_scancode: KP_3
     mapper_key_id: K_KP3
     presses:
     - row: 4
       bit: 3
-  - host_key: KP_4
+  - host_scancode: KP_4
     mapper_key_id: K_KP4
     presses:
     - row: 4
       bit: 4
-  - host_key: KP_5
+  - host_scancode: KP_5
     mapper_key_id: K_KP5
     presses:
     - row: 4
       bit: 5
-  - host_key: KP_6
+  - host_scancode: KP_6
     mapper_key_id: K_KP6
     presses:
     - row: 4
       bit: 6
-  - host_key: KP_7
+  - host_scancode: KP_7
     mapper_key_id: K_KP7
     presses:
     - row: 4
       bit: 7
-  - host_key: KP_8
+  - host_scancode: KP_8
     mapper_key_id: K_KP8
     presses:
     - row: 5
       bit: 0
-  - host_key: KP_9
+  - host_scancode: KP_9
     mapper_key_id: K_KP9
     presses:
     - row: 5
       bit: 1
-  - host_key: KP_0
+  - host_scancode: KP_0
     mapper_key_id: K_KP0
     presses:
     - row: 4
       bit: 0
-  - host_key: KP_PERIOD
+  - host_scancode: KP_PERIOD
     mapper_key_id: K_KP_PERIOD
     presses:
     - row: 5
@@ -352,23 +357,38 @@ keyboard:
     presses:
     - row: 5
       bit: 7
-  - host_scancode: 51
+  - host_scancode: APOSTROPHE
     mapper_key_id: K_STAR_COLON
     presses:
     - row: 5
       bit: 2
-  - host_scancode: 47
+  - host_scancode: LEFTBRACKET
     mapper_key_id: K_AT
     presses:
     - row: 0
       bit: 0
-  - host_scancode: 76
+  - host_scancode: F5
+    mapper_key_id: K_AT
+    presses:
+    - row: 0
+      bit: 0
+  - host_scancode: INSERT
     mapper_key_id: K_CLEAR
     presses:
     - row: 6
       bit: 1
-  - host_scancode: 56
+  - host_scancode: SEMICOLON
     mapper_key_id: K_PLUS_SEMICOLON
     presses:
     - row: 5
       bit: 3
+  - host_scancode: EQUALS
+    mapper_key_id: K_EQUALS
+    presses:
+    - row: 5
+      bit: 5
+  - host_scancode: DELETE
+    mapper_key_id: K_BACKSPACE
+    presses:
+    - row: 6
+      bit: 5

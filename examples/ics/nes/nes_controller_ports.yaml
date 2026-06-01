@@ -1,0 +1,117 @@
+metadata:
+  id: nes_controller_ports
+  type: io_controller
+  model: nes_4021_controller_shift_registers
+  version: "1.0"
+
+state:
+  - name: controller_strobe
+    type: uint8_t
+    initial: "0"
+  - name: controller_shift0
+    type: uint8_t
+    initial: "0"
+  - name: controller_latch0
+    type: uint8_t
+    initial: "0"
+  - name: controller_shift1
+    type: uint8_t
+    initial: "0"
+  - name: controller_latch1
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: joy1_read
+      args: []
+      returns: u8
+    - name: joy2_read
+      args: []
+      returns: u8
+    - name: read_4016
+      args: []
+      returns: u8
+    - name: read_4017
+      args: []
+      returns: u8
+    - name: write_4016
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    reset: |
+      comp->controller_strobe = 0u;
+      comp->controller_shift0 = 0u;
+      comp->controller_latch0 = 0u;
+      comp->controller_shift1 = 0u;
+      comp->controller_latch1 = 0u;
+  callback_handlers:
+    read_4016: |
+      static int pad_bit0_only = -1;
+      if (pad_bit0_only < 0) {
+          const char *env = getenv("PASM_NES_PAD_BIT0_ONLY");
+          if (env == NULL || env[0] == '\0') {
+              pad_bit0_only = 1;
+          } else {
+              pad_bit0_only = (env[0] != '0') ? 1 : 0;
+          }
+      }
+      uint8_t bit;
+      uint8_t ret;
+      if (comp->controller_strobe != 0u) {
+          comp->controller_shift0 = (uint8_t)cpu_component_call(cpu, "nes_controller_ports", "joy1_read", NULL, 0);
+          bit = (uint8_t)(comp->controller_shift0 & 0x01u);
+      } else {
+          bit = (uint8_t)(comp->controller_shift0 & 0x01u);
+          comp->controller_shift0 = (uint8_t)((comp->controller_shift0 >> 1) | 0x80u);
+      }
+      ret = (pad_bit0_only != 0) ? bit : (uint8_t)(0x40u | bit);
+      return ret;
+    read_4017: |
+      static int pad_bit0_only = -1;
+      if (pad_bit0_only < 0) {
+          const char *env = getenv("PASM_NES_PAD_BIT0_ONLY");
+          if (env == NULL || env[0] == '\0') {
+              pad_bit0_only = 1;
+          } else {
+              pad_bit0_only = (env[0] != '0') ? 1 : 0;
+          }
+      }
+      uint8_t bit;
+      uint8_t ret;
+      if (comp->controller_strobe != 0u) {
+          comp->controller_shift1 = (uint8_t)cpu_component_call(cpu, "nes_controller_ports", "joy2_read", NULL, 0);
+          bit = (uint8_t)(comp->controller_shift1 & 0x01u);
+      } else {
+          bit = (uint8_t)(comp->controller_shift1 & 0x01u);
+          comp->controller_shift1 = (uint8_t)((comp->controller_shift1 >> 1) | 0x80u);
+      }
+      ret = (pad_bit0_only != 0) ? bit : (uint8_t)(0x40u | bit);
+      return ret;
+    write_4016: |
+      if (argc < 1u) return 0u;
+      uint8_t value = (uint8_t)(args[0] & 0xFFu);
+      uint8_t new_strobe = (uint8_t)(value & 0x01u);
+      if (new_strobe != 0u || comp->controller_strobe != 0u) {
+          comp->controller_latch0 = (uint8_t)cpu_component_call(cpu, "nes_controller_ports", "joy1_read", NULL, 0);
+          comp->controller_shift0 = comp->controller_latch0;
+          comp->controller_latch1 = (uint8_t)cpu_component_call(cpu, "nes_controller_ports", "joy2_read", NULL, 0);
+          comp->controller_shift1 = comp->controller_latch1;
+      }
+      comp->controller_strobe = new_strobe;
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

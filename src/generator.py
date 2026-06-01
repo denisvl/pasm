@@ -13,12 +13,24 @@ if pkg_dir not in sys.path:
 
 from src.parser.yaml_loader import ProcessorSystemLoader
 from src.codegen.cpu_header import generate_cpu_header
-from src.codegen.cpu_impl import generate_cpu_impl
+from src.codegen.cpu_impl import (
+    generate_cpu_impl,
+)
+from src.codegen.split_units import (
+    emit_split_unit,
+    emit_ic_unit,
+)
 from src.codegen.cpu_decoder import generate_decoder
 from src.codegen.cpu_debug_abi import generate_debug_abi
 from src.codegen.cpu_hooks import HOOK_NAMES, generate_hooks
 from src.codegen.build_system import generate_cmake, generate_makefile
 from src.codegen.test_harness import generate_test_c
+from src.codegen.split_layout import (
+    SYSTEM_UNIT_SUFFIXES,
+    ic_unit_basenames,
+    system_ident,
+    system_unit_basenames,
+)
 from src.logging_utils import logger
 
 
@@ -65,6 +77,10 @@ class EmulatorGenerator:
         # Get CPU name from metadata
         self.cpu_name = self.isa_data.get("metadata", {}).get("name", "CPU")
         self.cpu_prefix = self.cpu_name.lower()
+        self.system_prefix = system_ident(
+            self.isa_data.get("system", {}).get("metadata", {}).get("name", "system"),
+            self.cpu_prefix,
+        )
 
     def generate(self, output_dir: str, dispatch_mode: str = "switch") -> None:
         """Generate the emulator to the output directory.
@@ -105,12 +121,29 @@ class EmulatorGenerator:
         header_code = generate_cpu_header(self.isa_data, self.cpu_name)
         (src_dir / f"{self.cpu_name}.h").write_text(header_code)
 
-        # Generate CPU implementation
-        logger.info("  - Generating cpu.c...")
+        # Generate CPU implementation content (owned by split core TU).
+        logger.info("  - Generating cpu_core.c...")
         impl_code = generate_cpu_impl(
-            self.isa_data, self.cpu_name, dispatch_mode=dispatch_mode
+            self.isa_data,
+            self.cpu_name,
+            dispatch_mode=dispatch_mode,
+            include_loader_impls=False,
+            include_interrupt_impls=False,
+            exclude_split_sections=[
+                "HOST_HAL_IMPL",
+                "INPUT_RUNTIME",
+                "CARTRIDGE_PICKER_RUNTIME",
+                "COMPONENT_RUNTIME",
+                "COMPONENT_LIFECYCLE",
+                "COMPONENT_DISPATCH",
+                "COMPONENT_ROUTING",
+                "COMPONENT_CONNECTIONS",
+            ],
         )
-        (src_dir / f"{self.cpu_name}.c").write_text(impl_code)
+        (src_dir / f"{self.cpu_name}_core.c").write_text(impl_code)
+
+        # Ensure stale legacy monolithic CPU TU is removed when regenerating.
+        (src_dir / f"{self.cpu_name}.c").unlink(missing_ok=True)
 
         # Generate decoder
         logger.info("  - Generating cpu_decoder.h/c...")
@@ -138,6 +171,69 @@ class EmulatorGenerator:
             (src_dir / f"{self.cpu_name}_hooks.h").write_text(hooks_header)
             (src_dir / f"{self.cpu_name}_hooks.c").write_text(hooks_impl)
         hooks_generated = hooks_header is not None
+
+        # Prune stale split system-side units from prior naming prefixes.
+        ic_basenames = ic_unit_basenames(self.isa_data, self.system_prefix)
+        current_split_units = {
+            f"{name}.c" for name in (system_unit_basenames(self.system_prefix) + ic_basenames)
+        }
+        current_split_headers = {f"{name}.h" for name in system_unit_basenames(self.system_prefix)}
+        for suffix in SYSTEM_UNIT_SUFFIXES:
+            for stale_path in src_dir.glob(f"*_{suffix}.c"):
+                stem = stale_path.stem
+                prefix = stem[: -(len(suffix) + 1)] if stem.endswith(f"_{suffix}") else ""
+                # Never prune CPU-owned generated units (e.g. {CPU}_debug_abi.c).
+                if prefix == self.cpu_name:
+                    continue
+                if stale_path.name not in current_split_units:
+                    stale_path.unlink(missing_ok=True)
+            for stale_path in src_dir.glob(f"*_{suffix}.h"):
+                stem = stale_path.stem
+                prefix = stem[: -(len(suffix) + 1)] if stem.endswith(f"_{suffix}") else ""
+                # Never prune CPU-owned generated units.
+                if prefix == self.cpu_name:
+                    continue
+                if stale_path.name not in current_split_headers:
+                    stale_path.unlink(missing_ok=True)
+
+        # Prune stale per-IC units from previous split layouts (e.g. merged legacy IC ids).
+        for stale_path in src_dir.glob(f"{self.system_prefix}_ic_*.c"):
+            if stale_path.name not in current_split_units:
+                stale_path.unlink(missing_ok=True)
+
+        # Prune obsolete system-scoped debug ABI artifacts from pre-split layouts.
+        # Debug ABI is CPU-owned now ({CPU}_debug_abi.c/.h), so keep only CPU-prefixed files.
+        for stale_path in src_dir.glob("*_debug_abi.c"):
+            stem = stale_path.stem
+            prefix = stem[: -len("_debug_abi")] if stem.endswith("_debug_abi") else ""
+            if prefix != self.cpu_name:
+                stale_path.unlink(missing_ok=True)
+        for stale_path in src_dir.glob("*_debug_abi.h"):
+            stem = stale_path.stem
+            prefix = stem[: -len("_debug_abi")] if stem.endswith("_debug_abi") else ""
+            if prefix != self.cpu_name:
+                stale_path.unlink(missing_ok=True)
+
+        # Transitional split system-side units (to be populated incrementally).
+        logger.info("  - Generating split system units...")
+        for basename in system_unit_basenames(self.system_prefix):
+            suffix = basename[len(self.system_prefix) + 1 :]
+            unit_body = emit_split_unit(self.isa_data, self.cpu_name, suffix)
+            (src_dir / f"{basename}.c").write_text(unit_body)
+        for component in list(self.isa_data.get("ics", []) or []):
+            if not isinstance(component, dict):
+                continue
+            comp_id = str((component.get("metadata") or {}).get("id", "")).strip()
+            if not comp_id:
+                continue
+            comp_ident = (
+                "".join(ch if (ch.isalnum() or ch == "_") else "_" for ch in comp_id).lower().strip("_")
+                or "ic"
+            )
+            basename = f"{self.system_prefix}_ic_{comp_ident}"
+            (src_dir / f"{basename}.c").write_text(
+                emit_ic_unit(self.isa_data, self.cpu_name, component)
+            )
 
         # Generate main.c
         logger.info("  - Generating main.c...")
@@ -433,14 +529,33 @@ int main(int argc, char *argv[]) {{
             "system_name": system_meta.get("name", "system"),
             "cpu_name": self.cpu_name,
             "cpu_prefix": self.cpu_prefix,
-            "cmake_library_target": f"{self.cpu_prefix}_emu",
-            "library_basename": f"{self.cpu_prefix}_emu",
+            "system_prefix": self.system_prefix,
+            "cmake_library_target": f"{self.system_prefix}_system",
+            "library_basename": f"{self.system_prefix}_system",
+            "split_targets": {
+                "cpu_core": f"{self.cpu_prefix}_cpu_core",
+                "system": f"{self.system_prefix}_system",
+            },
+            "split_units": {
+                "cpu_core_sources": [
+                    f"src/{self.cpu_name}_core.c",
+                    f"src/{self.cpu_name}_decoder.c",
+                    f"src/{self.cpu_name}_debug_abi.c",
+                ],
+                "system_sources": [
+                    f"src/{name}.c"
+                    for name in (
+                        system_unit_basenames(self.system_prefix)
+                        + ic_unit_basenames(self.isa_data, self.system_prefix)
+                    )
+                ],
+            },
+            "split_artifacts": {
+                "cpu_core_static": f"lib{self.cpu_prefix}_cpu_core.a",
+                "system_static": f"lib{self.system_prefix}_system.a",
+            },
             "artifacts": {
-                "static": f"lib{self.cpu_prefix}_emu.a",
-                "shared_linux": f"lib{self.cpu_prefix}_emu.so",
-                "shared_macos": f"lib{self.cpu_prefix}_emu.dylib",
-                "shared_windows": f"{self.cpu_prefix}_emu.dll",
-                "import_windows": f"{self.cpu_prefix}_emu.lib",
+                "static": f"lib{self.system_prefix}_system.a",
             },
             "headers": {
                 "cpu": f"src/{self.cpu_name}.h",

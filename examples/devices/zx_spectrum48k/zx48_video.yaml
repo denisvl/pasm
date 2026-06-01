@@ -1,7 +1,7 @@
 metadata:
   id: video0
   type: video
-  model: zx48_framebuffer_256x192_border
+  model: zx48_framebuffer_352x296_border
   version: "1.0"
 
 state:
@@ -31,15 +31,27 @@ behavior:
   handler_bodies:
     on_frame_boundary: |
       comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
-      static uint32_t framebuf[256u * 192u];
+      enum {
+          ZX_FB_W = 352u,
+          ZX_FB_H = 296u,
+          ZX_ACTIVE_W = 256u,
+          ZX_ACTIVE_H = 192u,
+          ZX_BORDER_X = 48u,
+          ZX_BORDER_Y = 48u
+      };
+      static uint32_t framebuf[ZX_FB_W * ZX_FB_H];
       static const uint32_t palette[16] = {
           0xFF000000u, 0xFF0000D7u, 0xFFD70000u, 0xFFD700D7u,
           0xFF00D700u, 0xFF00D7D7u, 0xFFD7D700u, 0xFFD7D7D7u,
           0xFF000000u, 0xFF0000FFu, 0xFFFF0000u, 0xFFFF00FFu,
           0xFF00FF00u, 0xFF00FFFFu, 0xFFFFFF00u, 0xFFFFFFFFu
       };
+      uint32_t border_px = palette[(uint8_t)(comp->border_color & 0x07u)];
       uint8_t flash_phase = (uint8_t)((comp->frame_count >> 5) & 1u);
-      for (uint32_t y = 0; y < 192u; y++) {
+      for (uint32_t i = 0; i < (uint32_t)(ZX_FB_W * ZX_FB_H); ++i) {
+          framebuf[i] = border_px;
+      }
+      for (uint32_t y = 0; y < ZX_ACTIVE_H; y++) {
           uint16_t pix_row = (uint16_t)(0x4000u + ((y & 0xC0u) << 5) + ((y & 0x07u) << 8) + ((y & 0x38u) << 2));
           uint16_t attr_row = (uint16_t)(0x5800u + ((y >> 3) * 32u));
           for (uint32_t xb = 0; xb < 32u; xb++) {
@@ -58,15 +70,16 @@ behavior:
               uint8_t paper_idx = (uint8_t)(paper + (bright ? 8u : 0u));
               for (uint32_t b = 0; b < 8u; b++) {
                   uint8_t on = (uint8_t)((bits & (0x80u >> b)) != 0u);
-                  framebuf[y * 256u + xb * 8u + b] = on ? palette[ink_idx] : palette[paper_idx];
+                  uint32_t x = xb * 8u + b;
+                  framebuf[(y + ZX_BORDER_Y) * ZX_FB_W + (x + ZX_BORDER_X)] = on ? palette[ink_idx] : palette[paper_idx];
               }
           }
       }
       uint64_t sig_args[5] = {
           (uint64_t)comp->frame_count,
           (uint64_t)(uintptr_t)framebuf,
-          256u,
-          192u,
+          ZX_FB_W,
+          ZX_FB_H,
           (uint64_t)comp->border_color
       };
       cpu_component_emit_signal(cpu, "video0", "frame_ready", sig_args, 5);

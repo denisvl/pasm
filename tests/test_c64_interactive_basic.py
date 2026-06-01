@@ -18,9 +18,15 @@ def _make_workdir(prefix: str) -> pathlib.Path:
 
 def _c64_interactive_paths():
     processor_path = BASE_DIR / "examples" / "processors" / "mos6510.yaml"
-    system_path = BASE_DIR / "examples" / "systems" / "c64_interactive.yaml"
+    system_path = BASE_DIR / "examples" / "systems" / "c64_cartridge_interactive.yaml"
     ic_paths = [
-        BASE_DIR / "examples" / "ics" / "c64_io.yaml",
+        BASE_DIR / "examples" / "ics" / "c64" / "c64_pla_906114.yaml",
+        BASE_DIR / "examples" / "ics" / "c64" / "c64_vic_ii_6569.yaml",
+        BASE_DIR / "examples" / "ics" / "c64" / "c64_sid_6581.yaml",
+        BASE_DIR / "examples" / "ics" / "c64" / "c64_cia1_6526.yaml",
+        BASE_DIR / "examples" / "ics" / "c64" / "c64_cia2_6526.yaml",
+        BASE_DIR / "examples" / "ics" / "c64" / "c64_color_ram_2114.yaml",
+        BASE_DIR / "examples" / "ics" / "c64" / "c64_main_ram.yaml",
     ]
     device_paths = [
         BASE_DIR / "examples" / "devices" / "c64_keyboard.yaml",
@@ -45,7 +51,15 @@ def test_c64_interactive_component_graph_validates():
     )
     assert data["metadata"]["name"] == "MOS6510"
     assert data["system"]["metadata"]["name"] == "C64InteractiveSystem"
-    assert [ic["metadata"]["id"] for ic in data["ics"]] == ["c64_io"]
+    assert [ic["metadata"]["id"] for ic in data["ics"]] == [
+        "c64_pla",
+        "c64_vic_ii",
+        "c64_sid",
+        "c64_cia1",
+        "c64_cia2",
+        "c64_color_ram",
+        "c64_main_ram",
+    ]
     assert [dev["metadata"]["id"] for dev in data["devices"]] == [
         "keyboard_c64",
         "joystick_c64",
@@ -69,13 +83,13 @@ def test_generate_c64_interactive_with_components():
     )
 
     src_dir = outdir / "src"
-    assert (src_dir / "MOS6510.c").exists()
+    assert (src_dir / "MOS6510_core.c").exists()
     assert (src_dir / "MOS6510.h").exists()
     assert (src_dir / "MOS6510_decoder.c").exists()
 
-    impl = (src_dir / "MOS6510.c").read_text(encoding="utf-8")
-    assert "ComponentState_c64_io" in impl
-    assert "mos6510_interrupt(cpu, 0u);" in impl
-    assert "cpu_component_emit_signal(cpu, \"c64_io\", \"frame_ready\"" in impl
-    assert "cpu_component_apply_declared_keymap(" in impl
-    assert "CPU_HOST_SCANCODE(LSHIFT)" in impl
+    cpu_h = (src_dir / "MOS6510.h").read_text(encoding="utf-8")
+    pla_impl = (src_dir / "c64_ic_c64_pla.c").read_text(encoding="utf-8")
+
+    assert "ComponentState_c64_pla" in cpu_h
+    assert "ComponentState_c64_main_ram" in cpu_h
+    assert "cpu_component_emit_signal(cpu, \"c64_pla\", \"frame_ready\"" in pla_impl

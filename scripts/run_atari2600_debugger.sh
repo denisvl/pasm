@@ -27,7 +27,8 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
-USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
+USE_CARTRIDGE_INPUT="${USE_CARTRIDGE-}"
+USE_CARTRIDGE="${USE_CARTRIDGE:-}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/atari2600/atari2600_mapper_none.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/atari2600/Pitfall! (1982) (Activision) [!].a26}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
@@ -46,17 +47,25 @@ if [[ -z "${CARTRIDGE_DIR}" ]]; then
 fi
 
 PROCESSOR="examples/processors/mos6502.yaml"
-IC_MAIN="examples/ics/atari2600/atari2600_tia_riot.yaml"
+IC_TIA="examples/ics/atari2600/atari2600_tia.yaml"
+IC_RIOT="examples/ics/atari2600/atari2600_riot_6532.yaml"
+IC_RAM="examples/ics/atari2600/atari2600_main_ram.yaml"
 DEVICE_CTRL="examples/devices/atari2600/atari2600_controller.yaml"
 DEVICE_VIDEO="examples/devices/atari2600/atari2600_video.yaml"
 DEVICE_SPK="examples/devices/atari2600/atari2600_speaker.yaml"
 case "${PROFILE}" in
   default)
+    if [[ -z "${USE_CARTRIDGE_INPUT}" ]]; then
+      USE_CARTRIDGE=0
+    fi
     SYSTEM="examples/systems/atari2600/atari2600_default.yaml"
     HOST="examples/hosts/atari2600/atari2600_host_stub.yaml"
     DEFAULT_OUTPUT="generated/atari2600_default"
     ;;
   interactive)
+    if [[ -z "${USE_CARTRIDGE_INPUT}" ]]; then
+      USE_CARTRIDGE=1
+    fi
     SYSTEM="examples/systems/atari2600/atari2600_interactive.yaml"
     HOST="examples/hosts/atari2600/atari2600_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/atari2600_interactive"
@@ -105,7 +114,9 @@ echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM}" \
-  --ic "${IC_MAIN}" \
+  --ic "${IC_RAM}" \
+  --ic "${IC_TIA}" \
+  --ic "${IC_RIOT}" \
   --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \

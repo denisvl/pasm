@@ -37,9 +37,15 @@ if not defined UV_CACHE_DIR set "UV_CACHE_DIR=%REPO_ROOT%\.uv-cache"
 if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%" >nul 2>&1
 
 set "PROCESSOR=examples/processors/mos6502.yaml"
-set "IC_IO=examples/ics/atari800xl/atari800xl_io.yaml"
-set "DEVICE_VIDEO=examples/devices/sms/sms_video.yaml"
-set "DEVICE_SPK=examples/devices/sms/sms_speaker.yaml"
+set "IC_ANTIC=examples/ics/atari800xl/atari800xl_antic.yaml"
+set "IC_GTIA=examples/ics/atari800xl/atari800xl_gtia.yaml"
+set "IC_POKEY=examples/ics/atari800xl/atari800xl_pokey.yaml"
+set "IC_PIA=examples/ics/atari800xl/atari800xl_pia_6520.yaml"
+set "IC_MMU=examples/ics/atari800xl/atari800xl_mmu.yaml"
+set "DEVICE_KB=examples/devices/atari800xl/atari800xl_keyboard.yaml"
+set "DEVICE_CTRL=examples/devices/atari800xl/atari800xl_controller.yaml"
+set "DEVICE_VIDEO=examples/devices/atari800xl/atari800xl_video.yaml"
+set "DEVICE_SPK=examples/devices/atari800xl/atari800xl_speaker.yaml"
 set "SYSTEM_DIR=examples/systems"
 
 if /I "%PROFILE%"=="default" (
@@ -48,7 +54,7 @@ if /I "%PROFILE%"=="default" (
   set "DEFAULT_OUTPUT=generated/atari800xl_default"
 ) else if /I "%PROFILE%"=="interactive" (
   set "SYSTEM=examples/systems/atari800xl/atari800xl_interactive.yaml"
-  set "HOST=examples/hosts/atari800xl/atari800xl_host_sdl2_interactive.yaml"
+  set "HOST=examples/hosts/atari800xl/atari800xl_host_hal_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/atari800xl_interactive"
 ) else (
   >&2 echo Unsupported profile: %PROFILE%
@@ -121,7 +127,13 @@ echo [1/3] Generating emulator -^> %OUTPUT_DIR%
 uv run python -m src.main generate ^
   --processor "%PROCESSOR%" ^
   --system "%SYSTEM%" ^
-  --ic "%IC_IO%" ^
+  --ic "%IC_ANTIC%" ^
+  --ic "%IC_GTIA%" ^
+  --ic "%IC_POKEY%" ^
+  --ic "%IC_PIA%" ^
+  --ic "%IC_MMU%" ^
+  --device "%DEVICE_KB%" ^
+  --device "%DEVICE_CTRL%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
   --host "%HOST%" ^

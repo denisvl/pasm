@@ -148,7 +148,9 @@ behavior:
       \ (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS)\
       \ != 0) {\n        break;\n    }\n    comp->window = cpu_host_hal_create_window(\n\
       \        \"PASM Sega SG-1000\",\n        CPU_HOST_WINDOWPOS_CENTERED,\n    \
-      \    CPU_HOST_WINDOWPOS_CENTERED,\n        768,\n        576,\n        CPU_HOST_WINDOW_RESIZABLE\n\
+      \    CPU_HOST_WINDOWPOS_CENTERED,\n        256,
+        192,
+        0u\n\
       \    );\n    if (comp->window == NULL) break;\n    comp->renderer = cpu_host_hal_create_renderer(comp->window,\
       \ -1, CPU_HOST_RENDERER_ACCELERATED);\n    if (comp->renderer == NULL) {\n \
       \       comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);\n\
@@ -165,16 +167,15 @@ behavior:
       \   want.callback = NULL;\n\n            comp->audio_out_ready = 0u;\n     \
       \       comp->audio_device_samples = 0u;\n            comp->audio_rate = 0u;\n\
       \            comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have,\
-      \ 0);\n\n            if (\n                comp->audio_out_dev != 0u &&\n  \
+      \ SDL_AUDIO_ALLOW_ANY_CHANGE);\n\n            if (\n                comp->audio_out_dev != 0u &&\n  \
       \              have.format == CPU_HOST_AUDIO_FORMAT_S16 &&\n               \
-      \ have.channels == 1 &&\n                have.freq > 0 &&\n                (uint32_t)have.freq\
-      \ == expected_rate &&\n                have.samples > 0\n            ) {\n \
+      \ have.channels <= 2u && have.channels >= 1u &&\n                have.freq > 0 &&\n                have.samples > 0\n            ) {\n \
       \               uint32_t ring_capacity = (uint32_t)have.samples * 8u;\n\n  \
       \              if (ring_capacity < 4096u) {\n                    ring_capacity\
       \ = 4096u;\n                }\n\n                comp->audio_ring = (int16_t\
       \ *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));\n\n       \
       \         if (comp->audio_ring != NULL) {\n                    comp->audio_rate\
-      \ = (uint32_t)have.freq;\n                    comp->audio_device_samples = (uint32_t)have.samples;\n\
+      \ = (uint32_t)have.freq;\n                    comp->audio_device_samples = (uint32_t)have.samples * (uint32_t)have.channels;\n\
       \                    comp->audio_ring_capacity = ring_capacity;\n          \
       \          comp->audio_ring_read_idx = 0u;\n                    comp->audio_ring_write_idx\
       \ = 0u;\n                    comp->audio_ring_fill = 0u;\n                 \
@@ -321,7 +322,7 @@ behavior:
       \    texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888,\
       \ CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);\n    if (texture == NULL)\
       \ return;\n    comp->texture = (void *)texture;\n    comp->texture_w = w;\n\
-      \    comp->texture_h = h;\n}\nif (cpu_host_hal_update_texture(texture, NULL,\
+      \    comp->texture_h = h;\n    if (comp->window != NULL) {\n        (void)cpu_host_hal_set_window_size(comp->window, (int)w, (int)h);\n    }\n}\nif (cpu_host_hal_update_texture(texture, NULL,\
       \ pixels, (int)(w * sizeof(uint32_t))) != 0) return;\ncpu_host_hal_render_set_draw_color(renderer,\
       \ 0, 0, 0, 255);\ncpu_host_hal_render_clear(renderer);\n{\n    int ww = 0;\n\
       \    int wh = 0;\n    int src_x = (comp->crop_left8 != 0u && w > 8u) ? 8 : 0;\n\

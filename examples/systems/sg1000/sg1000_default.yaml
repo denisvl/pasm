@@ -35,9 +35,11 @@ hooks:
 
 components:
   ics:
+    - sg_bus0
+    - sg_ram0
     - sg_vdp0
     - sg_joy0
-    - sms_psg0
+    - sg_psg0
   devices:
     - video_sms
     - speaker_sms
@@ -92,7 +94,7 @@ connections:
       name: irq_edge
 
   - from:
-      component: sms_psg0
+      component: sg_psg0
       kind: signal
       name: audio_level
     to:

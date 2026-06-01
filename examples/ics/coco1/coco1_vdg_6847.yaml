@@ -1,0 +1,92 @@
+metadata:
+  id: coco1_vdg_6847
+  type: video_generator
+  model: motorola_mc6847_vdg_boundary
+  version: "0.1"
+
+state:
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: display_base
+    type: uint16_t
+    initial: "0x0400"
+  - name: sam_mode
+    type: uint8_t
+    initial: "0"
+  - name: css
+    type: uint8_t
+    initial: "0"
+  - name: gm0
+    type: uint8_t
+    initial: "0"
+  - name: gm1
+    type: uint8_t
+    initial: "0"
+  - name: gm2
+    type: uint8_t
+    initial: "0"
+  - name: ag
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: on_sam_frame_ready
+      args: [u32, u64, u32, u32, u32]
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32, u32, u32, u32, u32, u32]
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    reset: |
+      comp->frame_counter = 0u;
+      comp->display_base = 0x0400u;
+      comp->sam_mode = 0u;
+      comp->css = 0u;
+      comp->gm0 = 0u;
+      comp->gm1 = 0u;
+      comp->gm2 = 0u;
+      comp->ag = 0u;
+  callback_handlers: {}
+  handler_bodies:
+    on_sam_frame_ready: |
+      if (argc < 5u) return;
+      comp->frame_counter = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      comp->display_base = (uint16_t)(args[2] & 0xFFFFu);
+      {
+          uint8_t sam_vdg_bits = (uint8_t)(args[3] & 0x07u);
+          uint8_t pia1_orb = (uint8_t)(args[4] & 0xFFu);
+          comp->sam_mode = sam_vdg_bits;
+          comp->css = (uint8_t)((pia1_orb >> 3u) & 0x01u);
+          comp->gm0 = (uint8_t)((pia1_orb >> 4u) & 0x01u);
+          comp->gm1 = (uint8_t)((pia1_orb >> 5u) & 0x01u);
+          comp->gm2 = (uint8_t)((pia1_orb >> 6u) & 0x01u);
+          comp->ag = (uint8_t)((pia1_orb >> 7u) & 0x01u);
+      }
+      {
+          uint64_t out_args[9] = {
+              (uint64_t)comp->frame_counter,
+              (uint64_t)args[1],
+              (uint64_t)comp->display_base,
+              (uint64_t)(comp->sam_mode & 0x07u),
+              (uint64_t)(comp->css & 0x01u),
+              (uint64_t)(comp->gm0 & 0x01u),
+              (uint64_t)(comp->gm1 & 0x01u),
+              (uint64_t)(comp->gm2 & 0x01u),
+              (uint64_t)(comp->ag & 0x01u)
+          };
+          cpu_component_emit_signal(cpu, "coco1_vdg_6847", "frame_ready", out_args, 9);
+      }
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

@@ -10,7 +10,7 @@ This is the canonical debugger spec for current behavior.
 - `linked`: links against generated emulator library from `PASM_EMU_DIR` and uses generated debug ABI (`pasm_dbg_*`).
 
 ## Runtime Requirements (Linked Backend)
-- Generated emulator output dir with `debugger_link.json` and built `*_emu` library.
+- Generated emulator output dir with `debugger_link.json` and built `*_system` (plus `*_cpu_core`) libraries.
 - `PASM_EMU_DIR=<generated_out_dir>`.
 - `--system-dir <dir>` so runtime ROM manifests can be loaded.
 - Optional `--cart-rom <file>` for cartridge-enabled systems.

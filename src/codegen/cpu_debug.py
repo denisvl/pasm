@@ -11,7 +11,7 @@ def generate_debug_header(isa_data: Dict[str, Any], cpu_name: str) -> str:
     return f"""#ifndef {cpu_name.upper()}_DEBUG_H
 #define {cpu_name.upper()}_DEBUG_H
 
-/* Debug functions are in {cpu_name}.h and {cpu_name}.c */
+/* Debug functions are in {cpu_name}.h and split debug units. */
 
 #endif
 """
@@ -22,5 +22,5 @@ def generate_debug_impl(isa_data: Dict[str, Any], cpu_name: str) -> str:
 
     cpu_prefix = cpu_name.lower()
 
-    return """/* Debug functions are implemented in the main cpu.c */
+    return """/* Debug functions are implemented in split debug units. */
 """

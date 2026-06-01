@@ -36,8 +36,14 @@ if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%" >nul 2>&1
 
 set "PROCESSOR=examples/processors/mos6502.yaml"
 set "SYSTEM_DIR=examples/systems"
-set "IC_IO=examples/ics/apple2/apple2_io.yaml"
+set "IC_KBD=examples/ics/apple2/apple2_keyboard_encoder_ay_5_3600.yaml"
+set "IC_GAMEIO=examples/ics/apple2/apple2_gameio_ne558.yaml"
+set "IC_VIDEO_SW=examples/ics/apple2/apple2_video_softswitches.yaml"
+set "IC_SPK_SW=examples/ics/apple2/apple2_speaker_toggle.yaml"
+set "IC_CHAR_ROM=examples/ics/apple2/apple2_char_generator_rom.yaml"
+set "IC_SLOT_DEC=examples/ics/apple2/apple2_slot_decoder_ttl.yaml"
 set "DEVICE_KB=examples/devices/apple2/apple2_keyboard.yaml"
+set "DEVICE_GP=examples/devices/apple2/apple2_gameport.yaml"
 set "DEVICE_VIDEO=examples/devices/apple2/apple2_video.yaml"
 set "DEVICE_SPK=examples/devices/apple2/apple2_speaker.yaml"
 set "HOST_INTERACTIVE=examples/hosts/apple2/apple2_host_hal_interactive.yaml"
@@ -127,8 +133,14 @@ goto :gen_done
 uv run python -m src.main generate ^
   --processor "%PROCESSOR%" ^
   --system "%SYSTEM%" ^
-  --ic "%IC_IO%" ^
+  --ic "%IC_KBD%" ^
+  --ic "%IC_GAMEIO%" ^
+  --ic "%IC_VIDEO_SW%" ^
+  --ic "%IC_SPK_SW%" ^
+  --ic "%IC_CHAR_ROM%" ^
+  --ic "%IC_SLOT_DEC%" ^
   --device "%DEVICE_KB%" ^
+  --device "%DEVICE_GP%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
   --host "%HOST_INTERACTIVE%" ^

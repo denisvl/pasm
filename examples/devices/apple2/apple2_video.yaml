@@ -33,7 +33,7 @@ behavior:
       comp->width = 280u;
       comp->height = 192u;
 
-      static uint32_t framebuf[280u * 192u];
+      static uint32_t framebuf[560u * 192u];
       static const uint32_t lores_palette[16] = {
           0xFF000000u, 0xFF8A2BE2u, 0xFF0000AAu, 0xFFFF44FFu,
           0xFF006400u, 0xFF808080u, 0xFF2F6BFFu, 0xFF7FDBFFu,
@@ -113,19 +113,24 @@ behavior:
       const uint32_t hires_blue = 0xFF2F6BFFu;
       const uint32_t hires_orange = 0xFFFF7A00u;
       const uint32_t hires_white = 0xFFFFFFFFu;
-      uint16_t text_base = (cpu->comp_apple2_io.page2 != 0u) ? 0x0800u : 0x0400u;
-      uint16_t hires_base = (cpu->comp_apple2_io.page2 != 0u) ? 0x4000u : 0x2000u;
-      uint8_t text_mode = (uint8_t)(cpu->comp_apple2_io.text_mode != 0u);
-      uint8_t mixed_mode = (uint8_t)(cpu->comp_apple2_io.mixed_mode != 0u);
-      uint8_t hires_mode = (uint8_t)(cpu->comp_apple2_io.hires != 0u);
+      uint16_t text_base = (cpu->comp_apple2_video_softswitches.page2 != 0u) ? 0x0800u : 0x0400u;
+      uint16_t hires_base = (cpu->comp_apple2_video_softswitches.page2 != 0u) ? 0x4000u : 0x2000u;
+      uint8_t text_mode = (uint8_t)(cpu->comp_apple2_video_softswitches.text_mode != 0u);
+      uint8_t mixed_mode = (uint8_t)(cpu->comp_apple2_video_softswitches.mixed_mode != 0u);
+      uint8_t hires_mode = (uint8_t)(cpu->comp_apple2_video_softswitches.hires != 0u);
       uint8_t flash_phase = (uint8_t)((comp->frame_count >> 4) & 0x01u);
       uint32_t graphics_rows = mixed_mode != 0u ? 20u : 24u;
       uint32_t graphics_lines = graphics_rows * 8u;
+      uint32_t fb_w = (text_mode == 0u && hires_mode != 0u) ? 560u : 280u;
+      uint32_t fb_h = 192u;
+      uint32_t x_scale = (fb_w == 560u) ? 2u : 1u;
+      comp->width = fb_w;
+      comp->height = fb_h;
 
       #define A2_TEXT_ADDR(base,row,col) ((uint16_t)((base) + ((((uint16_t)(row)) & 0x0007u) << 7u) + ((((uint16_t)(row)) >> 3u) * 40u) + (uint16_t)(col)))
       #define A2_HIRES_ADDR(base,y,xb) ((uint16_t)((base) + ((((uint16_t)(y)) & 0x0007u) << 10u) + (((((uint16_t)(y)) >> 3u) & 0x0007u) << 7u) + ((((uint16_t)(y)) >> 6u) * 40u) + (uint16_t)(xb)))
 
-      for (uint32_t i = 0u; i < 280u * 192u; ++i) {
+      for (uint32_t i = 0u; i < fb_w * fb_h; ++i) {
           framebuf[i] = text_bg;
       }
 
@@ -161,7 +166,9 @@ behavior:
                               color = ((x & 0x01u) != 0u) ? hires_green : hires_violet;
                           }
                       }
-                      framebuf[y * 280u + x] = color;
+                      uint32_t xx = x * x_scale;
+                      framebuf[y * fb_w + xx] = color;
+                      if (x_scale == 2u) framebuf[y * fb_w + xx + 1u] = color;
                   }
               }
           } else {
@@ -175,12 +182,16 @@ behavior:
                       uint32_t y0 = row * 8u;
                       for (uint32_t py = 0u; py < 4u; ++py) {
                           for (uint32_t px = 0u; px < 7u; ++px) {
-                              framebuf[(y0 + py) * 280u + x0 + px] = top;
+                              uint32_t xx = (x0 + px) * x_scale;
+                              framebuf[(y0 + py) * fb_w + xx] = top;
+                              if (x_scale == 2u) framebuf[(y0 + py) * fb_w + xx + 1u] = top;
                           }
                       }
                       for (uint32_t py = 4u; py < 8u; ++py) {
                           for (uint32_t px = 0u; px < 7u; ++px) {
-                              framebuf[(y0 + py) * 280u + x0 + px] = bottom;
+                              uint32_t xx = (x0 + px) * x_scale;
+                              framebuf[(y0 + py) * fb_w + xx] = bottom;
+                              if (x_scale == 2u) framebuf[(y0 + py) * fb_w + xx + 1u] = bottom;
                           }
                       }
                   }
@@ -211,14 +222,18 @@ behavior:
               }
               for (uint32_t py = 0u; py < 8u; ++py) {
                   for (uint32_t px = 0u; px < 7u; ++px) {
-                      framebuf[(y0 + py) * 280u + x0 + px] = bg;
+                      uint32_t xx = (x0 + px) * x_scale;
+                      framebuf[(y0 + py) * fb_w + xx] = bg;
+                      if (x_scale == 2u) framebuf[(y0 + py) * fb_w + xx + 1u] = bg;
                   }
               }
               for (uint32_t gy = 0u; gy < 7u; ++gy) {
                   uint8_t bits = apple2_glyph[glyph_idx][gy];
                   for (uint32_t gx = 0u; gx < 5u; ++gx) {
                       if ((bits & (uint8_t)(1u << (4u - gx))) == 0u) continue;
-                      framebuf[(y0 + gy) * 280u + x0 + gx + 1u] = fg;
+                      uint32_t xx = (x0 + gx + 1u) * x_scale;
+                      framebuf[(y0 + gy) * fb_w + xx] = fg;
+                      if (x_scale == 2u) framebuf[(y0 + gy) * fb_w + xx + 1u] = fg;
                   }
               }
           }
@@ -228,8 +243,8 @@ behavior:
           uint64_t out_args[4] = {
               (uint64_t)comp->frame_count,
               (uint64_t)(uintptr_t)framebuf,
-              280u,
-              192u
+              (uint64_t)fb_w,
+              (uint64_t)fb_h
           };
           cpu_component_emit_signal(cpu, "video_apple2", "frame_present", out_args, 4);
       }

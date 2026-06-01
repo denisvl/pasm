@@ -1,0 +1,65 @@
+metadata:
+  id: coco1_cart_expansion
+  type: expansion_bus
+  model: coco_program_pak_boundary
+  version: "0.1"
+
+state:
+  - name: firq_armed
+    type: uint8_t
+    initial: "0"
+  - name: last_route_enabled
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: firq_route_eval
+      args: [u8, u8, u8, u8]
+      returns: u64
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    reset: |
+      comp->firq_armed = 0u;
+      comp->last_route_enabled = 0u;
+  callback_handlers:
+    firq_route_eval: |
+      if (argc < 4u) return 0ull;
+      uint8_t crb = (uint8_t)(args[0] & 0xFFu);
+      uint8_t irq1_latched = (uint8_t)(args[1] & 0xFFu);
+      uint8_t cart_present = (uint8_t)(args[2] & 0x01u);
+      uint8_t write_edge = (uint8_t)(args[3] & 0x01u);
+      uint8_t route_enabled = (uint8_t)(crb & 0x01u);
+      uint8_t should_fire = 0u;
+      uint8_t irq1_out = irq1_latched;
+
+      if (cart_present != 0u && irq1_out == 0u) {
+          irq1_out = 0x80u;
+      }
+      if (cart_present != 0u && irq1_out != 0u) {
+          comp->firq_armed = 1u;
+      }
+      if (write_edge != 0u && route_enabled != 0u && irq1_out != 0u) {
+          comp->firq_armed = 1u;
+      }
+      if (route_enabled != 0u && irq1_out != 0u && comp->firq_armed != 0u) {
+          should_fire = 1u;
+          comp->firq_armed = 0u;
+      }
+      comp->last_route_enabled = route_enabled;
+
+      return ((uint64_t)irq1_out) | (((uint64_t)should_fire) << 8u);
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

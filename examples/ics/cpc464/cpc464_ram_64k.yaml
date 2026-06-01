@@ -1,0 +1,37 @@
+metadata:
+  id: cpc464_ram
+  type: memory
+  model: dram_64k_8x4164
+  version: "1.0"
+
+state:
+  - name: bytes
+    type: uint8_t *
+    initial: "NULL"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      comp->bytes = cpu->memory;
+    reset: |
+      (void)cpu;
+      comp->bytes = cpu->memory;
+    destroy: |
+      comp->bytes = NULL;
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

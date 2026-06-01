@@ -1,0 +1,5 @@
+system_name: msx1
+notes:
+- Starter mapper for MSX1 keyboard.
+- Open with keymapper UI and place key bounding boxes.
+keys: []

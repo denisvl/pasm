@@ -43,7 +43,7 @@ def test_trs80_keyboard_matrix_codegen_uses_address_synthesized_logic(tmp_path):
         device_paths=[str(path) for path in device_paths],
         host_paths=[str(path) for path in host_paths],
     )
-    c_src = (outdir / "src" / "Z80.c").read_text(encoding="utf-8")
+    c_src = (outdir / "src" / "Z80_core.c").read_text(encoding="utf-8")
 
     # Matrix is synthesized from address-selected row lines into column bits.
     assert "uint8_t row_lines = (uint8_t)(addr & 0xFFu);" in c_src
@@ -76,7 +76,10 @@ def test_trs80_interactive_host_bindings_cover_caps_and_punctuation():
     assert keymap["keyboard"]["kind"] == "matrix"
     assert keymap["keyboard"]["focus_required"] is True
     bindings = keymap["keyboard"]["bindings"]
-    binding_map = {b["host_key"]: {(p["row"], p["bit"]) for p in b["presses"]} for b in bindings}
+    binding_map = {
+        (b.get("host_scancode") or b.get("host_key")): {(p["row"], p["bit"]) for p in b["presses"]}
+        for b in bindings
+    }
 
     assert (0, 0) in binding_map["F5"]
     assert (0, 0) in binding_map["LEFTBRACKET"]
@@ -231,6 +234,13 @@ int main(void) {
     compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
     binary_name = "trs80_kb_matrix_harness.exe" if os.name == "nt" else "trs80_kb_matrix_harness"
     binary = outdir / binary_name
+    src_dir = outdir / "src"
+    split_units = [
+        str(path)
+        for suffix in ("_system_bus.c", "_system_glue.c", "_host_glue.c", "_device_glue.c")
+        for path in src_dir.glob(f"*{suffix}")
+    ]
+
     subprocess.check_call(
         [
             compiler,
@@ -238,11 +248,12 @@ int main(void) {
             "-O2",
             "-D_POSIX_C_SOURCE=199309L",
             "-I",
-            str(outdir / "src"),
+            str(src_dir),
             "-I",
             str(BASE_DIR / "examples" / "hosts" / "include"),
-            str(outdir / "src" / "Z80.c"),
-            str(outdir / "src" / "Z80_decoder.c"),
+            str(src_dir / "Z80_core.c"),
+            str(src_dir / "Z80_decoder.c"),
+            *split_units,
             str(harness_c),
             "-o",
             str(binary),

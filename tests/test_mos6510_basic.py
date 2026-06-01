@@ -77,7 +77,7 @@ def test_generate_mos6510():
     gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     src_dir = outdir / "src"
-    assert (src_dir / "MOS6510.c").exists()
+    assert (src_dir / "MOS6510_core.c").exists()
     assert (src_dir / "MOS6510.h").exists()
     assert (src_dir / "MOS6510_decoder.c").exists()
 

@@ -56,7 +56,9 @@ behavior:
       comp->audio_samples += 1u;
 
 coding:
-  headers: []
-  include_paths: []
+  headers:
+    - pasm_overlay.h
+  include_paths:
+    - ../include
   linked_libraries: []
   library_paths: []

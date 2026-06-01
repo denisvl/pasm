@@ -1,0 +1,217 @@
+metadata:
+  id: trs80_m4ga
+  type: io_controller
+  model: trs80_model4_gate_array
+  version: "1.0"
+
+state:
+  - name: video_ctrl
+    type: uint8_t
+    initial: "0x00"
+  - name: memory_map
+    type: uint8_t
+    initial: "0"
+  - name: video_cols
+    type: uint16_t
+    initial: "64"
+  - name: rom_shadow
+    type: uint8_t *
+    initial: "NULL"
+  - name: low_ram_shadow
+    type: uint8_t *
+    initial: "NULL"
+  - name: low_shadow_valid
+    type: uint8_t
+    initial: "0"
+  - name: low_ram_active
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: map_mem_read
+      args: [u16]
+      returns: u8
+    - name: map_mem_write
+      args: [u16, u8]
+      returns: u8
+    - name: port84_write
+      args: [u8]
+      returns: u8
+    - name: get_memory_map
+      args: []
+      returns: u8
+    - name: get_video_ctrl
+      args: []
+      returns: u8
+    - name: get_video_cols
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      if (comp->rom_shadow == NULL) {
+          comp->rom_shadow = (uint8_t *)calloc(0x3800u, sizeof(uint8_t));
+      }
+      if (comp->low_ram_shadow == NULL) {
+          comp->low_ram_shadow = (uint8_t *)calloc(0x3800u, sizeof(uint8_t));
+      }
+    reset: |
+      comp->video_ctrl = 0x00u;
+      comp->memory_map = 0u;
+      comp->video_cols = 64u;
+      comp->low_shadow_valid = 0u;
+      comp->low_ram_active = 0u;
+    destroy: |
+      if (comp->rom_shadow != NULL) {
+          free(comp->rom_shadow);
+          comp->rom_shadow = NULL;
+      }
+      if (comp->low_ram_shadow != NULL) {
+          free(comp->low_ram_shadow);
+          comp->low_ram_shadow = NULL;
+      }
+      comp->low_shadow_valid = 0u;
+      comp->low_ram_active = 0u;
+  callback_handlers:
+    map_mem_read: |
+      if (argc < 1u) return 0xFFu;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      if (comp->rom_shadow == NULL || comp->low_ram_shadow == NULL) return 0xFFu;
+
+      if (comp->low_shadow_valid == 0u) {
+          if (cpu->memory_size >= 0x3800u) {
+              memcpy(comp->rom_shadow, cpu->memory, 0x3800u);
+          } else {
+              for (uint32_t i = 0u; i < 0x3800u; ++i) {
+                  comp->rom_shadow[i] = (i < cpu->memory_size) ? cpu->memory[i] : 0xFFu;
+              }
+          }
+          memset(comp->low_ram_shadow, 0, 0x3800u);
+          comp->low_shadow_valid = 1u;
+          comp->low_ram_active = 0u;
+      }
+
+      if (addr < 0x3800u) {
+          if (comp->low_ram_active != 0u) {
+              return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+          }
+          return comp->rom_shadow[addr];
+      }
+
+      return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+    map_mem_write: |
+      if (argc < 2u) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      if (comp->rom_shadow == NULL || comp->low_ram_shadow == NULL) return 0u;
+
+      if (comp->low_shadow_valid == 0u) {
+          if (cpu->memory_size >= 0x3800u) {
+              memcpy(comp->rom_shadow, cpu->memory, 0x3800u);
+          } else {
+              for (uint32_t i = 0u; i < 0x3800u; ++i) {
+                  comp->rom_shadow[i] = (i < cpu->memory_size) ? cpu->memory[i] : 0xFFu;
+              }
+          }
+          memset(comp->low_ram_shadow, 0, 0x3800u);
+          comp->low_shadow_valid = 1u;
+          comp->low_ram_active = 0u;
+      }
+
+      if (addr < 0x3800u) {
+          if (comp->low_ram_active != 0u) {
+              if ((uint64_t)addr < cpu->memory_size) {
+                  cpu->memory[addr] = value;
+              }
+              comp->low_ram_shadow[addr] = value;
+          }
+          return 1u;
+      }
+      return 0u;
+    port84_write: |
+      if (argc < 1u) return 0u;
+      uint8_t value = (uint8_t)(args[0] & 0xFFu);
+      uint8_t old_map = (uint8_t)(comp->memory_map & 0x03u);
+      uint8_t new_map = (uint8_t)(value & 0x03u);
+      uint8_t old_ram = (old_map >= 2u) ? 1u : 0u;
+      uint8_t new_ram = (new_map >= 2u) ? 1u : 0u;
+
+      if (comp->rom_shadow != NULL && comp->low_ram_shadow != NULL) {
+          if (comp->low_shadow_valid == 0u) {
+              if (cpu->memory_size >= 0x3800u) {
+                  memcpy(comp->rom_shadow, cpu->memory, 0x3800u);
+              } else {
+                  for (uint32_t i = 0u; i < 0x3800u; ++i) {
+                      comp->rom_shadow[i] = (i < cpu->memory_size) ? cpu->memory[i] : 0xFFu;
+                  }
+              }
+              memset(comp->low_ram_shadow, 0, 0x3800u);
+              comp->low_shadow_valid = 1u;
+              comp->low_ram_active = 0u;
+          }
+
+          if (old_ram == 0u && new_ram != 0u) {
+              if (cpu->memory_size >= 0x3800u) {
+                  memcpy(cpu->memory, comp->low_ram_shadow, 0x3800u);
+              } else {
+                  for (uint32_t i = 0u; i < cpu->memory_size && i < 0x3800u; ++i) {
+                      cpu->memory[i] = comp->low_ram_shadow[i];
+                  }
+              }
+              comp->low_ram_active = 1u;
+          } else if (old_ram != 0u && new_ram == 0u) {
+              if (cpu->memory_size >= 0x3800u) {
+                  memcpy(comp->low_ram_shadow, cpu->memory, 0x3800u);
+                  memcpy(cpu->memory, comp->rom_shadow, 0x3800u);
+              } else {
+                  for (uint32_t i = 0u; i < 0x3800u; ++i) {
+                      if (i < cpu->memory_size) {
+                          comp->low_ram_shadow[i] = cpu->memory[i];
+                          cpu->memory[i] = comp->rom_shadow[i];
+                      }
+                  }
+              }
+              comp->low_ram_active = 0u;
+          } else if (new_ram == 0u) {
+              if (cpu->memory_size >= 0x3800u) {
+                  memcpy(cpu->memory, comp->rom_shadow, 0x3800u);
+              } else {
+                  for (uint32_t i = 0u; i < cpu->memory_size && i < 0x3800u; ++i) {
+                      cpu->memory[i] = comp->rom_shadow[i];
+                  }
+              }
+              comp->low_ram_active = 0u;
+          }
+      }
+
+      comp->video_ctrl = value;
+      comp->memory_map = new_map;
+      comp->video_cols = ((value & 0x04u) != 0u) ? 80u : 64u;
+      return 0u;
+    get_memory_map: |
+      (void)argc;
+      (void)args;
+      return (uint8_t)(comp->memory_map & 0x03u);
+    get_video_ctrl: |
+      (void)argc;
+      (void)args;
+      return comp->video_ctrl;
+    get_video_cols: |
+      (void)argc;
+      (void)args;
+      return (comp->video_cols == 80u) ? 80u : 64u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

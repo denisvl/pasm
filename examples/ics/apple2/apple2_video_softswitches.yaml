@@ -1,0 +1,105 @@
+metadata:
+  id: apple2_video_softswitches
+  type: io_controller
+  model: apple2_video_logic
+  version: "1.0"
+
+state:
+  - name: text_mode
+    type: uint8_t
+    initial: "1"
+  - name: mixed_mode
+    type: uint8_t
+    initial: "0"
+  - name: page2
+    type: uint8_t
+    initial: "0"
+  - name: hires
+    type: uint8_t
+    initial: "0"
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: last_frame_cycle
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32]
+
+maps:
+  memory:
+    ranges:
+      - name: video_status
+        start: 0xC01A
+        size: 0x0004
+        access: [read]
+      - name: video_softswitch
+        start: 0xC050
+        size: 0x0008
+        access: [read, write]
+
+behavior:
+  snippets:
+    mem_read_pre: |
+      if (addr >= 0xC050u && addr <= 0xC057u) {
+          switch (addr) {
+              case 0xC050u: comp->text_mode = 0u; break;
+              case 0xC051u: comp->text_mode = 1u; break;
+              case 0xC052u: comp->mixed_mode = 0u; break;
+              case 0xC053u: comp->mixed_mode = 1u; break;
+              case 0xC054u: comp->page2 = 0u; break;
+              case 0xC055u: comp->page2 = 1u; break;
+              case 0xC056u: comp->hires = 0u; break;
+              case 0xC057u: comp->hires = 1u; break;
+              default: break;
+          }
+          return 0u;
+      }
+      if (addr == 0xC01Au) return (comp->text_mode != 0u) ? 0x80u : 0u;
+      if (addr == 0xC01Bu) return (comp->mixed_mode != 0u) ? 0x80u : 0u;
+      if (addr == 0xC01Cu) return (comp->page2 != 0u) ? 0x80u : 0u;
+      if (addr == 0xC01Du) return (comp->hires != 0u) ? 0x80u : 0u;
+    mem_write_pre: |
+      if (addr >= 0xC050u && addr <= 0xC057u) {
+          switch (addr) {
+              case 0xC050u: comp->text_mode = 0u; break;
+              case 0xC051u: comp->text_mode = 1u; break;
+              case 0xC052u: comp->mixed_mode = 0u; break;
+              case 0xC053u: comp->mixed_mode = 1u; break;
+              case 0xC054u: comp->page2 = 0u; break;
+              case 0xC055u: comp->page2 = 1u; break;
+              case 0xC056u: comp->hires = 0u; break;
+              case 0xC057u: comp->hires = 1u; break;
+              default: break;
+          }
+          return;
+      }
+    step_post: |
+      uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 17050u;
+      if (frame_period == 0u) frame_period = 1u;
+      if ((cpu->total_cycles - comp->last_frame_cycle) >= frame_period) {
+          comp->last_frame_cycle = cpu->total_cycles;
+          comp->frame_counter += 1u;
+          {
+              uint64_t sig_args[4] = {
+                  (uint64_t)comp->frame_counter,
+                  (uint64_t)(uintptr_t)(&cpu->memory[0x0400u]),
+                  40u,
+                  24u
+              };
+              cpu_component_emit_signal(cpu, "apple2_video_softswitches", "frame_ready", sig_args, 4);
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

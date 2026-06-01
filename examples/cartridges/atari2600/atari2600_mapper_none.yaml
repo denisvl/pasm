@@ -32,6 +32,34 @@ maps:
         start: 0x1000
         size: 0x1000
         access: [read, write]
+      - name: cart_rom_mirror_3
+        start: 0x3000
+        size: 0x1000
+        access: [read, write]
+      - name: cart_rom_mirror_5
+        start: 0x5000
+        size: 0x1000
+        access: [read, write]
+      - name: cart_rom_mirror_7
+        start: 0x7000
+        size: 0x1000
+        access: [read, write]
+      - name: cart_rom_mirror_9
+        start: 0x9000
+        size: 0x1000
+        access: [read, write]
+      - name: cart_rom_mirror_b
+        start: 0xB000
+        size: 0x1000
+        access: [read, write]
+      - name: cart_rom_mirror_d
+        start: 0xD000
+        size: 0x1000
+        access: [read, write]
+      - name: cart_rom_mirror_f
+        start: 0xF000
+        size: 0x1000
+        access: [read, write]
 
 behavior:
   snippets:
@@ -52,35 +80,38 @@ behavior:
       }
       comp->rom_size = 0u;
     mem_read_pre: |
-      if (comp->rom_data == NULL || comp->rom_size == 0u) return 0u;
-      addr = (uint16_t)(addr & 0x1FFFu); /* 6507 has 13-bit address bus */
-      if (addr < 0x1000u || addr > 0x1FFFu) return 0u;
-      {
-          uint32_t off = (uint32_t)(addr - 0x1000u);
-          uint32_t size = comp->rom_size;
-          if (size == 2048u) {
-              off &= 0x07FFu;
-          } else if (size == 4096u) {
-              off &= 0x0FFFu;
-          } else if (size == 8192u) {
-              if (addr == 0x1FF8u) comp->bank_select = 0u;
-              if (addr == 0x1FF9u) comp->bank_select = 1u;
-              off = (uint32_t)(comp->bank_select ? 0x1000u : 0x0000u) + (off & 0x0FFFu);
-          } else if (size != 0u) {
-              off %= size;
+      if (comp->rom_data != NULL && comp->rom_size != 0u) {
+          addr = (uint16_t)(addr & 0x1FFFu); /* 6507 has 13-bit address bus */
+          if (addr >= 0x1000u && addr <= 0x1FFFu) {
+              uint32_t off = (uint32_t)(addr - 0x1000u);
+              uint32_t size = comp->rom_size;
+              if (size == 2048u) {
+                  off &= 0x07FFu;
+              } else if (size == 4096u) {
+                  off &= 0x0FFFu;
+              } else if (size == 8192u) {
+                  if (addr == 0x1FF8u) comp->bank_select = 0u;
+                  if (addr == 0x1FF9u) comp->bank_select = 1u;
+                  off = (uint32_t)(comp->bank_select ? 0x1000u : 0x0000u) + (off & 0x0FFFu);
+              } else if (size != 0u) {
+                  off %= size;
+              }
+              return comp->rom_data[off];
           }
-          return comp->rom_data[off];
       }
     mem_write_pre: |
       (void)value;
       /* ROM is read-only. */
-      addr = (uint16_t)(addr & 0x1FFFu);
-      if (addr < 0x1000u || addr > 0x1FFFu) return;
-      if (comp->rom_size == 8192u) {
-          if (addr == 0x1FF8u) comp->bank_select = 0u;
-          if (addr == 0x1FF9u) comp->bank_select = 1u;
+      if (comp->rom_size != 0u) {
+          addr = (uint16_t)(addr & 0x1FFFu);
+          if (addr >= 0x1000u && addr <= 0x1FFFu) {
+              if (comp->rom_size == 8192u) {
+                  if (addr == 0x1FF8u) comp->bank_select = 0u;
+                  if (addr == 0x1FF9u) comp->bank_select = 1u;
+              }
+              return;
+          }
       }
-      return;
   callback_handlers: {}
   handler_bodies: {}
 

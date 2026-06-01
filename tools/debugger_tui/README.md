@@ -5,7 +5,7 @@ Rust TUI debugger front-end for generated PASM emulators.
 ## Backends
 
 - `mock`: no emulator linkage, UI-only development path.
-- `linked`: links against a generated emulator library (`<cpu>_emu`) and uses the generated generic debug bridge API (`pasm_dbg_*`).
+- `linked`: links against generated split libraries (`<cpu>_cpu_core` + `<system>_system`) and uses the generated generic debug bridge API (`pasm_dbg_*`).
 
 ## Build and Run (Mock)
 
@@ -35,7 +35,7 @@ cargo run --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulat
   --backend linked --memory-size 65536 --system-dir /tmp/pasm_minimal8_dbg
 ```
 
-`PASM_EMU_DIR` must point to a generated emulator output directory that contains `debugger_link.json` and a built `*_emu` library (typically in `<out>/build` after CMake build).
+`PASM_EMU_DIR` must point to a generated emulator output directory that contains `debugger_link.json` and built split libraries (typically `*_system` plus `*_cpu_core` in `<out>/build` after CMake build).
 
 Optional:
 - `--start-pc <addr>` sets initial program counter for debugging (supports decimal or hex like `0xC000`).

@@ -49,8 +49,8 @@ behavior:
               }
           }
           if (vtrace != 0 && vfp != NULL && (comp->frame_count % 25u) == 0u) {
-              uint8_t mode_t = cpu->comp_bbc_micro_io.video_mode;
-              uint16_t sb_t = cpu->comp_bbc_micro_io.screen_base;
+              uint8_t mode_t = cpu->comp_bbc_micro_crtc_6845.video_mode;
+              uint16_t sb_t = cpu->comp_bbc_micro_crtc_6845.screen_base;
               uint8_t b0 = ((uint64_t)(sb_t + 0u) < cpu->memory_size) ? cpu->memory[sb_t + 0u] : 0u;
               uint8_t b1 = ((uint64_t)(sb_t + 1u) < cpu->memory_size) ? cpu->memory[sb_t + 1u] : 0u;
               uint8_t b2 = ((uint64_t)(sb_t + 2u) < cpu->memory_size) ? cpu->memory[sb_t + 2u] : 0u;
@@ -132,7 +132,8 @@ behavior:
           0xFF000000u, 0xFFFFFFFFu
       };
       static const uint32_t pal4[4] = {
-          0xFF000000u, 0xFFFF0000u, 0xFF00FF00u, 0xFFFFFF00u
+          /* BBC 4-colour default logical mapping: 0=black,1=red,2=yellow,3=white */
+          0xFF000000u, 0xFFFF0000u, 0xFFFFFF00u, 0xFFFFFFFFu
       };
       static const uint32_t pal16[16] = {
           0xFF000000u, 0xFF0000AAu, 0xFF00AA00u, 0xFF00AAAAu,
@@ -141,13 +142,13 @@ behavior:
           0xFFFF5555u, 0xFFFF55FFu, 0xFFFFFF55u, 0xFFFFFFFFu
       };
 
-      uint8_t mode = cpu->comp_bbc_micro_io.video_mode;
-      uint16_t screen_base = cpu->comp_bbc_micro_io.screen_base;
-      uint16_t crtc_start_addr = cpu->comp_bbc_micro_io.crtc_start_addr;
+      uint8_t mode = cpu->comp_bbc_micro_crtc_6845.video_mode;
+      uint16_t screen_base = cpu->comp_bbc_micro_crtc_6845.screen_base;
+      uint16_t crtc_start_addr = cpu->comp_bbc_micro_crtc_6845.crtc_start_addr;
 
-      if (mode == 7u || mode == 3u) {
+      if (mode == 7u) {
           /* Text memory is fixed-size; do not derive columns/rows from host window size. */
-          uint32_t cols = (mode == 3u) ? 80u : 40u;
+          uint32_t cols = 40u;
           uint32_t rows = 25u;
           uint32_t cell_w = 12u;
           uint32_t cell_h = 10u;
@@ -165,8 +166,6 @@ behavior:
                       uint16_t start_off = (uint16_t)(crtc_start_addr & 0x03FFu);
                       uint16_t off = (uint16_t)((start_off + (uint16_t)(row * cols + col)) & 0x03FFu);
                       addr = (uint16_t)(base + off);
-                  } else {
-                      addr = (uint16_t)(screen_base + row * cols + col);
                   }
                   uint8_t ch_raw = ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 32u;
                   uint8_t ch = (uint8_t)(ch_raw & 0x7Fu);
@@ -199,9 +198,9 @@ behavior:
               }
           }
           {
-              uint8_t cur_start = (uint8_t)(cpu->comp_bbc_micro_io.crtc_cursor_start & 0x1Fu);
-              uint8_t cur_end = (uint8_t)(cpu->comp_bbc_micro_io.crtc_cursor_end & 0x1Fu);
-              uint8_t cur_mode = (uint8_t)((cpu->comp_bbc_micro_io.crtc_cursor_start >> 5u) & 0x03u);
+              uint8_t cur_start = (uint8_t)(cpu->comp_bbc_micro_crtc_6845.crtc_cursor_start & 0x1Fu);
+              uint8_t cur_end = (uint8_t)(cpu->comp_bbc_micro_crtc_6845.crtc_cursor_end & 0x1Fu);
+              uint8_t cur_mode = (uint8_t)((cpu->comp_bbc_micro_crtc_6845.crtc_cursor_start >> 5u) & 0x03u);
               uint8_t cur_disabled = (uint8_t)(cur_mode == 1u);
               uint8_t blink_on = 1u;
               if (cur_mode == 2u) {
@@ -210,8 +209,8 @@ behavior:
                   blink_on = (uint8_t)(((comp->frame_count / 32u) & 1u) == 0u);
               }
               if (cur_disabled == 0u && blink_on != 0u) {
-                  uint16_t cur_addr = cpu->comp_bbc_micro_io.crtc_cursor_addr;
-                  uint16_t start_addr = cpu->comp_bbc_micro_io.crtc_start_addr;
+                  uint16_t cur_addr = cpu->comp_bbc_micro_crtc_6845.crtc_cursor_addr;
+                  uint16_t start_addr = cpu->comp_bbc_micro_crtc_6845.crtc_start_addr;
                   uint16_t delta = (uint16_t)(cur_addr - start_addr);
                   uint32_t cpos = (uint32_t)(delta & 0x3FFFu);
                   uint32_t crow = (cols > 0u) ? (cpos / cols) : 0u;
@@ -237,25 +236,68 @@ behavior:
                   }
               }
           }
+      } else if (mode == 3u || mode == 6u) {
+          /* Text-only rendering path (previous stable behavior). */
+          uint32_t cols = (mode == 3u) ? 80u : 40u;
+          uint32_t rows = 25u;
+          uint32_t cell_w = (mode == 3u) ? 8u : 16u;
+          uint32_t cell_h = 8u;
+          uint16_t mode_base = (mode == 3u) ? 0x4000u : 0x6000u;
+          uint16_t mode_span = (mode == 3u) ? 0x0800u : 0x0400u; /* 2KB / 1KB text window */
+          comp->width = cols * cell_w;
+          comp->height = rows * cell_h;
+
+          for (uint32_t i = 0u; i < comp->width * comp->height; ++i) framebuf[i] = 0xFF000000u;
+
+          for (uint32_t row = 0u; row < rows; ++row) {
+              for (uint32_t col = 0u; col < cols; ++col) {
+                  uint16_t rel = (uint16_t)((crtc_start_addr + (uint16_t)(row * cols + col)) % mode_span);
+                  uint16_t char_addr = (uint16_t)(mode_base + rel);
+                  uint8_t ch_raw = ((uint64_t)char_addr < cpu->memory_size) ? cpu->memory[char_addr] : 32u;
+                  uint8_t ch = (uint8_t)(ch_raw & 0x7Fu);
+                  uint8_t glyph_idx = (uint8_t)((ch >= 32u && ch <= 127u) ? (ch - 32u) : 0u);
+                  uint32_t x0 = col * cell_w;
+                  uint32_t y0 = row * cell_h;
+
+                  for (uint32_t gy = 0u; gy < 8u; ++gy) {
+                      uint8_t bits = glyph[glyph_idx][gy];
+                      for (uint32_t gx = 0u; gx < 8u; ++gx) {
+                          if ((bits & (uint8_t)(1u << (7u - gx))) == 0u) continue;
+                          if (mode == 3u) {
+                              uint32_t fx = x0 + gx;
+                              uint32_t fy = y0 + gy;
+                              if (fx < comp->width && fy < comp->height) {
+                                  framebuf[fy * comp->width + fx] = 0xFFFFFFFFu;
+                              }
+                          } else {
+                              uint32_t fx = x0 + (gx * 2u);
+                              uint32_t fy = y0 + gy;
+                              if (fy < comp->height) {
+                                  if (fx < comp->width) framebuf[fy * comp->width + fx] = 0xFFFFFFFFu;
+                                  if (fx + 1u < comp->width) framebuf[fy * comp->width + fx + 1u] = 0xFFFFFFFFu;
+                              }
+                          }
+                      }
+                  }
+              }
+          }
       } else {
           uint32_t width = 320u;
-          uint32_t height = 250u;
+          uint32_t height = 256u;
           uint32_t bpp = 1u;
-          uint32_t req_w = (argc > 2u) ? (uint32_t)(args[2] & 0xFFFFFFFFu) : 0u;
-          uint32_t req_h = (argc > 3u) ? (uint32_t)(args[3] & 0xFFFFFFFFu) : 0u;
+          uint32_t mode_base = 0x3000u;
+          uint32_t mode_screen_bytes = 0x5000u;
 
           switch (mode) {
-              case 0u: width = 640u; height = 250u; bpp = 1u; break;
-              case 1u: width = 320u; height = 250u; bpp = 2u; break;
-              case 2u: width = 160u; height = 250u; bpp = 4u; break;
-              case 4u: width = 320u; height = 250u; bpp = 1u; break;
-              case 5u: width = 160u; height = 250u; bpp = 2u; break;
-              case 6u: width = 320u; height = 250u; bpp = 1u; break;
-              default: width = 320u; height = 256u; bpp = 1u; break;
+              case 0u: width = 640u; height = 256u; bpp = 1u; mode_base = 0x3000u; mode_screen_bytes = 0x5000u; break;
+              case 1u: width = 320u; height = 256u; bpp = 2u; mode_base = 0x3000u; mode_screen_bytes = 0x5000u; break;
+              case 2u: width = 160u; height = 256u; bpp = 4u; mode_base = 0x3000u; mode_screen_bytes = 0x5000u; break;
+              case 3u: width = 640u; height = 200u; bpp = 1u; mode_base = 0x4000u; mode_screen_bytes = 0x4000u; break;
+              case 4u: width = 320u; height = 256u; bpp = 1u; mode_base = 0x5800u; mode_screen_bytes = 0x2800u; break;
+              case 5u: width = 160u; height = 256u; bpp = 2u; mode_base = 0x5800u; mode_screen_bytes = 0x2800u; break;
+              case 6u: width = 320u; height = 200u; bpp = 1u; mode_base = 0x6000u; mode_screen_bytes = 0x2000u; break;
+              default: width = 320u; height = 256u; bpp = 1u; mode_base = 0x3000u; mode_screen_bytes = 0x5000u; break;
           }
-
-          if (req_w >= 64u && req_w <= 960u) width = req_w;
-          if (req_h >= 64u && req_h <= 300u) height = req_h;
           comp->width = width;
           comp->height = height;
 
@@ -263,25 +305,62 @@ behavior:
 
           uint32_t bytes_per_row = (width * bpp) / 8u;
           uint32_t pixels_per_byte = 8u / bpp;
-          uint32_t raster_h = (uint32_t)cpu->comp_bbc_micro_io.crtc_rmax + 1u;
-          if (raster_h == 0u) raster_h = 8u;
-          if (raster_h > 32u) raster_h = 8u;
+          uint32_t raster_h = 8u;
+          uint32_t crtc_start_byte = ((uint32_t)crtc_start_addr << 3u) & 0x7FFFu;
+          uint32_t rel_start = 0u;
+          if (mode_screen_bytes != 0u) {
+              if (crtc_start_byte >= mode_base) {
+                  rel_start = (crtc_start_byte - mode_base) % mode_screen_bytes;
+              } else {
+                  rel_start = (mode_screen_bytes - ((mode_base - crtc_start_byte) % mode_screen_bytes)) % mode_screen_bytes;
+              }
+          }
 
           for (uint32_t y = 0u; y < height; ++y) {
               uint32_t char_row = y / raster_h;
               uint32_t raster = y % raster_h;
               for (uint32_t xb = 0u; xb < bytes_per_row; ++xb) {
                   uint32_t off = (char_row * bytes_per_row + xb) * 8u + raster;
-                  if ((uint64_t)(screen_base + off) >= cpu->memory_size) {
+                  uint32_t ram_addr = mode_base + ((rel_start + off) % mode_screen_bytes);
+                  ram_addr &= 0x7FFFu;
+                  if ((uint64_t)ram_addr >= cpu->memory_size) {
                       continue;
                   }
-                  uint8_t raw = cpu->memory[(uint16_t)(screen_base + off)];
+                  uint8_t raw = cpu->memory[(uint16_t)ram_addr];
 
                   for (uint32_t p = 0u; p < pixels_per_byte; ++p) {
-                      uint32_t shift = (pixels_per_byte - 1u - p) * bpp;
-                      uint8_t pix = (uint8_t)((raw >> shift) & ((1u << bpp) - 1u));
+                      uint8_t pix = 0u;
                       uint32_t x = xb * pixels_per_byte + p;
                       if (x >= width) continue;
+
+                      if (bpp == 1u) {
+                          /* 1bpp: pixels map directly high-to-low bits (7..0). */
+                          pix = (uint8_t)((raw >> (7u - p)) & 0x01u);
+                      } else if (bpp == 2u) {
+                          /* 2bpp interleaved planes:
+                             pixel0=(b7,b3), pixel1=(b6,b2), pixel2=(b5,b1), pixel3=(b4,b0). */
+                          uint8_t hi = (uint8_t)((raw >> (7u - p)) & 0x01u);
+                          uint8_t lo = (uint8_t)((raw >> (3u - p)) & 0x01u);
+                          pix = (uint8_t)((hi << 1u) | lo);
+                      } else {
+                          /* 4bpp interleaved planes (Mode 2), two pixels per byte:
+                             left=(b7,b5,b3,b1), right=(b6,b4,b2,b0). */
+                          if (p == 0u) {
+                              pix = (uint8_t)(
+                                  (((raw >> 7u) & 0x01u) << 3u) |
+                                  (((raw >> 5u) & 0x01u) << 2u) |
+                                  (((raw >> 3u) & 0x01u) << 1u) |
+                                  ((raw >> 1u) & 0x01u)
+                              );
+                          } else {
+                              pix = (uint8_t)(
+                                  (((raw >> 6u) & 0x01u) << 3u) |
+                                  (((raw >> 4u) & 0x01u) << 2u) |
+                                  (((raw >> 2u) & 0x01u) << 1u) |
+                                  ((raw >> 0u) & 0x01u)
+                              );
+                          }
+                      }
 
                       uint32_t c = 0xFF000000u;
                       if (bpp == 1u) c = pal2[pix & 1u];

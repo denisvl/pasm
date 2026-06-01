@@ -122,7 +122,7 @@ behavior:
     init: "do {\n    if (comp->host_inited != 0u) break;\n    if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO\
       \ | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) break;\n\n    comp->window\
       \ = cpu_host_hal_create_window(\n        \"PASM NES\",\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
-      \        CPU_HOST_WINDOWPOS_CENTERED,\n        768,\n        720,\n        CPU_HOST_WINDOW_RESIZABLE\n\
+      \        CPU_HOST_WINDOWPOS_CENTERED,\n        256,\n        240,\n        0\n\
       \    );\n    if (comp->window == NULL) break;\n\n    comp->renderer = cpu_host_hal_create_renderer(comp->window,\
       \ -1, CPU_HOST_RENDERER_ACCELERATED);\n    if (comp->renderer == NULL) {\n \
       \       comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);\n\
@@ -135,7 +135,7 @@ behavior:
       \ = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (uint32_t)CPU_AUDIO_SAMPLE_RATE : 44100u;\n\
       \            cpu_host_audio_spec_zero(&want);\n            cpu_host_audio_spec_zero(&have);\n\
       \            want.freq = (int)expected_rate;\n            want.format = CPU_HOST_AUDIO_FORMAT_S16;\n\
-      \            want.channels = 1;\n            want.samples = 512;\n         \
+      \            want.channels = 1;\n            want.samples = 1024;\n        \
       \   want.callback = NULL;\n\n            comp->audio_out_ready = 0u;\n     \
       \       comp->audio_device_samples = 0u;\n            comp->audio_rate = 0u;\n\
       \            comp->audio_out_dev = cpu_host_hal_audio_open(NULL, 0, &want, &have,\
@@ -143,8 +143,8 @@ behavior:
       \              have.format == CPU_HOST_AUDIO_FORMAT_S16 &&\n               \
       \ have.channels == 1 &&\n                have.freq > 0 &&\n                (uint32_t)have.freq\
       \ == expected_rate &&\n                have.samples > 0\n            ) {\n \
-      \               uint32_t ring_capacity = (uint32_t)have.samples * 8u;\n    \
-      \            if (ring_capacity < 4096u) ring_capacity = 4096u;\n           \
+      \               uint32_t ring_capacity = (uint32_t)have.samples * 128u;\n  \
+      \             if (ring_capacity < 65536u) ring_capacity = 65536u;\n         \
       \     comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity\
       \ * sizeof(int16_t));\n                if (comp->audio_ring != NULL) {\n   \
       \                 comp->audio_out_ready = 1u;\n                    comp->audio_device_samples\
@@ -174,7 +174,9 @@ behavior:
       \ = 0u;\n                }\n            }\n        }\n    }\n\n    {\n     \
       \   const char *joy2_env = cpu_host_hal_getenv(\"PASM_NES_JOY2_CONNECTED\");\n\
       \        comp->joy2_connected = (joy2_env != NULL && joy2_env[0] == '1') ? 1u\
-      \ : 0u;\n    }\n    comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);\n\
+      \ : 0u;\n    }
+    comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);
+\
       \    comp->last_focus_state = comp->has_keyboard_focus;\n    comp->host_inited\
       \ = 1u;\n} while (0);\n"
     reset: 'comp->frame_count = 0u;
@@ -213,7 +215,7 @@ behavior:
 
       '
     step_post: "if (comp->host_inited == 0u) return;\nif ((cpu->total_cycles - comp->last_event_poll_cycle)\
-      \ < 2048u) return;\ncomp->last_event_poll_cycle = cpu->total_cycles;\n\n{\n\
+      \ < 512u) return;\ncomp->last_event_poll_cycle = cpu->total_cycles;\n\n{\n\
       \    CPUHostEvent ev;\n    while (cpu_host_hal_poll_event(&ev)) {\n        if\
       \ (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {\n            cpu->running\
       \ = false;\n            cpu->halted = true;\n        }\n    }\n    cpu_host_hal_pump_events();\n\
@@ -229,7 +231,7 @@ behavior:
       \    );\n}\n\n{\n    int key_count = 0;\n    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n\
        \    /* Prefer controller-map when loaded (host_controller_nes.yaml); otherwise keep legacy keyboard-map behavior. */\n\
        \    if (g_runtime_controller_map.loaded != 0u) {\n\
-       \        cpu_component_controller_map_poll(cpu, comp->has_keyboard_focus);\n\
+       \        cpu_component_controller_map_poll(cpu, 1u);\n\
        \        comp->joy1 = 0u;\n        comp->joy2 = 0u;\n\
        \        if (cpu_component_controller_pressed(\"P1_A\")) comp->joy1 |= 0x01u;\n\
        \        if (cpu_component_controller_pressed(\"P1_B\")) comp->joy1 |= 0x02u;\n\
@@ -253,7 +255,7 @@ behavior:
        \            comp->joy2_connected = p2c;\n            if (p2c == 0u) comp->joy2 = 0u;\n        }\n    } else if (ks != NULL && key_count > 0) {\n        uint8_t rows[2] = { 0xFFu,\
        \ 0xFFu };\n        cpu_component_apply_declared_keymap(\n            cpu,\n\
        \            \"host_nes\",\n            ks,\n            (size_t)key_count,\n\
-       \            rows,\n            2u,\n            comp->has_keyboard_focus\n\
+       \            rows,\n            2u,\n            1u\n\
        \        );\n        if (comp->joy2_connected == 0u) {\n            rows[1]\
        \ = 0xFFu;\n        }\n\n        comp->joy1 = 0u;\n        comp->joy2 = 0u;\n\
        \n        if ((rows[0] & 0x10u) == 0u) comp->joy1 |= 0x01u; /* A */\n      \
@@ -278,7 +280,7 @@ behavior:
        \            host_pad_trace_enabled = (env != NULL && env[0] != '0') ? 1 : 0;\n        }\n\
        \        if (host_pad_trace_enabled != 0) {\n            static FILE *fp = NULL;\n\
        \            if (fp == NULL) fp = fopen(\"log/nes_pad_trace.log\", \"a\");\n\
-       \            if (fp != NULL) {\n                unsigned k_ret = 0u, k_ret2 = 0u, k_kpenter = 0u, k_rshift = 0u, k_up = 0u, k_down = 0u, k_left = 0u, k_right = 0u, map_start = 0u;\n\
+       \            if (fp != NULL) {\n                unsigned k_ret = 0u, k_ret2 = 0u, k_kpenter = 0u, k_space = 0u, k_rshift = 0u, k_z = 0u, k_x = 0u, k_up = 0u, k_down = 0u, k_left = 0u, k_right = 0u, map_start = 0u;\n\
        \                if (ks != NULL && key_count > 0) {\n                    if ((size_t)CPU_HOST_SCANCODE(RETURN) < (size_t)key_count) k_ret = (unsigned)ks[CPU_HOST_SCANCODE(RETURN)];\n\
        \                    if ((size_t)CPU_HOST_SCANCODE(RETURN2) < (size_t)key_count) k_ret2 = (unsigned)ks[CPU_HOST_SCANCODE(RETURN2)];\n\
        \                    if ((size_t)CPU_HOST_SCANCODE(KP_ENTER) < (size_t)key_count) k_kpenter = (unsigned)ks[CPU_HOST_SCANCODE(KP_ENTER)];\n\
@@ -296,25 +298,16 @@ behavior:
       \    comp->audio_out_ready != 0u &&\n    comp->audio_ring != NULL\n) {\n   \
       \ uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev)\
       \ / (uint32_t)sizeof(int16_t);\n    uint32_t device_samples = (comp->audio_device_samples\
-      \ > 0u) ? comp->audio_device_samples : 512u;\n    uint32_t low_watermark = device_samples\
-      \ * 3u;\n    uint32_t target_total = device_samples * 6u;\n    uint32_t max_total\
-      \ = device_samples * 12u;\n\n    if (queued_samples + comp->audio_ring_fill\
-      \ > max_total) {\n        uint32_t desired_ring_fill = (queued_samples < target_total)\
-      \ ? (target_total - queued_samples) : 0u;\n        while (comp->audio_ring_fill\
-      \ > desired_ring_fill) {\n            comp->audio_ring_read_idx += 1u;\n   \
-      \         if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx\
-      \ = 0u;\n            comp->audio_ring_fill -= 1u;\n        }\n    }\n\n    if\
-      \ (queued_samples < low_watermark && comp->audio_ring_fill > 0u) {\n       \
-      \ uint32_t desired = (queued_samples < target_total) ? (target_total - queued_samples)\
-      \ : 0u;\n        uint32_t to_send = (comp->audio_ring_fill < desired) ? comp->audio_ring_fill\
-      \ : desired;\n        while (to_send > 0u) {\n            int16_t chunk[512];\n\
-      \            uint32_t n = (to_send > 512u) ? 512u : to_send;\n            for\
-      \ (uint32_t i = 0u; i < n; ++i) {\n                chunk[i] = comp->audio_ring[comp->audio_ring_read_idx];\n\
+      \ > 0u) ? comp->audio_device_samples : 1024u;\n    uint32_t low_watermark = device_samples * 32u;\n    uint32_t target_total = device_samples * 64u;\n\n    if\
+      \ (queued_samples < low_watermark && comp->audio_ring_fill >= device_samples) {\n\
+      \        int16_t chunk[1024];\n        uint32_t n = (device_samples > 1024u) ? 1024u : device_samples;\n\
+      \        while (queued_samples < target_total && comp->audio_ring_fill >= n) {\n\
+      \            for (uint32_t i = 0u; i < n; ++i) {\n                chunk[i] = comp->audio_ring[comp->audio_ring_read_idx];\n\
       \                comp->audio_ring_read_idx += 1u;\n                if (comp->audio_ring_read_idx\
-      \ >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;\n          \
-      \  }\n            comp->audio_ring_fill -= n;\n            if (cpu_host_hal_audio_queue(comp->audio_out_dev,\
-      \ chunk, n * (uint32_t)sizeof(int16_t)) != 0) break;\n            to_send -=\
-      \ n;\n        }\n    }\n}\n"
+      \ >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;\n            }\n\
+      \            comp->audio_ring_fill -= n;\n            if (cpu_host_hal_audio_queue(comp->audio_out_dev,\
+      \ chunk, n * (uint32_t)sizeof(int16_t)) != 0) break;\n            queued_samples += n;\n\
+      \        }\n    }\n}\n"
     destroy: "if (comp->audio_out_dev != 0u) {\n    cpu_host_hal_audio_close(comp->audio_out_dev);\n\
       \    comp->audio_out_dev = 0u;\n}\ncomp->audio_out_ready = 0u;\ncomp->audio_device_samples\
       \ = 0u;\ncomp->audio_rate = 0u;\nif (comp->audio_ring != NULL) {\n    cpu_host_hal_free(comp->audio_ring);\n\
@@ -348,27 +341,19 @@ behavior:
       \ return;\n    comp->texture = (void *)texture;\n    comp->texture_w = w;\n\
       \    comp->texture_h = h;\n}\nif (cpu_host_hal_update_texture(texture, NULL,\
       \ pixels, (int)(w * sizeof(uint32_t))) != 0) return;\ncpu_host_hal_render_set_draw_color(renderer,\
-      \ 0, 0, 0, 255);\ncpu_host_hal_render_clear(renderer);\n{\n    int ww = 0;\n\
-      \    int wh = 0;\n    if (cpu_host_hal_renderer_output_size(renderer, &ww, &wh)\
-      \ != 0 || ww <= 0 || wh <= 0) return;\n    CPUHostRect dst;\n    int scaled_w\
-      \ = ww;\n    int scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);\n\
-      \    if (scaled_h > wh) {\n        scaled_h = wh;\n        scaled_w = (int)((((int64_t)wh)\
-      \ * (int64_t)w) / (int64_t)h);\n    }\n    dst.w = (scaled_w > 0) ? scaled_w\
-      \ : ww;\n    dst.h = (scaled_h > 0) ? scaled_h : wh;\n    dst.x = (ww - dst.w)\
-      \ / 2;\n    dst.y = (wh - dst.h) / 2;\n    if (cpu_host_hal_render_copy(renderer,\
-      \ texture, NULL, &dst) != 0) return;\n}\ncpu_host_hal_render_present(renderer);\n"
+      \ 0, 0, 0, 255);\ncpu_host_hal_render_clear(renderer);\nif (cpu_host_hal_render_copy(renderer,\
+      \ texture, NULL, NULL) != 0) return;\ncpu_host_hal_render_present(renderer);\n"
     audio_pcm: "if (\n    comp->audio_out_dev == 0u ||\n    comp->audio_out_ready\
       \ == 0u ||\n    comp->audio_ring == NULL ||\n    comp->audio_ring_capacity ==\
       \ 0u ||\n    argc < 1\n) {\n    return;\n}\n{\n    uint8_t level = (uint8_t)(args[0]\
-      \ & 0xFFu);\n    int centered = ((int)level) - 128;\n    int32_t sample_in =\
-      \ centered * 128;\n    int32_t sample_hp =\n        sample_in -\n        comp->audio_hp_prev_in\
-      \ +\n        ((comp->audio_hp_prev_out * 32440) / 32768); /* R ~= 0.99 */\n\
-      \    if (sample_hp < -32768) sample_hp = -32768;\n    if (sample_hp > 32767)\
-      \ sample_hp = 32767;\n    comp->audio_hp_prev_in = sample_in;\n    comp->audio_hp_prev_out\
-      \ = sample_hp;\n    int16_t sample = (int16_t)sample_hp;\n    if (comp->audio_ring_fill\
-      \ >= comp->audio_ring_capacity) {\n        comp->audio_ring_read_idx += 1u;\n\
-      \        if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx\
-      \ = 0u;\n        comp->audio_ring_fill -= 1u;\n    }\n    comp->audio_ring[comp->audio_ring_write_idx]\
+      \ & 0xFFu);\n    int centered = ((int)level) - 128;\n    int32_t raw = (int32_t)(centered * 128);\n\
+      \    /* Cheap anti-click smoothing: slew-limit + 1-pole LP in integer math. */\n\
+      \    int32_t prev = comp->audio_hp_prev_out;\n    int32_t d = raw - prev;\n\
+      \    if (d > 1024) raw = prev + 1024;\n    else if (d < -1024) raw = prev - 1024;\n\
+      \    int32_t sample_i = prev + ((raw - prev) >> 2);\n    if (sample_i > 32767) sample_i = 32767;\n\
+      \    if (sample_i < -32768) sample_i = -32768;\n    comp->audio_hp_prev_out = sample_i;\n\
+      \    int16_t sample = (int16_t)sample_i;\n    if (comp->audio_ring_fill\
+      \ >= comp->audio_ring_capacity) {\n        return;\n    }\n    comp->audio_ring[comp->audio_ring_write_idx]\
       \ = sample;\n    comp->audio_ring_write_idx += 1u;\n    if (comp->audio_ring_write_idx\
       \ >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;\n    comp->audio_ring_fill\
       \ += 1u;\n    comp->audio_samples += 1u;\n}\n"

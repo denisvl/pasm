@@ -2,23 +2,7 @@
 set -euo pipefail
 
 # One-shot helper: generate + build + run PASM Rust debugger for NES.
-# Cartridge mapper is auto-selected from iNES header when CARTRIDGE_MAP is not set.
-#
-# Usage:
-#   scripts/run_nes_debugger.sh [interactive|default]
-#
-# Optional env overrides:
-#   START_PC=0x8000   (optional; leave unset to use reset vector at FFFC/FFFD)
-#   MEMORY_SIZE=65536
-#   OUTPUT_DIR=generated/mos6502_nes_interactive
-#   EXTRA_CARGO_ARGS="--release"
-#   CMAKE_BUILD_TYPE=Release
-#   RUN_SPEED=realtime|max
-#   PASM_HOST_AUDIO=1
-#   CARTRIDGE_ROM_GEN="../../roms/nes/Super Mario Bros. 2 (USA) (Rev 1).nes"
-#   CARTRIDGE_ROM_RUNTIME=/abs/path/to/cart.nes
-#   CARTRIDGE_DIR=examples/roms/nes
-#   PASM_NES_JOY2_CONNECTED=0|1
+# Canonical NES interactive debugger runner.
 
 PROFILE="${1:-interactive}"
 START_PC="${START_PC:-}"
@@ -29,16 +13,15 @@ RUN_SPEED="${RUN_SPEED:-realtime}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 PASM_HOST_DEBUG="${PASM_HOST_DEBUG:-0}"
 PASM_NES_JOY2_CONNECTED="${PASM_NES_JOY2_CONNECTED:-0}"
-# Always use auto mapper so cartridge picker can switch across supported mappers
-# (mapper 0/NROM, mapper 4/MMC3, mapper 66/GxROM) in one running session.
+
 CARTRIDGE_MAP="examples/cartridges/nes/nes_mapper_auto.yaml"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/nes/Super Mario Bros. 2 (USA) (Rev 1).nes}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/nes/host_console_nes.yaml}"
 CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/nes/host_controller_nes.yaml}"
 CARTRIDGE_DIR="${CARTRIDGE_DIR:-examples/roms/nes}"
-# Trace/debug flags are forced OFF by default to avoid inherited shell exports
-# silently degrading runtime performance.
+
+# Hard-disable traces for performance.
 PASM_NES_MMC3_TRACE="0"
 PASM_NES_IRQ_TRACE="0"
 PASM_NES_PAD_TRACE="0"
@@ -47,18 +30,7 @@ PASM_NES_PAD_ZP_TRACE="0"
 PASM_NES_ZP_TRACE="0"
 PASM_CYC_DEBUG="0"
 PASM_TRACE="0"
-
-# Optional opt-in trace bundle for focused debugging sessions.
-if [[ "${NES_ENABLE_TRACES:-0}" != "0" ]]; then
-  PASM_NES_MMC3_TRACE="1"
-  PASM_NES_IRQ_TRACE="1"
-  PASM_NES_PAD_TRACE="1"
-  PASM_NES_PPUSTATUS_TRACE="1"
-  PASM_NES_PAD_ZP_TRACE="1"
-  PASM_NES_ZP_TRACE="1"
-  PASM_CYC_DEBUG="1"
-  PASM_TRACE="1"
-fi
+export PASM_NES_4016_TRACE=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -67,25 +39,26 @@ export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
 mkdir -p "${UV_CACHE_DIR}"
 
 PROCESSOR="examples/processors/ricoh2a03.yaml"
-IC_MAIN="examples/ics/nes/nes_ppu_apu_io.yaml"
+SYSTEM="examples/systems/nes/nes_interactive.yaml"
+HOST="examples/hosts/nes/nes_host_hal_interactive.yaml"
+IC_BUS="examples/ics/nes/nes_cpu_bus.yaml"
+IC_CTRL="examples/ics/nes/nes_controller_ports.yaml"
+IC_APU="examples/ics/nes/nes_apu.yaml"
+IC_PPU_REGS="examples/ics/nes/nes_ppu_regs.yaml"
+IC_CPU_RAM="examples/ics/nes/nes_cpu_ram.yaml"
+IC_IO_PORTS="examples/ics/nes/nes_io_ports.yaml"
+IC_CART_BRIDGE="examples/ics/nes/nes_cart_bridge.yaml"
 DEVICE_CTRL="examples/devices/nes/nes_controller.yaml"
 DEVICE_VIDEO="examples/devices/nes/nes_video.yaml"
 DEVICE_SPK="examples/devices/nes/nes_speaker.yaml"
 
 case "${PROFILE}" in
-  default)
-    SYSTEM="examples/systems/nes/nes_default.yaml"
-    HOST="examples/hosts/nes/nes_host_stub.yaml"
-    DEFAULT_OUTPUT="generated/mos6502_nes_default"
-    ;;
   interactive)
-    SYSTEM="examples/systems/nes/nes_interactive.yaml"
-    HOST="examples/hosts/nes/nes_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/mos6502_nes_interactive"
     ;;
   *)
     echo "Unsupported profile: ${PROFILE}" >&2
-    echo "Use: default | interactive" >&2
+    echo "Use: interactive" >&2
     exit 2
     ;;
 esac
@@ -101,8 +74,6 @@ if [[ -n "${CARTRIDGE_ROM_RUNTIME}" ]]; then
   ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME}"
 elif command -v realpath >/dev/null 2>&1; then
   ROM_RUNTIME="$(realpath "${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}")"
-elif command -v readlink >/dev/null 2>&1; then
-  ROM_RUNTIME="$(readlink -f "${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}")"
 else
   ROM_RUNTIME="${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}"
 fi
@@ -116,7 +87,13 @@ echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM}" \
-  --ic "${IC_MAIN}" \
+  --ic "${IC_BUS}" \
+  --ic "${IC_CTRL}" \
+  --ic "${IC_APU}" \
+  --ic "${IC_PPU_REGS}" \
+  --ic "${IC_CPU_RAM}" \
+  --ic "${IC_IO_PORTS}" \
+  --ic "${IC_CART_BRIDGE}" \
   --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
@@ -130,45 +107,13 @@ echo "[2/3] Building emulator with CMake -> ${BUILD_DIR}"
 cmake -S "${OUTPUT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
 cmake --build "${BUILD_DIR}" --config "${CMAKE_BUILD_TYPE}"
 
-echo "[3/3] Running Rust debugger (linked backend)"
-echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC:-<reset-vector>} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
-echo "    cartridge_map=${CARTRIDGE_MAP}"
-echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
-echo "    cartridge_rom_runtime=${ROM_RUNTIME}"
-if [[ "${PROFILE}" == "interactive" ]]; then
-  echo "    keyboard_map=${KEYBOARD_MAP}"
-  echo "    controller_map=${CONTROLLER_MAP}"
-  echo "    cartridge_dir=${CARTRIDGE_DIR}"
-fi
 if [[ -n "${START_PC}" ]]; then
   set -- --start-pc "${START_PC}"
 else
   set --
 fi
 
-if [[ "${PASM_NES_MMC3_TRACE}" != "0" ]]; then
-  rm -f log/nes_mmc3_trace.log nes_mmc3_trace.log
-fi
-if [[ "${PASM_NES_IRQ_TRACE}" != "0" ]]; then
-  rm -f log/nes_irq_trace.log nes_irq_trace.log
-fi
-if [[ "${PASM_NES_PAD_TRACE}" != "0" ]]; then
-  rm -f log/nes_pad_trace.log nes_pad_trace.log
-fi
-if [[ "${PASM_NES_PPUSTATUS_TRACE}" != "0" ]]; then
-  rm -f log/nes_ppu_status_trace.log nes_ppu_status_trace.log
-fi
-if [[ "${PASM_NES_PAD_ZP_TRACE}" != "0" ]]; then
-  rm -f log/nes_pad_zp_trace.log nes_pad_zp_trace.log
-fi
-
-EXTRA_MAP_ARGS=()
-if [[ "${PROFILE}" == "interactive" ]]; then
-  EXTRA_MAP_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
-  EXTRA_MAP_ARGS+=(--controller-map "${CONTROLLER_MAP}")
-  EXTRA_MAP_ARGS+=(--cartridge-dir "${CARTRIDGE_DIR}")
-fi
-
+echo "[3/3] Running Rust debugger (linked backend)"
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
@@ -189,6 +134,8 @@ cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --fe
   --memory-size "${MEMORY_SIZE}" \
   --system-dir "${SYSTEM_DIR}" \
   --cart-rom "${ROM_RUNTIME}" \
-  "${EXTRA_MAP_ARGS[@]}" \
+  --keyboard-map "${KEYBOARD_MAP}" \
+  --controller-map "${CONTROLLER_MAP}" \
+  --cartridge-dir "${CARTRIDGE_DIR}" \
   "$@" \
   --run-speed "${RUN_SPEED}"

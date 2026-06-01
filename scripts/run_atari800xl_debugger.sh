@@ -53,8 +53,46 @@ if [[ -z "${CARTRIDGE_DIR}" ]]; then
   CARTRIDGE_DIR="${REPO_ROOT}/examples/roms/atari800xl"
 fi
 
+resolve_path_for_gen() {
+  local p="$1"
+  if [[ -z "$p" ]]; then
+    printf "%s" ""
+    return 0
+  fi
+  if [[ "$p" = /* ]]; then
+    printf "%s" "$p"
+    return 0
+  fi
+  if [[ -f "${SYSTEM_DIR_ABS}/${p}" ]]; then
+    if command -v realpath >/dev/null 2>&1; then
+      realpath "${SYSTEM_DIR_ABS}/${p}"
+    elif command -v readlink >/dev/null 2>&1; then
+      readlink -f "${SYSTEM_DIR_ABS}/${p}"
+    else
+      printf "%s" "${SYSTEM_DIR_ABS}/${p}"
+    fi
+    return 0
+  fi
+  if [[ -f "$p" ]]; then
+    if command -v realpath >/dev/null 2>&1; then
+      realpath "$p"
+    elif command -v readlink >/dev/null 2>&1; then
+      readlink -f "$p"
+    else
+      printf "%s" "$p"
+    fi
+    return 0
+  fi
+  printf "%s" "$p"
+}
+
 PROCESSOR="examples/processors/mos6502.yaml"
-IC_MAIN="examples/ics/atari800xl/atari800xl_io.yaml"
+IC_ANTIC="examples/ics/atari800xl/atari800xl_antic.yaml"
+IC_GTIA="examples/ics/atari800xl/atari800xl_gtia.yaml"
+IC_POKEY="examples/ics/atari800xl/atari800xl_pokey.yaml"
+IC_PIA="examples/ics/atari800xl/atari800xl_pia_6520.yaml"
+IC_MMU="examples/ics/atari800xl/atari800xl_mmu.yaml"
+IC_MAIN_RAM="examples/ics/atari800xl/atari800xl_main_ram.yaml"
 DEVICE_KB="examples/devices/atari800xl/atari800xl_keyboard.yaml"
 DEVICE_CTRL="examples/devices/atari800xl/atari800xl_controller.yaml"
 DEVICE_VIDEO="examples/devices/atari800xl/atari800xl_video.yaml"
@@ -93,8 +131,6 @@ SYSTEM_DIR="$(dirname "${SYSTEM}")"
 SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
 ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 SYSTEM_FOR_GEN="${SYSTEM}"
-SYSTEM_ORIGINAL_CONTENT=""
-RESTORE_SYSTEM=0
 
 GEN_CARTRIDGE_ARGS=()
 RUN_CARTRIDGE_ARGS=()
@@ -147,18 +183,21 @@ if [[ "${USE_CARTRIDGE}" != "0" && "${BOOT_CARTRIDGE}" != "0" && ! -f "${ROM_RUN
   echo "Warning: cartridge ROM not found (${ROM_RUNTIME})." >&2
 fi
 
-# Materialize ROM path overrides directly into selected system YAML for codegen,
-# then restore original content on script exit.
-SYSTEM_ORIGINAL_CONTENT="$(cat "${SYSTEM}")"
-RESTORE_SYSTEM=1
-trap 'if [[ "${RESTORE_SYSTEM}" == "1" ]]; then printf "%s" "${SYSTEM_ORIGINAL_CONTENT}" > "${SYSTEM}"; fi' EXIT
-python - "${SYSTEM}" "${OS_ROM}" "${BASIC_ROM}" "${SELFTEST_ROM}" <<'PY'
+# Materialize ROM path overrides into a temp system YAML for codegen
+# (do not mutate repository files in-place).
+TMP_SYSTEM="${SYSTEM_DIR_ABS}/.tmp_atari800xl_system_${$}_$RANDOM.yaml"
+touch "${TMP_SYSTEM}"
+trap 'rm -f "${TMP_SYSTEM}"' EXIT
+OS_ROM_GEN="$(resolve_path_for_gen "${OS_ROM}")"
+BASIC_ROM_GEN="$(resolve_path_for_gen "${BASIC_ROM}")"
+SELFTEST_ROM_GEN="$(resolve_path_for_gen "${SELFTEST_ROM}")"
+python - "${SYSTEM}" "${TMP_SYSTEM}" "${OS_ROM_GEN}" "${BASIC_ROM_GEN}" "${SELFTEST_ROM_GEN}" <<'PY'
 import sys
 import yaml
 
-path, os_rom, basic_rom, selftest_rom = sys.argv[1:5]
+src_path, dst_path, os_rom, basic_rom, selftest_rom = sys.argv[1:6]
 
-with open(path, "r", encoding="utf-8") as f:
+with open(src_path, "r", encoding="utf-8") as f:
     data = yaml.safe_load(f)
 
 rom_images = data.get("memory", {}).get("rom_images", [])
@@ -171,16 +210,21 @@ for rom in rom_images:
     elif name in ("atari800xl_os", "atari800xl_os_rom"):
         rom["file"] = os_rom
 
-with open(path, "w", encoding="utf-8") as f:
+with open(dst_path, "w", encoding="utf-8") as f:
     yaml.safe_dump(data, f, sort_keys=False)
 PY
-SYSTEM_FOR_GEN="${SYSTEM}"
+SYSTEM_FOR_GEN="${TMP_SYSTEM}"
 
 echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM_FOR_GEN}" \
-  --ic "${IC_MAIN}" \
+  --ic "${IC_ANTIC}" \
+  --ic "${IC_GTIA}" \
+  --ic "${IC_POKEY}" \
+  --ic "${IC_PIA}" \
+  --ic "${IC_MMU}" \
+  --ic "${IC_MAIN_RAM}" \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \

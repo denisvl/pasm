@@ -1,0 +1,27 @@
+metadata:
+  id: apple2_slot_decoder
+  type: io_controller
+  model: apple2_ttl_decode
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

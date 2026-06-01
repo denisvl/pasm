@@ -1,0 +1,49 @@
+metadata:
+  id: trs80_m4irq
+  type: interrupt_controller
+  model: trs80_model4_irq
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: pulse_irq
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals:
+    - name: irq_edge
+      args: [u8]
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      (void)cpu;
+  callback_handlers:
+    pulse_irq: |
+      (void)args;
+      (void)argc;
+      z80_interrupt(cpu, 0xFFu);
+      {
+          uint64_t irq_up[1] = { 1u };
+          uint64_t irq_down[1] = { 0u };
+          cpu_component_emit_signal(cpu, "trs80_m4irq", "irq_edge", irq_up, 1);
+          cpu_component_emit_signal(cpu, "trs80_m4irq", "irq_edge", irq_down, 1);
+      }
+      return (uint64_t)1u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

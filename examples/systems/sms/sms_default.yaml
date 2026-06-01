@@ -48,6 +48,8 @@ hooks:
 
 components:
   ics:
+    - sms_bus0
+    - sms_ram0
     - sms_vdp0
     - sms_joy0
     - sms_psg0
@@ -148,4 +150,3 @@ audio:
 
 integrations:
   profile: sms_default
-

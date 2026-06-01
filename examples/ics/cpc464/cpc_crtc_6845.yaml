@@ -1,0 +1,97 @@
+metadata:
+  id: cpc_crtc
+  type: video_timing
+  model: mc6845_compatible
+  version: "1.0"
+
+state:
+  - name: crtc_index
+    type: uint8_t
+    initial: "0"
+  - name: crtc_regs
+    type: uint8_t *
+    initial: "NULL"
+  - name: ma
+    type: uint16_t
+    initial: "0"
+  - name: ra
+    type: uint8_t
+    initial: "0"
+  - name: hc
+    type: uint8_t
+    initial: "0"
+  - name: vc
+    type: uint8_t
+    initial: "0"
+  - name: vadj
+    type: uint8_t
+    initial: "0"
+  - name: hsync
+    type: uint8_t
+    initial: "0"
+  - name: vsync
+    type: uint8_t
+    initial: "0"
+  - name: display
+    type: uint8_t
+    initial: "0"
+  - name: char_accum
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: read_reg
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+  ports:
+    read: []
+    write:
+      - name: crtc_index_write
+        mask: 0xFF00
+        value: 0xBC00
+      - name: crtc_data_write
+        mask: 0xFF00
+        value: 0xBD00
+
+behavior:
+  snippets:
+    init: |
+      if (comp->crtc_regs == NULL) {
+          comp->crtc_regs = (uint8_t *)calloc(32u, sizeof(uint8_t));
+      }
+    destroy: |
+      if (comp->crtc_regs != NULL) {
+          free(comp->crtc_regs);
+          comp->crtc_regs = NULL;
+      }
+    port_write_pre: |
+      uint16_t ph = (uint16_t)(port & 0xFF00u);
+      if (ph == 0xBC00u) {
+          comp->crtc_index = (uint8_t)(value & 0x1Fu);
+          return;
+      }
+      if (ph == 0xBD00u) {
+          if (comp->crtc_regs != NULL) {
+              comp->crtc_regs[comp->crtc_index & 0x1Fu] = value;
+          }
+          return;
+      }
+  callback_handlers:
+    read_reg: |
+      uint8_t idx = (uint8_t)(args[0] & 0x1Fu);
+      if (comp->crtc_regs == NULL) return 0u;
+      return comp->crtc_regs[idx];
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

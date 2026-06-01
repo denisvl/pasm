@@ -1,0 +1,214 @@
+metadata:
+  id: coco1_pia0_6821
+  type: io_controller
+  model: motorola_mc6821_pia0_boundary
+  version: "0.1"
+
+state:
+  - name: irq_edge_count
+    type: uint32_t
+    initial: "0"
+  - name: last_irq_source
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_read_row
+      args: [u8]
+      returns: u8
+    - name: joystick_read_axis
+      args: [u8]
+      returns: u8
+    - name: joystick_read_button
+      args: [u8]
+      returns: u8
+    - name: clock_irq_edge
+      args: [u8, u8, u8, u8]
+      returns: u64
+    - name: irq_fire_mask
+      args: [u8, u8, u8, u8, u8, u8]
+      returns: u8
+    - name: read_reg
+      args: [u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8]
+      returns: u64
+    - name: write_reg
+      args: [u8, u8, u8, u8, u8, u8, u8, u8, u8, u8]
+      returns: u64
+  handlers:
+    - name: on_sam_irq_edge
+      args: [u8]
+  signals:
+    - name: irq_edge
+      args: [u8]
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    reset: |
+      comp->irq_edge_count = 0u;
+      comp->last_irq_source = 0u;
+  callback_handlers:
+    read_reg: |
+      if (argc < 12u) return 0ull;
+      uint8_t reg = (uint8_t)(args[0] & 0xFFu);
+      uint8_t pia0_cra = (uint8_t)(args[1] & 0xFFu);
+      uint8_t pia0_crb = (uint8_t)(args[2] & 0xFFu);
+      uint8_t pia0_ora = (uint8_t)(args[3] & 0xFFu);
+      uint8_t pia0_orb = (uint8_t)(args[4] & 0xFFu);
+      uint8_t pia0_ddra = (uint8_t)(args[5] & 0xFFu);
+      uint8_t pia0_ddrb = (uint8_t)(args[6] & 0xFFu);
+      uint8_t pia0_cra_irq1 = (uint8_t)(args[7] & 0xFFu);
+      uint8_t pia0_cra_irq2 = (uint8_t)(args[8] & 0xFFu);
+      uint8_t pia0_crb_irq1 = (uint8_t)(args[9] & 0xFFu);
+      uint8_t pia0_crb_irq2 = (uint8_t)(args[10] & 0xFFu);
+      uint8_t pia1_ora = (uint8_t)(args[11] & 0xFFu);
+      uint8_t value = 0xFFu;
+
+      if (reg == 0u) {
+          if ((pia0_cra & 0x04u) == 0u) {
+              value = pia0_ddra;
+          } else {
+              uint8_t in_a = 0xFFu;
+              uint8_t out_b = (uint8_t)((pia0_orb & pia0_ddrb) | ((uint8_t)(~pia0_ddrb)));
+              uint8_t selected_cols = (uint8_t)(~out_b);
+              for (uint8_t row = 0u; row < 8u; ++row) {
+                  uint64_t cb_args[1] = { (uint64_t)row };
+                  uint8_t host_row = (uint8_t)cpu_component_call(cpu, "coco1_pia0_6821", "keyboard_read_row", cb_args, 1);
+                  uint8_t pressed_cols = (uint8_t)(~host_row);
+                  if ((pressed_cols & selected_cols) != 0u) {
+                      in_a = (uint8_t)(in_a & (uint8_t)(~(uint8_t)(1u << row)));
+                  }
+              }
+
+              uint8_t ca2_mode = (uint8_t)((pia0_cra >> 3u) & 0x07u);
+              uint8_t cb2_mode = (uint8_t)((pia0_crb >> 3u) & 0x07u);
+              uint8_t mux0 = (uint8_t)((ca2_mode == 0x05u) ? 1u : 0u);
+              uint8_t mux1 = (uint8_t)((cb2_mode == 0x05u) ? 1u : 0u);
+              uint8_t mux = (uint8_t)((mux1 << 1u) | mux0);
+              uint64_t axis_args[1] = { (uint64_t)mux };
+              uint8_t axis = (uint8_t)cpu_component_call(cpu, "coco1_pia0_6821", "joystick_read_axis", axis_args, 1);
+              uint8_t cmp_high = 1u;
+              if (axis != 0xFFu) {
+                  uint8_t dac6 = (uint8_t)((pia1_ora >> 2u) & 0x3Fu);
+                  uint8_t axis6 = (uint8_t)(axis & 0x3Fu);
+                  cmp_high = (uint8_t)((axis6 >= dac6) ? 1u : 0u);
+              }
+              if (cmp_high == 0u) in_a = (uint8_t)(in_a & (uint8_t)(~0x80u));
+
+              uint64_t btn0_args[1] = { 0u };
+              uint64_t btn1_args[1] = { 1u };
+              uint8_t joy1_pressed = (uint8_t)(cpu_component_call(cpu, "coco1_pia0_6821", "joystick_read_button", btn0_args, 1) & 0x01u);
+              uint8_t joy2_pressed = (uint8_t)(cpu_component_call(cpu, "coco1_pia0_6821", "joystick_read_button", btn1_args, 1) & 0x01u);
+              if (joy1_pressed != 0u) in_a = (uint8_t)(in_a & (uint8_t)(~0x01u));
+              if (joy2_pressed != 0u) in_a = (uint8_t)(in_a & (uint8_t)(~0x02u));
+
+              pia0_cra_irq1 = 0u;
+              pia0_cra_irq2 = 0u;
+              value = (uint8_t)((pia0_ora & pia0_ddra) | (in_a & (uint8_t)(~pia0_ddra)));
+          }
+      } else if (reg == 1u) {
+          value = (uint8_t)((pia0_cra & 0x3Fu) | pia0_cra_irq1 | pia0_cra_irq2);
+      } else if (reg == 2u) {
+          if ((pia0_crb & 0x04u) == 0u) {
+              value = pia0_ddrb;
+          } else {
+              uint8_t in_b = 0xFFu;
+              pia0_crb_irq1 = 0u;
+              pia0_crb_irq2 = 0u;
+              value = (uint8_t)((pia0_orb & pia0_ddrb) | (in_b & (uint8_t)(~pia0_ddrb)));
+          }
+      } else {
+          value = (uint8_t)((pia0_crb & 0x3Fu) | pia0_crb_irq1 | pia0_crb_irq2);
+      }
+
+      return
+          ((uint64_t)value) |
+          (((uint64_t)pia0_cra_irq1) << 8u) |
+          (((uint64_t)pia0_cra_irq2) << 16u) |
+          (((uint64_t)pia0_crb_irq1) << 24u) |
+          (((uint64_t)pia0_crb_irq2) << 32u);
+    write_reg: |
+      if (argc < 10u) return 0ull;
+      uint8_t reg = (uint8_t)(args[0] & 0xFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      uint8_t pia0_cra = (uint8_t)(args[2] & 0xFFu);
+      uint8_t pia0_crb = (uint8_t)(args[3] & 0xFFu);
+      uint8_t pia0_ora = (uint8_t)(args[4] & 0xFFu);
+      uint8_t pia0_orb = (uint8_t)(args[5] & 0xFFu);
+      uint8_t pia0_ddra = (uint8_t)(args[6] & 0xFFu);
+      uint8_t pia0_ddrb = (uint8_t)(args[7] & 0xFFu);
+      uint8_t pia0_cra_irq2 = (uint8_t)(args[8] & 0xFFu);
+      uint8_t pia0_crb_irq2 = (uint8_t)(args[9] & 0xFFu);
+
+      if (reg == 0u) {
+          if ((pia0_cra & 0x04u) == 0u) pia0_ddra = value;
+          else pia0_ora = value;
+      } else if (reg == 1u) {
+          pia0_cra = (uint8_t)(value & 0x3Fu);
+          if ((pia0_cra & 0x20u) != 0u) pia0_cra_irq2 = 0u;
+      } else if (reg == 2u) {
+          if ((pia0_crb & 0x04u) == 0u) pia0_ddrb = value;
+          else pia0_orb = value;
+      } else {
+          pia0_crb = (uint8_t)(value & 0x3Fu);
+          if ((pia0_crb & 0x20u) != 0u) pia0_crb_irq2 = 0u;
+      }
+
+      return
+          ((uint64_t)pia0_cra) |
+          (((uint64_t)pia0_crb) << 8u) |
+          (((uint64_t)pia0_ora) << 16u) |
+          (((uint64_t)pia0_orb) << 24u) |
+          (((uint64_t)pia0_ddra) << 32u) |
+          (((uint64_t)pia0_ddrb) << 40u) |
+          (((uint64_t)pia0_cra_irq2) << 48u) |
+          (((uint64_t)pia0_crb_irq2) << 56u);
+    clock_irq_edge: |
+      if (argc < 4u) return 0ull;
+      uint8_t channel = (uint8_t)(args[0] & 0xFFu); /* 0=CA1/HSYNC, 1=CB1/VSYNC */
+      uint8_t level = (uint8_t)(args[1] & 0xFFu);
+      uint8_t cr = (uint8_t)(args[2] & 0xFFu);
+      uint8_t irq1 = (uint8_t)(args[3] & 0xFFu);
+      uint8_t old_irq = irq1;
+
+      if (level == 0u) {
+          level = 1u;
+          if ((cr & 0x02u) != 0u) irq1 = 0x80u;
+      }
+      if (level != 0u) {
+          level = 0u;
+          if ((cr & 0x02u) == 0u) irq1 = 0x80u;
+      }
+      uint8_t fire = (old_irq == 0u && irq1 != 0u && (cr & 0x01u) != 0u) ? 1u : 0u;
+      (void)channel;
+      return
+          ((uint64_t)level) |
+          (((uint64_t)irq1) << 8u) |
+          (((uint64_t)fire) << 16u);
+    irq_fire_mask: |
+      if (argc < 6u) return 0u;
+      uint8_t cra = (uint8_t)(args[0] & 0xFFu);
+      uint8_t cra_irq1 = (uint8_t)(args[1] & 0xFFu);
+      uint8_t cra_irq2 = (uint8_t)(args[2] & 0xFFu);
+      uint8_t crb = (uint8_t)(args[3] & 0xFFu);
+      uint8_t crb_irq1 = (uint8_t)(args[4] & 0xFFu);
+      uint8_t crb_irq2 = (uint8_t)(args[5] & 0xFFu);
+      uint8_t fire_a = (uint8_t)(((cra & 0x01u) != 0u && (cra_irq1 != 0u || cra_irq2 != 0u)) ? 1u : 0u);
+      uint8_t fire_b = (uint8_t)(((crb & 0x01u) != 0u && (crb_irq1 != 0u || crb_irq2 != 0u)) ? 1u : 0u);
+      return (uint8_t)(fire_a | (uint8_t)(fire_b << 1u));
+  handler_bodies:
+    on_sam_irq_edge: |
+      if (argc < 1u) return;
+      comp->last_irq_source = (uint8_t)(args[0] & 0xFFu);
+      comp->irq_edge_count += 1u;
+      cpu_component_emit_signal(cpu, "coco1_pia0_6821", "irq_edge", args, 1);
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

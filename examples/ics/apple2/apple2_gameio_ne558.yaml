@@ -1,0 +1,76 @@
+metadata:
+  id: apple2_gameio
+  type: io_controller
+  model: ne558_compatible
+  version: "1.0"
+
+state:
+  - name: paddle_strobe_cycle
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: read_paddle0
+      args: []
+      returns: u8
+    - name: read_paddle1
+      args: []
+      returns: u8
+    - name: read_button0
+      args: []
+      returns: u8
+    - name: read_button1
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: gameio_softswitch
+        start: 0xC061
+        size: 0x0010
+        access: [read, write]
+
+behavior:
+  snippets:
+    mem_read_pre: |
+      if (addr == 0xC070u) {
+          comp->paddle_strobe_cycle = cpu->total_cycles;
+          return 0u;
+      }
+      if (addr == 0xC061u || addr == 0xC062u) {
+          uint8_t pressed = 0u;
+          if (addr == 0xC061u) {
+              pressed = (uint8_t)(cpu_component_call(cpu, "apple2_gameio", "read_button0", NULL, 0) & 0xFFu);
+          } else {
+              pressed = (uint8_t)(cpu_component_call(cpu, "apple2_gameio", "read_button1", NULL, 0) & 0xFFu);
+          }
+          return (pressed != 0u) ? 0x80u : 0x00u;
+      }
+      if (addr == 0xC064u || addr == 0xC065u) {
+          uint8_t val = 128u;
+          if (addr == 0xC064u) {
+              val = (uint8_t)(cpu_component_call(cpu, "apple2_gameio", "read_paddle0", NULL, 0) & 0xFFu);
+          } else {
+              val = (uint8_t)(cpu_component_call(cpu, "apple2_gameio", "read_paddle1", NULL, 0) & 0xFFu);
+          }
+          uint64_t threshold = (uint64_t)val * 11u;
+          uint64_t elapsed = cpu->total_cycles - comp->paddle_strobe_cycle;
+          return (elapsed >= threshold) ? 0x80u : 0x00u;
+      }
+    mem_write_pre: |
+      if (addr == 0xC070u) {
+          comp->paddle_strobe_cycle = cpu->total_cycles;
+          return;
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

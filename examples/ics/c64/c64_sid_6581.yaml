@@ -1,0 +1,33 @@
+metadata:
+  id: c64_sid
+  type: io_controller
+  model: mos_6581_sid
+  version: "1.0"
+
+state:
+  - { name: sid_phase0, type: uint32_t, initial: "0u" }
+  - { name: sid_phase1, type: uint32_t, initial: "0u" }
+  - { name: sid_phase2, type: uint32_t, initial: "0u" }
+  - { name: sid_noise, type: uint32_t, initial: "0x007FFFFFu" }
+  - { name: sid_sample_cursor, type: uint64_t, initial: "0u" }
+  - { name: sid_regs, type: uint8_t *, initial: "NULL" }
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

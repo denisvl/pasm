@@ -5,6 +5,7 @@ import re
 from typing import Dict, List, Any
 
 from .interrupts import resolve_interrupt_model
+from .dispatch_contract import generate_dispatch_contract_decls
 
 
 def generate_cpu_header(isa_data: Dict[str, Any], cpu_name: str) -> str:
@@ -30,6 +31,7 @@ def generate_cpu_header(isa_data: Dict[str, Any], cpu_name: str) -> str:
     ic_types = _generate_ic_types(isa_data)
     ic_state_fields = _generate_ic_state_fields(isa_data)
     ic_api = _generate_ic_api(isa_data, cpu_prefix)
+    dispatch_contract = generate_dispatch_contract_decls()
 
     # Format the template
     from .templates import CPU_HEADER_TEMPLATE
@@ -48,6 +50,7 @@ def generate_cpu_header(isa_data: Dict[str, Any], cpu_name: str) -> str:
         ic_types=ic_types,
         ic_state_fields=ic_state_fields,
         ic_api=ic_api,
+        dispatch_contract=dispatch_contract,
         isa_name=isa_data.get("metadata", {}).get("name", "Unknown"),
     )
 

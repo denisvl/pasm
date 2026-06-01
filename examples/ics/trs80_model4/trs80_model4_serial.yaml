@@ -1,0 +1,87 @@
+metadata:
+  id: trs80_m4sio
+  type: io_controller
+  model: trs80_model4_serial
+  version: "1.0"
+
+state:
+  - name: status
+    type: uint8_t
+    initial: "0x05"
+  - name: data
+    type: uint8_t
+    initial: "0x00"
+  - name: command
+    type: uint8_t
+    initial: "0x00"
+  - name: control
+    type: uint8_t
+    initial: "0x00"
+
+interfaces:
+  callbacks:
+    - name: sio_port_read
+      args: [u8]
+      returns: u8
+    - name: sio_port_write
+      args: [u8, u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->status = 0x05u;
+      comp->data = 0x00u;
+      comp->command = 0x00u;
+      comp->control = 0x00u;
+    destroy: |
+      (void)cpu;
+  callback_handlers:
+    sio_port_read: |
+      if (argc < 1u) return 0xFFu;
+      uint8_t p = (uint8_t)(args[0] & 0xFFu);
+      switch (p & 0x03u) {
+          case 0u: /* data */
+              return comp->data;
+          case 1u: /* status */
+              return comp->status;
+          case 2u: /* command readback */
+              return comp->command;
+          default: /* control readback */
+              return comp->control;
+      }
+    sio_port_write: |
+      if (argc < 2u) return 0u;
+      uint8_t p = (uint8_t)(args[0] & 0xFFu);
+      uint8_t v = (uint8_t)(args[1] & 0xFFu);
+      switch (p & 0x03u) {
+          case 0u: /* TX data */
+              comp->data = v;
+              comp->status |= 0x04u; /* TX empty */
+              break;
+          case 1u: /* command */
+              comp->command = v;
+              break;
+          case 2u: /* control */
+              comp->control = v;
+              break;
+          default:
+              comp->control = v;
+              break;
+      }
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

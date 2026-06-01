@@ -46,11 +46,14 @@ PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
+mkdir -p "${UV_CACHE_DIR}"
 
 PROCESSOR="examples/processors/z80.yaml"
 IC_VDP="examples/ics/msx1/msx1_vdp_tms9918a.yaml"
 IC_PPI="examples/ics/msx1/msx1_ppi_8255.yaml"
 IC_PSG="examples/ics/msx1/msx1_psg_ay8910.yaml"
+IC_MAIN_RAM="examples/ics/msx1/msx1_main_ram.yaml"
 DEVICE_KB="examples/devices/msx1/msx_keyboard.yaml"
 DEVICE_CTRL="examples/devices/msx1/msx_controller.yaml"
 DEVICE_VIDEO="examples/devices/msx1/msx_video.yaml"
@@ -105,6 +108,7 @@ GEN_ARGS=(
   --ic "${IC_VDP}"
   --ic "${IC_PPI}"
   --ic "${IC_PSG}"
+  --ic "${IC_MAIN_RAM}"
   --device "${DEVICE_KB}"
   --device "${DEVICE_CTRL}"
   --device "${DEVICE_VIDEO}"
@@ -133,8 +137,10 @@ if [[ "${USE_CARTRIDGE}" != "0" ]]; then
     RUN_ARGS+=(--cartridge-dir "${CARTRIDGE_DIR}")
   fi
 fi
-if [[ "${PROFILE}" == "interactive" ]]; then
+if [[ "${PROFILE}" == "interactive" || "${PROFILE}" == "default" ]]; then
   RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
+fi
+if [[ "${PROFILE}" == "interactive" ]]; then
   RUN_ARGS+=(--controller-map "${CONTROLLER_MAP}")
 fi
 uv run python -m src.main generate \

@@ -15,17 +15,19 @@ BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
 def _msx_paths():
     processor_path, system_path = example_pair("z80", system="msx1_default.yaml")
     ic_paths = [
-        BASE_DIR / "examples" / "ics" / "msx1_vdp_tms9918a.yaml",
-        BASE_DIR / "examples" / "ics" / "msx1_ppi_8255.yaml",
-        BASE_DIR / "examples" / "ics" / "msx1_psg_ay8910.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_vdp_tms9918a.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_ppi_8255.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_psg_ay8910.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_main_ram.yaml",
     ]
     device_paths = [
-        BASE_DIR / "examples" / "devices" / "msx_keyboard.yaml",
-        BASE_DIR / "examples" / "devices" / "msx_video.yaml",
-        BASE_DIR / "examples" / "devices" / "msx_speaker.yaml",
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_keyboard.yaml",
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_controller.yaml",
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_video.yaml",
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_speaker.yaml",
     ]
     host_paths = [
-        BASE_DIR / "examples" / "hosts" / "msx_host_stub.yaml",
+        BASE_DIR / "examples" / "hosts" / "msx1" / "msx_host_stub.yaml",
     ]
     return processor_path, system_path, ic_paths, device_paths, host_paths
 
@@ -34,17 +36,19 @@ def _msx_interactive_paths():
     processor_path, _ = example_pair("z80", system="msx1_default.yaml")
     system_path = BASE_DIR / "examples" / "systems" / "msx1" / "msx1_interactive.yaml"
     ic_paths = [
-        BASE_DIR / "examples" / "ics" / "msx1_vdp_tms9918a.yaml",
-        BASE_DIR / "examples" / "ics" / "msx1_ppi_8255.yaml",
-        BASE_DIR / "examples" / "ics" / "msx1_psg_ay8910.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_vdp_tms9918a.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_ppi_8255.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_psg_ay8910.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_main_ram.yaml",
     ]
     device_paths = [
-        BASE_DIR / "examples" / "devices" / "msx_keyboard.yaml",
-        BASE_DIR / "examples" / "devices" / "msx_video.yaml",
-        BASE_DIR / "examples" / "devices" / "msx_speaker.yaml",
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_keyboard.yaml",
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_controller.yaml",
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_video.yaml",
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_speaker.yaml",
     ]
     host_paths = [
-        BASE_DIR / "examples" / "hosts" / "msx_host_hal_interactive.yaml",
+        BASE_DIR / "examples" / "hosts" / "msx1" / "msx_host_hal_interactive.yaml",
     ]
     return processor_path, system_path, ic_paths, device_paths, host_paths
 
@@ -59,9 +63,10 @@ def test_msx1_component_graph_validates():
         [str(path) for path in host_paths],
     )
     assert data["system"]["metadata"]["name"] == "Z80MSX1DefaultSystem"
-    assert [ic["metadata"]["id"] for ic in data["ics"]] == ["vdp0", "ppi0", "psg0"]
+    assert [ic["metadata"]["id"] for ic in data["ics"]] == ["vdp0", "ppi0", "psg0", "msx1_main_ram"]
     assert [dev["metadata"]["id"] for dev in data["devices"]] == [
         "keyboard_msx",
+        "controller_msx",
         "video_msx",
         "speaker_msx",
     ]
@@ -92,14 +97,20 @@ def test_msx1_ppi_keyboard_row_decode_and_bsr_generation(tmp_path):
         device_paths=[str(path) for path in device_paths],
         host_paths=[str(path) for path in host_paths],
     )
-    c_src = (outdir / "src" / "Z80.c").read_text(encoding="utf-8")
+    c_core = (outdir / "src" / "Z80_core.c").read_text(encoding="utf-8")
+    c_glue = (outdir / "src" / "msx1_system_glue.c").read_text(encoding="utf-8")
+    c_bus = (outdir / "src" / "msx1_system_bus.c").read_text(encoding="utf-8")
+    c_ppi = (outdir / "src" / "msx1_ic_ppi0.c").read_text(encoding="utf-8")
+    c_vdp = (outdir / "src" / "msx1_ic_vdp0.c").read_text(encoding="utf-8")
+    c_src = c_core + "\n" + c_glue + "\n" + c_bus + "\n" + c_ppi + "\n" + c_vdp
     assert "comp->port_c" in c_src
     assert "if ((value & 0x80u) != 0u)" in c_src
     assert "uint8_t bit = (uint8_t)((value >> 1) & 0x07u);" in c_src
     assert "uint8_t lo = (uint8_t)(comp->port_c & 0x0Fu);" in c_src
     assert "uint8_t hi = (uint8_t)((comp->port_c >> 4) & 0x0Fu);" in c_src
     assert "value = comp->port_c;" in c_src
-    assert "uint8_t value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFF;" in c_src
+    assert "uint8_t value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFF;" in c_src or \
+           "uint8_t value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFFu;" in c_src
     assert "CPU_HOST_SCANCODE(LEFT)" in c_src
     assert "CPU_HOST_SCANCODE(RIGHT)" in c_src
     assert "CPU_HOST_SCANCODE(RETURN)" in c_src

@@ -1,0 +1,98 @@
+metadata:
+  id: atari800xl_mmu
+  type: io_controller
+  model: atari800xl_mmu
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: bus_read
+      args: [u16]
+      returns: u8
+    - name: bus_write
+      args: [u16, u8]
+      returns: u8
+    - name: cart_present
+      args: []
+      returns: u8
+    - name: cart_read
+      args: [u16]
+      returns: u8
+    - name: request_irq
+      args: []
+      returns: u8
+    - name: request_nmi
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    bus_read: |
+      if (argc < 1u) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      if ((uint64_t)addr < cpu->memory_size) return cpu->memory[addr];
+      return 0u;
+    bus_write: |
+      if (argc < 2u) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      if ((uint64_t)addr < cpu->memory_size) cpu->memory[addr] = value;
+      return 0u;
+    cart_present: |
+      (void)argc;
+      (void)args;
+      #if CPU_CARTRIDGE_COUNT > 0
+      return (uint64_t)((cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) ? 1u : 0u);
+      #else
+      return 0u;
+      #endif
+    cart_read: |
+      if (argc < 1u) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      #if CPU_CARTRIDGE_COUNT > 0
+      if (addr >= 0x8000u && addr < 0xA000u && cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) {
+          uint8_t *rom = cpu->comp_atari_cart0.rom_data;
+          uint32_t size = cpu->comp_atari_cart0.rom_size;
+          uint32_t base_off = 0u;
+          uint32_t eff_size = size;
+          if (eff_size >= 16u && rom[0] == 'C' && rom[1] == 'A' && rom[2] == 'R' && rom[3] == 'T') {
+              base_off = 16u;
+              eff_size -= 16u;
+          }
+          if (eff_size > 0x2000u) {
+              uint32_t off = base_off + (uint32_t)(addr - 0x8000u);
+              if (off < size) return (uint64_t)rom[off];
+          }
+      }
+      #endif
+      return 0u;
+    request_irq: |
+      (void)argc;
+      (void)args;
+      cpu->interrupt_vector = 0x00u;
+      cpu->irq_pending = true;
+      cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
+      return 0u;
+    request_nmi: |
+      (void)argc;
+      (void)args;
+      cpu->interrupt_vector = 0xFFu;
+      cpu->nmi_pending = true;
+      cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

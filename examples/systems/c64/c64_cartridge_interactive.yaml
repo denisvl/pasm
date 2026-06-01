@@ -1,5 +1,5 @@
 metadata:
-  name: C64CartridgeInteractiveSystem
+  name: C64InteractiveSystem
   version: "1.0"
 
 clock_hz: 1022727
@@ -64,7 +64,13 @@ hooks:
 
 components:
   ics:
-    - c64_io
+    - c64_vic_ii
+    - c64_sid
+    - c64_cia1
+    - c64_cia2
+    - c64_color_ram
+    - c64_pla
+    - c64_main_ram
   devices:
     - keyboard_c64
     - joystick_c64
@@ -76,7 +82,7 @@ components:
 
 connections:
   - from:
-      component: c64_io
+      component: c64_pla
       kind: callback
       name: keyboard_row
     to:
@@ -94,7 +100,7 @@ connections:
       name: keyboard_matrix
 
   - from:
-      component: c64_io
+      component: c64_pla
       kind: callback
       name: joystick_port
     to:
@@ -112,7 +118,7 @@ connections:
       name: joystick_port
 
   - from:
-      component: c64_io
+      component: c64_pla
       kind: signal
       name: frame_ready
     to:
@@ -130,7 +136,7 @@ connections:
       name: video_frame
 
   - from:
-      component: c64_io
+      component: c64_pla
       kind: signal
       name: audio_level
     to:

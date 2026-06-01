@@ -1,0 +1,51 @@
+metadata:
+  id: apple2_main_ram
+  type: memory
+  model: dram_4k_16k_48k_bankable
+  version: "1.0"
+
+state:
+  - name: bytes
+    type: uint8_t *
+    initial: "NULL"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: main_ram
+        start: 0x0000
+        size: 0xC000
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      comp->bytes = cpu->memory;
+    reset: |
+      (void)cpu;
+      comp->bytes = cpu->memory;
+    destroy: |
+      comp->bytes = NULL;
+    mem_read_pre: |
+      if ((uint64_t)addr < cpu->memory_size) {
+          return cpu->memory[addr];
+      }
+      return 0u;
+    mem_write_pre: |
+      if ((uint64_t)addr < cpu->memory_size) {
+          cpu->memory[addr] = value;
+      }
+      return;
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

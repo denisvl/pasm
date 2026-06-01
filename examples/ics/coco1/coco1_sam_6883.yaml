@@ -1,0 +1,679 @@
+metadata:
+  id: coco1_sam_6883
+  type: io_controller
+  model: motorola_mc6883_sam_core_with_io_bus
+  version: "0.1"
+
+state:
+  - name: frame_counter
+    type: uint32_t
+    initial: "0"
+  - name: last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: tstate_accum
+    type: uint64_t
+    initial: "0"
+  - name: hsync_tstate_accum
+    type: uint64_t
+    initial: "0"
+  - name: audio_level
+    type: uint8_t
+    initial: "0"
+  - name: pia0_ora
+    type: uint8_t
+    initial: "0xFF"
+  - name: pia0_orb
+    type: uint8_t
+    initial: "0xFF"
+  - name: pia0_ddra
+    type: uint8_t
+    initial: "0x00"
+  - name: pia0_ddrb
+    type: uint8_t
+    initial: "0xFF"
+  - name: pia0_cra
+    type: uint8_t
+    initial: "0x34"
+  - name: pia0_crb
+    type: uint8_t
+    initial: "0x34"
+  - name: pia0_cra_irq1
+    type: uint8_t
+    initial: "0"
+  - name: pia0_cra_irq2
+    type: uint8_t
+    initial: "0"
+  - name: pia0_crb_irq1
+    type: uint8_t
+    initial: "0"
+  - name: pia0_crb_irq2
+    type: uint8_t
+    initial: "0"
+  - name: pia1_ora
+    type: uint8_t
+    initial: "0x00"
+  - name: pia1_orb
+    type: uint8_t
+    initial: "0x00"
+  - name: pia1_ddra
+    type: uint8_t
+    initial: "0x01"
+  - name: pia1_ddrb
+    type: uint8_t
+    initial: "0x00"
+  - name: pia1_cra
+    type: uint8_t
+    initial: "0x34"
+  - name: pia1_crb
+    type: uint8_t
+    initial: "0x34"
+  - name: pia1_cra_irq1
+    type: uint8_t
+    initial: "0"
+  - name: pia1_cra_irq2
+    type: uint8_t
+    initial: "0"
+  - name: pia1_crb_irq1
+    type: uint8_t
+    initial: "0"
+  - name: pia1_crb_irq2
+    type: uint8_t
+    initial: "0"
+  - name: pia0_ca1_level
+    type: uint8_t
+    initial: "0"
+  - name: pia0_cb1_level
+    type: uint8_t
+    initial: "0"
+  - name: sam_ctrl
+    type: uint16_t
+    initial: "0x4010"
+  - name: sam_vdg_bits
+    type: uint8_t
+    initial: "0"
+  - name: sam_vdg_mode
+    type: uint8_t
+    initial: "0"
+  - name: sam_css
+    type: uint8_t
+    initial: "0"
+  - name: sam_gm0
+    type: uint8_t
+    initial: "0"
+  - name: sam_gm1
+    type: uint8_t
+    initial: "0"
+  - name: sam_gm2
+    type: uint8_t
+    initial: "0"
+  - name: sam_ag
+    type: uint8_t
+    initial: "0"
+  - name: sam_display_base
+    type: uint16_t
+    initial: "0x0400"
+  - name: sam_page_switch
+    type: uint8_t
+    initial: "0"
+  - name: sam_mpu_rate
+    type: uint8_t
+    initial: "0"
+  - name: sam_mem_size_mode
+    type: uint8_t
+    initial: "2"
+  - name: sam_map_type
+    type: uint8_t
+    initial: "0"
+  - name: sam_all_ram
+    type: uint8_t
+    initial: "0"
+  - name: sam_ram_limit
+    type: uint32_t
+    initial: "65536"
+  - name: sam_rom_a000
+    type: uint8_t *
+    initial: "NULL"
+  - name: sam_rom_e000
+    type: uint8_t *
+    initial: "NULL"
+  - name: sam_rom_shadow_ready
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_read_row
+      args: [u8]
+      returns: u8
+    - name: joystick_read_axis
+      args: [u8]
+      returns: u8
+    - name: joystick_read_button
+      args: [u8]
+      returns: u8
+    - name: cart_firq_eval
+      args: [u8, u8, u8, u8]
+      returns: u64
+    - name: pia1_compute_audio
+      args: [u8, u8, u8, u8, u8, u64]
+      returns: u8
+    - name: pia1_irq_fire_mask
+      args: [u8, u8, u8, u8, u8, u8]
+      returns: u8
+    - name: pia1_read_reg
+      args: [u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8]
+      returns: u64
+    - name: pia1_write_reg
+      args: [u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8]
+      returns: u64
+    - name: pia0_clock_irq_edge
+      args: [u8, u8, u8, u8]
+      returns: u64
+    - name: pia0_irq_fire_mask
+      args: [u8, u8, u8, u8, u8, u8]
+      returns: u8
+    - name: pia0_read_reg
+      args: [u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8]
+      returns: u64
+    - name: pia0_write_reg
+      args: [u8, u8, u8, u8, u8, u8, u8, u8, u8, u8]
+      returns: u64
+    - name: raise_interrupt
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32, u32]
+    - name: irq_edge
+      args: [u8]
+    - name: audio_level
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges:
+      - name: coco_io_page
+        start: 0xFF00
+        size: 0x0100
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      if (comp->sam_rom_a000 == NULL) {
+          comp->sam_rom_a000 = (uint8_t *)calloc(0x2000u, sizeof(uint8_t));
+      }
+      if (comp->sam_rom_e000 == NULL) {
+          comp->sam_rom_e000 = (uint8_t *)calloc(0x2000u, sizeof(uint8_t));
+      }
+      if (comp->sam_rom_a000 == NULL || comp->sam_rom_e000 == NULL) {
+          cpu->error_code = CPU_ERROR_INVALID_MEMORY;
+      }
+    destroy: |
+      if (comp->sam_rom_a000 != NULL) {
+          free(comp->sam_rom_a000);
+          comp->sam_rom_a000 = NULL;
+      }
+      if (comp->sam_rom_e000 != NULL) {
+          free(comp->sam_rom_e000);
+          comp->sam_rom_e000 = NULL;
+      }
+      comp->sam_rom_shadow_ready = 0u;
+    reset: |
+      comp->frame_counter = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->tstate_accum = 0u;
+      comp->hsync_tstate_accum = 0u;
+      comp->audio_level = 0u;
+      comp->pia0_ora = 0xFFu;
+      comp->pia0_orb = 0xFFu;
+      comp->pia0_ddra = 0x00u;
+      comp->pia0_ddrb = 0xFFu;
+      comp->pia0_cra = 0x34u;
+      comp->pia0_crb = 0x34u;
+      comp->pia0_cra_irq1 = 0u;
+      comp->pia0_cra_irq2 = 0u;
+      comp->pia0_crb_irq1 = 0u;
+      comp->pia0_crb_irq2 = 0u;
+      comp->pia1_ora = 0x00u;
+      comp->pia1_orb = 0x00u;
+      comp->pia1_ddra = 0x01u;
+      comp->pia1_ddrb = 0x00u;
+      comp->pia1_cra = 0x34u;
+      comp->pia1_crb = 0x34u;
+      comp->pia1_cra_irq1 = 0u;
+      comp->pia1_cra_irq2 = 0u;
+      comp->pia1_crb_irq1 = 0u;
+      comp->pia1_crb_irq2 = 0u;
+      comp->pia0_ca1_level = 0u;
+      comp->pia0_cb1_level = 0u;
+      comp->sam_ctrl = 0x4010u;
+      comp->sam_vdg_bits = 0u;
+      comp->sam_vdg_mode = 0u;
+      comp->sam_css = 0u;
+      comp->sam_gm0 = 0u;
+      comp->sam_gm1 = 0u;
+      comp->sam_gm2 = 0u;
+      comp->sam_ag = 0u;
+      comp->sam_display_base = 0x0400u;
+      comp->sam_page_switch = 0u;
+      comp->sam_mpu_rate = 0u;
+      comp->sam_mem_size_mode = 2u;
+      comp->sam_map_type = 0u;
+      comp->sam_all_ram = 0u;
+      comp->sam_ram_limit = 65536u;
+      if (
+          comp->sam_rom_shadow_ready != 0u &&
+          comp->sam_rom_a000 != NULL &&
+          comp->sam_rom_e000 != NULL
+      ) {
+          for (uint16_t i = 0u; i < 0x2000u; ++i) {
+              uint16_t a0 = (uint16_t)(0xA000u + i);
+              uint16_t a1 = (uint16_t)(0xE000u + i);
+              if ((uint64_t)a0 < cpu->memory_size) cpu->memory[a0] = comp->sam_rom_a000[i];
+              if ((uint64_t)a1 < cpu->memory_size) cpu->memory[a1] = comp->sam_rom_e000[i];
+          }
+      }
+    mem_read_pre: |
+      if (addr >= 0xFFC0u && addr <= 0xFFDFu) {
+          uint8_t bit = (uint8_t)((addr - 0xFFC0u) >> 1);
+          uint8_t bit_set = (uint8_t)((comp->sam_ctrl >> bit) & 0x01u);
+          return bit_set ? 0xFFu : 0x00u;
+      }
+      if (
+          (comp->sam_rom_shadow_ready == 0u) &&
+          comp->sam_rom_a000 != NULL &&
+          comp->sam_rom_e000 != NULL
+      ) {
+          for (uint16_t i = 0u; i < 0x2000u; ++i) {
+              uint16_t a0 = (uint16_t)(0xA000u + i);
+              uint16_t a1 = (uint16_t)(0xE000u + i);
+              comp->sam_rom_a000[i] = ((uint64_t)a0 < cpu->memory_size) ? cpu->memory[a0] : 0xFFu;
+              comp->sam_rom_e000[i] = ((uint64_t)a1 < cpu->memory_size) ? cpu->memory[a1] : 0xFFu;
+          }
+          comp->sam_rom_shadow_ready = 1u;
+      }
+      if (addr >= 0xFF00u && addr <= 0xFF03u) {
+          uint8_t reg = (uint8_t)(addr & 0x03u);
+          uint64_t cb_args[12] = {
+              (uint64_t)(reg & 0xFFu),
+              (uint64_t)(comp->pia0_cra & 0xFFu),
+              (uint64_t)(comp->pia0_crb & 0xFFu),
+              (uint64_t)(comp->pia0_ora & 0xFFu),
+              (uint64_t)(comp->pia0_orb & 0xFFu),
+              (uint64_t)(comp->pia0_ddra & 0xFFu),
+              (uint64_t)(comp->pia0_ddrb & 0xFFu),
+              (uint64_t)(comp->pia0_cra_irq1 & 0xFFu),
+              (uint64_t)(comp->pia0_cra_irq2 & 0xFFu),
+              (uint64_t)(comp->pia0_crb_irq1 & 0xFFu),
+              (uint64_t)(comp->pia0_crb_irq2 & 0xFFu),
+              (uint64_t)(comp->pia1_ora & 0xFFu)
+          };
+          uint64_t packed = cpu_component_call(cpu, "coco1_sam_6883", "pia0_read_reg", cb_args, 12);
+          comp->pia0_cra_irq1 = (uint8_t)((packed >> 8u) & 0xFFu);
+          comp->pia0_cra_irq2 = (uint8_t)((packed >> 16u) & 0xFFu);
+          comp->pia0_crb_irq1 = (uint8_t)((packed >> 24u) & 0xFFu);
+          comp->pia0_crb_irq2 = (uint8_t)((packed >> 32u) & 0xFFu);
+          return (uint8_t)(packed & 0xFFu);
+      }
+      if (addr >= 0xFF20u && addr <= 0xFF23u) {
+          uint8_t reg = (uint8_t)(addr & 0x03u);
+          uint64_t cb_args[11] = {
+              (uint64_t)(reg & 0xFFu),
+              (uint64_t)(comp->pia1_cra & 0xFFu),
+              (uint64_t)(comp->pia1_crb & 0xFFu),
+              (uint64_t)(comp->pia1_ora & 0xFFu),
+              (uint64_t)(comp->pia1_orb & 0xFFu),
+              (uint64_t)(comp->pia1_ddra & 0xFFu),
+              (uint64_t)(comp->pia1_ddrb & 0xFFu),
+              (uint64_t)(comp->pia1_cra_irq1 & 0xFFu),
+              (uint64_t)(comp->pia1_cra_irq2 & 0xFFu),
+              (uint64_t)(comp->pia1_crb_irq1 & 0xFFu),
+              (uint64_t)(comp->pia1_crb_irq2 & 0xFFu)
+          };
+          uint64_t packed = cpu_component_call(cpu, "coco1_sam_6883", "pia1_read_reg", cb_args, 11);
+          comp->pia1_cra_irq1 = (uint8_t)((packed >> 8u) & 0xFFu);
+          comp->pia1_cra_irq2 = (uint8_t)((packed >> 16u) & 0xFFu);
+          comp->pia1_crb_irq1 = (uint8_t)((packed >> 24u) & 0xFFu);
+          comp->pia1_crb_irq2 = (uint8_t)((packed >> 32u) & 0xFFu);
+          return (uint8_t)(packed & 0xFFu);
+      }
+      /*
+       * MC6883/SAM memory decode (CoCo wiring model):
+       * - TY=0 (map type 0): ROM-visible mode with lower 32K RAM page switch.
+       * - TY=1 (map type 1): all-RAM mode except fixed I/O aperture FF00-FFDF.
+       */
+      if (comp->sam_map_type != 0u) {
+          if ((addr < 0xFF00u) || (addr >= 0xFFE0u)) {
+              if ((uint64_t)addr < cpu->memory_size) {
+                  return cpu->memory[addr];
+              }
+              return 0xFFu;
+          }
+          if (addr >= 0xFF00u && addr < 0xFFE0u) {
+              return 0xFFu;
+          }
+      } else {
+          if (addr < 0xA000u) {
+              if ((uint64_t)addr < cpu->memory_size) {
+                  return cpu->memory[addr];
+              }
+              return 0xFFu;
+          }
+          if (addr >= 0xA000u && addr < 0xC000u) {
+              if (comp->sam_rom_shadow_ready != 0u && comp->sam_rom_a000 != NULL) {
+                  return comp->sam_rom_a000[(uint16_t)(addr - 0xA000u)];
+              }
+          }
+          if (addr >= 0xE000u && (addr < 0xFF00u || addr >= 0xFFE0u)) {
+              if (comp->sam_rom_shadow_ready != 0u && comp->sam_rom_e000 != NULL) {
+                  return comp->sam_rom_e000[(uint16_t)(addr - 0xE000u)];
+              }
+          }
+      }
+    mem_write_pre: |
+      if (addr >= 0xFFC0u && addr <= 0xFFDFu) {
+          uint8_t bit = (uint8_t)((addr - 0xFFC0u) >> 1);
+          uint16_t mask = (uint16_t)(1u << bit);
+          if ((addr & 0x0001u) != 0u) {
+              comp->sam_ctrl = (uint16_t)(comp->sam_ctrl | mask);
+          } else {
+              comp->sam_ctrl = (uint16_t)(comp->sam_ctrl & (uint16_t)(~mask));
+          }
+          comp->sam_vdg_bits = (uint8_t)(comp->sam_ctrl & 0x0007u);
+          comp->sam_display_base = (uint16_t)((((comp->sam_ctrl >> 3) & 0x007Fu) << 9) & 0xFE00u);
+          comp->sam_page_switch = (uint8_t)((comp->sam_ctrl >> 10) & 0x01u);
+          comp->sam_mpu_rate = (uint8_t)((comp->sam_ctrl >> 11) & 0x03u);
+          comp->sam_mem_size_mode = (uint8_t)((comp->sam_ctrl >> 13) & 0x03u);
+          comp->sam_map_type = (uint8_t)((comp->sam_ctrl >> 15) & 0x01u);
+          comp->sam_all_ram = comp->sam_map_type;
+          switch (comp->sam_mem_size_mode) {
+              case 0u: comp->sam_ram_limit = 0x1000u; break; /* 4K */
+              case 1u: comp->sam_ram_limit = 0x4000u; break; /* 16K */
+              default: comp->sam_ram_limit = 0x10000u; break; /* 64K */
+          }
+          return;
+      }
+      if (comp->sam_map_type != 0u) {
+          if ((addr < 0xFF00u) || (addr >= 0xFFE0u)) {
+              if ((uint64_t)addr < cpu->memory_size) {
+                  cpu->memory[addr] = value;
+              }
+              return;
+          }
+      } else {
+          if (addr < 0xA000u) {
+              if ((uint64_t)addr < cpu->memory_size) {
+                  cpu->memory[addr] = value;
+              }
+              return;
+          }
+          if ((addr >= 0xA000u && addr < 0xC000u) || (addr >= 0xE000u && (addr < 0xFF00u || addr >= 0xFFE0u))) {
+              return;
+          }
+      }
+      if (addr >= 0xFF00u && addr <= 0xFF03u) {
+          uint8_t reg = (uint8_t)(addr & 0x03u);
+          {
+              uint64_t cb_args[10] = {
+                  (uint64_t)(reg & 0xFFu),
+                  (uint64_t)(value & 0xFFu),
+                  (uint64_t)(comp->pia0_cra & 0xFFu),
+                  (uint64_t)(comp->pia0_crb & 0xFFu),
+                  (uint64_t)(comp->pia0_ora & 0xFFu),
+                  (uint64_t)(comp->pia0_orb & 0xFFu),
+                  (uint64_t)(comp->pia0_ddra & 0xFFu),
+                  (uint64_t)(comp->pia0_ddrb & 0xFFu),
+                  (uint64_t)(comp->pia0_cra_irq2 & 0xFFu),
+                  (uint64_t)(comp->pia0_crb_irq2 & 0xFFu)
+              };
+              uint64_t packed = cpu_component_call(cpu, "coco1_sam_6883", "pia0_write_reg", cb_args, 10);
+              comp->pia0_cra = (uint8_t)(packed & 0xFFu);
+              comp->pia0_crb = (uint8_t)((packed >> 8u) & 0xFFu);
+              comp->pia0_ora = (uint8_t)((packed >> 16u) & 0xFFu);
+              comp->pia0_orb = (uint8_t)((packed >> 24u) & 0xFFu);
+              comp->pia0_ddra = (uint8_t)((packed >> 32u) & 0xFFu);
+              comp->pia0_ddrb = (uint8_t)((packed >> 40u) & 0xFFu);
+              comp->pia0_cra_irq2 = (uint8_t)((packed >> 48u) & 0xFFu);
+              comp->pia0_crb_irq2 = (uint8_t)((packed >> 56u) & 0xFFu);
+          }
+          {
+              uint64_t irq_args[6] = {
+                  (uint64_t)(comp->pia0_cra & 0xFFu),
+                  (uint64_t)(comp->pia0_cra_irq1 & 0xFFu),
+                  (uint64_t)(comp->pia0_cra_irq2 & 0xFFu),
+                  (uint64_t)(comp->pia0_crb & 0xFFu),
+                  (uint64_t)(comp->pia0_crb_irq1 & 0xFFu),
+                  (uint64_t)(comp->pia0_crb_irq2 & 0xFFu)
+              };
+              uint8_t fire_mask = (uint8_t)(cpu_component_call(cpu, "coco1_sam_6883", "pia0_irq_fire_mask", irq_args, 6) & 0x03u);
+              if ((fire_mask & 0x01u) != 0u) {
+                  uint64_t irq_args[1] = { 0u };
+                  (void)cpu_component_call(cpu, "coco1_sam_6883", "raise_interrupt", irq_args, 1);
+              }
+              if ((fire_mask & 0x02u) != 0u) {
+                  uint64_t irq_args[1] = { 0u };
+                  (void)cpu_component_call(cpu, "coco1_sam_6883", "raise_interrupt", irq_args, 1);
+              }
+          }
+          return;
+      }
+      if (addr >= 0xFF20u && addr <= 0xFF23u) {
+          uint8_t reg = (uint8_t)(addr & 0x03u);
+          uint8_t old_pia1_crb = comp->pia1_crb;
+          {
+              uint64_t cb_args[12] = {
+                  (uint64_t)(reg & 0xFFu),
+                  (uint64_t)(value & 0xFFu),
+                  (uint64_t)(comp->pia1_cra & 0xFFu),
+                  (uint64_t)(comp->pia1_crb & 0xFFu),
+                  (uint64_t)(comp->pia1_ora & 0xFFu),
+                  (uint64_t)(comp->pia1_orb & 0xFFu),
+                  (uint64_t)(comp->pia1_ddra & 0xFFu),
+                  (uint64_t)(comp->pia1_ddrb & 0xFFu),
+                  (uint64_t)(comp->pia1_cra_irq1 & 0xFFu),
+                  (uint64_t)(comp->pia1_cra_irq2 & 0xFFu),
+                  (uint64_t)(comp->pia1_crb_irq1 & 0xFFu),
+                  (uint64_t)(comp->pia1_crb_irq2 & 0xFFu)
+              };
+              uint64_t packed = cpu_component_call(cpu, "coco1_sam_6883", "pia1_write_reg", cb_args, 12);
+              comp->pia1_cra = (uint8_t)(packed & 0xFFu);
+              comp->pia1_crb = (uint8_t)((packed >> 8u) & 0xFFu);
+              comp->pia1_ora = (uint8_t)((packed >> 16u) & 0xFFu);
+              comp->pia1_orb = (uint8_t)((packed >> 24u) & 0xFFu);
+              comp->pia1_ddra = (uint8_t)((packed >> 32u) & 0xFFu);
+              comp->pia1_ddrb = (uint8_t)((packed >> 40u) & 0xFFu);
+              comp->pia1_cra_irq2 = (uint8_t)((packed >> 48u) & 0xFFu);
+              comp->pia1_crb_irq2 = (uint8_t)((packed >> 56u) & 0xFFu);
+          }
+          {
+              uint64_t irq_args[6] = {
+                  (uint64_t)(comp->pia1_cra & 0xFFu),
+                  (uint64_t)(comp->pia1_cra_irq1 & 0xFFu),
+                  (uint64_t)(comp->pia1_cra_irq2 & 0xFFu),
+                  (uint64_t)(comp->pia1_crb & 0xFFu),
+                  (uint64_t)(comp->pia1_crb_irq1 & 0xFFu),
+                  (uint64_t)(comp->pia1_crb_irq2 & 0xFFu)
+              };
+              uint8_t fire_mask = (uint8_t)(cpu_component_call(cpu, "coco1_sam_6883", "pia1_irq_fire_mask", irq_args, 6) & 0x03u);
+              if ((fire_mask & 0x01u) != 0u) {
+                  uint64_t irq_args[1] = { 2u };
+                  (void)cpu_component_call(cpu, "coco1_sam_6883", "raise_interrupt", irq_args, 1);
+              }
+              if ((fire_mask & 0x02u) != 0u) {
+                  uint64_t irq_args[1] = { 2u };
+                  (void)cpu_component_call(cpu, "coco1_sam_6883", "raise_interrupt", irq_args, 1);
+              }
+          }
+          /*
+           * CoCo cartridge handoff model:
+           * - FF23 bit7 reports cartridge interrupt latch state.
+           * - FF23 bit0 enables CART* routing to CPU FIRQ*.
+           */
+      #if CPU_CARTRIDGE_COUNT > 0
+          {
+              uint8_t cart_present = (uint8_t)((cpu->comp_coco_cart0.rom_data != NULL && cpu->comp_coco_cart0.rom_size > 0u) ? 1u : 0u);
+              uint8_t write_edge = (uint8_t)((reg == 3u && ((old_pia1_crb & 0x01u) == 0u) && ((comp->pia1_crb & 0x01u) != 0u)) ? 1u : 0u);
+              {
+                  uint64_t cb_args[4] = {
+                      (uint64_t)(comp->pia1_crb & 0xFFu),
+                      (uint64_t)(comp->pia1_crb_irq1 & 0xFFu),
+                      (uint64_t)(cart_present & 0x01u),
+                      (uint64_t)(write_edge & 0x01u)
+                  };
+                  uint64_t eval = cpu_component_call(cpu, "coco1_sam_6883", "cart_firq_eval", cb_args, 4);
+                  comp->pia1_crb_irq1 = (uint8_t)(eval & 0xFFu);
+                  uint8_t fire = (uint8_t)((eval >> 8u) & 0x01u);
+                  if (fire != 0u) {
+                      uint64_t irq_args[1] = { 2u };
+                      (void)cpu_component_call(cpu, "coco1_sam_6883", "raise_interrupt", irq_args, 1);
+                      {
+                          uint64_t sig_args[1] = { 2u };
+                          cpu_component_emit_signal(cpu, "coco1_sam_6883", "irq_edge", sig_args, 1);
+                      }
+                  }
+              }
+          }
+      #endif
+          {
+              {
+                  uint64_t cb_args[6] = {
+                      (uint64_t)(comp->pia1_ora & 0xFFu),
+                      (uint64_t)(comp->pia1_ddra & 0xFFu),
+                      (uint64_t)(comp->pia1_orb & 0xFFu),
+                      (uint64_t)(comp->pia1_ddrb & 0xFFu),
+                      (uint64_t)(comp->audio_level & 0xFFu),
+                      (uint64_t)cpu->total_cycles
+                  };
+                  comp->audio_level = (uint8_t)(cpu_component_call(cpu, "coco1_sam_6883", "pia1_compute_audio", cb_args, 6) & 0xFFu);
+              }
+          }
+          return;
+      }
+      if (addr >= 0xFF00u) {
+          return;
+      }
+    step_post: |
+      uint64_t now = cpu->total_cycles;
+      uint64_t frame_tstates = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 14915u;
+      uint64_t hsync_tstates = frame_tstates / 262u;
+      if (frame_tstates == 0u) frame_tstates = 14915u;
+      if (hsync_tstates == 0u) hsync_tstates = 57u;
+
+      /* Keep cartridge FIRQ wiring live independently of frame cadence. */
+      #if CPU_CARTRIDGE_COUNT > 0
+      {
+          uint8_t cart_present = (uint8_t)((cpu->comp_coco_cart0.rom_data != NULL && cpu->comp_coco_cart0.rom_size > 0u) ? 1u : 0u);
+          {
+              uint64_t cb_args[4] = {
+                  (uint64_t)(comp->pia1_crb & 0xFFu),
+                  (uint64_t)(comp->pia1_crb_irq1 & 0xFFu),
+                  (uint64_t)(cart_present & 0x01u),
+                  0u
+              };
+              uint64_t eval = cpu_component_call(cpu, "coco1_sam_6883", "cart_firq_eval", cb_args, 4);
+              comp->pia1_crb_irq1 = (uint8_t)(eval & 0xFFu);
+              uint8_t fire = (uint8_t)((eval >> 8u) & 0x01u);
+              if (fire != 0u) {
+              uint64_t irq_args[1] = { 2u };
+              (void)cpu_component_call(cpu, "coco1_sam_6883", "raise_interrupt", irq_args, 1);
+              {
+                  uint64_t sig_args[1] = { 2u };
+                  cpu_component_emit_signal(cpu, "coco1_sam_6883", "irq_edge", sig_args, 1);
+              }
+              }
+          }
+      }
+      #endif
+
+      if (comp->last_cycle == 0u) {
+          comp->last_cycle = now;
+      }
+      if (now >= comp->last_cycle) {
+          uint64_t delta = (now - comp->last_cycle);
+          comp->tstate_accum += delta;
+          comp->hsync_tstate_accum += delta;
+      }
+      comp->last_cycle = now;
+
+      /*
+       * HSYNC interrupt model:
+       * - Each horizontal period latches PIA0-A IRQ flag (CRA bit7, FF01).
+       * - If PIA0-A IRQ routing is enabled (CRA bit0), raise CPU IRQ.
+       */
+      while (comp->hsync_tstate_accum >= hsync_tstates) {
+          comp->hsync_tstate_accum -= hsync_tstates;
+          uint64_t cb_args[4] = {
+              0u,
+              (uint64_t)(comp->pia0_ca1_level & 0xFFu),
+              (uint64_t)(comp->pia0_cra & 0xFFu),
+              (uint64_t)(comp->pia0_cra_irq1 & 0xFFu)
+          };
+          uint64_t packed = cpu_component_call(cpu, "coco1_sam_6883", "pia0_clock_irq_edge", cb_args, 4);
+          comp->pia0_ca1_level = (uint8_t)(packed & 0xFFu);
+          comp->pia0_cra_irq1 = (uint8_t)((packed >> 8u) & 0xFFu);
+          if (((packed >> 16u) & 0x01u) != 0u) {
+              uint64_t irq_args[1] = { 0u };
+              (void)cpu_component_call(cpu, "coco1_sam_6883", "raise_interrupt", irq_args, 1);
+              {
+                  uint64_t sig_args[1] = { 0u };
+                  cpu_component_emit_signal(cpu, "coco1_sam_6883", "irq_edge", sig_args, 1);
+              }
+          }
+      }
+
+      if (comp->tstate_accum < frame_tstates) return;
+      comp->tstate_accum -= frame_tstates;
+      comp->frame_counter += 1u;
+
+      /*
+       * VSync interrupt model:
+       * - Each video frame latches PIA0-B IRQ flag (CRB bit7, FF03).
+       * - If PIA0-B IRQ routing is enabled (CRB bit0), raise CPU IRQ.
+       */
+      {
+          uint64_t cb_args[4] = {
+              1u,
+              (uint64_t)(comp->pia0_cb1_level & 0xFFu),
+              (uint64_t)(comp->pia0_crb & 0xFFu),
+              (uint64_t)(comp->pia0_crb_irq1 & 0xFFu)
+          };
+          uint64_t packed = cpu_component_call(cpu, "coco1_sam_6883", "pia0_clock_irq_edge", cb_args, 4);
+          comp->pia0_cb1_level = (uint8_t)(packed & 0xFFu);
+          comp->pia0_crb_irq1 = (uint8_t)((packed >> 8u) & 0xFFu);
+          if (((packed >> 16u) & 0x01u) != 0u) {
+              uint64_t irq_args[1] = { 0u };
+              (void)cpu_component_call(cpu, "coco1_sam_6883", "raise_interrupt", irq_args, 1);
+              {
+                  uint64_t sig_args[1] = { 0u };
+                  cpu_component_emit_signal(cpu, "coco1_sam_6883", "irq_edge", sig_args, 1);
+              }
+          }
+      }
+
+      {
+          uint64_t sig_args[5] = {
+              (uint64_t)comp->frame_counter,
+              (uint64_t)now,
+              (uint64_t)comp->sam_display_base,
+              (uint64_t)(comp->sam_vdg_bits & 0x07u),
+              (uint64_t)(comp->pia1_orb & 0xFFu)
+          };
+          cpu_component_emit_signal(cpu, "coco1_sam_6883", "frame_ready", sig_args, 5);
+      }
+
+  callback_handlers:
+    raise_interrupt: |
+      if (argc < 1u) return 0u;
+      uint8_t vector = (uint8_t)(args[0] & 0xFFu);
+      mc6809_interrupt(cpu, vector);
+      return 1u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: ["../../hosts/include"]
+  linked_libraries: []
+  library_paths: []

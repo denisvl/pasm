@@ -44,8 +44,14 @@ if not defined UV_CACHE_DIR set "UV_CACHE_DIR=%REPO_ROOT%\.uv-cache"
 if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%" >nul 2>&1
 
 set "PROCESSOR=examples/processors/mc6809.yaml"
-set "IC_MAIN=examples/ics/coco1/coco1_peripherals.yaml"
+set "IC_SAM=examples/ics/coco1/coco1_sam_6883.yaml"
+set "IC_PIA0=examples/ics/coco1/coco1_pia0_6821.yaml"
+set "IC_PIA1=examples/ics/coco1/coco1_pia1_6821.yaml"
+set "IC_VDG=examples/ics/coco1/coco1_vdg_6847.yaml"
+set "IC_CART_EXP=examples/ics/coco1/coco1_cart_expansion.yaml"
+set "IC_MAIN_RAM=examples/ics/coco1/coco1_main_ram.yaml"
 set "DEVICE_KB=examples/devices/coco1/coco_keyboard.yaml"
+set "DEVICE_GP=examples/devices/coco1/coco_gameport.yaml"
 set "DEVICE_VIDEO=examples/devices/coco1/coco_video.yaml"
 set "DEVICE_SPK=examples/devices/coco1/coco_speaker.yaml"
 set "SYSTEM_DIR=examples/systems/coco1"
@@ -56,7 +62,7 @@ if /I "%PROFILE%"=="default" (
   set "DEFAULT_OUTPUT=generated/mc6809_coco1"
 ) else if /I "%PROFILE%"=="interactive" (
   set "SYSTEM=examples/systems/coco1/coco1_interactive.yaml"
-  set "HOST=examples/hosts/coco1/coco_host_sdl2_interactive.yaml"
+  set "HOST=examples/hosts/coco1/coco_host_hal_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/mc6809_coco1_sdl"
 ) else (
   >&2 echo Unsupported profile: %PROFILE%
@@ -162,8 +168,14 @@ if "%USE_CARTRIDGE%"=="1" goto :gen_with_cart
 uv run python -m src.main generate ^
   --processor "%PROCESSOR%" ^
   --system "%SYSTEM%" ^
-  --ic "%IC_MAIN%" ^
+  --ic "%IC_SAM%" ^
+  --ic "%IC_PIA0%" ^
+  --ic "%IC_PIA1%" ^
+  --ic "%IC_VDG%" ^
+  --ic "%IC_CART_EXP%" ^
+  --ic "%IC_MAIN_RAM%" ^
   --device "%DEVICE_KB%" ^
+  --device "%DEVICE_GP%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
   --host "%HOST%" ^
@@ -174,8 +186,14 @@ goto :gen_done
 uv run python -m src.main generate ^
   --processor "%PROCESSOR%" ^
   --system "%SYSTEM%" ^
-  --ic "%IC_MAIN%" ^
+  --ic "%IC_SAM%" ^
+  --ic "%IC_PIA0%" ^
+  --ic "%IC_PIA1%" ^
+  --ic "%IC_VDG%" ^
+  --ic "%IC_CART_EXP%" ^
+  --ic "%IC_MAIN_RAM%" ^
   --device "%DEVICE_KB%" ^
+  --device "%DEVICE_GP%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
   --host "%HOST%" ^

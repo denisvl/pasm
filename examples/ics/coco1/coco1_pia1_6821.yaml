@@ -1,0 +1,180 @@
+metadata:
+  id: coco1_pia1_6821
+  type: io_controller
+  model: motorola_mc6821_pia1_boundary
+  version: "0.1"
+
+state:
+  - name: last_audio_level
+    type: uint8_t
+    initial: "0"
+  - name: last_audio_cycle
+    type: uint64_t
+    initial: "0"
+  - name: audio_events
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: read_reg
+      args: [u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8]
+      returns: u64
+    - name: write_reg
+      args: [u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8]
+      returns: u64
+    - name: compute_audio_level
+      args: [u8, u8, u8, u8, u8, u64]
+      returns: u8
+    - name: irq_fire_mask
+      args: [u8, u8, u8, u8, u8, u8]
+      returns: u8
+  handlers:
+    - name: on_sam_audio_level
+      args: [u8, u64]
+  signals:
+    - name: audio_level
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    reset: |
+      comp->last_audio_level = 0u;
+      comp->last_audio_cycle = 0u;
+      comp->audio_events = 0u;
+  callback_handlers:
+    write_reg: |
+      if (argc < 12u) return 0ull;
+      uint8_t reg = (uint8_t)(args[0] & 0xFFu);
+      uint8_t value = (uint8_t)(args[1] & 0xFFu);
+      uint8_t pia1_cra = (uint8_t)(args[2] & 0xFFu);
+      uint8_t pia1_crb = (uint8_t)(args[3] & 0xFFu);
+      uint8_t pia1_ora = (uint8_t)(args[4] & 0xFFu);
+      uint8_t pia1_orb = (uint8_t)(args[5] & 0xFFu);
+      uint8_t pia1_ddra = (uint8_t)(args[6] & 0xFFu);
+      uint8_t pia1_ddrb = (uint8_t)(args[7] & 0xFFu);
+      uint8_t pia1_cra_irq1 = (uint8_t)(args[8] & 0xFFu);
+      uint8_t pia1_cra_irq2 = (uint8_t)(args[9] & 0xFFu);
+      uint8_t pia1_crb_irq1 = (uint8_t)(args[10] & 0xFFu);
+      uint8_t pia1_crb_irq2 = (uint8_t)(args[11] & 0xFFu);
+      (void)pia1_cra_irq1;
+      (void)pia1_crb_irq1;
+
+      if (reg == 0u) {
+          if ((pia1_cra & 0x04u) == 0u) pia1_ddra = value;
+          else pia1_ora = value;
+      } else if (reg == 1u) {
+          pia1_cra = (uint8_t)(value & 0x3Fu);
+          if ((pia1_cra & 0x20u) != 0u) {
+              pia1_cra_irq2 = 0u;
+          }
+      } else if (reg == 2u) {
+          if ((pia1_crb & 0x04u) == 0u) pia1_ddrb = value;
+          else pia1_orb = value;
+      } else {
+          pia1_crb = (uint8_t)(value & 0x3Fu);
+          if ((pia1_crb & 0x20u) != 0u) {
+              pia1_crb_irq2 = 0u;
+          }
+      }
+
+      return
+          ((uint64_t)pia1_cra) |
+          (((uint64_t)pia1_crb) << 8u) |
+          (((uint64_t)pia1_ora) << 16u) |
+          (((uint64_t)pia1_orb) << 24u) |
+          (((uint64_t)pia1_ddra) << 32u) |
+          (((uint64_t)pia1_ddrb) << 40u) |
+          (((uint64_t)pia1_cra_irq2) << 48u) |
+          (((uint64_t)pia1_crb_irq2) << 56u);
+    read_reg: |
+      if (argc < 11u) return 0xFFFFFFFFFFFFFFFFull;
+      uint8_t reg = (uint8_t)(args[0] & 0xFFu);
+      uint8_t pia1_cra = (uint8_t)(args[1] & 0xFFu);
+      uint8_t pia1_crb = (uint8_t)(args[2] & 0xFFu);
+      uint8_t pia1_ora = (uint8_t)(args[3] & 0xFFu);
+      uint8_t pia1_orb = (uint8_t)(args[4] & 0xFFu);
+      uint8_t pia1_ddra = (uint8_t)(args[5] & 0xFFu);
+      uint8_t pia1_ddrb = (uint8_t)(args[6] & 0xFFu);
+      uint8_t pia1_cra_irq1 = (uint8_t)(args[7] & 0xFFu);
+      uint8_t pia1_cra_irq2 = (uint8_t)(args[8] & 0xFFu);
+      uint8_t pia1_crb_irq1 = (uint8_t)(args[9] & 0xFFu);
+      uint8_t pia1_crb_irq2 = (uint8_t)(args[10] & 0xFFu);
+      uint8_t value = 0xFFu;
+
+      if (reg == 0u) {
+          if ((pia1_cra & 0x04u) == 0u) {
+              value = pia1_ddra;
+          } else {
+              uint8_t in_a = 0xFFu;
+              pia1_cra_irq1 = 0u;
+              pia1_cra_irq2 = 0u;
+              value = (uint8_t)((pia1_ora & pia1_ddra) | (in_a & (uint8_t)(~pia1_ddra)));
+          }
+      } else if (reg == 1u) {
+          value = (uint8_t)((pia1_cra & 0x3Fu) | pia1_cra_irq1 | pia1_cra_irq2);
+      } else if (reg == 2u) {
+          if ((pia1_crb & 0x04u) == 0u) {
+              value = pia1_ddrb;
+          } else {
+              uint8_t in_b = 0xFFu;
+              pia1_crb_irq1 = 0u;
+              pia1_crb_irq2 = 0u;
+              value = (uint8_t)((pia1_orb & pia1_ddrb) | (in_b & (uint8_t)(~pia1_ddrb)));
+          }
+      } else {
+          value = (uint8_t)((pia1_crb & 0x3Fu) | pia1_crb_irq1 | pia1_crb_irq2);
+      }
+
+      return
+          ((uint64_t)value) |
+          (((uint64_t)pia1_cra_irq1) << 8u) |
+          (((uint64_t)pia1_cra_irq2) << 16u) |
+          (((uint64_t)pia1_crb_irq1) << 24u) |
+          (((uint64_t)pia1_crb_irq2) << 32u);
+    compute_audio_level: |
+      if (argc < 6u) return 0u;
+      uint8_t ora = (uint8_t)(args[0] & 0xFFu);
+      uint8_t ddra = (uint8_t)(args[1] & 0xFFu);
+      uint8_t orb = (uint8_t)(args[2] & 0xFFu);
+      uint8_t ddrb = (uint8_t)(args[3] & 0xFFu);
+      uint8_t prev = (uint8_t)(args[4] & 0xFFu);
+      uint64_t cycle = (uint64_t)args[5];
+      uint8_t out_a = (uint8_t)(ora & ddra);
+      uint8_t dac8 = (uint8_t)(out_a & 0xFCu);
+      uint8_t sbs_enabled = (uint8_t)((ddrb & 0x02u) != 0u);
+      uint8_t sbs_high = (uint8_t)((orb & 0x02u) != 0u);
+      uint8_t next = (sbs_enabled != 0u) ? (uint8_t)(sbs_high != 0u ? 0xFFu : 0x00u) : dac8;
+      if (next != prev) {
+          uint64_t sig_args[2] = { (uint64_t)next, cycle };
+          cpu_component_emit_signal(cpu, "coco1_pia1_6821", "audio_level", sig_args, 2);
+      }
+      return (uint64_t)next;
+    irq_fire_mask: |
+      if (argc < 6u) return 0u;
+      uint8_t cra = (uint8_t)(args[0] & 0xFFu);
+      uint8_t cra_irq1 = (uint8_t)(args[1] & 0xFFu);
+      uint8_t cra_irq2 = (uint8_t)(args[2] & 0xFFu);
+      uint8_t crb = (uint8_t)(args[3] & 0xFFu);
+      uint8_t crb_irq1 = (uint8_t)(args[4] & 0xFFu);
+      uint8_t crb_irq2 = (uint8_t)(args[5] & 0xFFu);
+      uint8_t fire_a = (uint8_t)(((cra & 0x01u) != 0u && (cra_irq1 != 0u || cra_irq2 != 0u)) ? 1u : 0u);
+      uint8_t fire_b = (uint8_t)(((crb & 0x01u) != 0u && (crb_irq1 != 0u || crb_irq2 != 0u)) ? 1u : 0u);
+      return (uint8_t)(fire_a | (uint8_t)(fire_b << 1u));
+  handler_bodies:
+    on_sam_audio_level: |
+      if (argc < 2u) return;
+      comp->last_audio_level = (uint8_t)(args[0] & 0xFFu);
+      comp->last_audio_cycle = (uint64_t)args[1];
+      comp->audio_events += 1u;
+      cpu_component_emit_signal(cpu, "coco1_pia1_6821", "audio_level", args, 2);
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

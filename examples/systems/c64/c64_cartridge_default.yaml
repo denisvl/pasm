@@ -1,5 +1,5 @@
 metadata:
-  name: C64CartridgeDefaultSystem
+  name: C64DefaultSystem
   version: "1.0"
 
 clock_hz: 1022727

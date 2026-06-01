@@ -39,7 +39,13 @@ hooks:
 
 components:
   ics:
-    - nes_io
+    - nes_cpu_bus
+    - nes_controller_ports
+    - nes_apu
+    - nes_ppu_regs
+    - nes_cpu_ram
+    - nes_io_ports
+    - nes_cart_bridge
   devices:
     - controller_nes
     - video_nes
@@ -50,52 +56,52 @@ components:
 
 connections:
   - from:
-      component: nes_io
+      component: nes_cart_bridge
       kind: callback
-      name: cart_chr_read
+      name: chr_read
     to:
       component: nes_cart0
       kind: callback
       name: chr_read
 
   - from:
-      component: nes_io
+      component: nes_cart_bridge
       kind: callback
-      name: cart_chr_write
+      name: chr_write
     to:
       component: nes_cart0
       kind: callback
       name: chr_write
 
   - from:
-      component: nes_io
+      component: nes_cart_bridge
       kind: callback
-      name: cart_mirroring
+      name: mirroring
     to:
       component: nes_cart0
       kind: callback
       name: mirroring
 
   - from:
-      component: nes_io
+      component: nes_cart_bridge
       kind: callback
-      name: cart_irq_pending
+      name: irq_pending
     to:
       component: nes_cart0
       kind: callback
       name: irq_pending
 
   - from:
-      component: nes_io
+      component: nes_cart_bridge
       kind: callback
-      name: cart_irq_clock
+      name: irq_clock
     to:
       component: nes_cart0
       kind: callback
       name: irq_clock
 
   - from:
-      component: nes_io
+      component: nes_controller_ports
       kind: callback
       name: joy1_read
     to:
@@ -104,7 +110,7 @@ connections:
       name: read_joy1
 
   - from:
-      component: nes_io
+      component: nes_controller_ports
       kind: callback
       name: joy2_read
     to:
@@ -131,7 +137,7 @@ connections:
       name: read_joy2
 
   - from:
-      component: nes_io
+      component: nes_ppu_regs
       kind: signal
       name: frame_ready
     to:
@@ -149,7 +155,7 @@ connections:
       name: video_frame
 
   - from:
-      component: nes_io
+      component: nes_apu
       kind: signal
       name: audio_level
     to:

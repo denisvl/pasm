@@ -40,11 +40,11 @@ def test_generate_c64_with_mos6510():
     gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     src_dir = outdir / "src"
-    assert (src_dir / "MOS6510.c").exists()
+    assert (src_dir / "MOS6510_core.c").exists()
     assert (src_dir / "MOS6510.h").exists()
     assert (src_dir / "MOS6510_decoder.c").exists()
 
-    impl = (src_dir / "MOS6510.c").read_text(encoding="utf-8")
+    impl = (src_dir / "MOS6510_core.c").read_text(encoding="utf-8")
     assert "ROM_BASIC" in impl
     assert "ROM_CHAR" in impl
     assert "ROM_KERNAL" in impl

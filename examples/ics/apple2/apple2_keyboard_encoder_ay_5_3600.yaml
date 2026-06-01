@@ -1,0 +1,63 @@
+metadata:
+  id: apple2_keyboard_encoder
+  type: io_controller
+  model: ay_5_3600_compatible
+  version: "1.0"
+
+state:
+  - name: keyboard_latch
+    type: uint8_t
+    initial: "0"
+  - name: keyboard_strobe
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_ascii
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: kbd_softswitch
+        start: 0xC000
+        size: 0x0001
+        access: [read]
+      - name: kbd_clear_strobe
+        start: 0xC010
+        size: 0x0001
+        access: [read, write]
+
+behavior:
+  snippets:
+    mem_read_pre: |
+      if (addr == 0xC000u) {
+          uint8_t key = (uint8_t)cpu_component_call(cpu, "apple2_keyboard_encoder", "keyboard_ascii", NULL, 0);
+          if (key != 0u) {
+              comp->keyboard_latch = (uint8_t)(key | 0x80u);
+              comp->keyboard_strobe = 1u;
+          }
+          if (comp->keyboard_strobe != 0u) return comp->keyboard_latch;
+          return 0u;
+      }
+      if (addr == 0xC010u) {
+          comp->keyboard_strobe = 0u;
+          return 0u;
+      }
+    mem_write_pre: |
+      if (addr == 0xC010u) {
+          comp->keyboard_strobe = 0u;
+          return;
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

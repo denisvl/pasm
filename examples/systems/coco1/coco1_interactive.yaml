@@ -52,7 +52,12 @@ hooks:
 
 components:
   ics:
-    - coco1_io
+    - coco1_sam_6883
+    - coco1_pia0_6821
+    - coco1_pia1_6821
+    - coco1_vdg_6847
+    - coco1_cart_expansion
+    - coco1_main_ram
   devices:
     - keyboard_coco
     - gameport_coco
@@ -64,7 +69,7 @@ components:
 
 connections:
   - from:
-      component: coco1_io
+      component: coco1_sam_6883
       kind: callback
       name: keyboard_read_row
     to:
@@ -82,7 +87,7 @@ connections:
       name: keyboard_matrix
 
   - from:
-      component: coco1_io
+      component: coco1_sam_6883
       kind: callback
       name: joystick_read_axis
     to:
@@ -91,13 +96,125 @@ connections:
       name: read_axis
 
   - from:
-      component: coco1_io
+      component: coco1_sam_6883
       kind: callback
       name: joystick_read_button
     to:
       component: gameport_coco
       kind: callback
       name: read_button
+
+  - from:
+      component: coco1_pia0_6821
+      kind: callback
+      name: keyboard_read_row
+    to:
+      component: keyboard_coco
+      kind: callback
+      name: read_row
+
+  - from:
+      component: coco1_pia0_6821
+      kind: callback
+      name: joystick_read_axis
+    to:
+      component: gameport_coco
+      kind: callback
+      name: read_axis
+
+  - from:
+      component: coco1_pia0_6821
+      kind: callback
+      name: joystick_read_button
+    to:
+      component: gameport_coco
+      kind: callback
+      name: read_button
+
+  - from:
+      component: coco1_sam_6883
+      kind: callback
+      name: cart_firq_eval
+    to:
+      component: coco1_cart_expansion
+      kind: callback
+      name: firq_route_eval
+
+  - from:
+      component: coco1_sam_6883
+      kind: callback
+      name: pia1_compute_audio
+    to:
+      component: coco1_pia1_6821
+      kind: callback
+      name: compute_audio_level
+  - from:
+      component: coco1_sam_6883
+      kind: callback
+      name: pia1_irq_fire_mask
+    to:
+      component: coco1_pia1_6821
+      kind: callback
+      name: irq_fire_mask
+  - from:
+      component: coco1_sam_6883
+      kind: callback
+      name: pia1_read_reg
+    to:
+      component: coco1_pia1_6821
+      kind: callback
+      name: read_reg
+  - from:
+      component: coco1_sam_6883
+      kind: callback
+      name: pia1_write_reg
+    to:
+      component: coco1_pia1_6821
+      kind: callback
+      name: write_reg
+
+  - from:
+      component: coco1_sam_6883
+      kind: callback
+      name: pia0_clock_irq_edge
+    to:
+      component: coco1_pia0_6821
+      kind: callback
+      name: clock_irq_edge
+  - from:
+      component: coco1_sam_6883
+      kind: callback
+      name: pia0_irq_fire_mask
+    to:
+      component: coco1_pia0_6821
+      kind: callback
+      name: irq_fire_mask
+  - from:
+      component: coco1_sam_6883
+      kind: callback
+      name: pia0_read_reg
+    to:
+      component: coco1_pia0_6821
+      kind: callback
+      name: read_reg
+
+  - from:
+      component: coco1_sam_6883
+      kind: callback
+      name: pia0_write_reg
+    to:
+      component: coco1_pia0_6821
+      kind: callback
+      name: write_reg
+
+  - from:
+      component: coco1_sam_6883
+      kind: callback
+      name: raise_interrupt
+    to:
+      component: coco1_sam_6883
+      kind: callback
+      name: raise_interrupt
 
   - from:
       component: gameport_coco
@@ -118,7 +235,16 @@ connections:
       name: joystick_button
 
   - from:
-      component: coco1_io
+      component: coco1_sam_6883
+      kind: signal
+      name: frame_ready
+    to:
+      component: coco1_vdg_6847
+      kind: handler
+      name: on_sam_frame_ready
+
+  - from:
+      component: coco1_vdg_6847
       kind: signal
       name: frame_ready
     to:
@@ -136,7 +262,16 @@ connections:
       name: video_frame
 
   - from:
-      component: coco1_io
+      component: coco1_sam_6883
+      kind: signal
+      name: irq_edge
+    to:
+      component: coco1_pia0_6821
+      kind: handler
+      name: on_sam_irq_edge
+
+  - from:
+      component: coco1_pia0_6821
       kind: signal
       name: irq_edge
     to:
@@ -145,7 +280,16 @@ connections:
       name: irq_edge
 
   - from:
-      component: coco1_io
+      component: coco1_sam_6883
+      kind: signal
+      name: audio_level
+    to:
+      component: coco1_pia1_6821
+      kind: handler
+      name: on_sam_audio_level
+
+  - from:
+      component: coco1_pia1_6821
       kind: signal
       name: audio_level
     to:

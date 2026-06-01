@@ -1,0 +1,161 @@
+metadata:
+  id: cpc_ppi
+  type: io_controller
+  model: i8255_compatible
+  version: "1.0"
+
+state:
+  - name: port_a
+    type: uint8_t
+    initial: "0xFF"
+  - name: port_b
+    type: uint8_t
+    initial: "0xFF"
+  - name: port_c
+    type: uint8_t
+    initial: "0"
+  - name: ctrl
+    type: uint8_t
+    initial: "0x82"
+  - name: tape_level
+    type: uint8_t
+    initial: "0x80"
+  - name: printer_ready
+    type: uint8_t
+    initial: "1"
+  - name: jumpers
+    type: uint8_t
+    initial: "0x7F"
+
+interfaces:
+  callbacks:
+    - name: keyboard_read_row
+      args: [u8]
+      returns: u8
+    - name: controller_read_row
+      args: [u8]
+      returns: u8
+    - name: psg_bus_apply
+      args: [u8, u8]
+      returns: u8
+    - name: write_io_page
+      args: [u16, u8]
+      returns: u8
+    - name: read_port_c_latched
+      args: []
+      returns: u8
+    - name: read_io_page
+      args: [u16, u8, u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+  ports:
+    read: []
+    write: []
+
+behavior:
+  snippets: {}
+  callback_handlers:
+    write_io_page: |
+      uint16_t ph = (uint16_t)(args[0] & 0xFF00u);
+      uint8_t v = (uint8_t)(args[1] & 0xFFu);
+      if (ph == 0xF400u) {
+          comp->port_a = v;
+          {
+              uint64_t psg_args[2] = { (uint64_t)(comp->port_c & 0xC0u), (uint64_t)comp->port_a };
+              (void)cpu_component_call(cpu, "cpc_ppi", "psg_bus_apply", psg_args, 2);
+          }
+          return comp->port_a;
+      }
+      if (ph == 0xF500u) {
+          if ((comp->ctrl & 0x02u) == 0u) {
+              comp->port_b = v;
+          }
+          return comp->port_b;
+      }
+      if (ph == 0xF600u) {
+          comp->port_c = v;
+          {
+              uint64_t psg_args[2] = { (uint64_t)(comp->port_c & 0xC0u), (uint64_t)comp->port_a };
+              (void)cpu_component_call(cpu, "cpc_ppi", "psg_bus_apply", psg_args, 2);
+          }
+          return comp->port_c;
+      }
+      if (ph == 0xF700u) {
+          if ((v & 0x80u) != 0u) {
+              comp->ctrl = v;
+          } else {
+              uint8_t bit = (uint8_t)((v >> 1u) & 0x07u);
+              if ((v & 0x01u) != 0u) {
+                  comp->port_c = (uint8_t)(comp->port_c | (uint8_t)(1u << bit));
+              } else {
+                  comp->port_c = (uint8_t)(comp->port_c & (uint8_t)~(uint8_t)(1u << bit));
+              }
+          }
+          {
+              uint64_t psg_args[2] = { (uint64_t)(comp->port_c & 0xC0u), (uint64_t)comp->port_a };
+              (void)cpu_component_call(cpu, "cpc_ppi", "psg_bus_apply", psg_args, 2);
+          }
+          return comp->port_c;
+      }
+      return 0u;
+    read_port_c_latched: |
+      return comp->port_c;
+    read_io_page: |
+      uint16_t ph = (uint16_t)(args[0] & 0xFF00u);
+      uint8_t vsync = (uint8_t)(args[1] & 0x01u);
+      uint8_t port_c_raw = (uint8_t)(args[2] & 0xFFu);
+
+      if (ph == 0xF400u) {
+          uint8_t ctrl_sel = (uint8_t)((port_c_raw >> 6u) & 0x03u);
+          uint8_t row = (uint8_t)(port_c_raw & 0x0Fu);
+          if (ctrl_sel == 0x01u) {
+              uint64_t row_args[1] = { (uint64_t)row };
+              uint8_t kb = (uint8_t)cpu_component_call(cpu, "cpc_ppi", "keyboard_read_row", row_args, 1);
+              uint8_t joy = (uint8_t)cpu_component_call(cpu, "cpc_ppi", "controller_read_row", row_args, 1);
+              uint8_t merged = (uint8_t)(kb & joy);
+              comp->port_a = merged;
+              return merged;
+          }
+          if ((comp->ctrl & 0x10u) == 0u) return comp->port_a;
+          return 0xFFu;
+      }
+
+      if (ph == 0xF500u) {
+          uint8_t pb_input = (uint8_t)((comp->ctrl & 0x02u) != 0u);
+          if (pb_input != 0u) {
+              uint8_t v = (uint8_t)(comp->tape_level & 0x80u);
+              if (comp->printer_ready == 0u) v |= 0x40u;
+              v = (uint8_t)(v | (comp->jumpers & 0x7Fu));
+              if (vsync != 0u) v |= 0x01u;
+              return v;
+          }
+          return comp->port_b;
+      }
+
+      if (ph == 0xF600u) {
+          uint8_t c = comp->port_c;
+          uint8_t direction = (uint8_t)(comp->ctrl & 0x09u);
+          if (direction != 0u && (direction & 0x08u) != 0u) {
+              uint8_t val = (uint8_t)(c & 0xC0u);
+              c = (uint8_t)(c & 0x0Fu);
+              if (val == 0xC0u) val = 0x80u;
+              c = (uint8_t)(c | val | 0x20u);
+              if ((comp->tape_level & 0x10u) != 0u) c = (uint8_t)(c | 0x10u);
+          }
+          return c;
+      }
+
+      if (ph == 0xF700u) return comp->ctrl;
+      return 0xFFu;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

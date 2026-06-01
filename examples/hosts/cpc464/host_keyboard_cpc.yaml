@@ -1,6 +1,6 @@
 keyboard:
   kind: matrix
-  focus_required: true
+  focus_required: false
   system_keys:
   - id: CASSETTE_REC
     visual_feedback: true

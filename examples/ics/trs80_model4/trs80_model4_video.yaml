@@ -1,0 +1,167 @@
+metadata:
+  id: trs80_m4video
+  type: video_controller
+  model: trs80_model4_video
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: render_frame
+      args: [u32]
+      returns: u8
+  handlers: []
+  signals:
+    - name: frame_ready
+      args: [u32, u64, u32, u32]
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      (void)cpu;
+  callback_handlers:
+    render_frame: |
+      static uint32_t framebuf[640u * 240u];
+      static uint8_t video_shadow[0x0780u];
+      static uint8_t video_shadow_init = 0u;
+      uint32_t frame_counter = (uint32_t)(args[0] & 0xFFFFFFFFu);
+      uint64_t ga_cols_args[1] = { 0u };
+      uint32_t cols = ((uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "get_video_cols", ga_cols_args, 0) == 80u) ? 80u : 64u;
+      uint32_t rows = (cols == 80u) ? 24u : 16u;
+      uint32_t cells = cols * rows;
+      uint64_t ga_map_args[1] = { 0u };
+      uint8_t map = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "get_memory_map", ga_map_args, 0);
+      uint8_t video_enabled = 0u;
+      uint8_t map_high = 0u;
+      uint32_t video_base;
+      uint32_t video_window;
+      uint32_t page_offset = 0u;
+      uint32_t video_limit;
+      uint32_t fb_w = cols * 6u;
+      uint32_t fb_h = rows * 8u;
+      uint32_t fg = 0xFFE8E8E8u;
+      uint32_t bg = 0xFF101010u;
+
+      if (video_shadow_init == 0u) {
+          for (uint32_t i = 0u; i < 0x0780u; ++i) {
+              video_shadow[i] = 0x20u;
+          }
+          video_shadow_init = 1u;
+      }
+
+      if (map == 0u || map == 1u) {
+          video_enabled = 1u;
+          map_high = 0u;
+      } else if (map == 2u || map == 3u) {
+          video_enabled = 1u;
+          map_high = 1u;
+      }
+
+      video_base = map_high ? 0xF800u : 0x3C00u;
+      video_window = map_high ? 0x0800u : 0x0400u;
+
+      if (cells > 0x0780u) cells = 0x0780u;
+      {
+          uint64_t ga_vc_args[1] = { 0u };
+          uint8_t video_ctrl = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "get_video_ctrl", ga_vc_args, 0);
+          if (cols == 64u && (video_ctrl & 0x80u) != 0u) {
+              page_offset = 0x0400u;
+          }
+      }
+      if (video_enabled != 0u) {
+          video_limit = (page_offset < video_window) ? (video_window - page_offset) : 0u;
+          if (video_limit > cells) video_limit = cells;
+          for (uint32_t i = 0u; i < video_limit; ++i) {
+              uint32_t addr = video_base + page_offset + i;
+              video_shadow[i] = (addr < cpu->memory_size) ? cpu->memory[addr] : 0x20u;
+          }
+          for (uint32_t i = video_limit; i < cells; ++i) {
+              video_shadow[i] = 0x20u;
+          }
+      }
+
+      uint32_t cursor_idx = 0xFFFFFFFFu;
+      {
+          uint32_t inv_count = 0u;
+          uint32_t last_inv = 0xFFFFFFFFu;
+          for (uint32_t i = 0u; i < cells; ++i) {
+              if ((video_shadow[i] & 0x80u) != 0u) {
+                  inv_count += 1u;
+                  last_inv = i;
+                  if (inv_count > 1u) break;
+              }
+          }
+          if (inv_count == 1u) {
+              cursor_idx = last_inv;
+          }
+      }
+      uint8_t cursor_blink_on = (uint8_t)(((frame_counter / 30u) & 1u) == 0u);
+
+      if (fb_w > 640u) fb_w = 640u;
+      if (fb_h > 240u) fb_h = 240u;
+
+      for (uint32_t py = 0u; py < fb_h; ++py) {
+          for (uint32_t px = 0u; px < fb_w; ++px) {
+              framebuf[py * fb_w + px] = bg;
+          }
+      }
+
+      for (uint32_t y = 0u; y < rows; ++y) {
+          for (uint32_t x = 0u; x < cols; ++x) {
+              uint32_t idx = y * cols + x;
+              uint8_t raw = (idx < cells) ? video_shadow[idx] : 0x20u;
+              uint8_t ch_raw = (uint8_t)(raw & 0x7Fu);
+              uint8_t inv = ((raw & 0x80u) != 0u) ? 1u : 0u;
+              uint8_t is_cursor = (idx == cursor_idx) ? 1u : 0u;
+              if (is_cursor != 0u) {
+                  inv = 0u;
+              }
+              char ch;
+              uint32_t cell_x = x * 6u;
+              uint32_t cell_y = y * 8u;
+              if (ch_raw < 0x20u || ch_raw > 0x7Eu) {
+                  ch = ' ';
+              } else {
+                  ch = (char)ch_raw;
+              }
+              if (is_cursor != 0u) {
+                  ch = ' ';
+              }
+              uint32_t ch_fg = (inv != 0u) ? bg : fg;
+              uint32_t ch_bg = (inv != 0u) ? fg : bg;
+              if (inv != 0u) {
+                  sms_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, 6, 8, ch_bg);
+              }
+              sms_overlay_draw_char(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, ch, 1, ch_fg);
+              if (is_cursor != 0u && cursor_blink_on != 0u) {
+                  sms_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)(cell_y + 7u), 6, 1, fg);
+              }
+          }
+      }
+
+      {
+          uint64_t frame_args[4] = {
+              (uint64_t)frame_counter,
+              (uint64_t)(uintptr_t)framebuf,
+              (uint64_t)fb_w,
+              (uint64_t)fb_h
+          };
+          cpu_component_emit_signal(cpu, "trs80_m4video", "frame_ready", frame_args, 4);
+      }
+      return (uint64_t)1u;
+  handler_bodies: {}
+
+coding:
+  headers: ["pasm_overlay.h"]
+  include_paths: ["../hosts/include"]
+  linked_libraries: []
+  library_paths: []

@@ -1080,7 +1080,6 @@ int {cpu_prefix}_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t 
     start_cycles = cpu->total_cycles;
     had_suppressed_bp = dbg_suppress_breakpoint_at_pc_once(cpu, &suppressed_bp);
     while (cpu->running) {{
-        uint64_t before_step_cycles = cpu->total_cycles;
         if ((cpu->total_cycles - start_cycles) >= max_cycles) break;
         dbg_history_record(cpu, cpu->pc);
         rc = {cpu_prefix}_step(cpu);
@@ -1091,9 +1090,6 @@ int {cpu_prefix}_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t 
         if (rc != 0) {{
             *out_mode = dbg_mode(cpu);
             return rc;
-        }}
-        if (cpu->total_cycles == before_step_cycles) {{
-            break;
         }}
     }}
     if (had_suppressed_bp) {{

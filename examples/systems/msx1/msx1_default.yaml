@@ -43,6 +43,7 @@ components:
     - vdp0
     - ppi0
     - psg0
+    - msx1_main_ram
   devices:
     - keyboard_msx
     - controller_msx

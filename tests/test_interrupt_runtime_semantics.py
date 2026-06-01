@@ -149,15 +149,23 @@ int main(int argc, char **argv) {
     binary_name = "interrupt_harness.exe" if os.name == "nt" else "interrupt_harness"
     binary = outdir / binary_name
 
+    src_dir = outdir / "src"
+    split_units = [
+        str(path)
+        for suffix in ("_system_bus.c", "_system_glue.c", "_host_glue.c", "_device_glue.c")
+        for path in src_dir.glob(f"*{suffix}")
+    ]
+
     subprocess.check_call(
         [
             compiler,
             "-std=c11",
             "-O2",
             "-I",
-            str(outdir / "src"),
-            str(outdir / "src" / "Z80.c"),
-            str(outdir / "src" / "Z80_decoder.c"),
+            str(src_dir),
+            str(src_dir / "Z80_core.c"),
+            str(src_dir / "Z80_decoder.c"),
+            *split_units,
             str(harness_c),
             "-o",
             str(binary),

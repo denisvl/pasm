@@ -1,0 +1,51 @@
+metadata:
+  id: trs80_m4ram
+  type: memory
+  model: trs80_model4_main_ram_64k
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks:
+    - name: ram_read
+      args: [u16]
+      returns: u8
+    - name: ram_write
+      args: [u16, u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      (void)cpu;
+  callback_handlers:
+    ram_read: |
+      if (argc < 1u) return 0xFFu;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+    ram_write: |
+      if (argc < 2u) return 0u;
+      uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+      uint8_t data = (uint8_t)(args[1] & 0xFFu);
+      if ((uint64_t)addr < cpu->memory_size) {
+          cpu->memory[addr] = data;
+      }
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

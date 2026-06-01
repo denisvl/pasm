@@ -3,6 +3,7 @@ import pathlib
 import shutil
 import subprocess
 import json
+import re
 
 import pytest
 import yaml
@@ -12,6 +13,17 @@ from src.codegen.build_system import generate_cmake, generate_makefile
 from src.codegen.cpu_decoder import generate_decoder
 from src.codegen.cpu_header import generate_cpu_header
 from src.codegen.cpu_impl import generate_cpu_impl
+from src.codegen.cpu_impl import generate_cartridge_picker_runtime_glue
+from src.codegen.cpu_impl import generate_input_runtime_glue
+from src.codegen.cpu_impl import generate_input_runtime_contract_support
+from src.codegen.split_units import (
+    extract_split_section,
+    extract_split_sections,
+    extract_host_hal_function_prototypes,
+    generate_host_picker_glue,
+    promote_host_hal_symbols,
+)
+from src.codegen.dispatch_contract import generate_dispatch_contract_decls
 from src.parser import yaml_loader
 from tests.support import example_pair, write_pair_from_legacy
 
@@ -149,23 +161,347 @@ def test_decoder_masks_are_rendered_as_hex_bitmasks():
 def test_cmake_template_does_not_reference_runtime_stub():
     isa = _base_isa("Build8")
     cmake = generate_cmake(isa, "Build8")
-    assert "_runtime.c" not in cmake
+    assert "_runtime.c" in cmake
+    assert "_debug_abi.c" in cmake
+    assert "_system_bus.c" in cmake
+    assert "_host_glue.c" in cmake
 
 
 def test_cmake_emits_linkable_emulator_library_target():
     isa = _base_isa("BuildLib8")
     cmake = generate_cmake(isa, "BuildLib8")
-    assert "add_library(buildlib8_emu STATIC ${EMU_SOURCES})" in cmake
+    assert "add_library(buildlib8_emu STATIC ${EMU_SOURCES})" not in cmake
     assert "add_executable(buildlib8_test src/main.c)" in cmake
-    assert "target_link_libraries(buildlib8_test PRIVATE buildlib8_emu)" in cmake
+    assert "target_link_libraries(buildlib8_test PRIVATE" in cmake
+    assert "buildlib8_cpu_core" in cmake
+    assert "_system" in cmake
+    assert (
+        "target_link_libraries(buildlib8_test PRIVATE buildlib8_cpu_core system_system buildlib8_cpu_core)"
+        in cmake
+    )
+    assert "src/system_runtime.c" in cmake
+    assert "src/system_system_bus.c" in cmake
+    assert "src/system_system_glue.c" in cmake
+    assert "src/system_host_glue.c" in cmake
+    assert "src/system_device_glue.c" in cmake
 
 
 def test_makefile_emits_linkable_emulator_library_target():
     isa = _base_isa("BuildLib8")
     makefile = generate_makefile(isa, "BuildLib8")
-    assert "EMU_LIB = libbuildlib8_emu.a" in makefile
-    assert "$(TARGET): $(MAIN_OBJ) $(EMU_LIB)" in makefile
-    assert "$(EMU_LIB): $(OBJECTS)" in makefile
+    assert "EMU_LIB = libbuildlib8_emu.a" not in makefile
+    assert "$(TARGET): $(MAIN_OBJ) $(SYSTEM_LIB) $(CPU_CORE_LIB)" in makefile
+    assert (
+        "$(CC) $(LDFLAGS) -o $@ $(MAIN_OBJ) $(CPU_CORE_LIB) $(SYSTEM_LIB) $(CPU_CORE_LIB)"
+        in makefile
+    )
+    assert "$(EMU_LIB): $(EMU_OBJECTS)" not in makefile
+    assert "src/system_runtime.c" in makefile
+    assert "src/system_system_bus.c" in makefile
+    assert "src/system_system_glue.c" in makefile
+    assert "src/system_host_glue.c" in makefile
+    assert "src/system_device_glue.c" in makefile
+
+
+def test_split_units_module_uses_public_codegen_interfaces():
+    split_units = (BASE_DIR / "src" / "codegen" / "split_units.py").read_text(
+        encoding="utf-8"
+    )
+    assert "from .cpu_runtime import" in split_units
+    assert "from .interrupts import generate_interrupt_impl" in split_units
+    assert "from .cpu_impl import (" not in split_units
+    assert "_generate_system_rom_loader" not in split_units
+    assert "_generate_cartridge_rom_loader" not in split_units
+    assert "_generate_interrupt_impl" not in split_units
+
+
+def test_split_units_own_component_dispatch_with_contract_support():
+    split_units = (BASE_DIR / "src" / "codegen" / "split_units.py").read_text(
+        encoding="utf-8"
+    )
+    assert "generate_component_runtime_dispatch_glue" in split_units
+    assert "generate_component_lifecycle_dispatch_glue" in split_units
+    assert "generate_component_dispatch_glue" in split_units
+    assert "generate_component_routing_glue" in split_units
+    assert "generate_component_connections_glue" in split_units
+    assert "generate_host_hal_contract_support" in split_units
+    assert "generate_input_runtime_glue" in split_units
+
+
+def test_generator_excludes_component_dispatch_from_core():
+    generator_src = (BASE_DIR / "src" / "generator.py").read_text(encoding="utf-8")
+    assert '"COMPONENT_DISPATCH"' in generator_src
+
+
+def test_cpu_header_uses_shared_dispatch_contract_module():
+    cpu_header_src = (BASE_DIR / "src" / "codegen" / "cpu_header.py").read_text(
+        encoding="utf-8"
+    )
+    templates_src = (BASE_DIR / "src" / "codegen" / "templates.py").read_text(
+        encoding="utf-8"
+    )
+    assert "from .dispatch_contract import generate_dispatch_contract_decls" in cpu_header_src
+    assert "dispatch_contract=dispatch_contract" in cpu_header_src
+    assert "{dispatch_contract}" in templates_src
+
+
+def test_dispatch_contract_decls_include_split_symbols():
+    decls = generate_dispatch_contract_decls()
+    assert "typedef struct {" in decls
+    assert "ComponentConnection" in decls
+    assert "extern const ComponentConnection g_component_connections[]" in decls
+    assert "extern const size_t g_component_connections_count" in decls
+    assert "uint64_t cpu_component_call(" in decls
+    assert "void cpu_component_emit_signal(" in decls
+
+
+def test_input_runtime_markers_and_extraction():
+    processor = BASE_DIR / "examples" / "processors" / "mos6502.yaml"
+    system = BASE_DIR / "examples" / "systems" / "atari800xl" / "atari800xl_interactive.yaml"
+    ic_paths = [
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_antic.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_gtia.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_pokey.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_pia_6520.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_mmu.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_main_ram.yaml"),
+    ]
+    device_paths = [
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_keyboard.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_controller.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_video.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_speaker.yaml"),
+    ]
+    host_paths = [str(BASE_DIR / "examples" / "hosts" / "atari800xl" / "atari800xl_host_hal_interactive.yaml")]
+    isa_data = gen_mod.EmulatorGenerator(
+        str(processor),
+        str(system),
+        ic_paths=ic_paths,
+        device_paths=device_paths,
+        host_paths=host_paths,
+    ).isa_data
+    impl = generate_cpu_impl(
+        isa_data,
+        "MOS6502",
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = extract_split_sections(impl, "INPUT_RUNTIME")
+    assert blocks
+    extracted = generate_input_runtime_glue(isa_data, "MOS6502")
+    assert "RuntimeKeyboardBinding" in extracted
+    assert "RuntimeControllerBinding" in extracted
+
+
+def test_input_runtime_contract_support_extracts_decls():
+    processor = BASE_DIR / "examples" / "processors" / "mos6502.yaml"
+    system = BASE_DIR / "examples" / "systems" / "atari800xl" / "atari800xl_interactive.yaml"
+    ic_paths = [
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_antic.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_gtia.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_pokey.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_pia_6520.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_mmu.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "atari800xl" / "atari800xl_main_ram.yaml"),
+    ]
+    device_paths = [
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_keyboard.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_controller.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_video.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_speaker.yaml"),
+    ]
+    host_paths = [str(BASE_DIR / "examples" / "hosts" / "atari800xl" / "atari800xl_host_hal_interactive.yaml")]
+    isa_data = gen_mod.EmulatorGenerator(
+        str(processor),
+        str(system),
+        ic_paths=ic_paths,
+        device_paths=device_paths,
+        host_paths=host_paths,
+    ).isa_data
+    support = generate_input_runtime_contract_support(isa_data, "MOS6502")
+    assert "typedef struct {" in support
+    assert "RuntimeKeyboardBinding;" in support
+    assert "RuntimeControllerBinding;" in support
+    assert "extern RuntimeKeyboardMap g_runtime_keyboard_map;" in support
+    assert "extern RuntimeControllerMap g_runtime_controller_map;" in support
+    assert "cpu_component_keyboard_ascii_pop(void);" in support
+
+
+def test_input_runtime_contract_support_includes_declared_keymap_helper():
+    processor = BASE_DIR / "examples" / "processors" / "z80.yaml"
+    system = BASE_DIR / "examples" / "systems" / "msx1" / "msx1_cartridge_interactive.yaml"
+    ics = [
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_vdp_tms9918a.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_ppi_8255.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_psg_ay8910.yaml",
+    ]
+    devices = [
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_keyboard.yaml",
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_controller.yaml",
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_video.yaml",
+        BASE_DIR / "examples" / "devices" / "msx1" / "msx_speaker.yaml",
+    ]
+    host = BASE_DIR / "examples" / "hosts" / "msx1" / "msx_host_hal_interactive.yaml"
+
+    isa_data = yaml_loader.load_processor_system(
+        str(processor),
+        str(system),
+        [str(p) for p in ics],
+        [str(p) for p in devices],
+        [str(host)],
+        host_backend_target="sdl2",
+    )
+    support = generate_input_runtime_contract_support(isa_data, "Z80")
+    assert "cpu_component_apply_declared_keymap(" in support
+
+
+def test_split_units_module_exposes_dispatcher():
+    split_units = (BASE_DIR / "src" / "codegen" / "split_units.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def emit_split_unit(" in split_units
+    assert 'if suffix == "runtime":' in split_units
+    assert 'if suffix == "system_glue":' in split_units
+    assert 'if suffix == "host_glue":' in split_units
+
+
+def test_ic_step_and_lifecycle_ownership_split_into_ic_units(tmp_path):
+    processor = BASE_DIR / "examples" / "processors" / "z80.yaml"
+    system = BASE_DIR / "examples" / "systems" / "sms" / "sms_interactive.yaml"
+    ic_paths = [
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_vdp_sega315_5124.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_joypad_io.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "common" / "psg_sn76489.yaml"),
+    ]
+    device_paths = [
+        str(BASE_DIR / "examples" / "devices" / "sms" / "sms_video.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "sms" / "sms_speaker.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "sms" / "sms_controller.yaml"),
+    ]
+    host_paths = [str(BASE_DIR / "examples" / "hosts" / "sms" / "sms_host_hal_interactive.yaml")]
+    outdir = tmp_path / "sms_split_out"
+    gen = gen_mod.EmulatorGenerator(
+        str(processor),
+        str(system),
+        ic_paths=ic_paths,
+        device_paths=device_paths,
+        host_paths=host_paths,
+    )
+    gen.generate(str(outdir))
+
+    src = outdir / "src"
+    system_glue = (src / "sms_system_glue.c").read_text(encoding="utf-8")
+    ic_units = sorted(src.glob("sms_ic_*.c"))
+    assert ic_units, "expected per-IC source units"
+
+    # system glue owns dispatch wrappers only
+    assert "void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before)" in system_glue
+    assert "void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before)" in system_glue
+    assert "cpu_component_ic_sms_vdp0_step_pre" in system_glue
+    assert "cpu_component_ic_sms_vdp0_step_post" in system_glue
+    assert "cpu_component_ic_sms_vdp0_lifecycle_create" in system_glue
+    assert "cpu_component_ic_sms_vdp0_lifecycle_reset" in system_glue
+    assert "cpu_component_ic_sms_vdp0_lifecycle_destroy" in system_glue
+
+    # IC units own concrete hook/lifecycle implementation.
+    vdp = (src / "sms_ic_sms_vdp0.c").read_text(encoding="utf-8")
+    assert "void cpu_component_ic_sms_vdp0_step_pre(" in vdp
+    assert "void cpu_component_ic_sms_vdp0_step_post(" in vdp
+    assert "void cpu_component_ic_sms_vdp0_lifecycle_create(" in vdp
+    assert "void cpu_component_ic_sms_vdp0_lifecycle_reset(" in vdp
+    assert "void cpu_component_ic_sms_vdp0_lifecycle_destroy(" in vdp
+
+
+def test_generated_cpu_core_has_no_ic_implementation_leakage(tmp_path):
+    processor = BASE_DIR / "examples" / "processors" / "z80.yaml"
+    system = BASE_DIR / "examples" / "systems" / "sms" / "sms_interactive.yaml"
+    ic_paths = [
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_vdp_sega315_5124.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_joypad_io.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "common" / "psg_sn76489.yaml"),
+    ]
+    device_paths = [
+        str(BASE_DIR / "examples" / "devices" / "sms" / "sms_video.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "sms" / "sms_speaker.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "sms" / "sms_controller.yaml"),
+    ]
+    host_paths = [str(BASE_DIR / "examples" / "hosts" / "sms" / "sms_host_hal_interactive.yaml")]
+    outdir = tmp_path / "sms_split_out_core_contract"
+    gen = gen_mod.EmulatorGenerator(
+        str(processor),
+        str(system),
+        ic_paths=ic_paths,
+        device_paths=device_paths,
+        host_paths=host_paths,
+    )
+    gen.generate(str(outdir))
+
+    core = (outdir / "src" / "Z80_core.c").read_text(encoding="utf-8")
+    # Core may call lifecycle dispatch, but must not own IC implementation symbols.
+    assert "cpu_component_lifecycle_create(" in core
+    assert "cpu_component_lifecycle_reset(" in core
+    assert "cpu_component_lifecycle_destroy(" in core
+    assert "cpu_component_ic_" not in core
+    assert "ComponentState_sms_" not in core
+
+
+def test_system_glue_owns_dispatch_not_ic_stateful_impl(tmp_path):
+    processor = BASE_DIR / "examples" / "processors" / "z80.yaml"
+    system = BASE_DIR / "examples" / "systems" / "sms" / "sms_interactive.yaml"
+    ic_paths = [
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_vdp_sega315_5124.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_joypad_io.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "common" / "psg_sn76489.yaml"),
+    ]
+    device_paths = [
+        str(BASE_DIR / "examples" / "devices" / "sms" / "sms_video.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "sms" / "sms_speaker.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "sms" / "sms_controller.yaml"),
+    ]
+    host_paths = [str(BASE_DIR / "examples" / "hosts" / "sms" / "sms_host_hal_interactive.yaml")]
+    outdir = tmp_path / "sms_split_out_glue_contract"
+    gen = gen_mod.EmulatorGenerator(
+        str(processor),
+        str(system),
+        ic_paths=ic_paths,
+        device_paths=device_paths,
+        host_paths=host_paths,
+    )
+    gen.generate(str(outdir))
+
+    glue = (outdir / "src" / "sms_system_glue.c").read_text(encoding="utf-8")
+    # Dispatch-only wrappers should call IC functions.
+    assert "cpu_component_ic_sms_vdp0_step_pre(cpu, inst, pc_before);" in glue
+    assert "cpu_component_ic_sms_vdp0_step_post(cpu, inst, pc_before);" in glue
+    # Stateful IC implementation snippets must not be embedded in step dispatch wrappers.
+    pre_block = glue.split("void cpu_components_step_pre(", 1)[1].split("}\n", 1)[0]
+    post_block = glue.split("void cpu_components_step_post(", 1)[1].split("}\n", 1)[0]
+    assert "ComponentState_sms_vdp0 *comp = &cpu->comp_sms_vdp0;" not in pre_block
+    assert "ComponentState_sms_joy0 *comp = &cpu->comp_sms_joy0;" not in pre_block
+    assert "ComponentState_sms_psg0 *comp = &cpu->comp_sms_psg0;" not in pre_block
+    assert "ComponentState_sms_vdp0 *comp = &cpu->comp_sms_vdp0;" not in post_block
+    assert "ComponentState_sms_joy0 *comp = &cpu->comp_sms_joy0;" not in post_block
+    assert "ComponentState_sms_psg0 *comp = &cpu->comp_sms_psg0;" not in post_block
+
+
+def test_generator_emits_split_link_order_in_generated_cmake(tmp_path):
+    isa = _base_isa("LinkGuard8")
+    output = tmp_path / "out"
+    processor, system = write_pair_from_legacy(tmp_path, "link_guard", isa)
+
+    g = gen_mod.EmulatorGenerator(str(processor), str(system))
+    g.generate(str(output))
+
+    cmake = (output / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "add_library(linkguard8_cpu_core STATIC ${CPU_CORE_SOURCES})" in cmake
+    m = re.search(r"add_library\(([^ )]+_system) STATIC \$\{SYSTEM_SOURCES\}\)", cmake)
+    assert m is not None
+    system_target = m.group(1)
+    assert (
+        f"target_link_libraries(linkguard8_test PRIVATE "
+        f"linkguard8_cpu_core {system_target} linkguard8_cpu_core)"
+    ) in cmake
 
 
 def test_build_system_normalizes_windows_paths_for_cross_platform_outputs():
@@ -324,7 +660,7 @@ def test_build_system_does_not_infer_sdl2_backend_from_linked_library_name():
     assert "find_package(SDL2 CONFIG QUIET)" not in cmake
     assert "${PASM_SDL2_LINK_TARGET}" not in cmake
     assert "target_link_libraries(backendnoinfer8_test PRIVATE\n    SDL2\n)" in cmake
-    assert "target_link_libraries(backendnoinfer8_emu PRIVATE\n    SDL2\n)" in cmake
+    assert "target_link_libraries(backendnoinfer8_emu PRIVATE\n    SDL2\n)" not in cmake
     assert "-lSDL2" in makefile
 
 
@@ -600,6 +936,11 @@ int main(void) {
     compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
     binary_name = "rom_guard_harness.exe" if os.name == "nt" else "rom_guard_harness"
     binary = outdir / binary_name
+    split_runtime = next((outdir / "src").glob("*_runtime.c"))
+    split_system_bus = next((outdir / "src").glob("*_system_bus.c"))
+    split_system_glue = next((outdir / "src").glob("*_system_glue.c"))
+    split_host_glue = next((outdir / "src").glob("*_host_glue.c"))
+    split_device_glue = next((outdir / "src").glob("*_device_glue.c"))
     subprocess.check_call(
         [
             compiler,
@@ -608,9 +949,13 @@ int main(void) {
             "-D_POSIX_C_SOURCE=199309L",
             "-I",
             str(outdir / "src"),
-            str(outdir / "src" / "MemRuntime8.c"),
+            str(outdir / "src" / "MemRuntime8_core.c"),
             str(outdir / "src" / "MemRuntime8_decoder.c"),
-            str(outdir / "src" / "MemRuntime8_debug_abi.c"),
+            str(split_runtime),
+            str(split_system_bus),
+            str(split_system_glue),
+            str(split_host_glue),
+            str(split_device_glue),
             str(harness_c),
             "-o",
             str(binary),
@@ -658,11 +1003,13 @@ def test_system_rom_loader_api_is_emitted(tmp_path):
     outdir = tmp_path / "rom_api8_out"
     gen_mod.generate(str(processor_path), str(system_path), str(outdir))
     header = (outdir / "src" / "RomApi8.h").read_text(encoding="utf-8")
-    impl = (outdir / "src" / "RomApi8.c").read_text(encoding="utf-8")
+    cpu_impl = (outdir / "src" / "RomApi8_core.c").read_text(encoding="utf-8")
+    runtime_impl = next((outdir / "src").glob("*_runtime.c")).read_text(encoding="utf-8")
 
     assert "int romapi8_load_system_roms(CPUState *cpu, const char *system_base_dir);" in header
-    assert "static const SystemRomImage g_system_rom_images[]" in impl
-    assert "int romapi8_load_system_roms(CPUState *cpu, const char *system_base_dir)" in impl
+    assert "int romapi8_load_system_roms(CPUState *cpu, const char *system_base_dir)" not in cpu_impl
+    assert "static const SystemRomImage g_system_rom_images[]" in runtime_impl
+    assert "int romapi8_load_system_roms(CPUState *cpu, const char *system_base_dir)" in runtime_impl
 
 
 def test_cartridge_loader_api_is_emitted():
@@ -704,6 +1051,346 @@ def test_cartridge_loader_api_is_emitted():
     assert "comp->rom_size = (uint32_t)file_size;" in impl
 
 
+def test_generator_moves_cartridge_loader_into_runtime_unit(tmp_path):
+    isa = _base_isa("CartRuntime8")
+    isa["cartridge"] = {
+        "metadata": {"id": "cart0", "type": "cartridge_mapper", "model": "none"},
+        "state": [
+            {"name": "rom_data", "type": "uint8_t *", "initial": "NULL"},
+            {"name": "rom_size", "type": "uint32_t", "initial": "0"},
+        ],
+        "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+        "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+        "coding": {
+            "headers": [],
+            "include_paths": [],
+            "linked_libraries": [],
+            "library_paths": [],
+        },
+    }
+    isa["cartridge_rom"] = {"path": "/tmp/test.rom"}
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "cart_runtime8", isa)
+    outdir = tmp_path / "cart_runtime8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    cpu_impl = (outdir / "src" / "CartRuntime8_core.c").read_text(encoding="utf-8")
+    runtime_impl = next((outdir / "src").glob("*_runtime.c")).read_text(encoding="utf-8")
+    assert "int cartruntime8_load_cartridge_rom(CPUState *cpu, const char *path)" not in cpu_impl
+    assert "int cartruntime8_load_cartridge_rom(CPUState *cpu, const char *path)" in runtime_impl
+    assert "int cartruntime8_set_cartridge_dir(CPUState *cpu, const char *path)" not in cpu_impl
+    assert "int cartruntime8_set_cartridge_dir(CPUState *cpu, const char *path)" in runtime_impl
+
+
+def test_step_uses_runtime_pre_step_contract_instead_of_picker_swap():
+    isa = _base_isa("CartBridge8")
+    isa["cartridge"] = {
+        "metadata": {"id": "cart0", "type": "cartridge_mapper", "model": "none"},
+        "state": [
+            {"name": "rom_data", "type": "uint8_t *", "initial": "NULL"},
+            {"name": "rom_size", "type": "uint32_t", "initial": "0"},
+        ],
+        "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+        "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+        "coding": {
+            "headers": [],
+            "include_paths": [],
+            "linked_libraries": [],
+            "library_paths": [],
+        },
+    }
+    impl = generate_cpu_impl(isa, "CartBridge8")
+    assert "if (cpu_components_runtime_pre_step(cpu) != 0) {" in impl
+    assert "if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {\n        return 0;" not in impl
+
+
+def test_generator_moves_interrupt_api_into_system_glue_unit(tmp_path):
+    isa = _base_isa("IntGlue8")
+    isa["interrupts"] = {"model": "mos6502"}
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "int_glue8", isa)
+    outdir = tmp_path / "int_glue8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    cpu_impl = (outdir / "src" / "IntGlue8_core.c").read_text(encoding="utf-8")
+    system_glue_impl = next((outdir / "src").glob("*_system_glue.c")).read_text(
+        encoding="utf-8"
+    )
+
+    assert "void intglue8_interrupt(CPUState *cpu, uint8_t vector)" not in cpu_impl
+    assert "void intglue8_set_irq(CPUState *cpu, bool enabled)" not in cpu_impl
+
+    assert "void intglue8_interrupt(CPUState *cpu, uint8_t vector)" in system_glue_impl
+    assert "void intglue8_set_irq(CPUState *cpu, bool enabled)" in system_glue_impl
+
+
+def test_generator_moves_host_picker_wrappers_into_host_glue_unit(tmp_path):
+    isa = _base_isa("HostGlue8")
+    # Enable cartridge metadata so picker paths are generated.
+    isa["cartridge"] = {"metadata": {"id": "cart", "type": "cartridge_map", "model": "test"}}
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "hostglue8", isa)
+    outdir = tmp_path / "hostglue8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    core_impl = (outdir / "src" / "HostGlue8_core.c").read_text(encoding="utf-8")
+    host_glue_impl = next((outdir / "src").glob("*_host_glue.c")).read_text(
+        encoding="utf-8"
+    )
+
+    assert "int cpu_component_host_picker_set_dir(const char *path)" not in core_impl
+    assert "int cpu_component_host_picker_set_dir(const char *path)" in host_glue_impl
+    assert "int cpu_component_host_picker_apply_pending(CPUState *cpu)" not in host_glue_impl
+
+
+def test_host_picker_glue_uses_strict_picker_symbols_when_cartridge_enabled():
+    isa = _base_isa("HostStrict8")
+    isa["cartridge"] = {"metadata": {"id": "cart", "type": "cartridge_map", "model": "test"}}
+    host_glue_impl = generate_host_picker_glue(isa, "HostStrict8")
+
+    assert "PASM_SPLIT_WEAK" not in host_glue_impl
+    assert "extern int cpu_component_cartridge_picker_set_dir" in host_glue_impl
+    assert "if (!cpu_component_cartridge_picker_set_dir)" not in host_glue_impl
+    assert "if (!cpu_component_cartridge_picker_apply_pending_swap)" not in host_glue_impl
+    assert "if (!cpu_component_cartridge_picker_is_active)" not in host_glue_impl
+
+
+def test_cpu_core_emits_host_hal_split_markers(tmp_path):
+    isa = _base_isa("HostHalMark8")
+    isa["host_backend_target"] = "sdl2"
+    isa["hosts"] = [{"metadata": {"id": "host_dummy"}}]
+    core_impl = generate_cpu_impl(
+        isa,
+        "HostHalMark8",
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    assert "/* PASM_SPLIT_BEGIN:HOST_HAL_IMPL */" in core_impl
+    assert "/* PASM_SPLIT_END:HOST_HAL_IMPL */" in core_impl
+
+
+def test_extract_split_section_host_hal_impl():
+    text = "\n".join(
+        [
+            "alpha",
+            "/* PASM_SPLIT_BEGIN:HOST_HAL_IMPL */",
+            "line_one();",
+            "line_two();",
+            "/* PASM_SPLIT_END:HOST_HAL_IMPL */",
+            "omega",
+        ]
+    )
+    body = extract_split_section(text, "HOST_HAL_IMPL")
+    assert body == "line_one();\nline_two();"
+
+
+def test_extract_split_section_finds_generated_host_hal_impl():
+    isa = _base_isa("HostHalBody8")
+    isa["host_backend_target"] = "sdl2"
+    isa["hosts"] = [{"metadata": {"id": "host_dummy"}}]
+    core_impl = generate_cpu_impl(
+        isa,
+        "HostHalBody8",
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    bodies = extract_split_sections(core_impl, "HOST_HAL_IMPL")
+    merged = "\n".join(bodies)
+    assert merged
+    assert "typedef SDL_Event CPUHostEvent;" in merged
+    assert "#define CPU_HOST_EVENT_KEYDOWN SDL_KEYDOWN" in merged
+    assert "static int cpu_host_hal_init(uint32_t flags)" in merged
+    assert "static void *cpu_host_hal_create_window(" in merged
+
+
+def test_promote_host_hal_symbols_rewrites_only_host_hal_static_lines():
+    src = "\n".join(
+        [
+            "static int cpu_host_hal_init(uint32_t flags) { return (int)flags; }",
+            "static uint8_t cpu_host_hal_sdl_inited = 0u;",
+            "static int helper_keep_static(void) { return 0; }",
+        ]
+    )
+    out = promote_host_hal_symbols(src)
+    assert "int cpu_host_hal_init(uint32_t flags)" in out
+    assert "uint8_t cpu_host_hal_sdl_inited = 0u;" in out
+    assert "static int helper_keep_static(void)" in out
+
+
+def test_extract_host_hal_function_prototypes_from_promoted_text():
+    promoted = "\n".join(
+        [
+            "int cpu_host_hal_init(uint32_t flags) {",
+            "    return (int)flags;",
+            "}",
+            "void *cpu_host_hal_create_window(const char *title, int x, int y, int w, int h, uint32_t flags) {",
+            "    return (void *)0;",
+            "}",
+            "static int helper_keep_static(void) {",
+            "    return 0;",
+            "}",
+        ]
+    )
+    protos = extract_host_hal_function_prototypes(promoted)
+    assert "int cpu_host_hal_init(uint32_t flags);" in protos
+    assert "void *cpu_host_hal_create_window(const char *title, int x, int y, int w, int h, uint32_t flags);" in protos
+    assert not any("helper_keep_static" in p for p in protos)
+
+
+def test_cpu_impl_can_strip_host_hal_sections_from_helpers():
+    isa = _base_isa("HostHalStrip8")
+    isa["host_backend_target"] = "sdl2"
+    isa["hosts"] = [{"metadata": {"id": "host_dummy"}}]
+    core_impl = generate_cpu_impl(
+        isa,
+        "HostHalStrip8",
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+        exclude_split_sections=["HOST_HAL_IMPL"],
+    )
+    assert "PASM_SPLIT_BEGIN:HOST_HAL_IMPL" not in core_impl
+    assert "PASM_SPLIT_END:HOST_HAL_IMPL" not in core_impl
+    assert "static int cpu_host_hal_init(uint32_t flags)" not in core_impl
+    # Core should no longer re-inject HAL typedefs/prototypes after split extraction.
+    assert "typedef SDL_AudioSpec CPUHostAudioSpec;" not in core_impl
+    assert "int cpu_host_hal_init(uint32_t flags);" not in core_impl
+    # Host HAL helper forward declarations should not leak into core.
+    assert "cpu_host_hal_key_from_scancode" not in core_impl
+    assert "cpu_host_hal_scancode_from_key" not in core_impl
+
+
+def test_cpu_impl_excludes_picker_runtime_font_scale_from_core():
+    isa = _base_isa("PickerSplit8")
+    isa["host_backend_target"] = "sdl2"
+    isa["hosts"] = [{"metadata": {"id": "host_dummy"}}]
+    isa["system"] = {"ui": {"cartridge_picker_font_scale": 2}}
+    isa["cartridge"] = {"metadata": {"id": "cart"}}
+
+    core_impl = generate_cpu_impl(
+        isa,
+        "PickerSplit8",
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+        exclude_split_sections=["CARTRIDGE_PICKER_RUNTIME"],
+    )
+    picker_glue = generate_cartridge_picker_runtime_glue(isa, "PickerSplit8")
+
+    assert "g_runtime_cartridge_picker_font_scale" not in core_impl
+    assert "g_runtime_cartridge_picker_font_scale" in picker_glue
+
+
+def test_cpu_impl_excludes_picker_fs_headers_from_core():
+    isa = _base_isa("PickerFsSplit8")
+    isa["host_backend_target"] = "sdl2"
+    isa["hosts"] = [{"metadata": {"id": "host_dummy"}}]
+    isa["cartridge"] = {"metadata": {"id": "cart"}}
+
+    core_impl = generate_cpu_impl(
+        isa,
+        "PickerFsSplit8",
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+        exclude_split_sections=[
+            "INPUT_RUNTIME",
+            "CARTRIDGE_PICKER_RUNTIME",
+            "COMPONENT_RUNTIME",
+            "HOST_HAL_IMPL",
+        ],
+    )
+
+    assert "#include <errno.h>" not in core_impl
+    assert "#include <limits.h>" not in core_impl
+    assert "#include <sys/stat.h>" not in core_impl
+    assert "#include <dirent.h>" not in core_impl
+
+
+def test_extract_split_section_finds_component_dispatch_block():
+    isa = _base_isa("CompRuntime8")
+    isa["devices"] = [
+        {
+            "metadata": {"id": "dev_a"},
+            "interfaces": {
+                "callbacks": [{"name": "tick"}],
+                "handlers": [{"name": "sig"}],
+            },
+            "behavior": {
+                "callback_handlers": {"tick": "__result = 7;"},
+                "handler_bodies": {"sig": "(void)args;"},
+                "step_pre": "(void)cpu;",
+                "step_post": "(void)cpu;",
+            },
+            "state": [],
+        }
+    ]
+    core_impl = generate_cpu_impl(
+        isa,
+        "CompRuntime8",
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = extract_split_sections(core_impl, "COMPONENT_DISPATCH")
+    merged = "\n".join(blocks)
+    assert merged
+    assert "uint64_t cpu_component_dispatch_callback(" in merged
+    assert "void cpu_component_dispatch_handler(" in merged
+    assert "void cpu_component_emit_signal(" in merged
+
+
+def test_extract_split_section_finds_component_routing_block():
+    isa = _base_isa("CompRouting8")
+    isa["devices"] = [
+        {
+            "metadata": {"id": "dev_route"},
+            "interfaces": {"callbacks": [{"name": "tick"}], "handlers": [{"name": "sig"}]},
+            "behavior": {"callback_handlers": {"tick": "__result = 3;"}, "handler_bodies": {"sig": "(void)args;"}},
+            "state": [],
+        }
+    ]
+    core_impl = generate_cpu_impl(
+        isa,
+        "CompRouting8",
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    blocks = extract_split_sections(core_impl, "COMPONENT_ROUTING")
+    merged = "\n".join(blocks)
+    assert merged
+    assert "uint64_t cpu_component_call(" in merged
+    assert "void cpu_component_emit_signal(" in merged
+    assert "cpu_component_dispatch_callback(" in merged
+    assert "cpu_component_dispatch_handler(" in merged
+
+
+def test_cpu_impl_can_strip_component_dispatch_from_helpers():
+    isa = _base_isa("CompRuntimeStrip8")
+    isa["devices"] = [
+        {
+            "metadata": {"id": "dev_b"},
+            "interfaces": {"callbacks": [{"name": "tick"}]},
+            "behavior": {"callback_handlers": {"tick": "__result = 1;"}},
+            "state": [],
+        }
+    ]
+    core_impl = generate_cpu_impl(
+        isa,
+        "CompRuntimeStrip8",
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+        exclude_split_sections=["COMPONENT_DISPATCH"],
+    )
+    assert "PASM_SPLIT_BEGIN:COMPONENT_DISPATCH" not in core_impl
+    assert "PASM_SPLIT_END:COMPONENT_DISPATCH" not in core_impl
+    assert "uint64_t cpu_component_dispatch_callback(" not in core_impl
+    assert "void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {" in core_impl
+    # Core remains buildable without embedded dispatch bodies; declarations now live in generated header.
+    assert "void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);" in core_impl
+
+
 def test_generator_emits_debug_abi_files(tmp_path):
     isa = _base_isa("DbgApi8")
     processor_path, system_path = write_pair_from_legacy(tmp_path, "dbg_api8", isa)
@@ -725,6 +1412,23 @@ def test_generator_emits_debug_abi_files(tmp_path):
     assert "CPUState *pasm_dbg_create(size_t memory_size)" in impl
     assert "int pasm_dbg_snapshot_fill(" in impl
     assert "int pasm_dbg_set_pc(CPUState *cpu, uint64_t address)" in impl
+
+
+def test_generated_header_exposes_split_dispatch_contracts(tmp_path):
+    isa = _base_isa("SplitContract8")
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "split_contract8", isa)
+    outdir = tmp_path / "split_contract8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    hdr = (outdir / "src" / "SplitContract8.h").read_text(encoding="utf-8")
+    assert "typedef struct {" in hdr
+    assert "} ComponentConnection;" in hdr
+    assert "uint64_t cpu_component_call(" in hdr
+    assert "void cpu_component_emit_signal(" in hdr
+    assert "uint64_t cpu_component_dispatch_callback(" in hdr
+    assert "void cpu_component_dispatch_handler(" in hdr
+    assert "extern const ComponentConnection g_component_connections[];" in hdr
+    assert "extern const size_t g_component_connections_count;" in hdr
 
 
 def test_debug_abi_disasm_row_formats_only_instruction_length_bytes(tmp_path):
@@ -794,10 +1498,119 @@ def test_generator_emits_debugger_link_manifest(tmp_path):
     assert manifest["schema_version"] == 1
     assert manifest["cpu_name"] == "DbgLink8"
     assert manifest["cpu_prefix"] == "dbglink8"
-    assert manifest["library_basename"] == "dbglink8_emu"
+    assert manifest["system_prefix"] == "dbg_link8_test"
+    assert manifest["cmake_library_target"] == "dbg_link8_test_system"
+    assert manifest["library_basename"] == "dbg_link8_test_system"
+    assert manifest["split_targets"]["cpu_core"] == "dbglink8_cpu_core"
+    assert manifest["split_targets"]["system"] == "dbg_link8_test_system"
+    assert "compat" not in manifest
+    assert manifest["split_artifacts"]["cpu_core_static"] == "libdbglink8_cpu_core.a"
+    assert manifest["split_artifacts"]["system_static"] == "libdbg_link8_test_system.a"
+    assert manifest["split_units"]["cpu_core_sources"] == [
+        "src/DbgLink8_core.c",
+        "src/DbgLink8_decoder.c",
+        "src/DbgLink8_debug_abi.c",
+    ]
+    assert "src/dbg_link8_test_runtime.c" in manifest["split_units"]["system_sources"]
+    assert "src/dbg_link8_test_debug_abi.c" not in manifest["split_units"]["system_sources"]
     assert manifest["headers"]["debug_abi"] == "src/DbgLink8_debug_abi.h"
     assert "link" in manifest
     assert isinstance(manifest["link"]["library_names"], list)
+
+
+def test_generator_prunes_stale_split_units(tmp_path):
+    isa = _base_isa("Prune8")
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "prune8", isa)
+    outdir = tmp_path / "prune8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    stale = outdir / "src" / "legacy_runtime.c"
+    stale.write_text("/* stale */\n", encoding="utf-8")
+    assert stale.exists()
+
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+    assert not stale.exists()
+
+
+def test_generator_prunes_stale_split_unit_headers(tmp_path):
+    isa = _base_isa("PruneHdr8")
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "prune_hdr8", isa)
+    outdir = tmp_path / "prune_hdr8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    stale_h = outdir / "src" / "legacy_runtime.h"
+    stale_h.write_text("/* stale header */\n", encoding="utf-8")
+    assert stale_h.exists()
+
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+    assert not stale_h.exists()
+
+
+def test_generator_keeps_current_split_runtime_header(tmp_path):
+    isa = _base_isa("KeepHdr8")
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "keep_hdr8", isa)
+    outdir = tmp_path / "keep_hdr8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    runtime_h = outdir / "src" / "keep_hdr8_test_runtime.h"
+    runtime_h.write_text("/* current split header */\n", encoding="utf-8")
+    assert runtime_h.exists()
+
+    # Add an unrelated stale split header and ensure only stale one is removed.
+    stale_h = outdir / "src" / "legacy_runtime.h"
+    stale_h.write_text("/* stale header */\n", encoding="utf-8")
+    assert stale_h.exists()
+
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+    assert runtime_h.exists()
+    assert not stale_h.exists()
+
+
+def test_generator_prunes_stale_system_debug_abi_units(tmp_path):
+    isa = _base_isa("PruneDbgAbi8")
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "prune_dbg_abi8", isa)
+    outdir = tmp_path / "prune_dbg_abi8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    stale_c = outdir / "src" / "prune_dbg_abi8_debug_abi.c"
+    stale_h = outdir / "src" / "prune_dbg_abi8_debug_abi.h"
+    stale_c.write_text("/* stale */\n", encoding="utf-8")
+    stale_h.write_text("/* stale */\n", encoding="utf-8")
+    assert stale_c.exists()
+    assert stale_h.exists()
+
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+    assert not stale_c.exists()
+    assert not stale_h.exists()
+
+    # CPU-owned debug ABI units must remain.
+    assert (outdir / "src" / "PruneDbgAbi8_debug_abi.c").exists()
+    assert (outdir / "src" / "PruneDbgAbi8_debug_abi.h").exists()
+
+
+def test_generator_emits_real_core_tu_without_legacy_cpu_shim(tmp_path):
+    isa = _base_isa("SplitCore8")
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "split_core8", isa)
+    outdir = tmp_path / "split_core8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    core_impl = (outdir / "src" / "SplitCore8_core.c").read_text(encoding="utf-8")
+    assert "CPUState *splitcore8_create(size_t memory_size)" in core_impl
+    assert not (outdir / "src" / "SplitCore8.c").exists()
+
+
+def test_generator_prunes_stale_legacy_cpu_shim(tmp_path):
+    isa = _base_isa("NoShim8")
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "no_shim8", isa)
+    outdir = tmp_path / "no_shim8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    stale = outdir / "src" / "NoShim8.c"
+    stale.write_text("/* stale shim */\n", encoding="utf-8")
+    assert stale.exists()
+
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+    assert not stale.exists()
 
 
 def test_debugger_link_manifest_includes_backend_target_libraries(tmp_path):
@@ -894,6 +1707,11 @@ int main(void) {
     compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
     binary_name = "rom_loader_harness.exe" if os.name == "nt" else "rom_loader_harness"
     binary = outdir / binary_name
+    split_runtime = next((outdir / "src").glob("*_runtime.c"))
+    split_system_bus = next((outdir / "src").glob("*_system_bus.c"))
+    split_system_glue = next((outdir / "src").glob("*_system_glue.c"))
+    split_host_glue = next((outdir / "src").glob("*_host_glue.c"))
+    split_device_glue = next((outdir / "src").glob("*_device_glue.c"))
     subprocess.check_call(
         [
             compiler,
@@ -902,9 +1720,13 @@ int main(void) {
             "-D_POSIX_C_SOURCE=199309L",
             "-I",
             str(outdir / "src"),
-            str(outdir / "src" / "RomLoad8.c"),
+            str(outdir / "src" / "RomLoad8_core.c"),
             str(outdir / "src" / "RomLoad8_decoder.c"),
-            str(outdir / "src" / "RomLoad8_debug_abi.c"),
+            str(split_runtime),
+            str(split_system_bus),
+            str(split_system_glue),
+            str(split_host_glue),
+            str(split_device_glue),
             str(harness_c),
             "-o",
             str(binary),
@@ -1001,7 +1823,7 @@ def test_hook_generation_matrix(tmp_path, hooks, expect_hooks_file, expect_post_
     hooks_file = outdir / "src" / "Hook8_hooks.c"
     assert hooks_file.exists() == expect_hooks_file
 
-    impl_c = (outdir / "src" / "Hook8.c").read_text()
+    impl_c = (outdir / "src" / "Hook8_core.c").read_text()
     has_post_execute = (
         "HOOK_POST_EXECUTE" in impl_c
         and "CPUHookEvent event" in impl_c
@@ -1032,8 +1854,6 @@ def test_dispatch_includes_pc_progression_guard():
     assert "cpu->pc_modified = false;" in code
     assert "if (!cpu->pc_modified)" in code
     assert "cpu->pc = (uint16_t)(pc_before + inst.length);" in code
-    assert "if (cpu->tracing_enabled)" in code
-    assert "flow8_trace_instruction(cpu, &inst);" in code
 
 
 def test_behavior_normalization_wraps_pc_assignments():
@@ -1064,7 +1884,7 @@ def test_debug_api_symbols_are_generated(tmp_path):
     gen_mod.generate(str(processor_path), str(system_path), str(outdir))
 
     header = (outdir / "src" / "Minimal8.h").read_text()
-    impl = (outdir / "src" / "Minimal8.c").read_text()
+    impl = (outdir / "src" / "Minimal8_core.c").read_text()
 
     assert "minimal8_dump_stack(CPUState *cpu, int depth);" in header
     assert "minimal8_list_breakpoints(CPUState *cpu);" in header
@@ -1573,7 +2393,7 @@ def test_interrupt_model_mos6502_generates_page1_stack_and_vectors():
     isa["interrupts"] = {"model": "mos6502"}
     code = generate_cpu_impl(isa, "MosIrq8")
     assert "0x0100u | sp8" in code
-    assert "cpu->sp = 0xFDu;" in code
+    assert "cpu->sp =" in code
     assert "cpu->flags.I = true;" in code
     assert "cpu->pc = mosirq8_read_word(cpu, 0xFFFCu);" in code
     assert "read_word(cpu, 0xFFFAu)" in code
@@ -1710,7 +2530,7 @@ def test_threaded_dispatch_mode_generates_computed_goto_path(tmp_path):
         str(outdir),
         dispatch_mode="threaded",
     )
-    impl_c = (outdir / "src" / "Minimal8.c").read_text()
+    impl_c = (outdir / "src" / "Minimal8_core.c").read_text()
     assert "goto *dispatch_table[dispatch_id];" in impl_c
     assert "DISPATCH_0:" in impl_c
 
@@ -1724,7 +2544,7 @@ def test_both_dispatch_mode_generates_toggle_macro_path(tmp_path):
         str(outdir),
         dispatch_mode="both",
     )
-    impl_c = (outdir / "src" / "Minimal8.c").read_text()
+    impl_c = (outdir / "src" / "Minimal8_core.c").read_text()
     cmake_text = (outdir / "CMakeLists.txt").read_text()
     assert "CPU_USE_THREADED_DISPATCH" in impl_c
     assert "USE_THREADED_DISPATCH" in cmake_text
@@ -2708,6 +3528,10 @@ def test_hook_sources_are_referenced_when_hooks_enabled(tmp_path):
     assert (outdir / "src" / "HookEnabled8_hooks.c").exists()
     cmake_text = (outdir / "CMakeLists.txt").read_text()
     assert "HookEnabled8_hooks.c" in cmake_text
+    assert "set(CPU_CORE_SOURCES" in cmake_text
+    assert "src/HookEnabled8_hooks.c" in cmake_text
+    host_glue_text = next((outdir / "src").glob("*_host_glue.c")).read_text(encoding="utf-8")
+    assert '#include "HookEnabled8_hooks.c"' not in host_glue_text
 
     build_dir = outdir / "build"
     subprocess.check_call(

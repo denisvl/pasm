@@ -1,0 +1,27 @@
+metadata:
+  id: bbc_micro_teletext_saa5050
+  type: io_controller
+  model: saa5050_teletext
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

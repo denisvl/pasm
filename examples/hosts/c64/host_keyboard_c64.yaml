@@ -344,7 +344,7 @@ keyboard:
     mapper_key_id: K_LALT
     presses:
     - row: 7
-      bit: 6
+      bit: 5
   - host_scancode: RALT
     mapper_key_id: K_RALT
     presses:

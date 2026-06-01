@@ -45,6 +45,14 @@ hooks:
 components:
   ics:
     - trs80_m4io
+    - trs80_m4ga
+    - trs80_m4ram
+    - trs80_m4fdc
+    - trs80_m4ppi
+    - trs80_m4sio
+    - trs80_m4video
+    - trs80_m4irq
+    - trs80_m4cass
   devices:
     - keyboard_trs80
     - video_trs80
@@ -54,7 +62,7 @@ components:
 
 connections:
   - from:
-      component: trs80_m4io
+      component: trs80_m4ppi
       kind: callback
       name: keyboard_read_row
     to:
@@ -72,7 +80,7 @@ connections:
       name: keyboard_matrix
 
   - from:
-      component: trs80_m4io
+      component: trs80_m4video
       kind: signal
       name: frame_ready
     to:
@@ -90,7 +98,7 @@ connections:
       name: video_frame
 
   - from:
-      component: trs80_m4io
+      component: trs80_m4irq
       kind: signal
       name: irq_edge
     to:
@@ -123,4 +131,3 @@ audio:
 
 integrations:
   profile: trs80_model4_default
-

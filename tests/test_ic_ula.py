@@ -15,42 +15,47 @@ BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _zx_paths() -> tuple[
-    pathlib.Path, pathlib.Path, pathlib.Path, list[pathlib.Path], list[pathlib.Path]
+    pathlib.Path, pathlib.Path, list[pathlib.Path], list[pathlib.Path], list[pathlib.Path]
 ]:
     processor_path, system_path = example_pair("z80", system="spectrum48k_default.yaml")
-    ic_path = BASE_DIR / "examples" / "ics" / "zx_spectrum_48k_ula.yaml"
+    ic_paths = [
+        BASE_DIR / "examples" / "ics" / "zx_spectrum48k" / "zx_spectrum_48k_ula.yaml",
+        BASE_DIR / "examples" / "ics" / "zx_spectrum48k" / "zx_spectrum_48k_loram.yaml",
+        BASE_DIR / "examples" / "ics" / "zx_spectrum48k" / "zx_spectrum_48k_hiram.yaml",
+    ]
     device_paths = [
-        BASE_DIR / "examples" / "devices" / "zx48_keyboard.yaml",
-        BASE_DIR / "examples" / "devices" / "zx48_video.yaml",
-        BASE_DIR / "examples" / "devices" / "zx48_speaker.yaml",
-        BASE_DIR / "examples" / "devices" / "zx48_mic.yaml",
+        BASE_DIR / "examples" / "devices" / "zx_spectrum48k" / "zx48_keyboard.yaml",
+        BASE_DIR / "examples" / "devices" / "zx_spectrum48k" / "zx48_controller.yaml",
+        BASE_DIR / "examples" / "devices" / "zx_spectrum48k" / "zx48_video.yaml",
+        BASE_DIR / "examples" / "devices" / "zx_spectrum48k" / "zx48_speaker.yaml",
+        BASE_DIR / "examples" / "devices" / "zx_spectrum48k" / "zx48_mic.yaml",
     ]
     host_paths = [
-        BASE_DIR / "examples" / "hosts" / "zx48_host_hal.yaml",
+        BASE_DIR / "examples" / "hosts" / "zx_spectrum48k" / "zx48_host_hal.yaml",
     ]
-    return processor_path, system_path, ic_path, device_paths, host_paths
+    return processor_path, system_path, ic_paths, device_paths, host_paths
 
 
 def test_component_graph_validates_with_z80():
-    processor_path, system_path, ic_path, device_paths, host_paths = _zx_paths()
+    processor_path, system_path, ic_paths, device_paths, host_paths = _zx_paths()
     data = yaml_loader.load_processor_system(
         str(processor_path),
         str(system_path),
-        [str(ic_path)],
+        [str(path) for path in ic_paths],
         [str(path) for path in device_paths],
         [str(path) for path in host_paths],
     )
-    assert len(data["ics"]) == 1
-    assert len(data["devices"]) == 4
+    assert len(data["ics"]) == 3
+    assert len(data["devices"]) == 5
     assert len(data["hosts"]) == 1
-    assert data["components"]["ics"] == ["ula0"]
+    assert data["components"]["ics"] == ["ula0", "zx48_loram", "zx48_hiram"]
     assert data["components"]["hosts"] == ["host0"]
 
 
 def test_system_component_set_mismatch_fails(tmp_path):
-    processor_path, system_path, ic_path, device_paths, host_paths = _zx_paths()
+    processor_path, system_path, ic_paths, device_paths, host_paths = _zx_paths()
     system_data = yaml.safe_load(system_path.read_text(encoding="utf-8"))
-    system_data["components"]["devices"] = ["keyboard0", "video0", "speaker0"]
+    system_data["components"]["devices"] = ["keyboard0", "controller_zx48", "video0", "speaker0"]
     bad_system = tmp_path / "bad_system.yaml"
     bad_system.write_text(yaml.safe_dump(system_data, sort_keys=False), encoding="utf-8")
 
@@ -58,14 +63,14 @@ def test_system_component_set_mismatch_fails(tmp_path):
         yaml_loader.load_processor_system(
             str(processor_path),
             str(bad_system),
-            [str(ic_path)],
+            [str(path) for path in ic_paths],
             [str(path) for path in device_paths],
             [str(path) for path in host_paths],
         )
 
 
 def test_invalid_connection_endpoint_fails(tmp_path):
-    processor_path, system_path, ic_path, device_paths, host_paths = _zx_paths()
+    processor_path, system_path, ic_paths, device_paths, host_paths = _zx_paths()
     system_data = yaml.safe_load(system_path.read_text(encoding="utf-8"))
     system_data["connections"][0]["to"]["name"] = "missing_callback"
     system_data["memory"]["rom_images"][0]["file"] = str(
@@ -78,26 +83,26 @@ def test_invalid_connection_endpoint_fails(tmp_path):
         yaml_loader.load_processor_system(
             str(processor_path),
             str(bad_system),
-            [str(ic_path)],
+            [str(path) for path in ic_paths],
             [str(path) for path in device_paths],
             [str(path) for path in host_paths],
         )
 
 
 def test_component_generation_emits_generic_component_runtime(tmp_path):
-    processor_path, system_path, ic_path, device_paths, host_paths = _zx_paths()
+    processor_path, system_path, ic_paths, device_paths, host_paths = _zx_paths()
     outdir = tmp_path / "z80_component_gen"
     gen_mod.generate(
         str(processor_path),
         str(system_path),
         str(outdir),
-        ic_paths=[str(ic_path)],
+        ic_paths=[str(path) for path in ic_paths],
         device_paths=[str(path) for path in device_paths],
         host_paths=[str(path) for path in host_paths],
     )
 
     header = (outdir / "src" / "Z80.h").read_text(encoding="utf-8")
-    impl = (outdir / "src" / "Z80.c").read_text(encoding="utf-8")
+    impl = (outdir / "src" / "Z80_core.c").read_text(encoding="utf-8")
 
     assert "typedef uint64_t (*CPUHostEndpointHandler)" not in header
     assert "z80_set_host_endpoint_handler" not in header
@@ -113,13 +118,13 @@ def test_component_generation_emits_generic_component_runtime(tmp_path):
     reason="C compiler not available on PATH",
 )
 def test_component_runtime_keyboard_video_audio_and_contention(tmp_path):
-    processor_path, system_path, ic_path, device_paths, host_paths = _zx_paths()
+    processor_path, system_path, ic_paths, device_paths, host_paths = _zx_paths()
     outdir = tmp_path / "z80_component_runtime"
     gen_mod.generate(
         str(processor_path),
         str(system_path),
         str(outdir),
-        ic_paths=[str(ic_path)],
+        ic_paths=[str(path) for path in ic_paths],
         device_paths=[str(path) for path in device_paths],
         host_paths=[str(path) for path in host_paths],
     )
@@ -189,15 +194,20 @@ int main(void) {
     compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
     binary_name = "component_harness.exe" if os.name == "nt" else "component_harness"
     binary = outdir / binary_name
+    src_dir = outdir / "src"
+    unit_sources = [
+        str(path)
+        for path in src_dir.glob("*.c")
+        if path.name not in ("main.c", "test_cpu.c")
+    ]
     subprocess.check_call(
         [
             compiler,
             "-std=c11",
             "-O2",
             "-I",
-            str(outdir / "src"),
-            str(outdir / "src" / "Z80.c"),
-            str(outdir / "src" / "Z80_decoder.c"),
+            str(src_dir),
+            *unit_sources,
             str(harness_c),
             "-o",
             str(binary),

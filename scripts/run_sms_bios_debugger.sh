@@ -31,9 +31,11 @@ cd "${REPO_ROOT}"
 
 PROCESSOR="examples/processors/z80.yaml"
 SYSTEM="examples/systems/sms/sms_bios_interactive.yaml"
+IC_BUS="examples/ics/sms/sms_cpu_bus.yaml"
+IC_RAM="examples/ics/sms/sms_main_ram.yaml"
 IC_VDP="examples/ics/sms/sms_vdp_sega315_5124.yaml"
 IC_JOY="examples/ics/sms/sms_joypad_io.yaml"
-IC_PSG="examples/ics/common/psg_sn76489.yaml"
+IC_PSG="examples/ics/sms/sms_psg_sn76489.yaml"
 DEVICE_VIDEO="examples/devices/sms/sms_video.yaml"
 DEVICE_SPK="examples/devices/sms/sms_speaker.yaml"
 HOST="examples/hosts/sms/sms_host_hal_interactive.yaml"
@@ -49,6 +51,8 @@ echo "[1/3] Generating BIOS-only emulator -> ${OUTPUT_DIR}"
 uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM}" \
+  --ic "${IC_BUS}" \
+  --ic "${IC_RAM}" \
   --ic "${IC_VDP}" \
   --ic "${IC_JOY}" \
   --ic "${IC_PSG}" \

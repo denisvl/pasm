@@ -1,0 +1,31 @@
+metadata:
+  id: c64_vic_ii
+  type: io_controller
+  model: mos_6569_vic_ii
+  version: "1.0"
+
+state:
+  - { name: vic_raster_line, type: uint16_t, initial: "0u" }
+  - { name: vic_cycle_in_line, type: uint16_t, initial: "0u" }
+  - { name: vic_irq_asserted, type: uint8_t, initial: "0u" }
+  - { name: vic_regs, type: uint8_t *, initial: "NULL" }
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []
