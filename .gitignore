@@ -11,6 +11,8 @@ examples/roms/
 
 # Transients
 generated/
+perf.data
+perf.data.old
 log/
 .tmp_test_work/
 _ptmp*
