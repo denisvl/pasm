@@ -69,6 +69,7 @@ unsafe extern "C" {
         size: usize,
     ) -> c_int;
     fn pasm_dbg_clear_history(cpu: *mut CPUState) -> c_int;
+    fn pasm_dbg_set_history_enabled(cpu: *mut CPUState, enabled: c_uchar) -> c_int;
     fn pasm_dbg_set_pc(cpu: *mut CPUState, address: c_ulonglong) -> c_int;
     fn pasm_dbg_set_overlay_enabled(cpu: *mut CPUState, enabled: c_uchar) -> c_int;
     fn pasm_dbg_get_overlay_enabled(cpu: *mut CPUState, out_enabled: *mut c_uchar) -> c_int;
@@ -823,6 +824,11 @@ impl DebuggerBackend for LinkedEmulatorBackend {
 
     fn clear_history(&mut self) -> Result<(), String> {
         self.check(unsafe { pasm_dbg_clear_history(self.cpu) })
+    }
+
+    fn set_history_enabled(&mut self, enabled: bool) -> Result<(), String> {
+        let raw: c_uchar = if enabled { 1 } else { 0 };
+        self.check(unsafe { pasm_dbg_set_history_enabled(self.cpu, raw) })
     }
 
     fn load_cartridge_rom(&mut self, path: &str) -> Result<(), String> {

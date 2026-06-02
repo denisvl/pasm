@@ -382,6 +382,7 @@ int {cpu_prefix}_dbg_jump_frame(CPUState *cpu, size_t frame_index);
 int {cpu_prefix}_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
 int {cpu_prefix}_dbg_clear_memory(CPUState *cpu);
 int {cpu_prefix}_dbg_clear_history(CPUState *cpu);
+int {cpu_prefix}_dbg_set_history_enabled(CPUState *cpu, uint8_t enabled);
 int {cpu_prefix}_dbg_set_pc(CPUState *cpu, uint64_t address);
 int {cpu_prefix}_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
 int {cpu_prefix}_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
@@ -426,6 +427,7 @@ int pasm_dbg_jump_frame(CPUState *cpu, size_t frame_index);
 int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
 int pasm_dbg_clear_memory(CPUState *cpu);
 int pasm_dbg_clear_history(CPUState *cpu);
+int pasm_dbg_set_history_enabled(CPUState *cpu, uint8_t enabled);
 int pasm_dbg_set_pc(CPUState *cpu, uint64_t address);
 int pasm_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
 int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
@@ -631,11 +633,33 @@ static void dbg_restore_suppressed_breakpoint(CPUState *cpu, uint16_t addr) {{
     }}
 }}
 
+static uint8_t dbg_peek_byte(CPUState *cpu, uint16_t addr) {{
+    uint64_t saved_total_cycles;
+    uint16_t saved_current_instruction_cycles;
+    uint16_t saved_io_read_phase_ppu_dots;
+    int saved_error_code;
+    const char *saved_active_component_id;
+    uint8_t value;
+    if (!cpu) return 0xFFu;
+    saved_total_cycles = cpu->total_cycles;
+    saved_current_instruction_cycles = cpu->current_instruction_cycles;
+    saved_io_read_phase_ppu_dots = cpu->io_read_phase_ppu_dots;
+    saved_error_code = cpu->error_code;
+    saved_active_component_id = cpu->active_component_id;
+    value = {cpu_prefix}_read_byte(cpu, addr);
+    cpu->total_cycles = saved_total_cycles;
+    cpu->current_instruction_cycles = saved_current_instruction_cycles;
+    cpu->io_read_phase_ppu_dots = saved_io_read_phase_ppu_dots;
+    cpu->error_code = saved_error_code;
+    cpu->active_component_id = saved_active_component_id;
+    return value;
+}}
+
 static uint32_t dbg_read_u32(CPUState *cpu, uint16_t addr) {{
     uint32_t raw = 0u;
     for (size_t i = 0; i < 4u; i++) {{
         uint16_t fetch_addr = (uint16_t)(addr + (uint16_t)i);
-        uint8_t v = {cpu_prefix}_read_byte(cpu, fetch_addr);
+        uint8_t v = dbg_peek_byte(cpu, fetch_addr);
         raw |= ((uint32_t)v) << (8u * (uint32_t)i);
     }}
     return raw;
@@ -690,6 +714,7 @@ static void dbg_fill_disasm_row(CPUState *cpu, PASMDebugDisasmRow *row, uint16_t
 
 typedef struct {{
     uint8_t used;
+    uint8_t enabled;
     CPUState *cpu;
     uint32_t head;
     uint32_t count;
@@ -730,10 +755,21 @@ static void dbg_history_clear(CPUState *cpu) {{
     slot->count = 0u;
 }}
 
+static void dbg_history_set_enabled(CPUState *cpu, uint8_t enabled) {{
+    PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, enabled != 0u);
+    if (!slot) return;
+    slot->enabled = (enabled != 0u) ? 1u : 0u;
+    if (enabled == 0u) {{
+        slot->head = 0u;
+        slot->count = 0u;
+    }}
+}}
+
 static void dbg_history_record(CPUState *cpu, uint16_t addr) {{
-    PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, true);
+    PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, false);
     uint32_t raw;
     if (!slot) return;
+    if (slot->enabled == 0u) return;
     if (cpu->halted) return;
     raw = dbg_read_u32(cpu, addr);
     slot->rows[slot->head].address = (uint64_t)addr;
@@ -960,7 +996,7 @@ int {cpu_prefix}_dbg_snapshot_fill(
             row->address = base + (i * 16u);
             for (b = 0; b < 16u; b++) {{
                 uint16_t mem_addr = (uint16_t)((row->address + b) & 0xFFFFu);
-                uint8_t v = {cpu_prefix}_read_byte(cpu, mem_addr);
+                uint8_t v = dbg_peek_byte(cpu, mem_addr);
                 if (pos + 4u < sizeof(row->hex_bytes)) {{
                     int n = snprintf(&row->hex_bytes[pos], sizeof(row->hex_bytes) - pos, "%02X ", v);
                     if (n > 0) pos += (size_t)n;
@@ -1246,7 +1282,7 @@ int {cpu_prefix}_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, 
         }}
         linear %= cpu->memory_size;
         uint16_t mem_addr = (uint16_t)(linear & 0xFFFFu);
-        out[i] = {cpu_prefix}_read_byte(cpu, mem_addr);
+        out[i] = dbg_peek_byte(cpu, mem_addr);
     }}
     return 0;
 }}
@@ -1264,6 +1300,12 @@ int {cpu_prefix}_dbg_clear_memory(CPUState *cpu) {{
 int {cpu_prefix}_dbg_clear_history(CPUState *cpu) {{
     if (!cpu) return -1;
     dbg_history_clear(cpu);
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_set_history_enabled(CPUState *cpu, uint8_t enabled) {{
+    if (!cpu) return -1;
+    dbg_history_set_enabled(cpu, enabled);
     return 0;
 }}
 
@@ -1412,6 +1454,10 @@ int pasm_dbg_clear_memory(CPUState *cpu) {{
 
 int pasm_dbg_clear_history(CPUState *cpu) {{
     return {cpu_prefix}_dbg_clear_history(cpu);
+}}
+
+int pasm_dbg_set_history_enabled(CPUState *cpu, uint8_t enabled) {{
+    return {cpu_prefix}_dbg_set_history_enabled(cpu, enabled);
 }}
 
 int pasm_dbg_set_pc(CPUState *cpu, uint64_t address) {{

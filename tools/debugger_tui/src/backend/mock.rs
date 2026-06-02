@@ -12,6 +12,7 @@ pub struct MockDebuggerBackend {
     total_cycles: u64,
     running: bool,
     overlay_enabled: bool,
+    history_enabled: bool,
     breakpoints: Vec<u16>,
     fail_disassembly_window: bool,
     history: VecDeque<HistoryRow>,
@@ -24,6 +25,7 @@ impl MockDebuggerBackend {
             total_cycles: 0,
             running: false,
             overlay_enabled: true,
+            history_enabled: false,
             breakpoints: Vec::new(),
             fail_disassembly_window: false,
             history: VecDeque::with_capacity(MAX_HISTORY_ROWS),
@@ -379,6 +381,14 @@ impl DebuggerBackend for MockDebuggerBackend {
         Ok(())
     }
 
+    fn set_history_enabled(&mut self, enabled: bool) -> Result<(), String> {
+        self.history_enabled = enabled;
+        if !enabled {
+            self.history.clear();
+        }
+        Ok(())
+    }
+
     fn load_cartridge_rom(&mut self, _path: &str) -> Result<(), String> {
         Ok(())
     }
@@ -403,6 +413,9 @@ impl DebuggerBackend for MockDebuggerBackend {
 
 impl MockDebuggerBackend {
     fn record_history_current_pc(&mut self) {
+        if !self.history_enabled {
+            return;
+        }
         let row = HistoryRow {
             address: u64::from(self.pc),
             instruction: "NOP".to_string(),

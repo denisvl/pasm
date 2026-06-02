@@ -193,6 +193,12 @@ fn main() {
             }
         }
     }
+    if has_flag("--auto-run") {
+        if let Err(err) = app.handle_action(actions::Action::RunPause) {
+            eprintln!("failed to auto-run backend: {err}");
+            std::process::exit(1);
+        }
+    }
     app.run_speed_mode = match parse_speed_mode() {
         Ok(mode) => mode,
         Err(err) => {

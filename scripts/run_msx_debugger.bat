@@ -22,6 +22,9 @@ rem   PASM_SDL_DEBUG=1
 rem   PASM_SDL_LOGFILE=%TEMP%\msx_sdl.log
 rem   PASM_SDL_AUDIO=1|0
 rem   PASM_MSX_JOY_BUTTONS=1|2   (1=KP0/KP_ENTER, 2=KP1/KP2)
+rem   HOST_BACKEND=sdl2|glfw|stub
+rem   KEYBOARD_MAP=examples/hosts/msx1/host_keyboard_msx.yaml
+rem   CONTROLLER_MAP=examples/hosts/msx1/host_controller_msx1.yaml
 rem   CMAKE_BUILD_TYPE=Release
 rem   RUN_SPEED=realtime|max
 
@@ -36,6 +39,10 @@ if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
 if not defined PASM_SDL_DEBUG set "PASM_SDL_DEBUG=0"
 if not defined PASM_SDL_LOGFILE set "PASM_SDL_LOGFILE=%TEMP%\msx_sdl.log"
 if not defined PASM_SDL_AUDIO set "PASM_SDL_AUDIO=1"
+if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=%PASM_SDL_AUDIO%"
+if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
+if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/msx1/host_keyboard_msx.yaml"
+if not defined CONTROLLER_MAP set "CONTROLLER_MAP=examples/hosts/msx1/host_controller_msx1.yaml"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
 if not defined USE_CARTRIDGE set "USE_CARTRIDGE=1"
@@ -158,6 +165,7 @@ if "%USE_CARTRIDGE%"=="0" (
     --device "%DEVICE_VIDEO%" ^
     --device "%DEVICE_SPK%" ^
     --host "%HOST%" ^
+    --host-backend "%HOST_BACKEND%" ^
     --output "%OUTPUT_DIR%"
 ) else (
   uv run python -m src.main generate ^
@@ -172,6 +180,7 @@ if "%USE_CARTRIDGE%"=="0" (
     --device "%DEVICE_VIDEO%" ^
     --device "%DEVICE_SPK%" ^
     --host "%HOST%" ^
+    --host-backend "%HOST_BACKEND%" ^
     --cartridge-map "%CARTRIDGE_MAP%" ^
     --cartridge-rom "%CARTRIDGE_ROM_GEN%" ^
     --output "%OUTPUT_DIR%"
@@ -210,6 +219,9 @@ set "PASM_EMU_MANIFEST=%OUTPUT_DIR_ABS%\debugger_link.json"
 set "PASM_SDL_DEBUG=%PASM_SDL_DEBUG%"
 set "PASM_SDL_LOGFILE=%PASM_SDL_LOGFILE%"
 set "PASM_SDL_AUDIO=%PASM_SDL_AUDIO%"
+set "PASM_HOST_DEBUG=%PASM_SDL_DEBUG%"
+set "PASM_HOST_LOGFILE=%PASM_SDL_LOGFILE%"
+set "PASM_HOST_AUDIO=%PASM_HOST_AUDIO%"
 
 set "CARGO_BIN=cargo"
 where cargo >nul 2>&1
@@ -228,6 +240,8 @@ if "%USE_CARTRIDGE%"=="0" (
     --backend linked ^
     --memory-size "%MEMORY_SIZE%" ^
     --system-dir "%SYSTEM_DIR%" ^
+    --keyboard-map "%KEYBOARD_MAP%" ^
+    --controller-map "%CONTROLLER_MAP%" ^
     --start-pc "%START_PC%" ^
     --run-speed "%RUN_SPEED%"
 ) else (
@@ -237,6 +251,8 @@ if "%USE_CARTRIDGE%"=="0" (
       --memory-size "%MEMORY_SIZE%" ^
       --system-dir "%SYSTEM_DIR%" ^
       --cartridge-dir "%CARTRIDGE_DIR%" ^
+      --keyboard-map "%KEYBOARD_MAP%" ^
+      --controller-map "%CONTROLLER_MAP%" ^
       --start-pc "%START_PC%" ^
       --run-speed "%RUN_SPEED%"
   ) else (
@@ -246,6 +262,8 @@ if "%USE_CARTRIDGE%"=="0" (
       --system-dir "%SYSTEM_DIR%" ^
       --cartridge-dir "%CARTRIDGE_DIR%" ^
       --cart-rom "!CARTRIDGE_ROM_RUNTIME!" ^
+      --keyboard-map "%KEYBOARD_MAP%" ^
+      --controller-map "%CONTROLLER_MAP%" ^
       --start-pc "%START_PC%" ^
       --run-speed "%RUN_SPEED%"
   )

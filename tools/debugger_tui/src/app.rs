@@ -369,11 +369,13 @@ impl App {
             Action::ToggleHistory => {
                 self.show_history = !self.show_history;
                 if self.show_history {
+                    self.backend.set_history_enabled(true)?;
                     self.backend.clear_history()?;
                     self.clear_history_state();
                     self.history_scroll = 0;
                     self.last_message = Some("Execution history: ON".to_string());
                 } else {
+                    self.backend.set_history_enabled(false)?;
                     self.backend.clear_history()?;
                     self.clear_history_state();
                     if self.focused_pane == Pane::History {

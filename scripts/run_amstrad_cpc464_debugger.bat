@@ -17,6 +17,7 @@ if not defined PASM_CPC_HOST_KB_TRACE set "PASM_CPC_HOST_KB_TRACE=1"
 if not defined PASM_CPC_IRQ_TRACE set "PASM_CPC_IRQ_TRACE=1"
 if not defined CLEAN_GENERATED set "CLEAN_GENERATED=1"
 if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
+if not defined AUTO_RUN set "AUTO_RUN=0"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
@@ -54,6 +55,9 @@ if /I "%PROFILE%"=="default" (
 if not defined OUTPUT_DIR set "OUTPUT_DIR=%DEFAULT_OUTPUT%"
 set "BUILD_DIR=%OUTPUT_DIR%/build"
 for %%I in ("%OUTPUT_DIR%") do set "OUTPUT_DIR_ABS=%%~fI"
+for %%I in ("%BUILD_DIR%") do set "BUILD_DIR_ABS=%%~fI"
+set "CMAKE_CONFIG_BUILD_DIR=%BUILD_DIR%\%CMAKE_BUILD_TYPE%"
+for %%I in ("%CMAKE_CONFIG_BUILD_DIR%") do set "CMAKE_CONFIG_BUILD_DIR_ABS=%%~fI"
 
 if "%CLEAN_GENERATED%"=="1" (
   if exist "%OUTPUT_DIR%" rmdir /s /q "%OUTPUT_DIR%"
@@ -94,10 +98,15 @@ if exist log\cpc_ay_trace.log del /q log\cpc_ay_trace.log >nul 2>&1
 if exist log\cpc_irq_trace.log del /q log\cpc_irq_trace.log >nul 2>&1
 
 set "PASM_EMU_DIR=%OUTPUT_DIR_ABS%"
+set "PASM_EMU_BUILD_DIR=%BUILD_DIR_ABS%"
+if exist "%CMAKE_CONFIG_BUILD_DIR%" set "PASM_EMU_BUILD_DIR=%CMAKE_CONFIG_BUILD_DIR_ABS%"
+set "PASM_EMU_MANIFEST=%OUTPUT_DIR_ABS%\debugger_link.json"
 set "PASM_HOST_AUDIO=%PASM_HOST_AUDIO%"
 set "PASM_CPC_KB_TRACE=%PASM_CPC_KB_TRACE%"
 set "PASM_CPC_HOST_KB_TRACE=%PASM_CPC_HOST_KB_TRACE%"
 set "PASM_CPC_IRQ_TRACE=%PASM_CPC_IRQ_TRACE%"
+set "AUTO_RUN_ARG="
+if "%AUTO_RUN%"=="1" set "AUTO_RUN_ARG=--auto-run"
 
 if /I "%PROFILE%"=="interactive" goto :run_interactive
 cargo run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- ^
@@ -105,6 +114,7 @@ cargo run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --fea
   --memory-size "%MEMORY_SIZE%" ^
   --system-dir "%SYSTEM_DIR%" ^
   --start-pc "%START_PC%" ^
+  %AUTO_RUN_ARG% ^
   --run-speed "%RUN_SPEED%"
 goto :run_done
 
@@ -116,9 +126,9 @@ cargo run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --fea
   --start-pc "%START_PC%" ^
   --keyboard-map "%KEYBOARD_MAP%" ^
   --controller-map "%CONTROLLER_MAP%" ^
+  %AUTO_RUN_ARG% ^
   --run-speed "%RUN_SPEED%"
 
 :run_done
 if errorlevel 1 exit /b %errorlevel%
 exit /b 0
-
