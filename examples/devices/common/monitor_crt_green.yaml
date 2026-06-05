@@ -1,0 +1,125 @@
+metadata:
+  id: monitor
+  type: display_output
+  model: generic_crt_monitor_green
+  version: '1.0'
+  display:
+    kind: monitor
+    technology: crt
+    model: generic_green_phosphor_monitor
+    max_resolution:
+      width: 640
+      height: 400
+    inches: 12
+    colors: 2
+    frequency_hz: 60
+    filter_function: crt_green_phosphor_decay
+    shader_function: crt_monitor_green_phosphor
+    is_monitor: true
+    phosphor_color: green
+    aspect_ratio:
+      width: 4
+      height: 3
+    scaling:
+      mode: stretch_to_fit_aspect
+      integer_scale_base: 2
+      large_screen_inches: 102
+      resize_preserves_aspect: true
+    shader:
+      name: crt_monitor_green_phosphor
+      language: glsl
+      vertex_source: "#version 330 core\nlayout (location = 0) in vec3 aPos;\nlayout\
+        \ (location = 1) in vec2 aTexCoords;\nout vec2 TexCoords;\nvoid main() {\n\
+        \    TexCoords = aTexCoords;\n    gl_Position = vec4(aPos, 1.0);\n}\n"
+      fragment_source: "#version 330 core\nout vec4 FragColor;\nin vec2 TexCoords;\n\
+        uniform sampler2D screenTexture;\nuniform vec2 sourceResolution;\nconst float\
+        \ CURVATURE = 8.0;\nconst float SCANLINE_WEIGHT = 0.20;\nconst float MASK_DARKNESS\
+        \ = 0.25;\nconst vec3 PHOSPHOR_COLOR = vec3(0.12, 1.0, 0.18);\nvec2 curve(vec2\
+        \ coord) {\n    coord = coord * 2.0 - 1.0;\n    coord.x *= 1.0 + pow((abs(coord.y)\
+        \ / CURVATURE), 2.0);\n    coord.y *= 1.0 + pow((abs(coord.x) / CURVATURE),\
+        \ 2.0);\n    return coord * 0.5 + 0.5;\n}\nvoid main() {\n    vec2 crtUV\
+        \ = curve(TexCoords);\n    if (crtUV.x < 0.0 || crtUV.x > 1.0 || crtUV.y\
+        \ < 0.0 || crtUV.y > 1.0) {\n        FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n\
+        \        return;\n    }\n    vec3 src = texture(screenTexture, crtUV).rgb;\n\
+        \    float luma = dot(src, vec3(0.30, 0.59, 0.11));\n    vec3 baseColor\
+        \ = luma * PHOSPHOR_COLOR;\n    float scanline = sin(crtUV.y * sourceResolution.y\
+        \ * 3.14159265) * SCANLINE_WEIGHT;\n    baseColor -= vec3(scanline);\n  \
+        \  float mask = 1.0 - (MASK_DARKNESS * (1.0 - step(0.5, fract(gl_FragCoord.x\
+        \ / 3.0))));\n    baseColor *= mask;\n    baseColor *= 1.25;\n    FragColor\
+        \ = vec4(baseColor, 1.0);\n}\n"
+      uniforms:
+      - screenTexture
+      - sourceResolution
+state:
+- name: frame_count
+  type: uint32_t
+  initial: '0'
+- name: width
+  type: uint32_t
+  initial: '0'
+- name: height
+  type: uint32_t
+  initial: '0'
+- name: aspect_width
+  type: uint32_t
+  initial: '4'
+- name: aspect_height
+  type: uint32_t
+  initial: '3'
+interfaces:
+  callbacks: []
+  handlers:
+  - name: on_frame_present
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+  - name: on_frame_present5
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+    - u8
+  signals:
+  - name: frame_present
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+  - name: frame_present5
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+    - u8
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies:
+    on_frame_present: 'comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+
+      comp->width = (uint32_t)(args[2] & 0xFFFFFFFFu);
+
+      comp->height = (uint32_t)(args[3] & 0xFFFFFFFFu);
+
+      cpu_component_emit_signal(cpu, "monitor", "frame_present", args, argc);
+
+      '
+    on_frame_present5: 'comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+
+      comp->width = (uint32_t)(args[2] & 0xFFFFFFFFu);
+
+      comp->height = (uint32_t)(args[3] & 0xFFFFFFFFu);
+
+      cpu_component_emit_signal(cpu, "monitor", "frame_present5", args, argc);
+
+      '
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

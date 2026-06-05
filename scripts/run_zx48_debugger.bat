@@ -27,7 +27,7 @@ if not defined EXTRA_CMAKE_ARGS set "EXTRA_CMAKE_ARGS="
 if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
-if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
+if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/zx_spectrum48k/host_keyboard_zx48.yaml"
 if not defined CONTROLLER_MAP set "CONTROLLER_MAP=examples/hosts/zx_spectrum48k/host_controller_zx48_kempston.yaml"
 
@@ -43,8 +43,9 @@ set "IC_HIRAM=examples/ics/zx_spectrum48k/zx_spectrum_48k_hiram.yaml"
 set "DEVICE_KB=examples/devices/zx_spectrum48k/zx48_keyboard.yaml"
 set "DEVICE_CTRL=examples/devices/zx_spectrum48k/zx48_controller.yaml"
 set "DEVICE_VIDEO=examples/devices/zx_spectrum48k/zx48_video.yaml"
-set "DEVICE_SPK=examples/devices/zx_spectrum48k/zx48_speaker.yaml"
+set "DEVICE_BEEPER=examples/devices/zx_spectrum48k/zx48_beeper.yaml"
 set "DEVICE_MIC=examples/devices/zx_spectrum48k/zx48_mic.yaml"
+set "DEVICE_TV=examples/devices/common/tv_crt_mono.yaml"
 set "SYSTEM_DIR=examples/systems"
 
 if /I "%PROFILE%"=="default" (
@@ -134,8 +135,9 @@ uv run python -m src.main generate ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_CTRL%" ^
   --device "%DEVICE_VIDEO%" ^
-  --device "%DEVICE_SPK%" ^
+  --device "%DEVICE_BEEPER%" ^
   --device "%DEVICE_MIC%" ^
+  --device "%DEVICE_TV%" ^
   --host "%HOST%" ^
   --host-backend "%HOST_BACKEND%" ^
   --output "%OUTPUT_DIR%"

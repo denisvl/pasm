@@ -1,0 +1,184 @@
+metadata:
+  id: monitor
+  type: display_output
+  model: generic_lcd_monitor_stereo
+  version: '1.0'
+  display:
+    kind: monitor
+    technology: lcd
+    model: generic_lcd_monitor_with_speakers
+    max_resolution:
+      width: 1920
+      height: 1080
+    inches: 24
+    colors: 16777216
+    frequency_hz: 60
+    filter_function: lcd_integer_scale
+    is_monitor: true
+    aspect_ratio:
+      width: 16
+      height: 9
+    scaling:
+      mode: stretch_to_fit_aspect
+      integer_scale_base: 2
+      large_screen_inches: 102
+      resize_preserves_aspect: true
+  audio_output:
+    channels: stereo
+    frequency_filter:
+      low_cut_hz: 90
+      high_cut_hz: 16000
+    gain_q8_8: 256
+    muted: false
+    volume_percent: 70
+    osd:
+      style: eighties
+      shows_mute: true
+      shows_volume: true
+state:
+- name: frame_count
+  type: uint32_t
+  initial: '0'
+- name: width
+  type: uint32_t
+  initial: '0'
+- name: height
+  type: uint32_t
+  initial: '0'
+- name: aspect_width
+  type: uint32_t
+  initial: '16'
+- name: aspect_height
+  type: uint32_t
+  initial: '9'
+- name: left_level
+  type: uint8_t
+  initial: '128'
+- name: right_level
+  type: uint8_t
+  initial: '128'
+- name: gain_q8_8
+  type: uint16_t
+  initial: '256'
+- name: low_cut_hz
+  type: uint32_t
+  initial: '90'
+- name: high_cut_hz
+  type: uint32_t
+  initial: '16000'
+- name: muted
+  type: uint8_t
+  initial: '0'
+- name: volume_percent
+  type: uint8_t
+  initial: '70'
+- name: osd_ticks
+  type: uint32_t
+  initial: '0'
+interfaces:
+  callbacks: []
+  handlers:
+  - name: on_frame_present
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+  - name: on_frame_present5
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+    - u8
+  - name: on_audio_level
+    args:
+    - u8
+    - u64
+  - name: on_stereo_audio_level
+    args:
+    - u8
+    - u8
+    - u64
+  - name: set_volume
+    args:
+    - u8
+  - name: set_mute
+    args:
+    - u8
+  signals:
+  - name: frame_present
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+  - name: frame_present5
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+    - u8
+  - name: pcm_stereo_sample
+    args:
+    - u8
+    - u8
+    - u64
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies:
+    on_frame_present: 'comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+
+      comp->width = (uint32_t)(args[2] & 0xFFFFFFFFu);
+
+      comp->height = (uint32_t)(args[3] & 0xFFFFFFFFu);
+
+      cpu_component_emit_signal(cpu, "monitor", "frame_present", args, argc);
+
+      '
+    on_audio_level: "uint32_t sample = (uint32_t)(args[0] & 0xFFu);\nif (comp->muted != 0u) {\n    sample = 128u;\n} else\
+      \ {\n    int32_t centered = (int32_t)sample - 128;\n    centered = (centered * (int32_t)comp->volume_percent) / 100;\n\
+      \    centered = (centered * (int32_t)comp->gain_q8_8) >> 8;\n    centered += 128;\n    if (centered < 0) centered =\
+      \ 0;\n    if (centered > 255) centered = 255;\n    sample = (uint32_t)centered;\n}\ncomp->level_left = (uint8_t)sample;\n\
+      comp->level_right = (uint8_t)sample;\nuint64_t sig_args[3] = { sample, sample, args[1] };\ncpu_component_emit_signal(cpu,\
+      \ \"monitor\", \"pcm_stereo_sample\", sig_args, 3);\n"
+    on_stereo_audio_level: "uint32_t left = (uint32_t)(args[0] & 0xFFu);\nuint32_t right = (uint32_t)(args[1] & 0xFFu);\n\
+      if (comp->muted != 0u) {\n    left = 128u;\n    right = 128u;\n} else {\n    int32_t left_centered = (int32_t)left -\
+      \ 128;\n    int32_t right_centered = (int32_t)right - 128;\n    left_centered = (left_centered * (int32_t)comp->volume_percent)\
+      \ / 100;\n    right_centered = (right_centered * (int32_t)comp->volume_percent) / 100;\n    left_centered = (left_centered\
+      \ * (int32_t)comp->gain_q8_8) >> 8;\n    right_centered = (right_centered * (int32_t)comp->gain_q8_8) >> 8;\n    left_centered\
+      \ += 128;\n    right_centered += 128;\n    if (left_centered < 0) left_centered = 0;\n    if (left_centered > 255) left_centered\
+      \ = 255;\n    if (right_centered < 0) right_centered = 0;\n    if (right_centered > 255) right_centered = 255;\n   \
+      \ left = (uint32_t)left_centered;\n    right = (uint32_t)right_centered;\n}\ncomp->level_left = (uint8_t)left;\ncomp->level_right\
+      \ = (uint8_t)right;\nuint64_t sig_args[3] = { left, right, (argc > 2u) ? args[2] : cpu->total_cycles };\ncpu_component_emit_signal(cpu,\
+      \ \"monitor\", \"pcm_stereo_sample\", sig_args, 3);\n"
+    set_volume: 'uint32_t volume = (uint32_t)(args[0] & 0xFFu);
+
+      if (volume > 100u) volume = 100u;
+
+      comp->volume_percent = (uint8_t)volume;
+
+      comp->osd_ticks = 180u;
+
+      '
+    set_mute: 'comp->muted = (uint8_t)((args[0] & 0xFFu) != 0u);
+
+      comp->osd_ticks = 180u;
+
+      '
+    on_frame_present5: 'comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+
+      comp->width = (uint32_t)(args[2] & 0xFFFFFFFFu);
+
+      comp->height = (uint32_t)(args[3] & 0xFFFFFFFFu);
+
+      cpu_component_emit_signal(cpu, "monitor", "frame_present5", args, argc);
+
+      '
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

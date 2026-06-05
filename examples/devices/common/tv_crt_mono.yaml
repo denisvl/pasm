@@ -1,0 +1,187 @@
+metadata:
+  id: tv
+  type: display_output
+  model: generic_crt_tv_mono
+  version: '1.0'
+  display:
+    kind: tv
+    technology: crt
+    model: generic_1980s_color_crt_tv
+    max_resolution:
+      width: 720
+      height: 576
+    inches: 14
+    colors: 16777216
+    frequency_hz: 60
+    filter_function: crt_scanline_phosphor
+    is_monitor: false
+    phosphor_color: color
+    aspect_ratio:
+      width: 4
+      height: 3
+    scaling:
+      mode: stretch_to_fit_aspect
+      integer_scale_base: 2
+      large_screen_inches: 102
+      resize_preserves_aspect: true
+    shader:
+      name: crt_tv
+      language: glsl
+      vertex_source: "#version 330 core\nlayout (location = 0) in vec3 aPos;\nlayout (location = 1) in vec2 aTexCoords;\n\
+        out vec2 TexCoords;\nvoid main() {\n    TexCoords = aTexCoords;\n    gl_Position = vec4(aPos, 1.0);\n}\n"
+      fragment_source: "#version 330 core\nout vec4 FragColor;\nin vec2 TexCoords;\nuniform sampler2D screenTexture;\nuniform\
+        \ vec2 sourceResolution;\nconst float CURVATURE = 8.0;\nconst float SCANLINE_WEIGHT = 0.10;\nconst float MASK_DARKNESS\
+        \ = 0.08;\nconst float GLOW_FACTOR = 0.05;\nvec2 curve(vec2 coord) {\n    coord = coord * 2.0 - 1.0;\n    coord.x\
+        \ *= 1.0 + pow((abs(coord.y) / CURVATURE), 2.0);\n    coord.y *= 1.0 + pow((abs(coord.x) / CURVATURE), 2.0);\n   \
+        \ return coord * 0.5 + 0.5;\n}\nvoid main() {\n    vec2 crtUV = curve(TexCoords);\n    if (crtUV.x < 0.0 || crtUV.x\
+        \ > 1.0 || crtUV.y < 0.0 || crtUV.y > 1.0) {\n        FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n        return;\n   \
+        \ }\n    vec3 baseColor = texture(screenTexture, crtUV).rgb;\n    vec3 blurColor = texture(screenTexture, crtUV +\
+        \ vec2(1.0 / sourceResolution.x, 0.0)).rgb;\n    baseColor = mix(baseColor, blurColor, GLOW_FACTOR);\n    float scan\
+        \ = 0.5 + 0.5 * sin(crtUV.y * sourceResolution.y * 3.14159265);\n    baseColor *= 1.0 - (SCANLINE_WEIGHT * (1.0 -\
+        \ scan));\n    float maskPhase = mod(gl_FragCoord.x + floor(gl_FragCoord.y * 0.5), 3.0);\n    float mask = 1.0 - (MASK_DARKNESS\
+        \ * step(maskPhase, 0.5));\n    baseColor *= mask;\n    baseColor *= 1.08;\n    FragColor = vec4(baseColor, 1.0);\n\
+        }\n"
+      uniforms:
+      - screenTexture
+      - sourceResolution
+    shader_function: crt_tv
+  audio_output:
+    channels: mono
+    frequency_filter:
+      low_cut_hz: 80
+      high_cut_hz: 12000
+    gain_q8_8: 256
+    muted: false
+    volume_percent: 75
+    osd:
+      style: eighties
+      shows_mute: true
+      shows_volume: true
+state:
+- name: frame_count
+  type: uint32_t
+  initial: '0'
+- name: width
+  type: uint32_t
+  initial: '0'
+- name: height
+  type: uint32_t
+  initial: '0'
+- name: aspect_width
+  type: uint32_t
+  initial: '4'
+- name: aspect_height
+  type: uint32_t
+  initial: '3'
+- name: level
+  type: uint8_t
+  initial: '128'
+- name: gain_q8_8
+  type: uint16_t
+  initial: '256'
+- name: low_cut_hz
+  type: uint32_t
+  initial: '80'
+- name: high_cut_hz
+  type: uint32_t
+  initial: '12000'
+- name: muted
+  type: uint8_t
+  initial: '0'
+- name: volume_percent
+  type: uint8_t
+  initial: '75'
+- name: osd_ticks
+  type: uint32_t
+  initial: '0'
+interfaces:
+  callbacks: []
+  handlers:
+  - name: on_frame_present
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+  - name: on_frame_present5
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+    - u8
+  - name: on_audio_level
+    args:
+    - u8
+    - u64
+  - name: set_volume
+    args:
+    - u8
+  - name: set_mute
+    args:
+    - u8
+  signals:
+  - name: frame_present
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+  - name: frame_present5
+    args:
+    - u32
+    - u64
+    - u32
+    - u32
+    - u8
+  - name: pcm_sample
+    args:
+    - u8
+    - u64
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies:
+    on_frame_present: 'comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+
+      comp->width = (uint32_t)(args[2] & 0xFFFFFFFFu);
+
+      comp->height = (uint32_t)(args[3] & 0xFFFFFFFFu);
+
+      cpu_component_emit_signal(cpu, "tv", "frame_present", args, argc);
+
+      '
+    on_audio_level: "uint32_t sample = (uint32_t)(args[0] & 0xFFu);\nif (comp->muted != 0u) {\n    sample = 128u;\n} else\
+      \ {\n    int32_t centered = (int32_t)sample - 128;\n    centered = (centered * (int32_t)comp->volume_percent) / 100;\n\
+      \    centered = (centered * (int32_t)comp->gain_q8_8) >> 8;\n    centered += 128;\n    if (centered < 0) centered =\
+      \ 0;\n    if (centered > 255) centered = 255;\n    sample = (uint32_t)centered;\n}\ncomp->level = (uint8_t)sample;\n\
+      uint64_t sig_args[2] = { sample, (argc > 1u) ? args[1] : cpu->total_cycles };\ncpu_component_emit_signal(cpu, \"tv\"\
+      , \"pcm_sample\", sig_args, 2);\n"
+    set_volume: 'uint32_t volume = (uint32_t)(args[0] & 0xFFu);
+
+      if (volume > 100u) volume = 100u;
+
+      comp->volume_percent = (uint8_t)volume;
+
+      comp->osd_ticks = 180u;
+
+      '
+    set_mute: 'comp->muted = (uint8_t)((args[0] & 0xFFu) != 0u);
+
+      comp->osd_ticks = 180u;
+
+      '
+    on_frame_present5: 'comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
+
+      comp->width = (uint32_t)(args[2] & 0xFFFFFFFFu);
+
+      comp->height = (uint32_t)(args[3] & 0xFFFFFFFFu);
+
+      cpu_component_emit_signal(cpu, "tv", "frame_present5", args, argc);
+
+      '
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []
