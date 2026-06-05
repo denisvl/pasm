@@ -37,7 +37,7 @@ pasm validate \
   --ic examples/ics/zx_spectrum48k/zx_spectrum_48k_ula.yaml \
   --device examples/devices/zx_spectrum48k/zx48_keyboard.yaml \
   --device examples/devices/zx_spectrum48k/zx48_video.yaml \
-  --device examples/devices/zx_spectrum48k/zx48_speaker.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_beeper.yaml \
   --device examples/devices/zx_spectrum48k/zx48_mic.yaml \
   --host examples/hosts/zx_spectrum48k/zx48_host_sdl2.yaml
 ```
@@ -49,7 +49,7 @@ pasm generate \
   --ic examples/ics/zx_spectrum48k/zx_spectrum_48k_ula.yaml \
   --device examples/devices/zx_spectrum48k/zx48_keyboard.yaml \
   --device examples/devices/zx_spectrum48k/zx48_video.yaml \
-  --device examples/devices/zx_spectrum48k/zx48_speaker.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_beeper.yaml \
   --device examples/devices/zx_spectrum48k/zx48_mic.yaml \
   --host examples/hosts/zx_spectrum48k/zx48_host_sdl2.yaml \
   --output generated/z80_48k
@@ -111,7 +111,7 @@ pasm generate \
   --ic examples/ics/zx_spectrum48k/zx_spectrum_48k_ula.yaml \
   --device examples/devices/zx_spectrum48k/zx48_keyboard.yaml \
   --device examples/devices/zx_spectrum48k/zx48_video.yaml \
-  --device examples/devices/zx_spectrum48k/zx48_speaker.yaml \
+  --device examples/devices/zx_spectrum48k/zx48_beeper.yaml \
   --device examples/devices/zx_spectrum48k/zx48_mic.yaml \
   --host examples/hosts/zx_spectrum48k/zx48_host_sdl2_interactive.yaml \
   --output generated/z80_48k_sdl

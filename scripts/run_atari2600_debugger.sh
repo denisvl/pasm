@@ -121,7 +121,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
-  --host-backend "${HOST_BACKEND:-sdl2}" \
+  --host-backend "${HOST_BACKEND:-glfw}" \
   "${GEN_CARTRIDGE_ARGS[@]}" \
   --output "${OUTPUT_DIR}"
 

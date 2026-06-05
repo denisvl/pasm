@@ -135,6 +135,11 @@ def _generate_state_fields(isa_data: Dict[str, Any]) -> str:
 
 def _generate_interrupt_state_fields(isa_data: Dict[str, Any]) -> str:
     """Generate interrupt-related state fields based on interrupt model."""
+    fields = (isa_data.get("interrupts", {}) or {}).get("state_fields")
+    if isinstance(fields, list):
+        lines = [f"    {str(field).strip()}" for field in fields if str(field).strip()]
+        return "\n".join(lines) if lines else "    /* Interrupt model: none */"
+
     model = resolve_interrupt_model(isa_data)
 
     if model == "none":
@@ -163,6 +168,14 @@ def _generate_interrupt_state_fields(isa_data: Dict[str, Any]) -> str:
 
 def _generate_interrupt_api(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     """Generate interrupt API declarations based on interrupt model."""
+    declarations = (isa_data.get("interrupts", {}) or {}).get("api_declarations")
+    if isinstance(declarations, list):
+        return "\n".join(
+            str(decl).replace("{cpu_prefix}", cpu_prefix).strip()
+            for decl in declarations
+            if str(decl).strip()
+        )
+
     model = resolve_interrupt_model(isa_data)
 
     lines = [f"void {cpu_prefix}_interrupt(CPUState *cpu, uint8_t vector);"]

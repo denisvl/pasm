@@ -13,7 +13,7 @@ rem   OUTPUT_DIR=generated/mos6502_nes_interactive
 rem   EXTRA_CARGO_ARGS=--release
 rem   CMAKE_BUILD_TYPE=Release
 rem   RUN_SPEED=realtime|max
-rem   CARTRIDGE_ROM_GEN=../../roms/nes/Super Mario Bros. 2 (USA) (Rev 1).nes
+rem   CARTRIDGE_ROM_GEN=../../roms/nes/Super Mario Bros. + Duck Hunt (USA).nes
 rem   CARTRIDGE_ROM_RUNTIME=C:\path\to\rom.nes
 
 set "PROFILE=%~1"
@@ -27,11 +27,11 @@ if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=1"
 if not defined PASM_HOST_DEBUG set "PASM_HOST_DEBUG=0"
 if not defined PASM_NES_JOY2_CONNECTED set "PASM_NES_JOY2_CONNECTED=0"
 if not defined CARTRIDGE_MAP set "CARTRIDGE_MAP=examples/cartridges/nes/nes_mapper_auto.yaml"
-if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN=../../roms/nes/Super Mario Bros. 2 (USA) (Rev 1).nes"
+if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN=../../roms/nes/Super Mario Bros. + Duck Hunt (USA).nes"
 if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/nes/host_console_nes.yaml"
 if not defined CONTROLLER_MAP set "CONTROLLER_MAP=examples/hosts/nes/host_controller_nes.yaml"
 if not defined CARTRIDGE_DIR set "CARTRIDGE_DIR=examples/roms/nes"
-if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
+if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
@@ -63,6 +63,9 @@ if /I not "%PROFILE%"=="interactive" (
 
 if not defined OUTPUT_DIR set "OUTPUT_DIR=generated/mos6502_nes_interactive"
 set "BUILD_DIR=%OUTPUT_DIR%/build"
+for %%I in ("%BUILD_DIR%") do set "BUILD_DIR_ABS=%%~fI"
+set "CMAKE_CONFIG_BUILD_DIR=%BUILD_DIR%\%CMAKE_BUILD_TYPE%"
+for %%I in ("%CMAKE_CONFIG_BUILD_DIR%") do set "CMAKE_CONFIG_BUILD_DIR_ABS=%%~fI"
 for %%I in ("%OUTPUT_DIR%") do (
   set "OUTPUT_DIR_ABS=%%~fI"
   set "OUTPUT_PARENT=%%~dpI"
@@ -106,8 +109,10 @@ cmake --build "%BUILD_DIR%" --config "%CMAKE_BUILD_TYPE%"
 if errorlevel 1 exit /b %errorlevel%
 
 set "PASM_EMU_DIR=%OUTPUT_DIR_ABS%"
-set "PASM_EMU_BUILD_DIR=%BUILD_DIR%"
+set "PASM_EMU_BUILD_DIR=%BUILD_DIR_ABS%"
+if exist "%CMAKE_CONFIG_BUILD_DIR%" set "PASM_EMU_BUILD_DIR=%CMAKE_CONFIG_BUILD_DIR_ABS%"
 set "PASM_EMU_MANIFEST=%OUTPUT_DIR_ABS%\debugger_link.json"
+set "PATH=%PASM_EMU_BUILD_DIR%;%PATH%"
 set "PASM_HOST_AUDIO=%PASM_HOST_AUDIO%"
 set "PASM_HOST_DEBUG=%PASM_HOST_DEBUG%"
 set "PASM_NES_JOY2_CONNECTED=%PASM_NES_JOY2_CONNECTED%"

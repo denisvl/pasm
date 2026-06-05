@@ -30,7 +30,7 @@ if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
 if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=1"
 if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/trs80_model4/host_keyboard_trs80.yaml"
-if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
+if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"

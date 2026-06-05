@@ -16,6 +16,7 @@ pub trait DebuggerBackend {
     fn run(&mut self) -> Result<(), String>;
     fn run_slice(&mut self, max_steps: u32) -> Result<DebuggerMode, String>;
     fn run_for_cycles(&mut self, max_cycles: u64) -> Result<DebuggerMode, String>;
+    fn pump_host_events(&mut self) -> Result<(), String>;
     fn pause(&mut self) -> Result<(), String>;
     fn step_into(&mut self) -> Result<(), String>;
     fn step_over(&mut self) -> Result<(), String>;

@@ -139,11 +139,11 @@ behavior:
               uint32_t ch_fg = (inv != 0u) ? bg : fg;
               uint32_t ch_bg = (inv != 0u) ? fg : bg;
               if (inv != 0u) {
-                  sms_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, 6, 8, ch_bg);
+                  pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, 6, 8, ch_bg);
               }
-              sms_overlay_draw_char(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, ch, 1, ch_fg);
+              pasm_overlay_draw_char(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, ch, 1, ch_fg);
               if (is_cursor != 0u && cursor_blink_on != 0u) {
-                  sms_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)(cell_y + 7u), 6, 1, fg);
+                  pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)(cell_y + 7u), 6, 1, fg);
               }
           }
       }

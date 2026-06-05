@@ -674,6 +674,34 @@ class ProcessorSystemLoader:
             raise ValueError(f"{kind} YAML root must be an object: {path}")
         return data
 
+    def _resolve_common_display_device(
+        self,
+        system_data: Dict[str, Any],
+        loaded_device_ids: set[str],
+    ) -> tuple[Dict[str, Any] | None, str | None]:
+        display = system_data.get("display")
+        if not isinstance(display, dict):
+            return None, None
+        component = str(display.get("default_component", ""))
+        model = str(display.get("default_model", ""))
+        if component not in {"tv", "monitor"} or not model or component in loaded_device_ids:
+            return None, None
+
+        common_dir = Path(__file__).parent.parent.parent / "examples" / "devices" / "common"
+        matches: list[tuple[Path, Dict[str, Any]]] = []
+        for path in sorted(common_dir.glob("*.yaml")):
+            data = self._load_yaml(str(path), "device")
+            metadata = data.get("metadata", {})
+            if metadata.get("id") == component and metadata.get("model") == model:
+                matches.append((path, data))
+        if len(matches) != 1:
+            raise ValidationError(
+                "Composition validation failed:\n"
+                f"display.default_model '{model}' for component '{component}' "
+                f"must match exactly one common display device"
+            )
+        return matches[0][1], str(matches[0][0])
+
     def _validate_coding_block(self, coding: Dict[str, Any], context: str) -> None:
         if not isinstance(coding, dict):
             raise ValidationError(f"{context} validation failed:\ncoding must be an object")
@@ -1609,6 +1637,17 @@ class ProcessorSystemLoader:
 
         processor_data = self.validate_processor(processor_data)
         system_data = self.validate_system(system_data)
+        loaded_device_ids = {
+            str(device_data.get("metadata", {}).get("id", ""))
+            for device_data in device_data_list
+        }
+        display_device_data, display_device_path = self._resolve_common_display_device(
+            system_data,
+            loaded_device_ids,
+        )
+        if display_device_data is not None and display_device_path is not None:
+            device_data_list.append(display_device_data)
+            resolved_device_paths.append(display_device_path)
         ic_data_list = [self.validate_ic(ic_data) for ic_data in ic_data_list]
         device_data_list = [self.validate_device(device_data) for device_data in device_data_list]
         host_data_list = [self.validate_host(host_data) for host_data in host_data_list]

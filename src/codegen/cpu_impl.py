@@ -104,6 +104,7 @@ GLFW_SCANCODE_KEYS = {
     "HOME",
     "I",
     "INSERT",
+    "INTERNATIONAL1",
     "J",
     "K",
     "KP_0",
@@ -132,6 +133,7 @@ GLFW_SCANCODE_KEYS = {
     "O",
     "P",
     "PAGEUP",
+    "PAUSE",
     "PERIOD",
     "Q",
     "R",
@@ -192,6 +194,19 @@ def _codegen_numeric_style(isa_data: Dict[str, Any]) -> str:
             "metadata.codegen.numeric_style must be one of: c_hex, asm_dollar, z80_h"
         )
     return style
+
+
+def _codegen_numeric_formats(isa_data: Dict[str, Any]) -> Dict[str, str]:
+    codegen = _require_codegen_config(isa_data)
+    raw = codegen.get("numeric_formats")
+    if isinstance(raw, dict):
+        return {str(k): str(v) for k, v in raw.items()}
+    style = _codegen_numeric_style(isa_data)
+    if style == "asm_dollar":
+        return {"hex8": "$%02X", "hex16": "$%04X"}
+    if style == "z80_h":
+        return {"hex8": "%02Xh", "hex16": "%04Xh"}
+    return {"hex8": "0x%02X", "hex16": "0x%04X"}
 
 
 def _codegen_flags_dump_style(isa_data: Dict[str, Any]) -> str:
@@ -371,6 +386,10 @@ def generate_cpu_impl(
     # Get metadata for template
     isa_name = isa_data.get("metadata", {}).get("name", cpu_name)
     register_count = len(isa_data.get("registers", []))
+    ports_cfg = isa_data.get("ports", {})
+    port_size = int(ports_cfg.get("size") or (1 << int(ports_cfg.get("address_bits", 16))))
+    if port_size <= 0:
+        port_size = 65536
 
     # Format template
     template = get_template("cpu_impl")
@@ -410,12 +429,17 @@ def generate_cpu_impl(
         hooks_impl=hooks_impl,
         isa_name=isa_name,
         register_count=register_count,
+        port_size=port_size,
         debug_flags_expr=debug_flags_expr,
     )
 
 
 def _generate_debug_flags_expr(isa_data: Dict[str, Any]) -> str:
     """Generate expression used by dump_registers() when printing flags."""
+    expr = _require_codegen_config(isa_data).get("debug_flags_expr")
+    if isinstance(expr, str) and expr.strip():
+        return expr.strip()
+
     style = _codegen_flags_dump_style(isa_data)
     if style == "raw":
         return "cpu->flags.raw"
@@ -1047,6 +1071,7 @@ def _append_instruction_template_render(
     lines: List[str],
     inst: Dict[str, Any],
     numeric_style: str = "c_hex",
+    numeric_formats: Optional[Dict[str, str]] = None,
     allowed_kinds: Optional[Set[str]] = None,
     indent: str = "                    ",
 ) -> None:
@@ -1105,36 +1130,21 @@ def _append_instruction_template_render(
             continue
 
         lines.append(f"{indent}    char {buf_name}[40];")
+        numeric_formats = numeric_formats or {}
         if kind == "hex8":
-            if numeric_style == "asm_dollar":
-                lines.append(
-                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "$%02X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
-                )
-            elif numeric_style == "z80_h":
-                lines.append(
-                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%02Xh", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
-                )
-            else:
-                lines.append(
-                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "0x%02X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
-                )
+            fmt = _escape_c_string(numeric_formats.get("hex8", "0x%02X"))
+            lines.append(
+                f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "{fmt}", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+            )
         elif kind == "hex8_plain":
             lines.append(
                 f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%02X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
             )
         elif kind == "hex16":
-            if numeric_style == "asm_dollar":
-                lines.append(
-                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "$%04X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
-                )
-            elif numeric_style == "z80_h":
-                lines.append(
-                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%04Xh", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
-                )
-            else:
-                lines.append(
-                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "0x%04X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
-                )
+            fmt = _escape_c_string(numeric_formats.get("hex16", "0x%04X"))
+            lines.append(
+                f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "{fmt}", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+            )
         elif kind == "hex16_plain":
             lines.append(
                 f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%04X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
@@ -1394,7 +1404,8 @@ def _generate_port_hook_snippets(hooks: Dict[str, Any]) -> Tuple[str, str, str, 
 def _generate_helpers(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     """Generate helper functions."""
     lines: List[str] = []
-    interrupt_model = resolve_interrupt_model(isa_data)
+    codegen = _require_codegen_config(isa_data)
+    helper_features = codegen.get("helper_features", {}) if isinstance(codegen.get("helper_features"), dict) else {}
 
     registers = isa_data.get("registers", [])
     register_count = len(registers)
@@ -1445,21 +1456,22 @@ def _generate_helpers(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     p_expr = _flag_expr("P", available_flags)
     s_expr = _flag_expr("S", available_flags)
 
-    # Basic Z80-style condition helper.
-    lines.append("static bool cpu_check_condition(CPUState *cpu, uint8_t cc) {")
-    lines.append("    switch (cc) {")
-    lines.append(f"        case 0: return !({z_expr});")
-    lines.append(f"        case 1: return {z_expr};")
-    lines.append(f"        case 2: return !({c_expr});")
-    lines.append(f"        case 3: return {c_expr};")
-    lines.append(f"        case 4: return !({p_expr});")
-    lines.append(f"        case 5: return {p_expr};")
-    lines.append(f"        case 6: return !({s_expr});")
-    lines.append(f"        case 7: return {s_expr};")
-    lines.append("    }")
-    lines.append("    return false;")
-    lines.append("}")
-    lines.append("")
+    condition_cases = helper_features.get("condition_cases")
+    if condition_cases is None:
+        condition_cases = ["!($Z)", "$Z", "!($C)", "$C", "!($P)", "$P", "!($S)", "$S"]
+    if isinstance(condition_cases, list):
+        lines.append("static bool cpu_check_condition(CPUState *cpu, uint8_t cc) {")
+        lines.append("    switch (cc) {")
+        expr_map = {"Z": z_expr, "C": c_expr, "P": p_expr, "S": s_expr}
+        for idx, case in enumerate(condition_cases):
+            expr = str(case).strip()
+            for name, value in expr_map.items():
+                expr = expr.replace(f"${name}", value)
+            lines.append(f"        case {idx}: return {expr};")
+        lines.append("    }")
+        lines.append("    return false;")
+        lines.append("}")
+        lines.append("")
 
     # Breakpoint check helper
     lines.append("static bool cpu_check_breakpoints(CPUState *cpu) {")
@@ -1470,7 +1482,7 @@ def _generate_helpers(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     lines.append("}")
     lines.append("")
 
-    if interrupt_model == "mos6502":
+    if helper_features.get("runtime_cycle_penalties") == "mos6502_page_cross":
         lines.append("static void cpu_apply_mos6502_runtime_cycles(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before, uint8_t x_before, uint8_t y_before, uint8_t c_before, uint8_t z_before, uint8_t n_before, uint8_t v_before) {")
         lines.append("    switch (inst->opcode) {")
         lines.append("        /* Branches: +1 when taken, +1 more when target crosses page. */")
@@ -2051,6 +2063,15 @@ def _generate_ic_runtime_blocks(
                 "    uint32_t clear_color;",
                 "    uint8_t *frame_rgba;",
                 "    size_t frame_len;",
+                "    uint8_t frame_rgba_dirty;",
+                "    unsigned int present_program;",
+                "    unsigned int present_vertex_shader;",
+                "    unsigned int present_fragment_shader;",
+                "    unsigned int present_vao;",
+                "    unsigned int present_vbo;",
+                "    unsigned int present_texture;",
+                "    int present_texture_w;",
+                "    int present_texture_h;",
                 "} CPUHostGlfwRenderer;",
                 "typedef struct {",
                 "    int w;",
@@ -2058,6 +2079,25 @@ def _generate_ic_runtime_blocks(
                 "    uint8_t *pixels;",
                 "    size_t pixels_len;",
                 "} CPUHostGlfwTexture;",
+                "typedef struct {",
+                "    unsigned int program;",
+                "    unsigned int vertex_shader;",
+                "    unsigned int fragment_shader;",
+                "    unsigned int vao;",
+                "    unsigned int vbo;",
+                "    unsigned int texture;",
+                "    int texture_w;",
+                "    int texture_h;",
+                "} CPUHostGlfwShader;",
+                "typedef unsigned int GLenum;",
+                "typedef unsigned int GLuint;",
+                "typedef int GLint;",
+                "typedef int GLsizei;",
+                "typedef char GLchar;",
+                "typedef float GLfloat;",
+                "typedef unsigned char GLboolean;",
+                "typedef ptrdiff_t GLsizeiptr;",
+                "typedef void (*CPUHostGLProc)(void);",
                 "extern int glfwInit(void);",
                 "extern void glfwTerminate(void);",
                 "extern void glfwPollEvents(void);",
@@ -2066,12 +2106,16 @@ def _generate_ic_runtime_blocks(
                 "extern int glfwGetKey(GLFWwindow *window, int key);",
                 "extern void glfwSetWindowTitle(GLFWwindow *window, const char *title);",
                 "extern void glfwDestroyWindow(GLFWwindow *window);",
+                "extern void glfwWindowHint(int hint, int value);",
                 "extern GLFWwindow *glfwCreateWindow(int width, int height, const char *title, void *monitor, void *share);",
                 "extern void glfwShowWindow(GLFWwindow *window);",
                 "extern void glfwFocusWindow(GLFWwindow *window);",
                 "extern int glfwWindowShouldClose(GLFWwindow *window);",
                 "extern void glfwGetWindowSize(GLFWwindow *window, int *width, int *height);",
                 "extern void glfwSwapBuffers(GLFWwindow *window);",
+                "extern void glfwSwapInterval(int interval);",
+                "extern void glfwMakeContextCurrent(GLFWwindow *window);",
+                "extern CPUHostGLProc glfwGetProcAddress(const char *procname);",
                 "extern int glfwJoystickPresent(int jid);",
                 "extern const float *glfwGetJoystickAxes(int jid, int *count);",
                 "extern const unsigned char *glfwGetJoystickButtons(int jid, int *count);",
@@ -2081,6 +2125,10 @@ def _generate_ic_runtime_blocks(
                 "typedef struct GLFWgamepadstate { unsigned char buttons[15]; float axes[6]; } GLFWgamepadstate;",
                 "extern int glfwGetGamepadState(int jid, GLFWgamepadstate *state);",
                 "#define GLFW_FOCUSED 0x00020001",
+                "#define GLFW_CONTEXT_VERSION_MAJOR 0x00022002",
+                "#define GLFW_CONTEXT_VERSION_MINOR 0x00022003",
+                "#define GLFW_OPENGL_PROFILE 0x00022008",
+                "#define GLFW_OPENGL_CORE_PROFILE 0x00032001",
                 "#define GLFW_PRESS 1",
                 "#define GLFW_REPEAT 2",
                 "#define GLFW_JOYSTICK_1 0",
@@ -2106,6 +2154,9 @@ def _generate_ic_runtime_blocks(
                 "#define GLFW_GAMEPAD_BUTTON_DPAD_RIGHT 12",
                 "#define GLFW_GAMEPAD_BUTTON_DPAD_DOWN 13",
                 "#define GLFW_GAMEPAD_BUTTON_DPAD_LEFT 14",
+                "#define GLFW_TRUE 1",
+                "#define GLFW_FALSE 0",
+                "#define GLFW_RESIZABLE 0x00020003",
                 "#define GLFW_HAT_UP 0x01",
                 "#define GLFW_HAT_RIGHT 0x02",
                 "#define GLFW_HAT_DOWN 0x04",
@@ -2169,6 +2220,7 @@ def _generate_ic_runtime_blocks(
                 "#define GLFW_KEY_DOWN 264",
                 "#define GLFW_KEY_UP 265",
                 "#define GLFW_KEY_PAGE_UP 266",
+                "#define GLFW_KEY_PAUSE 284",
                 "#define GLFW_KEY_HOME 268",
                 "#define GLFW_KEY_END 269",
                 "#define GLFW_KEY_CAPS_LOCK 280",
@@ -2248,6 +2300,7 @@ def _generate_ic_runtime_blocks(
                 "    CPU_GLFW_SC_HOME,",
                 "    CPU_GLFW_SC_I,",
                 "    CPU_GLFW_SC_INSERT,",
+                "    CPU_GLFW_SC_INTERNATIONAL1,",
                 "    CPU_GLFW_SC_J,",
                 "    CPU_GLFW_SC_K,",
                 "    CPU_GLFW_SC_KP_0,",
@@ -2276,6 +2329,7 @@ def _generate_ic_runtime_blocks(
                 "    CPU_GLFW_SC_O,",
                 "    CPU_GLFW_SC_P,",
                 "    CPU_GLFW_SC_PAGEUP,",
+                "    CPU_GLFW_SC_PAUSE,",
                 "    CPU_GLFW_SC_PERIOD,",
                 "    CPU_GLFW_SC_Q,",
                 "    CPU_GLFW_SC_R,",
@@ -2327,6 +2381,29 @@ def _generate_ic_runtime_blocks(
                 "#define CPU_HOST_MOD_CTRL 0x0001u",
                 "#define CPU_HOST_MOD_SHIFT 0x0002u",
                 "#define CPU_HOST_MOD_LCTRL 0x0004u",
+                "#define GL_FALSE 0",
+                "#define GL_TRUE 1",
+                "#define GL_TEXTURE_2D 0x0DE1u",
+                "#define GL_RGBA 0x1908u",
+                "#define GL_BGRA 0x80E1u",
+                "#define GL_UNSIGNED_BYTE 0x1401u",
+                "#define GL_FLOAT 0x1406u",
+                "#define GL_ARRAY_BUFFER 0x8892u",
+                "#define GL_STATIC_DRAW 0x88E4u",
+                "#define GL_VERTEX_SHADER 0x8B31u",
+                "#define GL_FRAGMENT_SHADER 0x8B30u",
+                "#define GL_COMPILE_STATUS 0x8B81u",
+                "#define GL_LINK_STATUS 0x8B82u",
+                "#define GL_TEXTURE0 0x84C0u",
+                "#define GL_TEXTURE_MIN_FILTER 0x2801u",
+                "#define GL_TEXTURE_MAG_FILTER 0x2800u",
+                "#define GL_TEXTURE_WRAP_S 0x2802u",
+                "#define GL_TEXTURE_WRAP_T 0x2803u",
+                "#define GL_NEAREST 0x2600u",
+                "#define GL_LINEAR 0x2601u",
+                "#define GL_CLAMP_TO_EDGE 0x812Fu",
+                "#define GL_TRIANGLE_STRIP 0x0005u",
+                "#define GL_COLOR_BUFFER_BIT 0x00004000u",
                 "#define cpu_host_hal_log(...) do { fprintf(stderr, __VA_ARGS__); fprintf(stderr, \"\\n\"); } while (0)",
                 "#define cpu_host_hal_last_error() \"\"",
                 "static void cpu_host_audio_spec_zero(CPUHostAudioSpec *spec) {",
@@ -2638,6 +2715,31 @@ def _generate_ic_runtime_blocks(
                 "    );",
                 "}",
                 "",
+                "static int cpu_host_hal_renderer_supports_shaders(void *renderer) {",
+                "    (void)renderer;",
+                "    return 0;",
+                "}",
+                "",
+                "static void *cpu_host_hal_shader_create(void *renderer, const char *vertex_source, const char *fragment_source) {",
+                "    (void)renderer;",
+                "    (void)vertex_source;",
+                "    (void)fragment_source;",
+                "    return NULL;",
+                "}",
+                "",
+                "static void cpu_host_hal_shader_destroy(void *shader) {",
+                "    (void)shader;",
+                "}",
+                "",
+                "static int cpu_host_hal_render_copy_shader(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect, void *shader, int texture_w, int texture_h, int output_w, int output_h) {",
+                "    (void)texture_w;",
+                "    (void)texture_h;",
+                "    (void)output_w;",
+                "    (void)output_h;",
+                "    if (shader == NULL) return -1;",
+                "    return cpu_host_hal_render_copy(renderer, texture, src_rect, dst_rect);",
+                "}",
+                "",
                 "static int cpu_host_hal_poll_event(CPUHostEvent *event) {",
                 "    if (cpu_host_hal_sdl_inited == 0u) return 0;",
                 "    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;",
@@ -2654,6 +2756,12 @@ def _generate_ic_runtime_blocks(
                 "    if (!event) return 0;",
                 "    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0;",
                 "    return (int32_t)event->key.keysym.scancode;",
+                "}",
+                "",
+                "static int32_t cpu_host_hal_event_keycode(const CPUHostEvent *event) {",
+                "    if (!event) return 0;",
+                "    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0;",
+                "    return (int32_t)event->key.keysym.sym;",
                 "}",
                 "",
                 "static uint8_t cpu_host_hal_event_key_repeat(const CPUHostEvent *event) {",
@@ -2959,10 +3067,161 @@ def _generate_ic_runtime_blocks(
                 "static uint32_t cpu_host_hal_glfw_audio_len = 0u;",
                 "static uint32_t cpu_host_hal_glfw_audio_cap = 0u;",
                 "static uint8_t cpu_host_hal_glfw_audio_opened = 0u;",
+                "#ifdef _WIN32",
+                "#include <windows.h>",
+                "#include <mmsystem.h>",
+                "static HWAVEOUT cpu_host_hal_glfw_waveout = NULL;",
+                "static WAVEHDR cpu_host_hal_glfw_wave_headers[4];",
+                "static uint8_t *cpu_host_hal_glfw_wave_buffers[4];",
+                "static uint32_t cpu_host_hal_glfw_wave_buffer_bytes = 0u;",
+                "static uint32_t cpu_host_hal_glfw_wave_next = 0u;",
+                "#endif",
+                "#ifdef __linux__",
+                "#include <alsa/asoundlib.h>",
+                "static snd_pcm_t *cpu_host_hal_glfw_alsa_pcm = NULL;",
+                "static uint32_t cpu_host_hal_glfw_alsa_channels = 0u;",
+                "#endif",
                 "static uint8_t cpu_host_hal_glfw_inited = 0u;",
                 "static uint32_t cpu_host_hal_glfw_subsystems = 0u;",
+                "static uint8_t cpu_host_hal_glfw_gl_loaded = 0u;",
+                "static GLuint (*cpu_glCreateShader)(GLenum type) = NULL;",
+                "static void (*cpu_glShaderSource)(GLuint shader, GLsizei count, const GLchar * const *string, const GLint *length) = NULL;",
+                "static void (*cpu_glCompileShader)(GLuint shader) = NULL;",
+                "static void (*cpu_glGetShaderiv)(GLuint shader, GLenum pname, GLint *params) = NULL;",
+                "static GLuint (*cpu_glCreateProgram)(void) = NULL;",
+                "static void (*cpu_glAttachShader)(GLuint program, GLuint shader) = NULL;",
+                "static void (*cpu_glLinkProgram)(GLuint program) = NULL;",
+                "static void (*cpu_glGetProgramiv)(GLuint program, GLenum pname, GLint *params) = NULL;",
+                "static void (*cpu_glDeleteShader)(GLuint shader) = NULL;",
+                "static void (*cpu_glDeleteProgram)(GLuint program) = NULL;",
+                "static void (*cpu_glUseProgram)(GLuint program) = NULL;",
+                "static void (*cpu_glGenVertexArrays)(GLsizei n, GLuint *arrays) = NULL;",
+                "static void (*cpu_glBindVertexArray)(GLuint array) = NULL;",
+                "static void (*cpu_glDeleteVertexArrays)(GLsizei n, const GLuint *arrays) = NULL;",
+                "static void (*cpu_glGenBuffers)(GLsizei n, GLuint *buffers) = NULL;",
+                "static void (*cpu_glBindBuffer)(GLenum target, GLuint buffer) = NULL;",
+                "static void (*cpu_glBufferData)(GLenum target, GLsizeiptr size, const void *data, GLenum usage) = NULL;",
+                "static void (*cpu_glDeleteBuffers)(GLsizei n, const GLuint *buffers) = NULL;",
+                "static void (*cpu_glEnableVertexAttribArray)(GLuint index) = NULL;",
+                "static void (*cpu_glVertexAttribPointer)(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void *pointer) = NULL;",
+                "static void (*cpu_glGenTextures)(GLsizei n, GLuint *textures) = NULL;",
+                "static void (*cpu_glBindTexture)(GLenum target, GLuint texture) = NULL;",
+                "static void (*cpu_glTexParameteri)(GLenum target, GLenum pname, GLint param) = NULL;",
+                "static void (*cpu_glTexImage2D)(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels) = NULL;",
+                "static void (*cpu_glTexSubImage2D)(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const void *pixels) = NULL;",
+                "static void (*cpu_glDeleteTextures)(GLsizei n, const GLuint *textures) = NULL;",
+                "static void (*cpu_glActiveTexture)(GLenum texture) = NULL;",
+                "static GLint (*cpu_glGetUniformLocation)(GLuint program, const GLchar *name) = NULL;",
+                "static void (*cpu_glUniform1i)(GLint location, GLint v0) = NULL;",
+                "static void (*cpu_glUniform2f)(GLint location, GLfloat v0, GLfloat v1) = NULL;",
+                "static void (*cpu_glUniformMatrix4fv)(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) = NULL;",
+                "static void (*cpu_glViewport)(GLint x, GLint y, GLsizei width, GLsizei height) = NULL;",
+                "static void (*cpu_glClearColor)(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) = NULL;",
+                "static void (*cpu_glClear)(GLenum mask) = NULL;",
+                "static void (*cpu_glDrawArrays)(GLenum mode, GLint first, GLsizei count) = NULL;",
+                "",
+                "static int cpu_host_hal_glfw_load_gl(void) {",
+                "    if (cpu_host_hal_glfw_gl_loaded != 0u) return 0;",
+                "    cpu_glCreateShader = (GLuint (*)(GLenum))glfwGetProcAddress(\"glCreateShader\");",
+                "    if (cpu_glCreateShader == NULL) return -1;",
+                "    cpu_glShaderSource = (void (*)(GLuint, GLsizei, const GLchar * const *, const GLint *))glfwGetProcAddress(\"glShaderSource\");",
+                "    if (cpu_glShaderSource == NULL) return -1;",
+                "    cpu_glCompileShader = (void (*)(GLuint))glfwGetProcAddress(\"glCompileShader\");",
+                "    if (cpu_glCompileShader == NULL) return -1;",
+                "    cpu_glGetShaderiv = (void (*)(GLuint, GLenum, GLint *))glfwGetProcAddress(\"glGetShaderiv\");",
+                "    if (cpu_glGetShaderiv == NULL) return -1;",
+                "    cpu_glCreateProgram = (GLuint (*)(void))glfwGetProcAddress(\"glCreateProgram\");",
+                "    if (cpu_glCreateProgram == NULL) return -1;",
+                "    cpu_glAttachShader = (void (*)(GLuint, GLuint))glfwGetProcAddress(\"glAttachShader\");",
+                "    if (cpu_glAttachShader == NULL) return -1;",
+                "    cpu_glLinkProgram = (void (*)(GLuint))glfwGetProcAddress(\"glLinkProgram\");",
+                "    if (cpu_glLinkProgram == NULL) return -1;",
+                "    cpu_glGetProgramiv = (void (*)(GLuint, GLenum, GLint *))glfwGetProcAddress(\"glGetProgramiv\");",
+                "    if (cpu_glGetProgramiv == NULL) return -1;",
+                "    cpu_glDeleteShader = (void (*)(GLuint))glfwGetProcAddress(\"glDeleteShader\");",
+                "    if (cpu_glDeleteShader == NULL) return -1;",
+                "    cpu_glDeleteProgram = (void (*)(GLuint))glfwGetProcAddress(\"glDeleteProgram\");",
+                "    if (cpu_glDeleteProgram == NULL) return -1;",
+                "    cpu_glUseProgram = (void (*)(GLuint))glfwGetProcAddress(\"glUseProgram\");",
+                "    if (cpu_glUseProgram == NULL) return -1;",
+                "    cpu_glGenVertexArrays = (void (*)(GLsizei, GLuint *))glfwGetProcAddress(\"glGenVertexArrays\");",
+                "    cpu_glBindVertexArray = (void (*)(GLuint))glfwGetProcAddress(\"glBindVertexArray\");",
+                "    cpu_glDeleteVertexArrays = (void (*)(GLsizei, const GLuint *))glfwGetProcAddress(\"glDeleteVertexArrays\");",
+                "    cpu_glGenBuffers = (void (*)(GLsizei, GLuint *))glfwGetProcAddress(\"glGenBuffers\");",
+                "    if (cpu_glGenBuffers == NULL) return -1;",
+                "    cpu_glBindBuffer = (void (*)(GLenum, GLuint))glfwGetProcAddress(\"glBindBuffer\");",
+                "    if (cpu_glBindBuffer == NULL) return -1;",
+                "    cpu_glBufferData = (void (*)(GLenum, GLsizeiptr, const void *, GLenum))glfwGetProcAddress(\"glBufferData\");",
+                "    if (cpu_glBufferData == NULL) return -1;",
+                "    cpu_glDeleteBuffers = (void (*)(GLsizei, const GLuint *))glfwGetProcAddress(\"glDeleteBuffers\");",
+                "    if (cpu_glDeleteBuffers == NULL) return -1;",
+                "    cpu_glEnableVertexAttribArray = (void (*)(GLuint))glfwGetProcAddress(\"glEnableVertexAttribArray\");",
+                "    if (cpu_glEnableVertexAttribArray == NULL) return -1;",
+                "    cpu_glVertexAttribPointer = (void (*)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void *))glfwGetProcAddress(\"glVertexAttribPointer\");",
+                "    if (cpu_glVertexAttribPointer == NULL) return -1;",
+                "    cpu_glGenTextures = (void (*)(GLsizei, GLuint *))glfwGetProcAddress(\"glGenTextures\");",
+                "    if (cpu_glGenTextures == NULL) return -1;",
+                "    cpu_glBindTexture = (void (*)(GLenum, GLuint))glfwGetProcAddress(\"glBindTexture\");",
+                "    if (cpu_glBindTexture == NULL) return -1;",
+                "    cpu_glTexParameteri = (void (*)(GLenum, GLenum, GLint))glfwGetProcAddress(\"glTexParameteri\");",
+                "    if (cpu_glTexParameteri == NULL) return -1;",
+                "    cpu_glTexImage2D = (void (*)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void *))glfwGetProcAddress(\"glTexImage2D\");",
+                "    if (cpu_glTexImage2D == NULL) return -1;",
+                "    cpu_glTexSubImage2D = (void (*)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const void *))glfwGetProcAddress(\"glTexSubImage2D\");",
+                "    if (cpu_glTexSubImage2D == NULL) return -1;",
+                "    cpu_glDeleteTextures = (void (*)(GLsizei, const GLuint *))glfwGetProcAddress(\"glDeleteTextures\");",
+                "    if (cpu_glDeleteTextures == NULL) return -1;",
+                "    cpu_glActiveTexture = (void (*)(GLenum))glfwGetProcAddress(\"glActiveTexture\");",
+                "    if (cpu_glActiveTexture == NULL) return -1;",
+                "    cpu_glGetUniformLocation = (GLint (*)(GLuint, const GLchar *))glfwGetProcAddress(\"glGetUniformLocation\");",
+                "    if (cpu_glGetUniformLocation == NULL) return -1;",
+                "    cpu_glUniform1i = (void (*)(GLint, GLint))glfwGetProcAddress(\"glUniform1i\");",
+                "    if (cpu_glUniform1i == NULL) return -1;",
+                "    cpu_glUniform2f = (void (*)(GLint, GLfloat, GLfloat))glfwGetProcAddress(\"glUniform2f\");",
+                "    if (cpu_glUniform2f == NULL) return -1;",
+                "    cpu_glUniformMatrix4fv = (void (*)(GLint, GLsizei, GLboolean, const GLfloat *))glfwGetProcAddress(\"glUniformMatrix4fv\");",
+                "    if (cpu_glUniformMatrix4fv == NULL) return -1;",
+                "    cpu_glViewport = (void (*)(GLint, GLint, GLsizei, GLsizei))glfwGetProcAddress(\"glViewport\");",
+                "    if (cpu_glViewport == NULL) return -1;",
+                "    cpu_glClearColor = (void (*)(GLfloat, GLfloat, GLfloat, GLfloat))glfwGetProcAddress(\"glClearColor\");",
+                "    if (cpu_glClearColor == NULL) return -1;",
+                "    cpu_glClear = (void (*)(GLenum))glfwGetProcAddress(\"glClear\");",
+                "    if (cpu_glClear == NULL) return -1;",
+                "    cpu_glDrawArrays = (void (*)(GLenum, GLint, GLsizei))glfwGetProcAddress(\"glDrawArrays\");",
+                "    if (cpu_glDrawArrays == NULL) return -1;",
+                "    cpu_host_hal_glfw_gl_loaded = 1u;",
+                "    return 0;",
+                "}",
+                "",
+                "static void cpu_host_hal_shader_destroy(void *shader);",
                 "",
                 "static void cpu_host_hal_glfw_reset_audio_state(void) {",
+                "#ifdef _WIN32",
+                "    if (cpu_host_hal_glfw_waveout != NULL) {",
+                "        uint32_t i;",
+                "        waveOutReset(cpu_host_hal_glfw_waveout);",
+                "        for (i = 0u; i < 4u; ++i) {",
+                "            if ((cpu_host_hal_glfw_wave_headers[i].dwFlags & WHDR_PREPARED) != 0u) {",
+                "                waveOutUnprepareHeader(cpu_host_hal_glfw_waveout, &cpu_host_hal_glfw_wave_headers[i], sizeof(cpu_host_hal_glfw_wave_headers[i]));",
+                "            }",
+                "            free(cpu_host_hal_glfw_wave_buffers[i]);",
+                "            cpu_host_hal_glfw_wave_buffers[i] = NULL;",
+                "            memset(&cpu_host_hal_glfw_wave_headers[i], 0, sizeof(cpu_host_hal_glfw_wave_headers[i]));",
+                "        }",
+                "        waveOutClose(cpu_host_hal_glfw_waveout);",
+                "        cpu_host_hal_glfw_waveout = NULL;",
+                "    }",
+                "    cpu_host_hal_glfw_wave_buffer_bytes = 0u;",
+                "    cpu_host_hal_glfw_wave_next = 0u;",
+                "#endif",
+                "#ifdef __linux__",
+                "    if (cpu_host_hal_glfw_alsa_pcm != NULL) {",
+                "        snd_pcm_drop(cpu_host_hal_glfw_alsa_pcm);",
+                "        snd_pcm_close(cpu_host_hal_glfw_alsa_pcm);",
+                "        cpu_host_hal_glfw_alsa_pcm = NULL;",
+                "    }",
+                "    cpu_host_hal_glfw_alsa_channels = 0u;",
+                "#endif",
                 "    free(cpu_host_hal_glfw_audio_buf);",
                 "    cpu_host_hal_glfw_audio_buf = NULL;",
                 "    cpu_host_hal_glfw_audio_len = 0u;",
@@ -3055,6 +3314,7 @@ def _generate_ic_runtime_blocks(
                 "        case CPU_GLFW_SC_HOME: return GLFW_KEY_HOME;",
                 "        case CPU_GLFW_SC_I: return GLFW_KEY_I;",
                 "        case CPU_GLFW_SC_INSERT: return GLFW_KEY_INSERT;",
+                "        case CPU_GLFW_SC_INTERNATIONAL1: return GLFW_KEY_WORLD_1;",
                 "        case CPU_GLFW_SC_J: return GLFW_KEY_J;",
                 "        case CPU_GLFW_SC_K: return GLFW_KEY_K;",
                 "        case CPU_GLFW_SC_KP_0: return GLFW_KEY_KP_0;",
@@ -3083,6 +3343,7 @@ def _generate_ic_runtime_blocks(
                 "        case CPU_GLFW_SC_O: return GLFW_KEY_O;",
                 "        case CPU_GLFW_SC_P: return GLFW_KEY_P;",
                 "        case CPU_GLFW_SC_PAGEUP: return GLFW_KEY_PAGE_UP;",
+                "        case CPU_GLFW_SC_PAUSE: return GLFW_KEY_PAUSE;",
                 "        case CPU_GLFW_SC_PERIOD: return GLFW_KEY_PERIOD;",
                 "        case CPU_GLFW_SC_Q: return GLFW_KEY_Q;",
                 "        case CPU_GLFW_SC_R: return GLFW_KEY_R;",
@@ -3156,7 +3417,9 @@ def _generate_ic_runtime_blocks(
                 "        case CPU_GLFW_SC_RSHIFT: return \"RSHIFT\";",
                 "        case CPU_GLFW_SC_LALT: return \"LALT\";",
                 "        case CPU_GLFW_SC_RALT: return \"RALT\";",
+                "        case CPU_GLFW_SC_INTERNATIONAL1: return \"INTERNATIONAL1\";",
                 "        case CPU_GLFW_SC_APPLICATION: return \"APPLICATION\";",
+                "        case CPU_GLFW_SC_PAUSE: return \"PAUSE\";",
                 "        default: return \"UNKNOWN\";",
                 "    }",
                 "}",
@@ -3313,7 +3576,95 @@ def _generate_ic_runtime_blocks(
                 "    GLFWwindow *window = (rr && rr->window) ? rr->window : cpu_host_hal_glfw_primary_window;",
                 "    if (cpu_host_hal_glfw_inited == 0u) return;",
                 "    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;",
-                "    if (window != NULL) glfwSwapBuffers(window);",
+                "    if (window != NULL) {",
+                "        glfwMakeContextCurrent(window);",
+                "        if (rr != NULL && rr->frame_rgba_dirty != 0u && rr->frame_rgba != NULL && rr->w > 0 && rr->h > 0 && cpu_host_hal_glfw_load_gl() == 0) {",
+                "            if (rr->present_program == 0u) {",
+                "                static const char *vs_src =",
+                "                    \"#version 120\\n\"",
+                "                    \"attribute vec4 VertexCoord;\\n\"",
+                "                    \"attribute vec4 TexCoord;\\n\"",
+                "                    \"varying vec2 vTexCoord;\\n\"",
+                "                    \"void main() { gl_Position = VertexCoord; vTexCoord = TexCoord.xy; }\\n\";",
+                "                static const char *fs_src =",
+                "                    \"#version 120\\n\"",
+                "                    \"varying vec2 vTexCoord;\\n\"",
+                "                    \"uniform sampler2D Texture;\\n\"",
+                "                    \"void main() { gl_FragColor = texture2D(Texture, vTexCoord); }\\n\";",
+                "                static const GLfloat quad[] = {",
+                "                    -1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 1.0f,",
+                "                     1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f,",
+                "                    -1.0f,  1.0f, 0.0f, 1.0f, 0.0f, 0.0f,",
+                "                     1.0f,  1.0f, 0.0f, 1.0f, 1.0f, 0.0f",
+                "                };",
+                "                GLint ok = 0;",
+                "                rr->present_vertex_shader = cpu_glCreateShader(GL_VERTEX_SHADER);",
+                "                rr->present_fragment_shader = cpu_glCreateShader(GL_FRAGMENT_SHADER);",
+                "                if (rr->present_vertex_shader != 0u && rr->present_fragment_shader != 0u) {",
+                "                    cpu_glShaderSource(rr->present_vertex_shader, 1, (const GLchar * const *)&vs_src, NULL);",
+                "                    cpu_glCompileShader(rr->present_vertex_shader);",
+                "                    cpu_glGetShaderiv(rr->present_vertex_shader, GL_COMPILE_STATUS, &ok);",
+                "                    if (ok != 0) {",
+                "                        cpu_glShaderSource(rr->present_fragment_shader, 1, (const GLchar * const *)&fs_src, NULL);",
+                "                        cpu_glCompileShader(rr->present_fragment_shader);",
+                "                        cpu_glGetShaderiv(rr->present_fragment_shader, GL_COMPILE_STATUS, &ok);",
+                "                    }",
+                "                    if (ok != 0) {",
+                "                        rr->present_program = cpu_glCreateProgram();",
+                "                        if (rr->present_program != 0u) {",
+                "                            cpu_glAttachShader(rr->present_program, rr->present_vertex_shader);",
+                "                            cpu_glAttachShader(rr->present_program, rr->present_fragment_shader);",
+                "                            cpu_glLinkProgram(rr->present_program);",
+                "                            cpu_glGetProgramiv(rr->present_program, GL_LINK_STATUS, &ok);",
+                "                            if (ok == 0) { cpu_glDeleteProgram(rr->present_program); rr->present_program = 0u; }",
+                "                        }",
+                "                    }",
+                "                }",
+                "                if (rr->present_program != 0u) {",
+                "                    if (cpu_glGenVertexArrays != NULL) cpu_glGenVertexArrays(1, &rr->present_vao);",
+                "                    cpu_glGenBuffers(1, &rr->present_vbo);",
+                "                    if (cpu_glBindVertexArray != NULL && rr->present_vao != 0u) cpu_glBindVertexArray(rr->present_vao);",
+                "                    cpu_glBindBuffer(GL_ARRAY_BUFFER, rr->present_vbo);",
+                "                    cpu_glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)sizeof(quad), quad, GL_STATIC_DRAW);",
+                "                    cpu_glEnableVertexAttribArray(0u);",
+                "                    cpu_glVertexAttribPointer(0u, 4, GL_FLOAT, GL_FALSE, (GLsizei)(6u * sizeof(GLfloat)), (const void *)0);",
+                "                    cpu_glEnableVertexAttribArray(1u);",
+                "                    cpu_glVertexAttribPointer(1u, 2, GL_FLOAT, GL_FALSE, (GLsizei)(6u * sizeof(GLfloat)), (const void *)(4u * sizeof(GLfloat)));",
+                "                    if (cpu_glBindVertexArray != NULL && rr->present_vao != 0u) cpu_glBindVertexArray(0u);",
+                "                    cpu_glGenTextures(1, &rr->present_texture);",
+                "                    cpu_glBindTexture(GL_TEXTURE_2D, rr->present_texture);",
+                "                    cpu_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);",
+                "                    cpu_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);",
+                "                    cpu_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);",
+                "                    cpu_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);",
+                "                }",
+                "            }",
+                "            if (rr->present_program != 0u && rr->present_texture != 0u) {",
+                "                GLint loc;",
+                "                cpu_glViewport(0, 0, rr->w, rr->h);",
+                "                cpu_glClearColor(0.0f, 0.0f, 0.0f, 1.0f);",
+                "                cpu_glClear(GL_COLOR_BUFFER_BIT);",
+                "                cpu_glUseProgram(rr->present_program);",
+                "                cpu_glActiveTexture(GL_TEXTURE0);",
+                "                cpu_glBindTexture(GL_TEXTURE_2D, rr->present_texture);",
+                "                if (rr->present_texture_w != rr->w || rr->present_texture_h != rr->h) {",
+                "                    cpu_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rr->w, rr->h, 0, GL_BGRA, GL_UNSIGNED_BYTE, rr->frame_rgba);",
+                "                    rr->present_texture_w = rr->w;",
+                "                    rr->present_texture_h = rr->h;",
+                "                } else {",
+                "                    cpu_glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, rr->w, rr->h, GL_BGRA, GL_UNSIGNED_BYTE, rr->frame_rgba);",
+                "                }",
+                "                loc = cpu_glGetUniformLocation(rr->present_program, \"Texture\");",
+                "                if (loc >= 0) cpu_glUniform1i(loc, 0);",
+                "                if (cpu_glBindVertexArray != NULL && rr->present_vao != 0u) cpu_glBindVertexArray(rr->present_vao);",
+                "                cpu_glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);",
+                "                if (cpu_glBindVertexArray != NULL && rr->present_vao != 0u) cpu_glBindVertexArray(0u);",
+                "                cpu_glUseProgram(0u);",
+                "                rr->frame_rgba_dirty = 0u;",
+                "            }",
+                "        }",
+                "        glfwSwapBuffers(window);",
+                "    }",
                 "}",
                 "",
                 "static int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes) {",
@@ -3324,6 +3675,50 @@ def _generate_ic_runtime_blocks(
                 "    if (cpu_host_hal_glfw_inited == 0u) return -1;",
                 "    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return -1;",
                 "    if (dev != 1u || !data || len_bytes == 0u || cpu_host_hal_glfw_audio_opened == 0u) return -1;",
+                "#ifdef _WIN32",
+                "    if (cpu_host_hal_glfw_waveout != NULL) {",
+                "        uint32_t tries;",
+                "        for (tries = 0u; tries < 4u; ++tries) {",
+                "            uint32_t idx = (cpu_host_hal_glfw_wave_next + tries) & 3u;",
+                "            WAVEHDR *hdr = &cpu_host_hal_glfw_wave_headers[idx];",
+                "            if ((hdr->dwFlags & WHDR_INQUEUE) != 0u) continue;",
+                "            if ((hdr->dwFlags & WHDR_PREPARED) != 0u) {",
+                "                waveOutUnprepareHeader(cpu_host_hal_glfw_waveout, hdr, sizeof(*hdr));",
+                "                hdr->dwFlags = 0u;",
+                "            }",
+                "            if (len_bytes > cpu_host_hal_glfw_wave_buffer_bytes) return -1;",
+                "            memcpy(cpu_host_hal_glfw_wave_buffers[idx], data, (size_t)len_bytes);",
+                "            memset(hdr, 0, sizeof(*hdr));",
+                "            hdr->lpData = (LPSTR)cpu_host_hal_glfw_wave_buffers[idx];",
+                "            hdr->dwBufferLength = (DWORD)len_bytes;",
+                "            if (waveOutPrepareHeader(cpu_host_hal_glfw_waveout, hdr, sizeof(*hdr)) != MMSYSERR_NOERROR) return -1;",
+                "            if (waveOutWrite(cpu_host_hal_glfw_waveout, hdr, sizeof(*hdr)) != MMSYSERR_NOERROR) {",
+                "                waveOutUnprepareHeader(cpu_host_hal_glfw_waveout, hdr, sizeof(*hdr));",
+                "                return -1;",
+                "            }",
+                "            cpu_host_hal_glfw_wave_next = (idx + 1u) & 3u;",
+                "            return 0;",
+                "        }",
+                "        return 0;",
+                "    }",
+                "#endif",
+                "#ifdef __linux__",
+                "    if (cpu_host_hal_glfw_alsa_pcm != NULL) {",
+                "        snd_pcm_sframes_t frames;",
+                "        snd_pcm_sframes_t written;",
+                "        if (cpu_host_hal_glfw_alsa_channels == 0u) return -1;",
+                "        frames = (snd_pcm_sframes_t)(len_bytes / (cpu_host_hal_glfw_alsa_channels * 2u));",
+                "        if (frames <= 0) return 0;",
+                "        written = snd_pcm_writei(cpu_host_hal_glfw_alsa_pcm, data, (snd_pcm_uframes_t)frames);",
+                "        if (written < 0) {",
+                "            written = snd_pcm_recover(cpu_host_hal_glfw_alsa_pcm, (int)written, 0);",
+                "            if (written < 0) return -1;",
+                "            written = snd_pcm_writei(cpu_host_hal_glfw_alsa_pcm, data, (snd_pcm_uframes_t)frames);",
+                "            if (written < 0) return -1;",
+                "        }",
+                "        return 0;",
+                "    }",
+                "#endif",
                 "    if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) return -1;",
                 "    if (cpu_host_hal_glfw_audio_cap != 0u && cpu_host_hal_glfw_audio_buf == NULL) return -1;",
                 "    if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) return -1;",
@@ -3355,9 +3750,29 @@ def _generate_ic_runtime_blocks(
                 "}",
                 "",
                 "static uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev) {",
+                "    uint32_t queued = 0u;",
                 "    if (cpu_host_hal_glfw_inited == 0u) return 0u;",
                 "    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;",
                 "    if (dev != 1u || cpu_host_hal_glfw_audio_opened == 0u) return 0u;",
+                "#ifdef _WIN32",
+                "    if (cpu_host_hal_glfw_waveout != NULL) {",
+                "        uint32_t i;",
+                "        for (i = 0u; i < 4u; ++i) {",
+                "            if ((cpu_host_hal_glfw_wave_headers[i].dwFlags & WHDR_INQUEUE) != 0u) {",
+                "                queued += (uint32_t)cpu_host_hal_glfw_wave_headers[i].dwBufferLength;",
+                "            }",
+                "        }",
+                "        return queued;",
+                "    }",
+                "#endif",
+                "#ifdef __linux__",
+                "    if (cpu_host_hal_glfw_alsa_pcm != NULL) {",
+                "        snd_pcm_sframes_t delay = 0;",
+                "        if (cpu_host_hal_glfw_alsa_channels == 0u) return 0u;",
+                "        if (snd_pcm_delay(cpu_host_hal_glfw_alsa_pcm, &delay) != 0 || delay <= 0) return 0u;",
+                "        return (uint32_t)delay * cpu_host_hal_glfw_alsa_channels * 2u;",
+                "    }",
+                "#endif",
                 "    if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) return 0u;",
                 "    if (cpu_host_hal_glfw_audio_cap != 0u && cpu_host_hal_glfw_audio_buf == NULL) return 0u;",
                 "    if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) return 0u;",
@@ -3368,6 +3783,19 @@ def _generate_ic_runtime_blocks(
                 "    if (cpu_host_hal_glfw_inited == 0u) return;",
                 "    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;",
                 "    if (dev != 1u || cpu_host_hal_glfw_audio_opened == 0u) return;",
+                "#ifdef _WIN32",
+                "    if (cpu_host_hal_glfw_waveout != NULL) {",
+                "        waveOutReset(cpu_host_hal_glfw_waveout);",
+                "        return;",
+                "    }",
+                "#endif",
+                "#ifdef __linux__",
+                "    if (cpu_host_hal_glfw_alsa_pcm != NULL) {",
+                "        snd_pcm_drop(cpu_host_hal_glfw_alsa_pcm);",
+                "        snd_pcm_prepare(cpu_host_hal_glfw_alsa_pcm);",
+                "        return;",
+                "    }",
+                "#endif",
                 "    if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) return;",
                 "    if (cpu_host_hal_glfw_audio_cap != 0u && cpu_host_hal_glfw_audio_buf == NULL) return;",
                 "    if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) return;",
@@ -3491,6 +3919,8 @@ def _generate_ic_runtime_blocks(
                 "    int dh;",
                 "    int cw;",
                 "    int ch;",
+                "    int copy_x0 = 0;",
+                "    int copy_y0 = 0;",
                 "    if (cpu_host_hal_glfw_inited == 0u) return -1;",
                 "    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;",
                 "    if (!rr || !tex || !tex->pixels) return -1;",
@@ -3524,8 +3954,8 @@ def _generate_ic_runtime_blocks(
                 "        dh = dst_rect->h;",
                 "        if (dw <= 0 || dh <= 0) return -1;",
                 "    }",
-                "    if (dx < 0) { sx -= dx; sw += dx; dx = 0; }",
-                "    if (dy < 0) { sy -= dy; sh += dy; dy = 0; }",
+                "    if (dx < 0) { copy_x0 = -dx; dx = 0; }",
+                "    if (dy < 0) { copy_y0 = -dy; dy = 0; }",
                 "    if (sx >= tex->w || sy >= tex->h) return 0;",
                 "    sum64 = (int64_t)sx + (int64_t)sw;",
                 "    if (sum64 > (int64_t)tex->w) sw = tex->w - sx;",
@@ -3533,37 +3963,184 @@ def _generate_ic_runtime_blocks(
                 "    if (sum64 > (int64_t)tex->h) sh = tex->h - sy;",
                 "    if (sw <= 0 || sh <= 0) return 0;",
                 "    if (dx >= rr->w || dy >= rr->h) return 0;",
-                "    cw = sw;",
-                "    ch = sh;",
-                "    if (dw > 0 && dw < cw) cw = dw;",
-                "    if (dh > 0 && dh < ch) ch = dh;",
+                "    cw = dw - copy_x0;",
+                "    ch = dh - copy_y0;",
                 "    sum64 = (int64_t)dx + (int64_t)cw;",
                 "    if (sum64 > (int64_t)rr->w) cw = rr->w - dx;",
                 "    sum64 = (int64_t)dy + (int64_t)ch;",
                 "    if (sum64 > (int64_t)rr->h) ch = rr->h - dy;",
                 "    if (cw <= 0 || ch <= 0) return 0;",
-                "    row_bytes64 = (uint64_t)(uint32_t)cw * 4u;",
-                "    if (row_bytes64 == 0u || row_bytes64 > (uint64_t)SIZE_MAX) return -1;",
                 "    tex_bytes64 = (uint64_t)(uint32_t)tex->w * (uint64_t)(uint32_t)tex->h * 4u;",
                 "    if (tex_bytes64 == 0u || tex_bytes64 > (uint64_t)SIZE_MAX) return -1;",
                 "    if ((uint64_t)tex->pixels_len < tex_bytes64) return -1;",
-                "    src_start64 = (((uint64_t)(uint32_t)sy * (uint64_t)(uint32_t)tex->w) + (uint64_t)(uint32_t)sx) * 4u;",
-                "    if (src_start64 > tex_bytes64) return -1;",
-                "    src_stride64 = (uint64_t)(uint32_t)tex->w * 4u;",
-                "    src_span64 = ((uint64_t)(uint32_t)(ch - 1) * src_stride64) + row_bytes64;",
-                "    if (src_span64 > (tex_bytes64 - src_start64)) return -1;",
                 "    dst_start64 = (((uint64_t)(uint32_t)dy * (uint64_t)(uint32_t)rr->w) + (uint64_t)(uint32_t)dx) * 4u;",
                 "    if (dst_start64 > expect64) return -1;",
-                "    dst_stride64 = (uint64_t)(uint32_t)rr->w * 4u;",
-                "    dst_span64 = ((uint64_t)(uint32_t)(ch - 1) * dst_stride64) + row_bytes64;",
+                "    dst_span64 = ((uint64_t)(uint32_t)(ch - 1) * ((uint64_t)(uint32_t)rr->w * 4u)) + ((uint64_t)(uint32_t)cw * 4u);",
                 "    if (dst_span64 > (expect64 - dst_start64)) return -1;",
                 "    for (int row = 0; row < ch; ++row) {",
-                "        memcpy(",
-                "            rr->frame_rgba + (((size_t)(dy + row) * (size_t)rr->w + (size_t)dx) * 4u),",
-                "            tex->pixels + (((size_t)(sy + row) * (size_t)tex->w + (size_t)sx) * 4u),",
-                "            (size_t)cw * 4u",
-                "        );",
+                "        int src_y = sy + (int)((((int64_t)(row + copy_y0)) * (int64_t)sh) / (int64_t)dh);",
+                "        uint32_t *dst_px = (uint32_t *)(void *)(rr->frame_rgba + (((size_t)(dy + row) * (size_t)rr->w + (size_t)dx) * 4u));",
+                "        const uint32_t *src_row = (const uint32_t *)(const void *)(tex->pixels + ((size_t)src_y * (size_t)tex->w * 4u));",
+                "        for (int col = 0; col < cw; ++col) {",
+                "            int src_x = sx + (int)((((int64_t)(col + copy_x0)) * (int64_t)sw) / (int64_t)dw);",
+                "            dst_px[col] = src_row[src_x];",
+                "        }",
                 "    }",
+                "    rr->frame_rgba_dirty = 1u;",
+                "    return 0;",
+                "}",
+                "",
+                "static int cpu_host_hal_renderer_supports_shaders(void *renderer) {",
+                "    CPUHostGlfwRenderer *rr = (CPUHostGlfwRenderer *)renderer;",
+                "    if (cpu_host_hal_glfw_inited == 0u) return 0;",
+                "    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return 0;",
+                "    if (rr == NULL || rr->window == NULL) return 0;",
+                "    glfwMakeContextCurrent(rr->window);",
+                "    return (cpu_host_hal_glfw_load_gl() == 0) ? 1 : 0;",
+                "}",
+                "",
+                "static GLuint cpu_host_hal_glfw_compile_shader(GLenum type, const char *source) {",
+                "    GLuint shader;",
+                "    GLint ok = 0;",
+                "    if (source == NULL || source[0] == '\\0') return 0u;",
+                "    shader = cpu_glCreateShader(type);",
+                "    if (shader == 0u) return 0u;",
+                "    cpu_glShaderSource(shader, 1, (const GLchar * const *)&source, NULL);",
+                "    cpu_glCompileShader(shader);",
+                "    cpu_glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);",
+                "    if (ok == 0) {",
+                "        cpu_glDeleteShader(shader);",
+                "        return 0u;",
+                "    }",
+                "    return shader;",
+                "}",
+                "",
+                "static void *cpu_host_hal_shader_create(void *renderer, const char *vertex_source, const char *fragment_source) {",
+                "    CPUHostGlfwRenderer *rr = (CPUHostGlfwRenderer *)renderer;",
+                "    CPUHostGlfwShader *shader;",
+                "    GLint ok = 0;",
+                "    static const GLfloat quad[] = {",
+                "        -1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 1.0f,",
+                "         1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f,",
+                "        -1.0f,  1.0f, 0.0f, 1.0f, 0.0f, 0.0f,",
+                "         1.0f,  1.0f, 0.0f, 1.0f, 1.0f, 0.0f",
+                "    };",
+                "    if (rr == NULL || rr->window == NULL) return NULL;",
+                "    glfwMakeContextCurrent(rr->window);",
+                "    if (cpu_host_hal_glfw_load_gl() != 0) return NULL;",
+                "    shader = (CPUHostGlfwShader *)calloc(1u, sizeof(*shader));",
+                "    if (shader == NULL) return NULL;",
+                "    shader->vertex_shader = cpu_host_hal_glfw_compile_shader(GL_VERTEX_SHADER, vertex_source);",
+                "    shader->fragment_shader = cpu_host_hal_glfw_compile_shader(GL_FRAGMENT_SHADER, fragment_source);",
+                "    if (shader->vertex_shader == 0u || shader->fragment_shader == 0u) {",
+                "        cpu_host_hal_shader_destroy(shader);",
+                "        return NULL;",
+                "    }",
+                "    shader->program = cpu_glCreateProgram();",
+                "    if (shader->program == 0u) {",
+                "        cpu_host_hal_shader_destroy(shader);",
+                "        return NULL;",
+                "    }",
+                "    cpu_glAttachShader(shader->program, shader->vertex_shader);",
+                "    cpu_glAttachShader(shader->program, shader->fragment_shader);",
+                "    cpu_glLinkProgram(shader->program);",
+                "    cpu_glGetProgramiv(shader->program, GL_LINK_STATUS, &ok);",
+                "    if (ok == 0) {",
+                "        cpu_host_hal_shader_destroy(shader);",
+                "        return NULL;",
+                "    }",
+                "    if (cpu_glGenVertexArrays != NULL) cpu_glGenVertexArrays(1, &shader->vao);",
+                "    cpu_glGenBuffers(1, &shader->vbo);",
+                "    if (cpu_glBindVertexArray != NULL && shader->vao != 0u) cpu_glBindVertexArray(shader->vao);",
+                "    cpu_glBindBuffer(GL_ARRAY_BUFFER, shader->vbo);",
+                "    cpu_glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)sizeof(quad), quad, GL_STATIC_DRAW);",
+                "    cpu_glEnableVertexAttribArray(0u);",
+                "    cpu_glVertexAttribPointer(0u, 4, GL_FLOAT, GL_FALSE, (GLsizei)(6u * sizeof(GLfloat)), (const void *)0);",
+                "    cpu_glEnableVertexAttribArray(1u);",
+                "    cpu_glVertexAttribPointer(1u, 2, GL_FLOAT, GL_FALSE, (GLsizei)(6u * sizeof(GLfloat)), (const void *)(4u * sizeof(GLfloat)));",
+                "    if (cpu_glBindVertexArray != NULL && shader->vao != 0u) cpu_glBindVertexArray(0u);",
+                "    cpu_glGenTextures(1, &shader->texture);",
+                "    cpu_glBindTexture(GL_TEXTURE_2D, shader->texture);",
+                "    cpu_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);",
+                "    cpu_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);",
+                "    cpu_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);",
+                "    cpu_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);",
+                "    return shader;",
+                "}",
+                "",
+                "static void cpu_host_hal_shader_destroy(void *shader) {",
+                "    CPUHostGlfwShader *ss = (CPUHostGlfwShader *)shader;",
+                "    if (ss == NULL) return;",
+                "    if (cpu_host_hal_glfw_gl_loaded != 0u) {",
+                "        if (ss->texture != 0u) cpu_glDeleteTextures(1, &ss->texture);",
+                "        if (ss->vbo != 0u) cpu_glDeleteBuffers(1, &ss->vbo);",
+                "        if (ss->vao != 0u && cpu_glDeleteVertexArrays != NULL) cpu_glDeleteVertexArrays(1, &ss->vao);",
+                "        if (ss->program != 0u) cpu_glDeleteProgram(ss->program);",
+                "        if (ss->vertex_shader != 0u) cpu_glDeleteShader(ss->vertex_shader);",
+                "        if (ss->fragment_shader != 0u) cpu_glDeleteShader(ss->fragment_shader);",
+                "    }",
+                "    free(ss);",
+                "}",
+                "",
+                "static int cpu_host_hal_render_copy_shader(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect, void *shader, int texture_w, int texture_h, int output_w, int output_h) {",
+                "    CPUHostGlfwRenderer *rr = (CPUHostGlfwRenderer *)renderer;",
+                "    CPUHostGlfwTexture *tex = (CPUHostGlfwTexture *)texture;",
+                "    CPUHostGlfwShader *ss = (CPUHostGlfwShader *)shader;",
+                "    GLfloat mvp[16] = {",
+                "        1.0f, 0.0f, 0.0f, 0.0f,",
+                "        0.0f, 1.0f, 0.0f, 0.0f,",
+                "        0.0f, 0.0f, 1.0f, 0.0f,",
+                "        0.0f, 0.0f, 0.0f, 1.0f",
+                "    };",
+                "    GLint loc;",
+                "    int dx = 0;",
+                "    int dy = 0;",
+                "    int dw = output_w;",
+                "    int dh = output_h;",
+                "    (void)src_rect;",
+                "    if (rr == NULL || rr->window == NULL || tex == NULL || tex->pixels == NULL || ss == NULL) return -1;",
+                "    if (texture_w <= 0) texture_w = tex->w;",
+                "    if (texture_h <= 0) texture_h = tex->h;",
+                "    if (output_w <= 0 || output_h <= 0 || texture_w <= 0 || texture_h <= 0) return -1;",
+                "    if (dst_rect != NULL) {",
+                "        dx = dst_rect->x;",
+                "        dy = dst_rect->y;",
+                "        dw = dst_rect->w;",
+                "        dh = dst_rect->h;",
+                "    }",
+                "    if (dw <= 0 || dh <= 0) return -1;",
+                "    glfwMakeContextCurrent(rr->window);",
+                "    if (cpu_host_hal_glfw_load_gl() != 0) return -1;",
+                "    cpu_glViewport(0, 0, output_w, output_h);",
+                "    cpu_glClearColor(0.0f, 0.0f, 0.0f, 1.0f);",
+                "    cpu_glClear(GL_COLOR_BUFFER_BIT);",
+                "    cpu_glViewport(dx, output_h - dy - dh, dw, dh);",
+                "    cpu_glUseProgram(ss->program);",
+                "    cpu_glActiveTexture(GL_TEXTURE0);",
+                "    cpu_glBindTexture(GL_TEXTURE_2D, ss->texture);",
+                "    if (ss->texture_w != texture_w || ss->texture_h != texture_h) {",
+                "        cpu_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texture_w, texture_h, 0, GL_BGRA, GL_UNSIGNED_BYTE, tex->pixels);",
+                "        ss->texture_w = texture_w;",
+                "        ss->texture_h = texture_h;",
+                "    } else {",
+                "        cpu_glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, texture_w, texture_h, GL_BGRA, GL_UNSIGNED_BYTE, tex->pixels);",
+                "    }",
+                "    loc = cpu_glGetUniformLocation(ss->program, \"Texture\");",
+                "    if (loc >= 0) cpu_glUniform1i(loc, 0);",
+                "    loc = cpu_glGetUniformLocation(ss->program, \"screenTexture\");",
+                "    if (loc >= 0) cpu_glUniform1i(loc, 0);",
+                "    loc = cpu_glGetUniformLocation(ss->program, \"TextureSize\");",
+                "    if (loc >= 0) cpu_glUniform2f(loc, (GLfloat)texture_w, (GLfloat)texture_h);",
+                "    loc = cpu_glGetUniformLocation(ss->program, \"sourceResolution\");",
+                "    if (loc >= 0) cpu_glUniform2f(loc, (GLfloat)texture_w, (GLfloat)texture_h);",
+                "    loc = cpu_glGetUniformLocation(ss->program, \"OutputSize\");",
+                "    if (loc >= 0) cpu_glUniform2f(loc, (GLfloat)output_w, (GLfloat)output_h);",
+                "    loc = cpu_glGetUniformLocation(ss->program, \"MVPMatrix\");",
+                "    if (loc >= 0) cpu_glUniformMatrix4fv(loc, 1, GL_FALSE, mvp);",
+                "    if (cpu_glBindVertexArray != NULL && ss->vao != 0u) cpu_glBindVertexArray(ss->vao);",
+                "    cpu_glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);",
+                "    if (cpu_glBindVertexArray != NULL && ss->vao != 0u) cpu_glBindVertexArray(0u);",
+                "    cpu_glUseProgram(0u);",
                 "    return 0;",
                 "}",
                 "",
@@ -3630,6 +4207,12 @@ def _generate_ic_runtime_blocks(
                 "    return (int32_t)event->key.keysym.scancode;",
                 "}",
                 "",
+                "static int32_t cpu_host_hal_event_keycode(const CPUHostEvent *event) {",
+                "    if (!event) return 0;",
+                "    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0;",
+                "    return cpu_host_hal_glfw_key_for_scancode((int)event->key.keysym.scancode);",
+                "}",
+                "",
                 "static uint8_t cpu_host_hal_event_key_repeat(const CPUHostEvent *event) {",
                 "    if (!event) return 0u;",
                 "    if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;",
@@ -3663,6 +4246,14 @@ def _generate_ic_runtime_blocks(
                 "static void cpu_host_hal_destroy_renderer(void *renderer) {",
                 "    CPUHostGlfwRenderer *rr = (CPUHostGlfwRenderer *)renderer;",
                 "    if (!rr) return;",
+                "    if (cpu_host_hal_glfw_gl_loaded != 0u) {",
+                "        if (rr->present_texture != 0u) cpu_glDeleteTextures(1, &rr->present_texture);",
+                "        if (rr->present_vbo != 0u) cpu_glDeleteBuffers(1, &rr->present_vbo);",
+                "        if (rr->present_vao != 0u && cpu_glDeleteVertexArrays != NULL) cpu_glDeleteVertexArrays(1, &rr->present_vao);",
+                "        if (rr->present_program != 0u) cpu_glDeleteProgram(rr->present_program);",
+                "        if (rr->present_vertex_shader != 0u) cpu_glDeleteShader(rr->present_vertex_shader);",
+                "        if (rr->present_fragment_shader != 0u) cpu_glDeleteShader(rr->present_fragment_shader);",
+                "    }",
                 "    free(rr->frame_rgba);",
                 "    rr->frame_rgba = NULL;",
                 "    rr->frame_len = 0u;",
@@ -3732,6 +4323,11 @@ def _generate_ic_runtime_blocks(
                 "    if (h <= 0) h = 480;",
                 "    glfwWindowHint(GLFW_RESIZABLE, (flags & CPU_HOST_WINDOW_RESIZABLE) != 0u ? GLFW_TRUE : GLFW_FALSE);",
                 "    window = glfwCreateWindow(w, h, win_title, NULL, NULL);",
+                "    if (window != NULL) {",
+                "        glfwMakeContextCurrent(window);",
+                "        glfwSwapInterval(0);",
+                "        (void)cpu_host_hal_glfw_load_gl();",
+                "    }",
                 "    if (window != NULL && cpu_host_hal_glfw_primary_window == NULL) {",
                 "        cpu_host_hal_glfw_primary_window = window;",
                 "        cpu_host_hal_glfw_reset_input_state();",
@@ -3809,6 +4405,59 @@ def _generate_ic_runtime_blocks(
                 "    if (!want) return 0u;",
                 "    if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;",
                 "    cpu_host_hal_glfw_reset_audio_state();",
+                "#ifdef _WIN32",
+                "    {",
+                "        WAVEFORMATEX fmt;",
+                "        uint32_t i;",
+                "        memset(&fmt, 0, sizeof(fmt));",
+                "        fmt.wFormatTag = WAVE_FORMAT_PCM;",
+                "        fmt.nChannels = (WORD)want->channels;",
+                "        fmt.nSamplesPerSec = (DWORD)want->freq;",
+                "        fmt.wBitsPerSample = 16u;",
+                "        fmt.nBlockAlign = (WORD)(fmt.nChannels * (fmt.wBitsPerSample / 8u));",
+                "        fmt.nAvgBytesPerSec = fmt.nSamplesPerSec * fmt.nBlockAlign;",
+                "        bytes64 = (uint64_t)want->samples * (uint64_t)want->channels * 2u;",
+                "        if (bytes64 < 4096u) bytes64 = 4096u;",
+                "        if (bytes64 > 0xFFFFFFFFu || bytes64 > (uint64_t)SIZE_MAX) return 0u;",
+                "        cpu_host_hal_glfw_wave_buffer_bytes = (uint32_t)bytes64;",
+                "        if (waveOutOpen(&cpu_host_hal_glfw_waveout, WAVE_MAPPER, &fmt, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR) {",
+                "            cpu_host_hal_glfw_waveout = NULL;",
+                "            return 0u;",
+                "        }",
+                "        for (i = 0u; i < 4u; ++i) {",
+                "            cpu_host_hal_glfw_wave_buffers[i] = (uint8_t *)calloc((size_t)cpu_host_hal_glfw_wave_buffer_bytes, 1u);",
+                "            if (!cpu_host_hal_glfw_wave_buffers[i]) {",
+                "                cpu_host_hal_glfw_reset_audio_state();",
+                "                return 0u;",
+                "            }",
+                "        }",
+                "    }",
+                "#endif",
+                "#ifdef __linux__",
+                "    {",
+                "        unsigned int rate;",
+                "        bytes64 = (uint64_t)want->samples * (uint64_t)want->channels * 2u;",
+                "        if (bytes64 > 0xFFFFFFFFu || bytes64 > (uint64_t)SIZE_MAX) return 0u;",
+                "        if (snd_pcm_open(&cpu_host_hal_glfw_alsa_pcm, \"default\", SND_PCM_STREAM_PLAYBACK, 0) < 0) {",
+                "            cpu_host_hal_glfw_alsa_pcm = NULL;",
+                "            return 0u;",
+                "        }",
+                "        rate = (unsigned int)want->freq;",
+                "        if (snd_pcm_set_params(",
+                "                cpu_host_hal_glfw_alsa_pcm,",
+                "                SND_PCM_FORMAT_S16_LE,",
+                "                SND_PCM_ACCESS_RW_INTERLEAVED,",
+                "                (unsigned int)want->channels,",
+                "                rate,",
+                "                1,",
+                "                20000u",
+                "            ) < 0) {",
+                "            cpu_host_hal_glfw_reset_audio_state();",
+                "            return 0u;",
+                "        }",
+                "        cpu_host_hal_glfw_alsa_channels = (uint32_t)want->channels;",
+                "    }",
+                "#endif",
                 "    if (have) {",
                 "        *have = *want;",
                 "        if (have->size == 0u && have->samples != 0u && have->channels != 0u) {",
@@ -3816,6 +4465,9 @@ def _generate_ic_runtime_blocks(
                 "            if (bytes64 > 0xFFFFFFFFu) return 0u;",
                 "            have->size = (uint32_t)bytes64;",
                 "        }",
+                "#ifdef _WIN32",
+                "        if (cpu_host_hal_glfw_wave_buffer_bytes != 0u) have->size = cpu_host_hal_glfw_wave_buffer_bytes;",
+                "#endif",
                 "    }",
                 "    cpu_host_hal_glfw_audio_opened = 1u;",
                 "    cpu_host_hal_glfw_audio_len = 0u;",
@@ -3823,10 +4475,24 @@ def _generate_ic_runtime_blocks(
                 "}",
                 "",
                 "static void cpu_host_hal_audio_pause(uint32_t dev, int pause_on) {",
-                "    (void)dev;",
-                "    (void)pause_on;",
                 "    if (cpu_host_hal_glfw_inited == 0u) return;",
                 "    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;",
+                "    if (dev != 1u || cpu_host_hal_glfw_audio_opened == 0u) return;",
+                "#ifdef _WIN32",
+                "    if (cpu_host_hal_glfw_waveout != NULL) {",
+                "        if (pause_on != 0) waveOutPause(cpu_host_hal_glfw_waveout);",
+                "        else waveOutRestart(cpu_host_hal_glfw_waveout);",
+                "    }",
+                "#elif defined(__linux__)",
+                "    if (cpu_host_hal_glfw_alsa_pcm != NULL) {",
+                "        if (pause_on != 0) snd_pcm_pause(cpu_host_hal_glfw_alsa_pcm, 1);",
+                "        else {",
+                "            if (snd_pcm_pause(cpu_host_hal_glfw_alsa_pcm, 0) < 0) snd_pcm_prepare(cpu_host_hal_glfw_alsa_pcm);",
+                "        }",
+                "    }",
+                "#else",
+                "    (void)pause_on;",
+                "#endif",
                 "}",
                 "",
                 "static void *cpu_host_hal_alloc(size_t size_bytes) {",
@@ -4057,6 +4723,9 @@ def _generate_ic_runtime_blocks(
                 "    if (cpu_host_hal_glfw_inited == 0u) return 0u;",
                 "    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;",
                 "    if (dev != 1u || !data || len_bytes == 0u || cpu_host_hal_glfw_audio_opened == 0u) return 0u;",
+                "#ifdef _WIN32",
+                "    if (cpu_host_hal_glfw_waveout != NULL) return 0u;",
+                "#endif",
                 "    if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) return 0u;",
                 "    if (cpu_host_hal_glfw_audio_cap != 0u && cpu_host_hal_glfw_audio_buf == NULL) return 0u;",
                 "    if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) return 0u;",
@@ -4281,6 +4950,31 @@ def _generate_ic_runtime_blocks(
                 "    return 0;",
                 "}",
                 "",
+                "static int cpu_host_hal_renderer_supports_shaders(void *renderer) {",
+                "    (void)renderer;",
+                "    return 0;",
+                "}",
+                "",
+                "static void *cpu_host_hal_shader_create(void *renderer, const char *vertex_source, const char *fragment_source) {",
+                "    (void)renderer;",
+                "    (void)vertex_source;",
+                "    (void)fragment_source;",
+                "    return NULL;",
+                "}",
+                "",
+                "static void cpu_host_hal_shader_destroy(void *shader) {",
+                "    (void)shader;",
+                "}",
+                "",
+                "static int cpu_host_hal_render_copy_shader(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect, void *shader, int texture_w, int texture_h, int output_w, int output_h) {",
+                "    (void)texture_w;",
+                "    (void)texture_h;",
+                "    (void)output_w;",
+                "    (void)output_h;",
+                "    if (shader == NULL) return -1;",
+                "    return cpu_host_hal_render_copy(renderer, texture, src_rect, dst_rect);",
+                "}",
+                "",
                 "static int cpu_host_hal_poll_event(CPUHostEvent *event) {",
                 "    (void)event;",
                 "    if (cpu_host_hal_stub_inited == 0u) return 0;",
@@ -4294,6 +4988,11 @@ def _generate_ic_runtime_blocks(
                 "}",
                 "",
                 "static int32_t cpu_host_hal_event_scancode(const CPUHostEvent *event) {",
+                "    (void)event;",
+                "    return 0;",
+                "}",
+                "",
+                "static int32_t cpu_host_hal_event_keycode(const CPUHostEvent *event) {",
                 "    (void)event;",
                 "    return 0;",
                 "}",
@@ -5790,19 +6489,19 @@ def _generate_ic_runtime_blocks(
                 ") {",
                 "    if (!text || text[0] == '\\0') return;",
                 "    if (scale > 0) {",
-                "        sms_overlay_draw_text(pixels, w, h, x, y, text, scale, color);",
+                "        pasm_overlay_draw_text(pixels, w, h, x, y, text, scale, color);",
                 "        return;",
                 "    }",
                 "    {",
                 "        int cx = x;",
                 "        for (const char *p = text; *p; ++p) {",
-                "            const uint8_t *glyph = sms_overlay_glyph(*p);",
+                "            const uint8_t *glyph = pasm_overlay_glyph(*p);",
                 "            for (int row = 0; row < 7; row += 2) {",
                 "                uint8_t bits = glyph[row];",
                 "                int ty = y + (row / 2);",
                 "                for (int col = 0; col < 5; col += 2) {",
                 "                    if ((bits & (uint8_t)(1u << (4 - col))) == 0u) continue;",
-                "                    sms_overlay_put_pixel(pixels, w, h, cx + (col / 2), ty, color);",
+                "                    pasm_overlay_put_pixel(pixels, w, h, cx + (col / 2), ty, color);",
                 "                }",
                 "            }",
                 "            cx += 4;",
@@ -5900,7 +6599,7 @@ def _generate_ic_runtime_blocks(
                 "    if (!pixels || w == 0u || h == 0u) return;",
                 "    if (g_runtime_cartridge_picker.active == 0u) return;",
                 "    if (g_runtime_cartridge_picker.entry_count == 0u) return;",
-                "    sms_overlay_fill_rect_alpha(pixels, w, h, 6, 20, (int)w - 12, (int)h - 26, 0x00101010u, 190u);",
+                "    pasm_overlay_fill_rect_alpha(pixels, w, h, 6, 20, (int)w - 12, (int)h - 26, 0x00101010u, 190u);",
                 "    cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, y, \"CARTRIDGE PICKER\", scale, 0xFFFFFFFFu, text_w);",
                 "    y += row_h * 2;",
                 "    first = (g_runtime_cartridge_picker.selected >= 4u) ? (g_runtime_cartridge_picker.selected - 4u) : 0u;",
@@ -6544,6 +7243,7 @@ def _generate_disassembler(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     lines: List[str] = []
     instructions = isa_data.get("instructions", [])
     numeric_style = _codegen_numeric_style(isa_data)
+    numeric_formats = _codegen_numeric_formats(isa_data)
     allowed_display_kinds = _codegen_enabled_display_kinds(isa_data)
     explicit_prefixes = sorted(
         {
@@ -6756,6 +7456,7 @@ def _generate_disassembler(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
                     lines,
                     render_inst,
                     numeric_style=numeric_style,
+                    numeric_formats=numeric_formats,
                     allowed_kinds=allowed_display_kinds,
                     indent="                    ",
                 )
@@ -6849,6 +7550,15 @@ def _generate_disassembler(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
 
 def _generate_interrupt_reset(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     """Generate interrupt reset block based on interrupt model."""
+    snippets = (isa_data.get("interrupts", {}) or {}).get("reset")
+    if isinstance(snippets, list):
+        lines = [
+            str(snippet).replace("{cpu_prefix}", cpu_prefix).rstrip()
+            for snippet in snippets
+            if str(snippet).strip()
+        ]
+        return "\n".join(lines) if lines else "    /* Interrupt model: none */"
+
     model = resolve_interrupt_model(isa_data)
 
     if model == "none":
@@ -6882,6 +7592,14 @@ def _generate_interrupt_reset(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
 
 def _generate_interrupt_reset_post(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     """Generate reset assignments that must happen after component reset."""
+    snippets = (isa_data.get("interrupts", {}) or {}).get("reset_post")
+    if isinstance(snippets, list):
+        return "\n".join(
+            str(snippet).replace("{cpu_prefix}", cpu_prefix).rstrip()
+            for snippet in snippets
+            if str(snippet).strip()
+        )
+
     model = resolve_interrupt_model(isa_data)
     if model == "mos6502":
         return f"    cpu->pc = {cpu_prefix}_read_word(cpu, 0xFFFCu);"
@@ -6919,6 +7637,10 @@ def _generate_shadow_flags_reset(isa_data: Dict[str, Any]) -> str:
 
 def _generate_interrupt_impl(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
     """Generate interrupt API implementation based on interrupt model."""
+    impl = (isa_data.get("interrupts", {}) or {}).get("api_impl")
+    if isinstance(impl, str) and impl.strip():
+        return impl.replace("{cpu_prefix}", cpu_prefix).strip()
+
     model = resolve_interrupt_model(isa_data)
     lines: List[str] = []
 
@@ -7061,6 +7783,10 @@ def _generate_dispatch(
         interrupt_modes = [1]
     default_interrupt_mode = interrupt_modes[0]
     interrupts_config = isa_data.get("interrupts", {})
+    dispatch_config = (
+        interrupts_config.get("dispatch", {}) if isinstance(interrupts_config.get("dispatch"), dict) else {}
+    )
+    interrupt_dispatch_kind = str(dispatch_config.get("kind", interrupt_model)).strip()
     fixed_vector = int(interrupts_config.get("fixed_vector", 0x0038))
     register_names = {
         register.get("name", "").upper() for register in isa_data.get("registers", [])
@@ -7101,8 +7827,8 @@ def _generate_dispatch(
     lines.append("        return 0;")
     lines.append("    }")
     lines.append("")
-    if has_interrupts and interrupt_model != "none":
-        if interrupt_model == "mos6502":
+    if has_interrupts and interrupt_dispatch_kind != "none":
+        if interrupt_dispatch_kind == "mos6502":
             lines.append(
                 "    if (cpu->nmi_pending || (cpu->irq_pending && cpu->interrupts_enabled)) {"
             )
@@ -7143,7 +7869,7 @@ def _generate_dispatch(
             lines.append("        return 0;")
             lines.append("    }")
             lines.append("")
-        elif interrupt_model == "mc6809":
+        elif interrupt_dispatch_kind == "mc6809":
             lines.append("    if (cpu->interrupt_pending) {")
             lines.append("        uint8_t irq_kind = cpu->interrupt_vector;")
             lines.append("        bool take_interrupt = false;")
@@ -7260,9 +7986,9 @@ def _generate_dispatch(
             lines.append(
                 f"        {cpu_prefix}_write_byte(cpu, cpu->sp, (uint8_t)(cpu->pc & 0xFF));"
             )
-            if interrupt_model == "fixed_vector":
+            if interrupt_dispatch_kind == "fixed_vector":
                 lines.append(f"        cpu->pc = 0x{fixed_vector & 0xFFFF:04X};")
-            elif interrupt_model == "z80":
+            elif interrupt_dispatch_kind == "z80":
                 lines.append("        uint8_t irq_mode = cpu->interrupt_mode;")
                 guard_cond = " && ".join(
                     f"irq_mode != {interrupt_mode}" for interrupt_mode in interrupt_modes
@@ -7302,7 +8028,7 @@ def _generate_dispatch(
                 lines.append("        }")
             else:
                 raise ValueError(
-                    f"Unsupported interrupt model for generation: {interrupt_model}"
+                    f"Unsupported interrupts.model/dispatch.kind for generation: {interrupt_dispatch_kind}"
                 )
             lines.append("        cpu->total_cycles += irq_cycles;")
             lines.append("        return 0;")
@@ -7434,7 +8160,7 @@ def _generate_dispatch(
         lines.append('    if (cpu->tracing_enabled) { mos6502_trace_instruction(cpu, &inst); }')
     lines.append("")
     lines.append("")
-    if interrupt_model == "mos6502":
+    if interrupt_dispatch_kind == "mos6502":
         lines.append("    uint8_t x_before = cpu->registers[REG_X];")
         lines.append("    uint8_t y_before = cpu->registers[REG_Y];")
         lines.append("    uint8_t c_before = cpu->flags.C ? 1u : 0u;")
@@ -7474,7 +8200,7 @@ def _generate_dispatch(
     lines.append("        cpu->running = false;")
     lines.append("        return -1;")
     lines.append("    }")
-    if (interrupt_model == "mos6502"):
+    if interrupt_dispatch_kind == "mos6502":
         lines.append("    cpu_apply_mos6502_runtime_cycles(cpu, &inst, pc_before, x_before, y_before, c_before, z_before, n_before, v_before);")
     if has_components:
         lines.append("    if (!cpu->pc_modified) {")
@@ -7483,8 +8209,8 @@ def _generate_dispatch(
         lines.append("    }")
         lines.append("    cpu->total_cycles += inst.cycles;")
         lines.append("    cpu_components_step_post(cpu, &inst, pc_before);")
-        if interrupt_model == "mos6502":
-            lines.append("    /* After step_post, PPU may have signalled NMI — take it immediately. */")
+        if interrupt_dispatch_kind == "mos6502":
+            lines.append("    /* After step_post, PPU may have signalled NMI - take it immediately. */")
             lines.append("    if (cpu->nmi_pending || (cpu->irq_pending && cpu->interrupts_enabled)) {")
             lines.append("        cpu->current_instruction_cycles = 0u;")
             lines.append("        cpu->io_read_phase_ppu_dots = 0u;")
@@ -7537,8 +8263,10 @@ def _generate_dispatch(
     lines.append(f"void {cpu_prefix}_run_until(CPUState *cpu, uint64_t cycles) {{")
     lines.append("    while (cpu->running) {")
     lines.append("        if (cycles > 0 && cpu->total_cycles >= cycles) break;")
-    if interrupt_model == "mos6502":
+    if interrupt_dispatch_kind == "mos6502":
         lines.append("        if (cpu->halted && !(cpu->nmi_pending || cpu->irq_pending)) break;")
+    elif interrupt_dispatch_kind == "none":
+        lines.append("        if (cpu->halted) break;")
     else:
         lines.append("        if (cpu->halted && !cpu->interrupt_pending) break;")
     lines.append(f"        if ({cpu_prefix}_step(cpu) != 0) break;")

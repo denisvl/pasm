@@ -47,8 +47,17 @@ def test_generate_trs80_model4_moves_reset_delay_out_of_core(tmp_path):
     )
     outdir = tmp_path / "trs80_reset_delay_test"
     examples_dir = processor_path.parents[1]
+    trs80_ics = examples_dir / "ics" / "trs80_model4"
     ic_paths = [
-        str(examples_dir / "ics" / "trs80_model4_peripherals.yaml"),
+        str(trs80_ics / "trs80_model4_peripherals.yaml"),
+        str(trs80_ics / "trs80_model4_gate_array.yaml"),
+        str(trs80_ics / "trs80_model4_main_ram.yaml"),
+        str(trs80_ics / "trs80_model4_fdc.yaml"),
+        str(trs80_ics / "trs80_model4_ppi.yaml"),
+        str(trs80_ics / "trs80_model4_serial.yaml"),
+        str(trs80_ics / "trs80_model4_video.yaml"),
+        str(trs80_ics / "trs80_model4_irq.yaml"),
+        str(trs80_ics / "trs80_model4_cassette.yaml"),
     ]
     device_paths = [
         str(examples_dir / "devices" / "trs80_keyboard.yaml"),

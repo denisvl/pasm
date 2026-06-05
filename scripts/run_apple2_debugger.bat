@@ -29,7 +29,7 @@ if not defined RUN_SPEED set "RUN_SPEED=realtime"
 if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/apple2/host_keyboard_apple2.yaml"
 if not defined JOYSTICK_KEYBOARD_MAP set "JOYSTICK_KEYBOARD_MAP=examples/hosts/apple2/host_keyboard_apple2_joystick.yaml"
 if not defined CONTROLLER_MAP set "CONTROLLER_MAP=examples/hosts/apple2/host_controller_apple2.yaml"
-if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
+if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"

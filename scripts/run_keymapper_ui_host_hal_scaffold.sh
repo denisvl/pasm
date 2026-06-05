@@ -14,7 +14,7 @@ UV_CACHE_DIR="${UV_CACHE_DIR:-.uv-cache}" uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM}" \
   --host "${HOST}" \
-  --host-backend "${HOST_BACKEND:-sdl2}" \
+  --host-backend "${HOST_BACKEND:-glfw}" \
   --output "${OUT_DIR}"
 
 cmake -S "${OUT_DIR}" -B "${OUT_DIR}/build"

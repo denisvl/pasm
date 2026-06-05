@@ -7,10 +7,26 @@ metadata:
   undefined_opcode_policy: trap
   codegen:
     architecture_id: z80
+    architecture_enum_name: PASM_ARCH_Z80
+    architecture_enum_value: 0
     numeric_style: z80_h
     flags_dump_style: z80_compact
+    debug_flags_expr: (uint8_t)((((cpu->flags.raw >> 7) & 1u) << 0) | (((cpu->flags.raw >> 6) & 1u) << 1) | (((cpu->flags.raw >> 4) & 1u) << 2) | (((cpu->flags.raw >> 2) & 1u) << 3) | (((cpu->flags.raw >> 1) & 1u) << 4) | (((cpu->flags.raw >> 0) & 1u) << 5))
+    numeric_formats:
+      hex8: "%02Xh"
+      hex16: "%04Xh"
     decode_quirks:
       mc6809_indexed_postbyte_length: false
+    helper_features:
+      condition_cases:
+      - "!($Z)"
+      - "$Z"
+      - "!($C)"
+      - "$C"
+      - "!($P)"
+      - "$P"
+      - "!($S)"
+      - "$S"
     display_kinds_enabled: []
 registers:
 - name: A
@@ -11957,6 +11973,40 @@ ports:
   size: 256
 interrupts:
   model: z80
+  dispatch:
+    kind: z80
+  state_fields:
+  - uint8_t interrupt_mode;
+  - uint8_t interrupt_vector;
+  - bool interrupts_enabled;
+  - bool interrupt_pending;
+  api_declarations:
+  - void {cpu_prefix}_interrupt(CPUState *cpu, uint8_t vector);
+  - void {cpu_prefix}_set_interrupt_mode(CPUState *cpu, uint8_t mode);
+  - void {cpu_prefix}_set_irq(CPUState *cpu, bool enabled);
+  reset:
+  - '    cpu->interrupt_mode = 0;'
+  - '    cpu->interrupt_vector = 0;'
+  - '    cpu->interrupts_enabled = false;'
+  - '    cpu->interrupt_pending = false;'
+  reset_post: []
+  debug_snapshot:
+    interrupt_mode: 'cpu->interrupt_mode'
+    iff1: 'cpu->interrupts_enabled ? 1u : 0u'
+    iff2: 'cpu->interrupt_pending ? 1u : 0u'
+  api_impl: |
+    void {cpu_prefix}_interrupt(CPUState *cpu, uint8_t vector) {
+        cpu->interrupt_vector = vector;
+        cpu->interrupt_pending = true;
+    }
+
+    void {cpu_prefix}_set_interrupt_mode(CPUState *cpu, uint8_t mode) {
+        cpu->interrupt_mode = mode;
+    }
+
+    void {cpu_prefix}_set_irq(CPUState *cpu, bool enabled) {
+        cpu->interrupts_enabled = enabled;
+    }
   modes:
   - name: IM0
   - name: IM1

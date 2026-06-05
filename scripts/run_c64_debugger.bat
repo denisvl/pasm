@@ -17,7 +17,7 @@ if not defined CARTRIDGE_ROM_RUNTIME set "CARTRIDGE_ROM_RUNTIME="
 if not defined CARTRIDGE_DIR set "CARTRIDGE_DIR="
 if not defined BOOT_CARTRIDGE set "BOOT_CARTRIDGE=0"
 if not defined PASM_EMU_CART_PICKER_RAW_KEYS set "PASM_EMU_CART_PICKER_RAW_KEYS=1"
-if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
+if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
@@ -38,7 +38,7 @@ set "IC_MAIN_RAM=examples/ics/c64/c64_main_ram.yaml"
 set "DEVICE_KB=examples/devices/c64/c64_keyboard.yaml"
 set "DEVICE_JOY=examples/devices/c64/c64_joystick.yaml"
 set "DEVICE_VIDEO=examples/devices/c64/c64_video.yaml"
-set "DEVICE_SPK=examples/devices/c64/c64_speaker.yaml"
+set "DEVICE_TV=examples/devices/common/tv_crt_mono.yaml"
 set "HOST_INTERACTIVE=examples/hosts/c64/c64_host_hal_interactive.yaml"
 
 if /I "%PROFILE%"=="default" (
@@ -61,6 +61,9 @@ if not defined ROM_RUNTIME set "ROM_RUNTIME=%SYSTEM_DIR%\%CARTRIDGE_ROM_GEN%"
 if not defined OUTPUT_DIR set "OUTPUT_DIR=%DEFAULT_OUTPUT%"
 set "BUILD_DIR=%OUTPUT_DIR%/build"
 for %%I in ("%OUTPUT_DIR%") do set "OUTPUT_DIR_ABS=%%~fI"
+for %%I in ("%BUILD_DIR%") do set "BUILD_DIR_ABS=%%~fI"
+set "CMAKE_CONFIG_BUILD_DIR=%BUILD_DIR%\%CMAKE_BUILD_TYPE%"
+for %%I in ("%CMAKE_CONFIG_BUILD_DIR%") do set "CMAKE_CONFIG_BUILD_DIR_ABS=%%~fI"
 
 echo [1/3] Generating emulator -^> %OUTPUT_DIR%
 if /I "%PROFILE%"=="interactive" goto :gen_interactive
@@ -87,7 +90,7 @@ uv run python -m src.main generate ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_JOY%" ^
   --device "%DEVICE_VIDEO%" ^
-  --device "%DEVICE_SPK%" ^
+  --device "%DEVICE_TV%" ^
   --host "%HOST_INTERACTIVE%" ^
   --host-backend "%HOST_BACKEND%" ^
   --cartridge-map "%CARTRIDGE_MAP%" ^
@@ -112,6 +115,10 @@ echo     boot_cartridge=%BOOT_CARTRIDGE%
 echo     cart_picker_raw_keys=%PASM_EMU_CART_PICKER_RAW_KEYS%
 
 set "PASM_EMU_DIR=%OUTPUT_DIR_ABS%"
+set "PASM_EMU_BUILD_DIR=%BUILD_DIR_ABS%"
+if exist "%CMAKE_CONFIG_BUILD_DIR%" set "PASM_EMU_BUILD_DIR=%CMAKE_CONFIG_BUILD_DIR_ABS%"
+set "PASM_EMU_MANIFEST=%OUTPUT_DIR_ABS%\debugger_link.json"
+set "PATH=%PASM_EMU_BUILD_DIR%;%PATH%"
 set "PASM_EMU_CART_PICKER_RAW_KEYS=%PASM_EMU_CART_PICKER_RAW_KEYS%"
 
 if /I "%PROFILE%"=="interactive" goto :run_interactive

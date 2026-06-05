@@ -34,6 +34,243 @@
         },
         "version": {
           "type": "string"
+        },
+        "display": {
+          "type": "object",
+          "required": [
+            "kind",
+            "technology",
+            "model",
+            "max_resolution",
+            "inches",
+            "colors",
+            "frequency_hz",
+            "filter_function",
+            "is_monitor",
+            "aspect_ratio",
+            "scaling"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "tv",
+                "monitor"
+              ]
+            },
+            "technology": {
+              "type": "string",
+              "enum": [
+                "crt",
+                "lcd"
+              ]
+            },
+            "model": {
+              "type": "string"
+            },
+            "max_resolution": {
+              "type": "object",
+              "required": [
+                "width",
+                "height"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "width": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "inches": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "colors": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "frequency_hz": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "filter_function": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "shader_function": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "shader": {
+              "type": "object",
+              "required": [
+                "name",
+                "language",
+                "vertex_source",
+                "fragment_source",
+                "uniforms"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                },
+                "language": {
+                  "type": "string",
+                  "enum": [
+                    "glsl"
+                  ]
+                },
+                "vertex_source": {
+                  "type": "string"
+                },
+                "fragment_source": {
+                  "type": "string"
+                },
+                "uniforms": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  }
+                }
+              }
+            },
+            "is_monitor": {
+              "type": "boolean"
+            },
+            "phosphor_color": {
+              "type": "string"
+            },
+            "aspect_ratio": {
+              "type": "object",
+              "required": [
+                "width",
+                "height"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "width": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "scaling": {
+              "type": "object",
+              "required": [
+                "mode",
+                "integer_scale_base",
+                "large_screen_inches",
+                "resize_preserves_aspect"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "stretch_to_fit_aspect"
+                  ]
+                },
+                "integer_scale_base": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "large_screen_inches": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "resize_preserves_aspect": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "audio_output": {
+          "type": "object",
+          "required": [
+            "channels",
+            "frequency_filter",
+            "gain_q8_8",
+            "muted",
+            "volume_percent",
+            "osd"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "channels": {
+              "type": "string",
+              "enum": [
+                "mono",
+                "stereo"
+              ]
+            },
+            "frequency_filter": {
+              "type": "object",
+              "required": [
+                "low_cut_hz",
+                "high_cut_hz"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "low_cut_hz": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "high_cut_hz": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            },
+            "gain_q8_8": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "muted": {
+              "type": "boolean"
+            },
+            "volume_percent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "osd": {
+              "type": "object",
+              "required": [
+                "style",
+                "shows_mute",
+                "shows_volume"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "style": {
+                  "type": "string",
+                  "enum": [
+                    "eighties"
+                  ]
+                },
+                "shows_mute": {
+                  "type": "boolean"
+                },
+                "shows_volume": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
         }
       }
     },

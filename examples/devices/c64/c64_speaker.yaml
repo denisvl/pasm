@@ -1,5 +1,5 @@
 metadata:
-  id: speaker_c64
+  id: speaker
   type: audio_output
   model: c64_sid_volume_bridge
   version: "1.0"
@@ -28,7 +28,7 @@ behavior:
     on_audio_level: |
       comp->level = (uint8_t)(args[0] & 0xFFu);
       comp->last_cycle = (argc > 1) ? (uint64_t)args[1] : cpu->total_cycles;
-      cpu_component_emit_signal(cpu, "speaker_c64", "pcm_sample", args, argc);
+      cpu_component_emit_signal(cpu, "speaker", "pcm_sample", args, argc);
 
 coding:
   headers: []

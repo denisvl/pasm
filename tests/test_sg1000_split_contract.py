@@ -31,11 +31,11 @@ def test_sg1000_runner_loads_split_ics():
     assert "--ic \"${IC_PSG}\"" in sh
 
     bat = Path("scripts/run_sg1000_debugger.bat").read_text(encoding="utf-8")
-    assert 'set "IC_BUS=examples/ics/sg1000/sg1000_cpu_bus.yaml"' in bat
-    assert 'set "IC_RAM=examples/ics/sg1000/sg1000_main_ram.yaml"' in bat
-    assert 'set "IC_VDP=examples/ics/sg1000/sg1000_vdp_tms9918a.yaml"' in bat
-    assert 'set "IC_JOY=examples/ics/sg1000/sg1000_joypad_io.yaml"' in bat
-    assert 'set "IC_PSG=examples/ics/sg1000/sg1000_psg_sn76489.yaml"' in bat
+    assert "--ic examples/ics/sg1000/sg1000_cpu_bus.yaml" in bat
+    assert "--ic examples/ics/sg1000/sg1000_main_ram.yaml" in bat
+    assert "--ic examples/ics/sg1000/sg1000_vdp_tms9918a.yaml" in bat
+    assert "--ic examples/ics/sg1000/sg1000_joypad_io.yaml" in bat
+    assert "--ic examples/ics/sg1000/sg1000_psg_sn76489.yaml" in bat
 
 
 def test_sg1000_split_generation_smoke_default_and_interactive(tmp_path):

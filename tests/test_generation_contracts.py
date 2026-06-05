@@ -2,6 +2,7 @@ import os
 import pathlib
 import shutil
 import subprocess
+import sys
 import json
 import re
 
@@ -11,9 +12,11 @@ import yaml
 from src import generator as gen_mod
 from src.codegen.build_system import generate_cmake, generate_makefile
 from src.codegen.cpu_decoder import generate_decoder
+from src.codegen.cpu_debug_abi import generate_debug_abi
 from src.codegen.cpu_header import generate_cpu_header
 from src.codegen.cpu_impl import generate_cpu_impl
 from src.codegen.cpu_impl import generate_cartridge_picker_runtime_glue
+from src.codegen.cpu_impl import generate_host_hal_impl_glue
 from src.codegen.cpu_impl import generate_input_runtime_glue
 from src.codegen.cpu_impl import generate_input_runtime_contract_support
 from src.codegen.split_units import (
@@ -29,6 +32,25 @@ from tests.support import example_pair, write_pair_from_legacy
 
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
+
+
+def _sms_interactive_ic_paths() -> list[str]:
+    return [
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_cpu_bus.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_main_ram.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_vdp_sega315_5124.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_joypad_io.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_psg_sn76489.yaml"),
+    ]
+
+
+def _msx1_cartridge_interactive_ic_paths() -> list[pathlib.Path]:
+    return [
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_vdp_tms9918a.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_ppi_8255.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_psg_ay8910.yaml",
+        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_main_ram.yaml",
+    ]
 
 
 def _base_isa(name: str) -> dict:
@@ -328,14 +350,10 @@ def test_input_runtime_contract_support_extracts_decls():
     assert "cpu_component_keyboard_ascii_pop(void);" in support
 
 
-def test_input_runtime_contract_support_includes_declared_keymap_helper():
+def test_input_runtime_contract_support_includes_declared_keymap_helper(tmp_path):
     processor = BASE_DIR / "examples" / "processors" / "z80.yaml"
     system = BASE_DIR / "examples" / "systems" / "msx1" / "msx1_cartridge_interactive.yaml"
-    ics = [
-        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_vdp_tms9918a.yaml",
-        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_ppi_8255.yaml",
-        BASE_DIR / "examples" / "ics" / "msx1" / "msx1_psg_ay8910.yaml",
-    ]
+    ics = _msx1_cartridge_interactive_ic_paths()
     devices = [
         BASE_DIR / "examples" / "devices" / "msx1" / "msx_keyboard.yaml",
         BASE_DIR / "examples" / "devices" / "msx1" / "msx_controller.yaml",
@@ -343,6 +361,8 @@ def test_input_runtime_contract_support_includes_declared_keymap_helper():
         BASE_DIR / "examples" / "devices" / "msx1" / "msx_speaker.yaml",
     ]
     host = BASE_DIR / "examples" / "hosts" / "msx1" / "msx_host_hal_interactive.yaml"
+    rom = tmp_path / "dummy_msx.rom"
+    rom.write_bytes(b"\x00" * 0x4000)
 
     isa_data = yaml_loader.load_processor_system(
         str(processor),
@@ -350,6 +370,8 @@ def test_input_runtime_contract_support_includes_declared_keymap_helper():
         [str(p) for p in ics],
         [str(p) for p in devices],
         [str(host)],
+        cartridge_path=str(BASE_DIR / "examples" / "cartridges" / "msx1" / "msx_mapper_none.yaml"),
+        cartridge_rom_path=str(rom),
         host_backend_target="sdl2",
     )
     support = generate_input_runtime_contract_support(isa_data, "Z80")
@@ -369,11 +391,7 @@ def test_split_units_module_exposes_dispatcher():
 def test_ic_step_and_lifecycle_ownership_split_into_ic_units(tmp_path):
     processor = BASE_DIR / "examples" / "processors" / "z80.yaml"
     system = BASE_DIR / "examples" / "systems" / "sms" / "sms_interactive.yaml"
-    ic_paths = [
-        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_vdp_sega315_5124.yaml"),
-        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_joypad_io.yaml"),
-        str(BASE_DIR / "examples" / "ics" / "common" / "psg_sn76489.yaml"),
-    ]
+    ic_paths = _sms_interactive_ic_paths()
     device_paths = [
         str(BASE_DIR / "examples" / "devices" / "sms" / "sms_video.yaml"),
         str(BASE_DIR / "examples" / "devices" / "sms" / "sms_speaker.yaml"),
@@ -381,12 +399,16 @@ def test_ic_step_and_lifecycle_ownership_split_into_ic_units(tmp_path):
     ]
     host_paths = [str(BASE_DIR / "examples" / "hosts" / "sms" / "sms_host_hal_interactive.yaml")]
     outdir = tmp_path / "sms_split_out"
+    rom = tmp_path / "dummy.sms"
+    rom.write_bytes(b"\x00" * 0x8000)
     gen = gen_mod.EmulatorGenerator(
         str(processor),
         str(system),
         ic_paths=ic_paths,
         device_paths=device_paths,
         host_paths=host_paths,
+        cartridge_map_path=str(BASE_DIR / "examples" / "cartridges" / "sms" / "sms_mapper_sega.yaml"),
+        cartridge_rom_path=str(rom),
     )
     gen.generate(str(outdir))
 
@@ -416,11 +438,7 @@ def test_ic_step_and_lifecycle_ownership_split_into_ic_units(tmp_path):
 def test_generated_cpu_core_has_no_ic_implementation_leakage(tmp_path):
     processor = BASE_DIR / "examples" / "processors" / "z80.yaml"
     system = BASE_DIR / "examples" / "systems" / "sms" / "sms_interactive.yaml"
-    ic_paths = [
-        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_vdp_sega315_5124.yaml"),
-        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_joypad_io.yaml"),
-        str(BASE_DIR / "examples" / "ics" / "common" / "psg_sn76489.yaml"),
-    ]
+    ic_paths = _sms_interactive_ic_paths()
     device_paths = [
         str(BASE_DIR / "examples" / "devices" / "sms" / "sms_video.yaml"),
         str(BASE_DIR / "examples" / "devices" / "sms" / "sms_speaker.yaml"),
@@ -428,12 +446,16 @@ def test_generated_cpu_core_has_no_ic_implementation_leakage(tmp_path):
     ]
     host_paths = [str(BASE_DIR / "examples" / "hosts" / "sms" / "sms_host_hal_interactive.yaml")]
     outdir = tmp_path / "sms_split_out_core_contract"
+    rom = tmp_path / "dummy.sms"
+    rom.write_bytes(b"\x00" * 0x8000)
     gen = gen_mod.EmulatorGenerator(
         str(processor),
         str(system),
         ic_paths=ic_paths,
         device_paths=device_paths,
         host_paths=host_paths,
+        cartridge_map_path=str(BASE_DIR / "examples" / "cartridges" / "sms" / "sms_mapper_sega.yaml"),
+        cartridge_rom_path=str(rom),
     )
     gen.generate(str(outdir))
 
@@ -449,11 +471,7 @@ def test_generated_cpu_core_has_no_ic_implementation_leakage(tmp_path):
 def test_system_glue_owns_dispatch_not_ic_stateful_impl(tmp_path):
     processor = BASE_DIR / "examples" / "processors" / "z80.yaml"
     system = BASE_DIR / "examples" / "systems" / "sms" / "sms_interactive.yaml"
-    ic_paths = [
-        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_vdp_sega315_5124.yaml"),
-        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_joypad_io.yaml"),
-        str(BASE_DIR / "examples" / "ics" / "common" / "psg_sn76489.yaml"),
-    ]
+    ic_paths = _sms_interactive_ic_paths()
     device_paths = [
         str(BASE_DIR / "examples" / "devices" / "sms" / "sms_video.yaml"),
         str(BASE_DIR / "examples" / "devices" / "sms" / "sms_speaker.yaml"),
@@ -461,12 +479,16 @@ def test_system_glue_owns_dispatch_not_ic_stateful_impl(tmp_path):
     ]
     host_paths = [str(BASE_DIR / "examples" / "hosts" / "sms" / "sms_host_hal_interactive.yaml")]
     outdir = tmp_path / "sms_split_out_glue_contract"
+    rom = tmp_path / "dummy.sms"
+    rom.write_bytes(b"\x00" * 0x8000)
     gen = gen_mod.EmulatorGenerator(
         str(processor),
         str(system),
         ic_paths=ic_paths,
         device_paths=device_paths,
         host_paths=host_paths,
+        cartridge_map_path=str(BASE_DIR / "examples" / "cartridges" / "sms" / "sms_mapper_sega.yaml"),
+        cartridge_rom_path=str(rom),
     )
     gen.generate(str(outdir))
 
@@ -622,8 +644,21 @@ def test_build_system_accepts_glfw_backend_without_auto_sdl2_linkage():
     makefile = generate_makefile(isa, "BackendGlfw8")
 
     assert "find_package(glfw3 CONFIG QUIET)" in cmake
+    assert "find_package(OpenGL REQUIRED)" in cmake
+    assert "find_library(PASM_GLFW_LIBRARY NAMES glfw3dll glfw3 glfw" in cmake
     assert "${PASM_GLFW_LINK_TARGET}" in cmake
-    assert "-lglfw" in makefile
+    assert "${PASM_OPENGL_LINK_TARGET}" in cmake
+    assert "$<$<PLATFORM_ID:Windows>:winmm>" in cmake
+    assert "find_path(PASM_ALSA_INCLUDE_DIR alsa/asoundlib.h)" in cmake
+    assert "find_library(PASM_ALSA_LIBRARY NAMES asound)" in cmake
+    assert "Install libasound2-dev on Debian/Ubuntu or alsa-lib-devel on Fedora/RHEL" in cmake
+    assert "$<$<PLATFORM_ID:Linux>:${PASM_ALSA_LINK_TARGET}>" in cmake
+    assert "PASM_GLFW_LIB = -lglfw3dll" in makefile
+    assert "PASM_GLFW_LIB = -lglfw" in makefile
+    assert "PASM_OPENGL_LIB = -lGL" in makefile
+    assert "PASM_OPENGL_LIB = -lopengl32" in makefile
+    assert "PASM_WINMM_LIB = -lwinmm" in makefile
+    assert "PASM_ALSA_LIB = -lasound" in makefile
     assert "find_package(SDL2 CONFIG QUIET)" not in cmake
     assert "${PASM_SDL2_LINK_TARGET}" not in cmake
     assert "-lSDL2" not in makefile
@@ -788,8 +823,9 @@ def test_cpu_codegen_auto_includes_sdl_header_for_sdl2_backend():
     ]
     data["coding"] = {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []}
 
-    code = generate_cpu_impl(data, "Z80")
-    assert "#include <SDL2/SDL.h>" in code
+    code = generate_host_hal_impl_glue(data, "Z80")
+    assert "typedef SDL_Event CPUHostEvent;" in code
+    assert "static int cpu_host_hal_init(uint32_t flags)" in code
 
 
 def test_cpu_codegen_does_not_auto_include_sdl_header_for_stub_backend():
@@ -1408,10 +1444,32 @@ def test_generator_emits_debug_abi_files(tmp_path):
     assert "CPUState *pasm_dbg_create(size_t memory_size);" in header
     assert "int pasm_dbg_snapshot_fill(" in header
     assert "int pasm_dbg_set_pc(CPUState *cpu, uint64_t address);" in header
+    assert "int pasm_dbg_pump_host_events(CPUState *cpu);" in header
     assert '#include "DbgApi8_debug_abi.h"' in impl
     assert "CPUState *pasm_dbg_create(size_t memory_size)" in impl
     assert "int pasm_dbg_snapshot_fill(" in impl
     assert "int pasm_dbg_set_pc(CPUState *cpu, uint64_t address)" in impl
+    assert "int pasm_dbg_pump_host_events(CPUState *cpu)" in impl
+    assert "return dbgapi8_dbg_pump_host_events(cpu);" in impl
+
+
+def test_debug_abi_pumps_host_hal_when_host_present():
+    isa = _base_isa("DbgPump8")
+    isa["hosts"] = [
+        {
+            "metadata": {"id": "host_glfw", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "glfw"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    header, impl = generate_debug_abi(isa, "DbgPump8")
+    assert "int dbgpump8_dbg_pump_host_events(CPUState *cpu);" in header
+    assert "extern void cpu_host_hal_pump_events(void);" in impl
+    assert "cpu_host_hal_pump_events();" in impl
+    assert "return dbgpump8_dbg_pump_host_events(cpu);" in impl
 
 
 def test_generated_header_exposes_split_dispatch_contracts(tmp_path):
@@ -1504,8 +1562,14 @@ def test_generator_emits_debugger_link_manifest(tmp_path):
     assert manifest["split_targets"]["cpu_core"] == "dbglink8_cpu_core"
     assert manifest["split_targets"]["system"] == "dbg_link8_test_system"
     assert "compat" not in manifest
-    assert manifest["split_artifacts"]["cpu_core_static"] == "libdbglink8_cpu_core.a"
-    assert manifest["split_artifacts"]["system_static"] == "libdbg_link8_test_system.a"
+    assert manifest["split_artifacts"]["cpu_core_static"] in {
+        "libdbglink8_cpu_core.a",
+        "dbglink8_cpu_core.lib",
+    }
+    assert manifest["split_artifacts"]["system_static"] in {
+        "libdbg_link8_test_system.a",
+        "dbg_link8_test_system.lib",
+    }
     assert manifest["split_units"]["cpu_core_sources"] == [
         "src/DbgLink8_core.c",
         "src/DbgLink8_decoder.c",
@@ -1644,6 +1708,23 @@ def test_debugger_link_manifest_includes_backend_target_libraries(tmp_path):
     manifest_path = outdir / "debugger_link.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert "SDL2" in manifest["link"]["library_names"]
+
+    host_data["backend"] = {"target": "glfw"}
+    host_yaml.write_text(yaml.safe_dump(host_data, sort_keys=False), encoding="utf-8")
+    outdir_glfw = tmp_path / "dbg_link_hal8_glfw_out"
+    gen_mod.generate(
+        str(processor_path),
+        str(system_path),
+        str(outdir_glfw),
+        host_paths=[str(host_yaml)],
+    )
+    manifest_glfw = json.loads((outdir_glfw / "debugger_link.json").read_text(encoding="utf-8"))
+    assert ("glfw3dll" if os.name == "nt" else "glfw") in manifest_glfw["link"]["library_names"]
+    assert ("opengl32" if os.name == "nt" else "GL") in manifest_glfw["link"]["library_names"]
+    if os.name == "nt":
+        assert "winmm" in manifest_glfw["link"]["library_names"]
+    if sys.platform.startswith("linux"):
+        assert "asound" in manifest_glfw["link"]["library_names"]
 
 
 @pytest.mark.skipif(
@@ -2293,7 +2374,7 @@ def test_decoder_emits_dd_fd_fallback_alias_block():
 
 def test_interrupt_dispatch_block_is_generated_when_interrupts_declared():
     isa = _base_isa("Int8")
-    isa["interrupts"] = {"modes": [{"name": "IM0"}]}
+    isa["interrupts"] = {"model": "z80", "modes": [{"name": "IM0"}]}
     code = generate_cpu_impl(isa, "Int8")
     assert "cpu->interrupt_pending && cpu->interrupts_enabled" in code
     assert "switch (irq_mode)" in code
@@ -2302,7 +2383,7 @@ def test_interrupt_dispatch_block_is_generated_when_interrupts_declared():
 
 def test_breakpoint_check_precedes_interrupt_dispatch():
     isa = _base_isa("IntBpOrder8")
-    isa["interrupts"] = {"modes": [{"name": "IM1"}]}
+    isa["interrupts"] = {"model": "z80", "modes": [{"name": "IM1"}]}
     code = generate_cpu_impl(isa, "IntBpOrder8")
     bp_idx = code.find("if (cpu_check_breakpoints(cpu)) {")
     irq_idx = code.find("if (cpu->interrupt_pending && cpu->interrupts_enabled) {")
@@ -2313,7 +2394,7 @@ def test_breakpoint_check_precedes_interrupt_dispatch():
 
 def test_interrupt_api_queues_pending_even_when_irq_disabled():
     isa = _base_isa("IntApi8")
-    isa["interrupts"] = {"modes": [{"name": "IM1"}]}
+    isa["interrupts"] = {"model": "z80", "modes": [{"name": "IM1"}]}
     code = generate_cpu_impl(isa, "IntApi8")
     assert "if (!cpu->interrupts_enabled) return;" not in code
     assert "cpu->interrupt_pending = true;" in code
@@ -2322,7 +2403,7 @@ def test_interrupt_api_queues_pending_even_when_irq_disabled():
 def test_interrupt_mode_gating_and_im2_vector_table_lookup():
     isa = _base_isa("IntMode8")
     isa["registers"].append({"name": "I", "type": "special", "bits": 8})
-    isa["interrupts"] = {"modes": [{"name": "IM1"}, {"name": "IM2"}]}
+    isa["interrupts"] = {"model": "z80", "modes": [{"name": "IM1"}, {"name": "IM2"}]}
     code = generate_cpu_impl(isa, "IntMode8")
     assert "if (irq_mode != 1 && irq_mode != 2) irq_mode = 1;" in code
     assert "switch (irq_mode) {\n            case 0:" not in code
@@ -2716,7 +2797,8 @@ def test_runtime_hal_helpers_emit_glfw_impl_for_glfw_backend():
     assert "cpu_host_hal_glfw_quit_emitted = 1u;" in code
     assert "glfwGetWindowSize((GLFWwindow *)window, out_w, out_h);" in code
     assert "if (cpu_host_hal_glfw_inited == 0u) return;" in code
-    assert "if (window != NULL) glfwSwapBuffers(window);" in code
+    assert "glfwMakeContextCurrent(window);" in code
+    assert "glfwSwapBuffers(window);" in code
     assert "if (!window) window = (void *)cpu_host_hal_glfw_primary_window;" in code
     assert "cpu_host_hal_glfw_key_for_scancode(sc)" in code
     assert "static const char *cpu_host_hal_glfw_scancode_name(int scancode)" in code
@@ -2741,6 +2823,7 @@ def test_runtime_hal_helpers_emit_glfw_impl_for_glfw_backend():
     assert "return event->key.mod_state;" in code
     assert "return cpu_host_hal_glfw_mod_state();" in code
     assert "CPU_GLFW_SC_APPLICATION" in code
+    assert "CPU_GLFW_SC_INTERNATIONAL1" in code
     assert "CPU_GLFW_SC_NONUSBACKSLASH" in code
     assert "CPU_GLFW_SC_F8" in code
     assert "#define GLFW_KEY_F6 295" in code
@@ -2749,6 +2832,7 @@ def test_runtime_hal_helpers_emit_glfw_impl_for_glfw_backend():
     assert "#define CPU_HOST_KEYCODE_QUOTE ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(APOSTROPHE)))" in code
     assert "#define CPU_HOST_KEYCODE_SEMICOLON ((int32_t)cpu_host_hal_key_from_scancode(CPU_HOST_SCANCODE(SEMICOLON)))" in code
     assert "case CPU_GLFW_SC_APPLICATION: return GLFW_KEY_MENU;" in code
+    assert "case CPU_GLFW_SC_INTERNATIONAL1: return GLFW_KEY_WORLD_1;" in code
     assert "case CPU_GLFW_SC_NONUSBACKSLASH: return GLFW_KEY_WORLD_1;" in code
     assert "return cpu_host_hal_glfw_scancode_name((int)scancode);" in code
     assert "static const char *cpu_host_hal_glfw_key_name(int keycode)" in code
@@ -2761,6 +2845,7 @@ def test_runtime_hal_helpers_emit_glfw_impl_for_glfw_backend():
     assert "static const uint8_t *cpu_host_hal_keyboard_state(int *key_count)" in code
     assert "if (key_count) *key_count = CPU_GLFW_SC_COUNT;" in code
     assert "static uint16_t cpu_host_hal_glfw_hold_ticks[CPU_GLFW_SC_COUNT];" in code
+    assert 'case CPU_GLFW_SC_INTERNATIONAL1: return "INTERNATIONAL1";' in code
     assert "if (cpu_host_hal_glfw_inited == 0u) return 0;" in code
     assert "if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;" in code
     assert "return (int32_t)cpu_host_hal_glfw_key_for_scancode(scancode);" in code
@@ -2793,6 +2878,9 @@ def test_runtime_hal_helpers_emit_glfw_impl_for_glfw_backend():
     assert "if (w <= 0) w = 640;" in code
     assert "if (h <= 0) h = 480;" in code
     assert "if ((flags & ~CPU_HOST_WINDOW_RESIZABLE) != 0u) return NULL;" in code
+    assert "#define GLFW_TRUE 1" in code
+    assert "#define GLFW_FALSE 0" in code
+    assert "#define GLFW_RESIZABLE 0x00020003" in code
     assert "glfwWindowHint(GLFW_RESIZABLE, (flags & CPU_HOST_WINDOW_RESIZABLE) != 0u ? GLFW_TRUE : GLFW_FALSE);" in code
     assert "if (cpu_host_hal_glfw_inited != 0u && cpu_host_hal_glfw_primary_window != NULL) {" in code
     assert "glfwDestroyWindow(cpu_host_hal_glfw_primary_window);" in code
@@ -2991,6 +3079,8 @@ def test_runtime_hal_lifecycle_helpers_emit_sdl2_impl():
     assert "static uint32_t cpu_host_hal_event_type(const CPUHostEvent *event)" in code
     assert "static int32_t cpu_host_hal_event_scancode(const CPUHostEvent *event)" in code
     assert "if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0;" in code
+    assert "static int32_t cpu_host_hal_event_keycode(const CPUHostEvent *event)" in code
+    assert "return (int32_t)event->key.keysym.sym;" in code
     assert "static uint8_t cpu_host_hal_event_key_repeat(const CPUHostEvent *event)" in code
     assert "if (event->type != CPU_HOST_EVENT_KEYDOWN && event->type != CPU_HOST_EVENT_KEYUP) return 0u;" in code
     assert "static uint32_t cpu_host_hal_event_mod_state(const CPUHostEvent *event)" in code
@@ -3037,6 +3127,7 @@ def test_runtime_hal_lifecycle_helpers_emit_noop_impl_for_stub():
     assert "static int cpu_host_hal_poll_event(CPUHostEvent *event)" in code
     assert "static uint32_t cpu_host_hal_event_type(const CPUHostEvent *event)" in code
     assert "static int32_t cpu_host_hal_event_scancode(const CPUHostEvent *event)" in code
+    assert "static int32_t cpu_host_hal_event_keycode(const CPUHostEvent *event)" in code
     assert "static uint8_t cpu_host_hal_event_key_repeat(const CPUHostEvent *event)" in code
     assert "static void cpu_host_hal_set_window_title(void *window, const char *title)" in code
     assert "static void cpu_host_hal_destroy_texture(void *texture)" in code
@@ -3200,6 +3291,10 @@ def test_runtime_hal_render_helpers_emit_sdl2_impl():
     assert "SDL_RenderClear((SDL_Renderer *)renderer);" in code
     assert "static int cpu_host_hal_render_copy(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect)" in code
     assert "SDL_RenderCopy(" in code
+    assert "static int cpu_host_hal_renderer_supports_shaders(void *renderer)" in code
+    assert "static void *cpu_host_hal_shader_create(void *renderer, const char *vertex_source, const char *fragment_source)" in code
+    assert "static void cpu_host_hal_shader_destroy(void *shader)" in code
+    assert "static int cpu_host_hal_render_copy_shader(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect, void *shader, int texture_w, int texture_h, int output_w, int output_h)" in code
 
 
 def test_runtime_hal_render_helpers_emit_noop_impl_for_stub():
@@ -3228,6 +3323,10 @@ def test_runtime_hal_render_helpers_emit_noop_impl_for_stub():
     assert "if (cpu_host_hal_stub_inited == 0u || rr == NULL) return -1;" in code
     assert "static int cpu_host_hal_render_copy(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect)" in code
     assert "if (cpu_host_hal_stub_inited == 0u || rr == NULL || tt == NULL) return -1;" in code
+    assert "static int cpu_host_hal_renderer_supports_shaders(void *renderer)" in code
+    assert "static void *cpu_host_hal_shader_create(void *renderer, const char *vertex_source, const char *fragment_source)" in code
+    assert "static void cpu_host_hal_shader_destroy(void *shader)" in code
+    assert "static int cpu_host_hal_render_copy_shader(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect, void *shader, int texture_w, int texture_h, int output_w, int output_h)" in code
     assert "SDL_GetRendererOutputSize(" not in code
     assert "SDL_UpdateTexture(" not in code
     assert "SDL_SetRenderDrawColor(" not in code
@@ -3300,12 +3399,25 @@ def test_runtime_hal_render_helpers_emit_glfw_buffer_impl():
     assert "if (dw <= 0 || dh <= 0) return -1;" in code
     assert "sum64 = (int64_t)dy + (int64_t)ch;" in code
     assert "if (sum64 > (int64_t)rr->h) ch = rr->h - dy;" in code
-    assert "src_span64 = ((uint64_t)(uint32_t)(ch - 1) * src_stride64) + row_bytes64;" in code
-    assert "if (src_span64 > (tex_bytes64 - src_start64)) return -1;" in code
-    assert "dst_span64 = ((uint64_t)(uint32_t)(ch - 1) * dst_stride64) + row_bytes64;" in code
+    assert "cpu_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rr->w, rr->h, 0, GL_BGRA, GL_UNSIGNED_BYTE, rr->frame_rgba);" in code
+    assert "rr->present_texture_w != rr->w || rr->present_texture_h != rr->h" in code
+    assert "dst_span64 = ((uint64_t)(uint32_t)(ch - 1) * ((uint64_t)(uint32_t)rr->w * 4u)) + ((uint64_t)(uint32_t)cw * 4u);" in code
     assert "if (dst_span64 > (expect64 - dst_start64)) return -1;" in code
     assert "if (sw <= 0 || sh <= 0) return 0;" in code
-    assert "memcpy(" in code
+    assert "int src_y = sy + (int)((((int64_t)(row + copy_y0)) * (int64_t)sh) / (int64_t)dh);" in code
+    assert "int src_x = sx + (int)((((int64_t)(col + copy_x0)) * (int64_t)sw) / (int64_t)dw);" in code
+    assert "dst_px[col] = src_row[src_x];" in code
+    assert "static int cpu_host_hal_renderer_supports_shaders(void *renderer)" in code
+    assert "static void *cpu_host_hal_shader_create(void *renderer, const char *vertex_source, const char *fragment_source)" in code
+    assert "static void cpu_host_hal_shader_destroy(void *shader)" in code
+    assert "static int cpu_host_hal_render_copy_shader(void *renderer, void *texture, const CPUHostRect *src_rect, const CPUHostRect *dst_rect, void *shader, int texture_w, int texture_h, int output_w, int output_h)" in code
+    assert "glfwGetProcAddress" in code
+    assert "shader->vertex_shader = cpu_host_hal_glfw_compile_shader(GL_VERTEX_SHADER, vertex_source);" in code
+    assert "shader->fragment_shader = cpu_host_hal_glfw_compile_shader(GL_FRAGMENT_SHADER, fragment_source);" in code
+    assert "cpu_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texture_w, texture_h, 0, GL_BGRA, GL_UNSIGNED_BYTE, tex->pixels);" in code
+    assert "cpu_glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, texture_w, texture_h, GL_BGRA, GL_UNSIGNED_BYTE, tex->pixels);" in code
+    assert "ss->texture_w != texture_w || ss->texture_h != texture_h" in code
+    assert "cpu_glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);" in code
     assert "free(tex->pixels);" in code
     assert "tex->pixels_len = 0u;" in code
     assert "free(rr->frame_rgba);" in code

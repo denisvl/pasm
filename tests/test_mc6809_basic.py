@@ -224,7 +224,7 @@ def test_mc6809_opcode_sets_match_official_matrix():
 
 
 @pytest.mark.skipif(
-    (shutil.which("cc") is None and shutil.which("gcc") is None),
+    (shutil.which("cc") is None and shutil.which("gcc") is None and shutil.which("clang") is None),
     reason="C compiler not available on PATH",
 )
 def test_mc6809_generated_decoder_covers_declared_opcode_spaces():
@@ -278,7 +278,7 @@ def test_mc6809_generated_decoder_covers_declared_opcode_spaces():
         encoding="utf-8",
     )
 
-    compiler = shutil.which("cc") or shutil.which("gcc")
+    compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
     binary = outdir / "scan_decode"
     subprocess.check_call(
         [

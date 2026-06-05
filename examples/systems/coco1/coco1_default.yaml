@@ -1,39 +1,36 @@
 metadata:
   name: MC6809CoCo1DefaultSystem
-  version: "0.1"
-
+  version: '0.1'
 clock_hz: 894886
 reset_delay_seconds: 0
-
 memory:
   default_size: 65536
   regions:
-    - name: RAM_LOWER
-      start: 0x0000
-      size: 0xA000
-      read_write: true
-    - name: ROM_COCOROM_A000
-      start: 0xA000
-      size: 0x2000
-      read_only: true
-    - name: RAM_CART_WINDOW
-      start: 0xC000
-      size: 0x2000
-      read_write: true
-    - name: ROM_COCOROM_E000
-      start: 0xE000
-      size: 0x2000
-      read_only: true
+  - name: RAM_LOWER
+    start: 0
+    size: 40960
+    read_write: true
+  - name: ROM_COCOROM_A000
+    start: 40960
+    size: 8192
+    read_only: true
+  - name: RAM_CART_WINDOW
+    start: 49152
+    size: 8192
+    read_write: true
+  - name: ROM_COCOROM_E000
+    start: 57344
+    size: 8192
+    read_only: true
   rom_images:
-    - name: coco_rom_primary
-      file: ../../roms/coco1/coco.rom
-      target_region: ROM_COCOROM_A000
-      offset: 0
-    - name: coco_rom_mirror
-      file: ../../roms/coco1/coco.rom
-      target_region: ROM_COCOROM_E000
-      offset: 0
-
+  - name: coco_rom_primary
+    file: ../../roms/coco1/coco.rom
+    target_region: ROM_COCOROM_A000
+    offset: 0
+  - name: coco_rom_mirror
+    file: ../../roms/coco1/coco.rom
+    target_region: ROM_COCOROM_E000
+    offset: 0
 hooks:
   pre_fetch:
     enabled: false
@@ -49,267 +46,278 @@ hooks:
     enabled: false
   port_write_post:
     enabled: false
-
 components:
   ics:
-    - coco1_sam_6883
-    - coco1_pia0_6821
-    - coco1_pia1_6821
-    - coco1_vdg_6847
-    - coco1_cart_expansion
-    - coco1_main_ram
+  - coco1_sam_6883
+  - coco1_pia0_6821
+  - coco1_pia1_6821
+  - coco1_vdg_6847
+  - coco1_cart_expansion
+  - coco1_main_ram
   devices:
-    - keyboard_coco
-    - gameport_coco
-    - video_coco
-    - speaker_coco
+  - keyboard_coco
+  - gameport_coco
+  - video_coco
+  - speaker
+  - tv
   hosts:
-    - host_coco
+  - host_coco
   cartridge: coco_cart0
-
 connections:
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: keyboard_read_row
-    to:
-      component: keyboard_coco
-      kind: callback
-      name: read_row
-
-  - from:
-      component: keyboard_coco
-      kind: callback
-      name: host_matrix
-    to:
-      component: host_coco
-      kind: callback
-      name: keyboard_matrix
-
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: joystick_read_axis
-    to:
-      component: gameport_coco
-      kind: callback
-      name: read_axis
-
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: joystick_read_button
-    to:
-      component: gameport_coco
-      kind: callback
-      name: read_button
-
-  - from:
-      component: coco1_pia0_6821
-      kind: callback
-      name: keyboard_read_row
-    to:
-      component: keyboard_coco
-      kind: callback
-      name: read_row
-
-  - from:
-      component: coco1_pia0_6821
-      kind: callback
-      name: joystick_read_axis
-    to:
-      component: gameport_coco
-      kind: callback
-      name: read_axis
-
-  - from:
-      component: coco1_pia0_6821
-      kind: callback
-      name: joystick_read_button
-    to:
-      component: gameport_coco
-      kind: callback
-      name: read_button
-
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: cart_firq_eval
-    to:
-      component: coco1_cart_expansion
-      kind: callback
-      name: firq_route_eval
-
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: pia1_compute_audio
-    to:
-      component: coco1_pia1_6821
-      kind: callback
-      name: compute_audio_level
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: pia1_irq_fire_mask
-    to:
-      component: coco1_pia1_6821
-      kind: callback
-      name: irq_fire_mask
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: pia1_read_reg
-    to:
-      component: coco1_pia1_6821
-      kind: callback
-      name: read_reg
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: pia1_write_reg
-    to:
-      component: coco1_pia1_6821
-      kind: callback
-      name: write_reg
-
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: pia0_clock_irq_edge
-    to:
-      component: coco1_pia0_6821
-      kind: callback
-      name: clock_irq_edge
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: pia0_irq_fire_mask
-    to:
-      component: coco1_pia0_6821
-      kind: callback
-      name: irq_fire_mask
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: pia0_read_reg
-    to:
-      component: coco1_pia0_6821
-      kind: callback
-      name: read_reg
-
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: pia0_write_reg
-    to:
-      component: coco1_pia0_6821
-      kind: callback
-      name: write_reg
-
-  - from:
-      component: coco1_sam_6883
-      kind: callback
-      name: raise_interrupt
-    to:
-      component: coco1_sam_6883
-      kind: callback
-      name: raise_interrupt
-
-  - from:
-      component: gameport_coco
-      kind: callback
-      name: host_axis
-    to:
-      component: host_coco
-      kind: callback
-      name: joystick_axis
-
-  - from:
-      component: gameport_coco
-      kind: callback
-      name: host_button
-    to:
-      component: host_coco
-      kind: callback
-      name: joystick_button
-
-  - from:
-      component: coco1_sam_6883
-      kind: signal
-      name: frame_ready
-    to:
-      component: coco1_vdg_6847
-      kind: handler
-      name: on_sam_frame_ready
-
-  - from:
-      component: coco1_vdg_6847
-      kind: signal
-      name: frame_ready
-    to:
-      component: video_coco
-      kind: handler
-      name: on_frame_ready
-
-  - from:
-      component: video_coco
-      kind: signal
-      name: frame_present
-    to:
-      component: host_coco
-      kind: handler
-      name: video_frame
-
-  - from:
-      component: coco1_sam_6883
-      kind: signal
-      name: irq_edge
-    to:
-      component: coco1_pia0_6821
-      kind: handler
-      name: on_sam_irq_edge
-
-  - from:
-      component: coco1_pia0_6821
-      kind: signal
-      name: irq_edge
-    to:
-      component: host_coco
-      kind: handler
-      name: irq_edge
-
-  - from:
-      component: coco1_sam_6883
-      kind: signal
-      name: audio_level
-    to:
-      component: coco1_pia1_6821
-      kind: handler
-      name: on_sam_audio_level
-
-  - from:
-      component: coco1_pia1_6821
-      kind: signal
-      name: audio_level
-    to:
-      component: speaker_coco
-      kind: handler
-      name: on_audio_level
-
-  - from:
-      component: speaker_coco
-      kind: signal
-      name: pcm_sample
-    to:
-      component: host_coco
-      kind: handler
-      name: audio_pcm
-
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: keyboard_read_row
+  to:
+    component: keyboard_coco
+    kind: callback
+    name: read_row
+- from:
+    component: keyboard_coco
+    kind: callback
+    name: host_matrix
+  to:
+    component: host_coco
+    kind: callback
+    name: keyboard_matrix
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: joystick_read_axis
+  to:
+    component: gameport_coco
+    kind: callback
+    name: read_axis
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: joystick_read_button
+  to:
+    component: gameport_coco
+    kind: callback
+    name: read_button
+- from:
+    component: coco1_pia0_6821
+    kind: callback
+    name: keyboard_read_row
+  to:
+    component: keyboard_coco
+    kind: callback
+    name: read_row
+- from:
+    component: coco1_pia0_6821
+    kind: callback
+    name: joystick_read_axis
+  to:
+    component: gameport_coco
+    kind: callback
+    name: read_axis
+- from:
+    component: coco1_pia0_6821
+    kind: callback
+    name: joystick_read_button
+  to:
+    component: gameport_coco
+    kind: callback
+    name: read_button
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: cart_firq_eval
+  to:
+    component: coco1_cart_expansion
+    kind: callback
+    name: firq_route_eval
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: pia1_compute_audio
+  to:
+    component: coco1_pia1_6821
+    kind: callback
+    name: compute_audio_level
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: pia1_irq_fire_mask
+  to:
+    component: coco1_pia1_6821
+    kind: callback
+    name: irq_fire_mask
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: pia1_read_reg
+  to:
+    component: coco1_pia1_6821
+    kind: callback
+    name: read_reg
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: pia1_write_reg
+  to:
+    component: coco1_pia1_6821
+    kind: callback
+    name: write_reg
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: pia0_clock_irq_edge
+  to:
+    component: coco1_pia0_6821
+    kind: callback
+    name: clock_irq_edge
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: pia0_irq_fire_mask
+  to:
+    component: coco1_pia0_6821
+    kind: callback
+    name: irq_fire_mask
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: pia0_read_reg
+  to:
+    component: coco1_pia0_6821
+    kind: callback
+    name: read_reg
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: pia0_write_reg
+  to:
+    component: coco1_pia0_6821
+    kind: callback
+    name: write_reg
+- from:
+    component: coco1_sam_6883
+    kind: callback
+    name: raise_interrupt
+  to:
+    component: coco1_sam_6883
+    kind: callback
+    name: raise_interrupt
+- from:
+    component: gameport_coco
+    kind: callback
+    name: host_axis
+  to:
+    component: host_coco
+    kind: callback
+    name: joystick_axis
+- from:
+    component: gameport_coco
+    kind: callback
+    name: host_button
+  to:
+    component: host_coco
+    kind: callback
+    name: joystick_button
+- from:
+    component: coco1_sam_6883
+    kind: signal
+    name: frame_ready
+  to:
+    component: coco1_vdg_6847
+    kind: handler
+    name: on_sam_frame_ready
+- from:
+    component: coco1_vdg_6847
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_coco
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_coco
+    kind: signal
+    name: frame_present
+  to:
+    component: tv
+    kind: handler
+    name: on_frame_present
+- from:
+    component: coco1_sam_6883
+    kind: signal
+    name: irq_edge
+  to:
+    component: coco1_pia0_6821
+    kind: handler
+    name: on_sam_irq_edge
+- from:
+    component: coco1_pia0_6821
+    kind: signal
+    name: irq_edge
+  to:
+    component: host_coco
+    kind: handler
+    name: irq_edge
+- from:
+    component: coco1_sam_6883
+    kind: signal
+    name: audio_level
+  to:
+    component: coco1_pia1_6821
+    kind: handler
+    name: on_sam_audio_level
+- from:
+    component: coco1_pia1_6821
+    kind: signal
+    name: audio_level
+  to:
+    component: speaker
+    kind: handler
+    name: on_audio_level
+- from:
+    component: speaker
+    kind: signal
+    name: pcm_sample
+  to:
+    component: tv
+    kind: handler
+    name: on_audio_level
+- from:
+    component: tv
+    kind: signal
+    name: frame_present
+  to:
+    component: host_coco
+    kind: handler
+    name: video_frame
+- from:
+    component: tv
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_coco
+    kind: handler
+    name: audio_pcm
 audio:
   sample_rate: 44100
   format: s16le
   channels: 1
-
 integrations:
   profile: coco1_default
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

@@ -19,3 +19,5 @@ log/
 _ptmp*
 imgui.ini
 .tmp_opcode_behavior/
+/tools/debugger_tui/target_perf_verify
+/tools/debugger_tui/target

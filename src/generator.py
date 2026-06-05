@@ -519,8 +519,17 @@ int main(int argc, char *argv[]) {{
         # Keep debugger-link behavior aligned with codegen/build backends.
         if host_backend_target == "sdl2" and "SDL2" not in link_library_names:
             link_library_names.append("SDL2")
-        if host_backend_target == "glfw" and "glfw" not in link_library_names:
-            link_library_names.append("glfw")
+        if host_backend_target == "glfw":
+            glfw_lib = "glfw3dll" if os.name == "nt" else "glfw"
+            if glfw_lib not in link_library_names:
+                link_library_names.append(glfw_lib)
+            opengl_lib = "opengl32" if os.name == "nt" else "GL"
+            if opengl_lib not in link_library_names:
+                link_library_names.append(opengl_lib)
+            if os.name == "nt" and "winmm" not in link_library_names:
+                link_library_names.append("winmm")
+            if sys.platform.startswith("linux") and "asound" not in link_library_names:
+                link_library_names.append("asound")
 
         is_windows = os.name == "nt"
         if is_windows:

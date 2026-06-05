@@ -6,14 +6,22 @@ if not defined PROFILE set "PROFILE=interactive"
 
 if not defined START_PC set "START_PC="
 if not defined MEMORY_SIZE set "MEMORY_SIZE=65536"
-if not defined EXTRA_CARGO_ARGS set "EXTRA_CARGO_ARGS="
+if not defined EXTRA_CARGO_ARGS set "EXTRA_CARGO_ARGS=--release"
+if not defined EXTRA_CMAKE_ARGS set "EXTRA_CMAKE_ARGS="
+if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
 if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/bbcmicro/host_keyboard_bbc_micro.yaml"
 if not defined UV_CACHE_DIR set "UV_CACHE_DIR=.uv-cache"
 if not defined RUST_BACKTRACE set "RUST_BACKTRACE=1"
 if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=1"
-if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
+set "PASM_TRACE=0"
+set "PASM_TRACE_FILE="
+set "PASM_BBC_IO_TRACE=0"
+set "PASM_BBC_IO_TRACE_FILE="
+set "PASM_BBC_KB_TRACE=0"
+set "PASM_BBC_KB_TRACE_FILE="
+if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 if not defined HOST_FILE set "HOST_FILE="
 
 set "SCRIPT_DIR=%~dp0"
@@ -58,7 +66,64 @@ if /I "%PROFILE%"=="default" (
 if not defined OUTPUT_DIR set "OUTPUT_DIR=%DEFAULT_OUTPUT%"
 set "BUILD_DIR=%OUTPUT_DIR%/build"
 for %%I in ("%OUTPUT_DIR%") do set "OUTPUT_DIR_ABS=%%~fI"
-if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%" >nul 2>&1
+for %%I in ("%BUILD_DIR%") do set "BUILD_DIR_ABS=%%~fI"
+set "CMAKE_CONFIG_BUILD_DIR=%BUILD_DIR%\%CMAKE_BUILD_TYPE%"
+for %%I in ("%CMAKE_CONFIG_BUILD_DIR%") do set "CMAKE_CONFIG_BUILD_DIR_ABS=%%~fI"
+
+if "%CLEAN_GENERATED%"=="1" (
+  if exist "%OUTPUT_DIR%" rmdir /s /q "%OUTPUT_DIR%"
+)
+
+if not defined EXTRA_CMAKE_ARGS (
+  if defined VCPKG_ROOT (
+    set "VCPKG_CMAKE_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake"
+    if exist "%VCPKG_CMAKE_FILE%" (
+      set "VCPKG_CMAKE_FILE=%VCPKG_CMAKE_FILE:\=/%"
+      set "EXTRA_CMAKE_ARGS=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_CMAKE_FILE% -DVCPKG_TARGET_TRIPLET=%VCPKG_TARGET_TRIPLET%"
+    )
+  ) else (
+    if exist "D:\Development\vcpkg\scripts\buildsystems\vcpkg.cmake" (
+      set "EXTRA_CMAKE_ARGS=-DCMAKE_TOOLCHAIN_FILE=D:/Development/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=%VCPKG_TARGET_TRIPLET%"
+    )
+  )
+)
+
+set "VCPKG_INSTALLED_TRIPLET_DIR="
+if defined VCPKG_ROOT (
+  if exist "%VCPKG_ROOT%\installed\%VCPKG_TARGET_TRIPLET%" (
+    set "VCPKG_INSTALLED_TRIPLET_DIR=%VCPKG_ROOT%\installed\%VCPKG_TARGET_TRIPLET%"
+  )
+) else (
+  if exist "D:\Development\vcpkg\installed\%VCPKG_TARGET_TRIPLET%" (
+    set "VCPKG_INSTALLED_TRIPLET_DIR=D:\Development\vcpkg\installed\%VCPKG_TARGET_TRIPLET%"
+  )
+)
+
+if defined VCPKG_INSTALLED_TRIPLET_DIR (
+  if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\include" (
+    set "INCLUDE=%VCPKG_INSTALLED_TRIPLET_DIR%\include;%INCLUDE%"
+  )
+  if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\lib" (
+    set "LIB=%VCPKG_INSTALLED_TRIPLET_DIR%\lib;%LIB%"
+  )
+  if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\debug\lib" (
+    set "LIB=%VCPKG_INSTALLED_TRIPLET_DIR%\debug\lib;%LIB%"
+  )
+  if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\bin" (
+    set "PATH=%VCPKG_INSTALLED_TRIPLET_DIR%\bin;%PATH%"
+  )
+)
+
+if not defined PASM_EMU_EXTRA_LIB_DIRS (
+  if defined VCPKG_INSTALLED_TRIPLET_DIR (
+    if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\lib" (
+      set "PASM_EMU_EXTRA_LIB_DIRS=%VCPKG_INSTALLED_TRIPLET_DIR%\lib"
+      if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\debug\lib" (
+        set "PASM_EMU_EXTRA_LIB_DIRS=%PASM_EMU_EXTRA_LIB_DIRS%,%VCPKG_INSTALLED_TRIPLET_DIR%\debug\lib"
+      )
+    )
+  )
+)
 
 echo [1/3] Generating emulator -^> %OUTPUT_DIR%
 set "UV_CACHE_DIR=%UV_CACHE_DIR%"
@@ -84,7 +149,7 @@ uv run python -m src.main generate ^
 if errorlevel 1 exit /b %errorlevel%
 
 echo [2/3] Building emulator with CMake -^> %BUILD_DIR%
-cmake -S "%OUTPUT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE="%CMAKE_BUILD_TYPE%"
+cmake -S "%OUTPUT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE="%CMAKE_BUILD_TYPE%" %EXTRA_CMAKE_ARGS%
 if errorlevel 1 exit /b %errorlevel%
 cmake --build "%BUILD_DIR%" --config "%CMAKE_BUILD_TYPE%"
 if errorlevel 1 exit /b %errorlevel%
@@ -95,7 +160,16 @@ echo     keyboard_map=%KEYBOARD_MAP%
 echo     host_file=%HOST_FILE%
 
 set "PASM_EMU_DIR=%OUTPUT_DIR_ABS%"
+set "PASM_EMU_BUILD_DIR=%BUILD_DIR_ABS%"
+if exist "%CMAKE_CONFIG_BUILD_DIR%" set "PASM_EMU_BUILD_DIR=%CMAKE_CONFIG_BUILD_DIR_ABS%"
+set "PASM_EMU_MANIFEST=%OUTPUT_DIR_ABS%\debugger_link.json"
 set "PASM_HOST_AUDIO=%PASM_HOST_AUDIO%"
+set "PASM_TRACE=%PASM_TRACE%"
+set "PASM_TRACE_FILE=%PASM_TRACE_FILE%"
+set "PASM_BBC_IO_TRACE=%PASM_BBC_IO_TRACE%"
+set "PASM_BBC_IO_TRACE_FILE=%PASM_BBC_IO_TRACE_FILE%"
+set "PASM_BBC_KB_TRACE=%PASM_BBC_KB_TRACE%"
+set "PASM_BBC_KB_TRACE_FILE=%PASM_BBC_KB_TRACE_FILE%"
 set "RUST_BACKTRACE=%RUST_BACKTRACE%"
 
 if defined START_PC (

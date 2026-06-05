@@ -23,6 +23,12 @@ KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/bbcmicro/host_keyboard_bbc_micro.ya
 UV_CACHE_DIR="${UV_CACHE_DIR:-.uv-cache}"
 RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
+PASM_TRACE="0"
+PASM_TRACE_FILE=""
+PASM_BBC_IO_TRACE="0"
+PASM_BBC_IO_TRACE_FILE=""
+PASM_BBC_KB_TRACE="0"
+PASM_BBC_KB_TRACE_FILE=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -94,7 +100,7 @@ UV_CACHE_DIR="${UV_CACHE_DIR}" uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST_FILE}" \
-  --host-backend "${HOST_BACKEND:-sdl2}" \
+  --host-backend "${HOST_BACKEND:-glfw}" \
   --output "${OUTPUT_DIR}"
 
 echo "[2/3] Building emulator with CMake -> ${BUILD_DIR}"
@@ -119,6 +125,12 @@ fi
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
+PASM_TRACE="${PASM_TRACE}" \
+PASM_TRACE_FILE="${PASM_TRACE_FILE}" \
+PASM_BBC_IO_TRACE="${PASM_BBC_IO_TRACE}" \
+PASM_BBC_IO_TRACE_FILE="${PASM_BBC_IO_TRACE_FILE}" \
+PASM_BBC_KB_TRACE="${PASM_BBC_KB_TRACE}" \
+PASM_BBC_KB_TRACE_FILE="${PASM_BBC_KB_TRACE_FILE}" \
 RUST_BACKTRACE="${RUST_BACKTRACE}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   "${RUN_ARGS[@]}"

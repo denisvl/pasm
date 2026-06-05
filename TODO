@@ -1,0 +1,536 @@
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_debug_abi.py
+            "def _architecture_const(isa_data: Dict[str, Any]) -> str:
+                metadata = isa_data.get("metadata", {})
+                if not isinstance(metadata, dict):
+                    raise ValueError("ISA metadata must be an object")
+                codegen = metadata.get("codegen")
+                if not isinstance(codegen, dict):
+                    raise ValueError("ISA metadata.codegen must be an object")
+                arch_id = str(codegen.get("architecture_id", "")).strip()
+                mapping = {
+                    "z80": "PASM_ARCH_Z80",
+                    "mos6502": "PASM_ARCH_MOS6502",
+                    "mos6510": "PASM_ARCH_MOS6510",
+                    "mc6809": "PASM_ARCH_MC6809",
+                    "m68000": "PASM_ARCH_MOTOROLA68000",
+                    "ricoh2a03": "PASM_ARCH_RICOH2A03",
+                    "unknown": "PASM_ARCH_UNKNOWN",
+                }
+                if arch_id not in mapping:
+                    raise ValueError(f"Unsupported metadata.codegen.architecture_id: {arch_id}")
+                return mapping[arch_id]"
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_debug_abi.py
+
+            "typedef enum {{
+                PASM_ARCH_Z80 = 0,
+                PASM_ARCH_MOS6502 = 1,
+                PASM_ARCH_MOS6510 = 2,
+                PASM_ARCH_MOTOROLA68000 = 3,
+                PASM_ARCH_RICOH2A03 = 4,
+                PASM_ARCH_MC6809 = 5,
+                PASM_ARCH_UNKNOWN = 255,
+            }} PASMArchitecture;"
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_debug_abi.py
+            
+            "...
+            if interrupt_model == "z80":
+                interrupt_assign = [
+                    "    out_core->interrupt_mode = cpu->interrupt_mode;",
+                    "    out_core->iff1 = cpu->interrupts_enabled ? 1u : 0u;",
+                    "    out_core->iff2 = cpu->interrupt_pending ? 1u : 0u;",
+                ]
+            elif interrupt_model != "none":
+                interrupt_assign = [
+                    "    out_core->interrupt_mode = 0u;",
+                    "    out_core->iff1 = cpu->interrupts_enabled ? 1u : 0u;",
+                    "    out_core->iff2 = cpu->interrupt_pending ? 1u : 0u;",
+                ]
+            else:
+                interrupt_assign = [
+                    "    out_core->interrupt_mode = 0u;",
+                    "    out_core->iff1 = 0u;",
+                    "    out_core->iff2 = 0u;",
+                ]
+            ..."
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_header.py
+                        
+            "def _generate_interrupt_state_fields(isa_data: Dict[str, Any]) -> str:
+                """Generate interrupt-related state fields based on interrupt model."""
+                model = resolve_interrupt_model(isa_data)
+
+                if model == "none":
+                    return "    /* Interrupt model: none */"
+
+                lines = []
+                if model == "z80":
+                    lines.append("    uint8_t interrupt_mode;")
+
+                lines.extend(
+                    [
+                        "    uint8_t interrupt_vector;",
+                        "    bool interrupts_enabled;",
+                        "    bool interrupt_pending;",
+                    ]
+                )
+                if model == "mos6502":
+                    lines.extend(
+                        [
+                            "    bool irq_pending;",
+                            "    bool nmi_pending;",
+                        ]
+                    )
+                return "\n".join(lines)"
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_header.py
+
+            "def _generate_interrupt_api(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
+                """Generate interrupt API declarations based on interrupt model."""
+                model = resolve_interrupt_model(isa_data)
+
+                lines = [f"void {cpu_prefix}_interrupt(CPUState *cpu, uint8_t vector);"]
+                if model == "z80":
+                    lines.append(f"void {cpu_prefix}_set_interrupt_mode(CPUState *cpu, uint8_t mode);")
+                lines.append(f"void {cpu_prefix}_set_irq(CPUState *cpu, bool enabled);")
+
+                return "\n".join(lines)"
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_impl.py
+
+            "if kind == "hex8":
+                if numeric_style == "asm_dollar":
+                    lines.append(
+                        f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "$%02X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                    )
+                elif numeric_style == "z80_h":
+                    lines.append(
+                        f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%02Xh", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                    )
+                else:
+                    lines.append(
+                        f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "0x%02X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                    )
+            elif kind == "hex8_plain":
+                lines.append(
+                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%02X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                )
+            elif kind == "hex16":
+                if numeric_style == "asm_dollar":
+                    lines.append(
+                        f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "$%04X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                    )
+                elif numeric_style == "z80_h":
+                    lines.append(
+                        f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%04Xh", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                    )
+                else:
+                    lines.append(
+                        f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "0x%04X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                    )
+            elif kind == "hex16_plain":
+                lines.append(
+                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%04X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                )
+            elif kind == "hex8_asm":
+                lines.append(
+                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "$%02X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                )
+            elif kind == "hex16_asm":
+                lines.append(
+                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "$%04X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                )
+            elif kind == "hex32":
+                lines.append(
+                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "0x%08X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                )
+            elif kind == "signed8":
+                lines.append(
+                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%+d", (int)((int8_t)(((uint32_t){field_ref}) & 0x{mask:X}u)));'
+                )
+            elif kind == "signed16":
+                lines.append(
+                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%+d", (int)((int16_t)(((uint32_t){field_ref}) & 0x{mask:X}u)));'
+                )
+            elif kind == "mc6809_idx":
+                lines.append(
+                    f"{indent}    dbg_mc6809_format_indexed((uint8_t)(((uint32_t){field_ref}) & 0x{mask:X}u), pc, raw, prefix, {buf_name}, sizeof({buf_name}));"
+                )
+            elif kind == "mc6809_pshs_mask":
+                lines.append(
+                    f'{indent}    dbg_mc6809_format_stack_mask((uint8_t)(((uint32_t){field_ref}) & 0x{mask:X}u), "U", 0u, {buf_name}, sizeof({buf_name}));'
+                )
+            elif kind == "mc6809_puls_mask":
+                lines.append(
+                    f'{indent}    dbg_mc6809_format_stack_mask((uint8_t)(((uint32_t){field_ref}) & 0x{mask:X}u), "U", 1u, {buf_name}, sizeof({buf_name}));'
+                )
+            elif kind == "mc6809_pshu_mask":
+                lines.append(
+                    f'{indent}    dbg_mc6809_format_stack_mask((uint8_t)(((uint32_t){field_ref}) & 0x{mask:X}u), "S", 0u, {buf_name}, sizeof({buf_name}));'
+                )
+            elif kind == "mc6809_pulu_mask":
+                lines.append(
+                    f'{indent}    dbg_mc6809_format_stack_mask((uint8_t)(((uint32_t){field_ref}) & 0x{mask:X}u), "S", 1u, {buf_name}, sizeof({buf_name}));'
+                )
+            else:  # unsigned
+                lines.append(
+                    f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%u", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
+                )
+            lines.append(f"{indent}    {op_name} = {buf_name};")"
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_impl.py
+
+            "def _codegen_numeric_style(isa_data: Dict[str, Any]) -> str:
+                style = str(_require_codegen_config(isa_data).get("numeric_style", "")).strip()
+                if style not in {"c_hex", "asm_dollar", "z80_h"}:
+                    raise ValueError(
+                        "metadata.codegen.numeric_style must be one of: c_hex, asm_dollar, z80_h"
+                    )
+                return style
+
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_impl.py
+
+            def _codegen_flags_dump_style(isa_data: Dict[str, Any]) -> str:
+                style = str(_require_codegen_config(isa_data).get("flags_dump_style", "")).strip()
+                if style not in {"raw", "z80_compact"}:
+                    raise ValueError(
+                        "metadata.codegen.flags_dump_style must be one of: raw, z80_compact"
+                    )
+                return style"
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_impl.py
+
+            "def _generate_debug_flags_expr(isa_data: Dict[str, Any]) -> str:
+                """Generate expression used by dump_registers() when printing flags."""
+                style = _codegen_flags_dump_style(isa_data)
+                if style == "raw":
+                    return "cpu->flags.raw"
+                if style == "z80_compact":
+                    return (
+                    "(uint8_t)((((cpu->flags.raw >> 7) & 1u) << 0) | "
+                    "(((cpu->flags.raw >> 6) & 1u) << 1) | "
+                    "(((cpu->flags.raw >> 4) & 1u) << 2) | "
+                    "(((cpu->flags.raw >> 2) & 1u) << 3) | "
+                    "(((cpu->flags.raw >> 1) & 1u) << 4) | "
+                    "(((cpu->flags.raw >> 0) & 1u) << 5))"
+                    )
+                raise ValueError(f"Unsupported metadata.codegen.flags_dump_style: {style}")"
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_impl.py
+
+            "def _generate_helpers(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
+                """Generate helper functions."""
+                lines: List[str] = []
+                interrupt_model = resolve_interrupt_model(isa_data)
+
+                registers = isa_data.get("registers", [])
+                register_count = len(registers)
+
+                if register_count > 0:
+                    lines.append(
+                        f"static uint8_t {cpu_prefix}_get_r8(CPUState *cpu, uint8_t idx) {{"
+                    )
+                    lines.append(f"    return cpu->registers[idx % {register_count}];")
+                    lines.append("}")
+                    lines.append("")
+                    lines.append(
+                        f"static void {cpu_prefix}_set_r8(CPUState *cpu, uint8_t idx, uint8_t val) {{"
+                    )
+                    lines.append(f"    cpu->registers[idx % {register_count}] = val;")
+                    lines.append("}")
+                    lines.append("")
+
+                # Parity helper
+                lines.append("static bool cpu_parity(uint8_t val) {")
+                lines.append("    val ^= val >> 4;")
+                lines.append("    val ^= val >> 2;")
+                lines.append("    val ^= val >> 1;")
+                lines.append("    return (val & 1) == 0;")
+                lines.append("}")
+                lines.append("")
+
+                register_names = {
+                    str(register.get("name", "")).upper() for register in isa_data.get("registers", [])
+                }
+                has_bank_exec = "BANK_EXEC" in register_names
+
+                if has_bank_exec:
+                    lines.append("static uint8_t cpu_fetch_byte(CPUState *cpu, uint16_t addr) {")
+                    lines.append(
+                        "    uint32_t phys = (((uint32_t)cpu->registers[REG_BANK_EXEC]) << 16) | (uint32_t)addr;"
+                    )
+                    lines.append("    if (phys < (uint32_t)cpu->memory_size) {")
+                    lines.append("        return cpu->memory[phys];")
+                    lines.append("    }")
+                    lines.append(f"    return {cpu_prefix}_read_byte(cpu, addr);")
+                    lines.append("}")
+                    lines.append("")
+
+                available_flags = {f.get("name", "").upper() for f in isa_data.get("flags", [])}
+                z_expr = _flag_expr("Z", available_flags)
+                c_expr = _flag_expr("C", available_flags)
+                p_expr = _flag_expr("P", available_flags)
+                s_expr = _flag_expr("S", available_flags)
+
+                # Basic Z80-style condition helper.
+                lines.append("static bool cpu_check_condition(CPUState *cpu, uint8_t cc) {")
+                lines.append("    switch (cc) {")
+                lines.append(f"        case 0: return !({z_expr});")
+                lines.append(f"        case 1: return {z_expr};")
+                lines.append(f"        case 2: return !({c_expr});")
+                lines.append(f"        case 3: return {c_expr};")
+                lines.append(f"        case 4: return !({p_expr});")
+                lines.append(f"        case 5: return {p_expr};")
+                lines.append(f"        case 6: return !({s_expr});")
+                lines.append(f"        case 7: return {s_expr};")
+                lines.append("    }")
+                lines.append("    return false;")
+                lines.append("}")
+                lines.append("")
+
+                # Breakpoint check helper
+                lines.append("static bool cpu_check_breakpoints(CPUState *cpu) {")
+                lines.append("    for (int i = 0; i < cpu->num_break_points; i++) {")
+                lines.append("        if (cpu->break_points[i] == cpu->pc) return true;")
+                lines.append("    }")
+                lines.append("    return false;")
+                lines.append("}")
+                lines.append("")
+
+                if interrupt_model == "mos6502":
+                    lines.append("static void cpu_apply_mos6502_runtime_cycles(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before, uint8_t x_before, uint8_t y_before, uint8_t c_before, uint8_t z_before, uint8_t n_before, uint8_t v_before) {")
+                    lines.append("    switch (inst->opcode) {")
+                    lines.append("        /* Branches: +1 when taken, +1 more when target crosses page. */")
+                    lines.append("        case 0x10u: case 0x30u: case 0x50u: case 0x70u:")
+                    lines.append("        case 0x90u: case 0xB0u: case 0xD0u: case 0xF0u: {")
+                    lines.append("            uint8_t taken = 0u;")
+                    lines.append("            switch (inst->opcode) {")
+                    lines.append("                case 0x10u: taken = (uint8_t)(n_before == 0u); break; /* BPL */")
+                    lines.append("                case 0x30u: taken = (uint8_t)(n_before != 0u); break; /* BMI */")
+                    lines.append("                case 0x50u: taken = (uint8_t)(v_before == 0u); break; /* BVC */")
+                    lines.append("                case 0x70u: taken = (uint8_t)(v_before != 0u); break; /* BVS */")
+                    lines.append("                case 0x90u: taken = (uint8_t)(c_before == 0u); break; /* BCC */")
+                    lines.append("                case 0xB0u: taken = (uint8_t)(c_before != 0u); break; /* BCS */")
+                    lines.append("                case 0xD0u: taken = (uint8_t)(z_before == 0u); break; /* BNE */")
+                    lines.append("                case 0xF0u: taken = (uint8_t)(z_before != 0u); break; /* BEQ */")
+                    lines.append("                default: break;")
+                    lines.append("            }")
+                    lines.append("            if (taken != 0u) {")
+                    lines.append("                uint16_t seq_pc = (uint16_t)(pc_before + inst->length);")
+                    lines.append("                uint16_t target_pc = (uint16_t)(seq_pc + (int16_t)(int8_t)inst->rel);")
+                    lines.append("                inst->cycles = (uint8_t)(inst->cycles + 1u);")
+                    lines.append("                if (((seq_pc ^ target_pc) & 0xFF00u) != 0u) {")
+                    lines.append("                    inst->cycles = (uint8_t)(inst->cycles + 1u);")
+                    lines.append("                }")
+                    lines.append("            }")
+                    lines.append("            return;")
+                    lines.append("        }")
+                    lines.append("")
+                    lines.append("        /* ABS,X read-like ops: +1 on page cross. */")
+                    lines.append("        case 0x1Cu: case 0x1Du: case 0x3Cu: case 0x3Du:")
+                    lines.append("        case 0x5Cu: case 0x5Du: case 0x7Cu: case 0x7Du:")
+                    lines.append("        case 0xBCu: case 0xBDu: case 0xDCu: case 0xDDu:")
+                    lines.append("        case 0xFCu: case 0xFDu: {")
+                    lines.append("            uint16_t ea = (uint16_t)(inst->addr + (uint16_t)x_before);")
+                    lines.append("            if (((inst->addr ^ ea) & 0xFF00u) != 0u) {")
+                    lines.append("                inst->cycles = (uint8_t)(inst->cycles + 1u);")
+                    lines.append("            }")
+                    lines.append("            return;")
+                    lines.append("        }")
+                    lines.append("")
+                    lines.append("        /* ABS,Y read-like ops: +1 on page cross. */")
+                    lines.append("        case 0x19u: case 0x39u: case 0x59u: case 0x79u:")
+                    lines.append("        case 0xB9u: case 0xBBu: case 0xBEu: case 0xBFu:")
+                    lines.append("        case 0xD9u: case 0xF9u: {")
+                    lines.append("            uint16_t ea = (uint16_t)(inst->addr + (uint16_t)y_before);")
+                    lines.append("            if (((inst->addr ^ ea) & 0xFF00u) != 0u) {")
+                    lines.append("                inst->cycles = (uint8_t)(inst->cycles + 1u);")
+                    lines.append("            }")
+                    lines.append("            return;")
+                    lines.append("        }")
+                    lines.append("")
+                    lines.append("        /* (ZP),Y read-like ops: +1 on page cross. */")
+                    lines.append("        case 0x11u: case 0x31u: case 0x51u: case 0x71u:")
+                    lines.append("        case 0xB1u: case 0xB3u: case 0xD1u: case 0xF1u: {")
+                    lines.append(f"            uint8_t lo = {cpu_prefix}_read_byte(cpu, (uint16_t)inst->zp);")
+                    lines.append(f"            uint8_t hi = {cpu_prefix}_read_byte(cpu, (uint16_t)((uint8_t)(inst->zp + 1u)));")
+                    lines.append("            uint16_t base = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);")
+                    lines.append("            uint16_t ea = (uint16_t)(base + (uint16_t)y_before);")
+                    lines.append("            if (((base ^ ea) & 0xFF00u) != 0u) {")
+                    lines.append("                inst->cycles = (uint8_t)(inst->cycles + 1u);")
+                    lines.append("            }")
+                    lines.append("            return;")
+                    lines.append("        }")
+                    lines.append("")
+                    lines.append("        default:")
+                    lines.append("            return;")
+                    lines.append("    }")
+                    lines.append("}")
+
+                return "\n".join(lines)"
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_impl.py
+
+            "def _generate_interrupt_reset(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
+                """Generate interrupt reset block based on interrupt model."""
+                model = resolve_interrupt_model(isa_data)
+
+                if model == "none":
+                    return "    /* Interrupt model: none */"
+
+                lines: List[str] = []
+                if model == "z80":
+                    lines.append("    cpu->interrupt_mode = 0;")
+
+                lines.extend(["    cpu->interrupt_vector = 0;"])
+                if model == "mos6502":
+                    # Keep the 6502 family reset baseline consistent with existing opcode
+                    # behavior references (unused/status bit 2 set).
+                    lines.append("    cpu->sp = 0xFDu;")
+                    lines.append("    cpu->flags.raw = 0x04u;")
+                if model == "mc6809":
+                    # MC6809 RESET masks both IRQ (I) and FIRQ (F).
+                    lines.append("    cpu->flags.I = true;")
+                    lines.append("    cpu->flags.F = true;")
+                lines.extend(
+                    [
+                        "    cpu->interrupts_enabled = false;",
+                        "    cpu->interrupt_pending = false;",
+                    ]
+                )
+                if model == "mos6502":
+                    lines.append("    cpu->irq_pending = false;")
+                    lines.append("    cpu->nmi_pending = false;")
+                return "\n".join(lines)"
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_impl.py
+
+            "def _generate_interrupt_reset_post(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
+                """Generate reset assignments that must happen after component reset."""
+                model = resolve_interrupt_model(isa_data)
+                if model == "mos6502":
+                    return f"    cpu->pc = {cpu_prefix}_read_word(cpu, 0xFFFCu);"
+                return """
+
+            "def _generate_interrupt_impl(isa_data: Dict[str, Any], cpu_prefix: str) -> str:
+                """Generate interrupt API implementation based on interrupt model."""
+                model = resolve_interrupt_model(isa_data)
+                lines: List[str] = []
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_impl.py
+
+                if model == "none":
+                    lines.append(f"void {cpu_prefix}_interrupt(CPUState *cpu, uint8_t vector) {{")
+                    lines.append("    (void)cpu;")
+                    lines.append("    (void)vector;")
+                    lines.append("}")
+                    lines.append("")
+                    lines.append(f"void {cpu_prefix}_set_irq(CPUState *cpu, bool enabled) {{")
+                    lines.append("    (void)cpu;")
+                    lines.append("    (void)enabled;")
+                    lines.append("}")
+                    return "\n".join(lines)
+
+                lines.append(f"void {cpu_prefix}_interrupt(CPUState *cpu, uint8_t vector) {{")
+                if model == "mos6502":
+                    lines.append("    cpu->interrupt_vector = vector;")
+                    lines.append("    if (vector == 0xFFu) {")
+                    lines.append("        cpu->nmi_pending = true;")
+                    lines.append("    } else {")
+                    lines.append("        cpu->irq_pending = true;")
+                    lines.append("    }")
+                    lines.append("    cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);")
+                else:
+                    lines.append("    cpu->interrupt_vector = vector;")
+                    lines.append("    cpu->interrupt_pending = true;")
+                lines.append("}")
+                lines.append("")
+
+                if model == "z80":
+                    lines.append(f"void {cpu_prefix}_set_interrupt_mode(CPUState *cpu, uint8_t mode) {{")
+                    lines.append("    cpu->interrupt_mode = mode;")
+                    lines.append("}")
+                    lines.append("")
+
+                lines.append(f"void {cpu_prefix}_set_irq(CPUState *cpu, bool enabled) {{")
+                lines.append("    cpu->interrupts_enabled = enabled;")
+                lines.append("}")
+
+                return "\n".join(lines)"
+
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @cpu_impl.py
+
+            "...
+            if interrupt_model == "fixed_vector":
+                lines.append(f"        cpu->pc = 0x{fixed_vector & 0xFFFF:04X};")
+            elif interrupt_model == "z80":
+                lines.append("        uint8_t irq_mode = cpu->interrupt_mode;")
+                guard_cond = " && ".join(
+                    f"irq_mode != {interrupt_mode}" for interrupt_mode in interrupt_modes
+                )
+            ..."
+
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @interrupts.py
+
+            "SUPPORTED_INTERRUPT_MODELS = {"none", "fixed_vector", "z80", "mos6502", "mc6809"}"
+
+☑ This should not bleed into codegen, it must come from the processor yaml:
+        File: @interrupts.py
+
+            "def resolve_interrupt_model(isa_data: Dict[str, Any]) -> str:
+                """Resolve interrupt model with backwards-compatible defaults."""
+                interrupts = isa_data.get("interrupts")
+                if not isinstance(interrupts, dict):
+                    return "none"
+
+                configured = str(interrupts.get("model", "")).strip().lower()
+                if configured:
+                    if configured not in SUPPORTED_INTERRUPT_MODELS:
+                        raise ValueError(
+                            "Unsupported interrupts.model: "
+                            f"{configured}. Expected one of {sorted(SUPPORTED_INTERRUPT_MODELS)}"
+                        )
+                    return configured
+
+                # Backwards-compatible inference:
+                # - IM* mode declarations imply Z80-style dispatch.
+                # - Otherwise use a fixed vector model.
+                if configured_interrupt_modes(isa_data):
+                    return "z80"
+                return "fixed_vector""
+
+☑ Analyze the possibility to move all related audio handling (besides the system waveform generation) into a common device between all systems called "speaker".
+        Analysis:
+            - Feasible for the existing pass-through speaker devices. Most current `*_speaker.yaml` files share the same shape: state `level`/`last_cycle`, handler `on_audio_level(u8,u64)`, signal `pcm_sample(u8,u64)`, and a body that forwards the sample to the host-facing PCM signal.
+            - The common speaker should support configurable gain and frequency-range filtering. Minimum useful shape: state/config for `gain_q8_8` (or equivalent fixed-point gain), `low_cut_hz`, `high_cut_hz`, and filter state; handler should apply gain plus optional low/high/band-pass filtering before emitting `pcm_sample`.
+            - `zx48_beeper.yaml` is the ZX Spectrum 48K audio device: it owns beeper sampling cadence in `step_post` and accepts `on_beeper_level(u8)`. The ZX Spectrum 48K has no separate speaker output device, so its component ID remains `beeper`.
+            - Normal speaker output component IDs should be normalized to `speaker`; beeper sources should use a separate ID such as `beeper`. A separate common `stereo_speaker.yaml` is not needed until a system actually emits stereo source channels.
+            - Recommended next implementation: add `examples/devices/common/mono_speaker.yaml` with gain/filter support after normal speaker IDs/connections are normalized to `speaker`; add `examples/devices/common/beeper_adapter.yaml` only for systems that need a generic beeper adapter contract.
+
+☑ Implement physical TV/Monitor output device metadata and common model definitions.
+        Completed:
+            - Added schema support for `metadata.display` with TV/monitor kind, CRT/LCD technology, model, max resolution, inches, color count, frequency, filter function, monitor flag, and optional phosphor color.
+            - Added schema support for `metadata.audio_output` with mono/stereo channel mode, frequency filter range, gain, mute, volume, and eighties OSD metadata.
+            - Added common TV device models with literal `metadata.id: tv`; TVs always include audio, with mono and stereo variants.
+            - Added common monitor device models with literal `metadata.id: monitor`; monitors include silent and audio-capable variants.
+            - Added optional `system.display` metadata for startup default display model selection and runtime-switchable model lists.
+            - Added contract tests for CRT/LCD display models, TV mono/stereo audio, mono-to-stereo duplication, silent/audio monitor behavior, literal display IDs, and ZX Spectrum beeper separation.

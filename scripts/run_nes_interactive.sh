@@ -84,7 +84,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
-  --host-backend "${HOST_BACKEND:-sdl2}" \
+  --host-backend "${HOST_BACKEND:-glfw}" \
   --cartridge-map "${CARTRIDGE_MAP}" \
   --cartridge-rom "${CARTRIDGE_ROM_GEN}" \
   --output "${OUTPUT_DIR}"

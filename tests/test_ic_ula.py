@@ -27,7 +27,7 @@ def _zx_paths() -> tuple[
         BASE_DIR / "examples" / "devices" / "zx_spectrum48k" / "zx48_keyboard.yaml",
         BASE_DIR / "examples" / "devices" / "zx_spectrum48k" / "zx48_controller.yaml",
         BASE_DIR / "examples" / "devices" / "zx_spectrum48k" / "zx48_video.yaml",
-        BASE_DIR / "examples" / "devices" / "zx_spectrum48k" / "zx48_speaker.yaml",
+        BASE_DIR / "examples" / "devices" / "zx_spectrum48k" / "zx48_beeper.yaml",
         BASE_DIR / "examples" / "devices" / "zx_spectrum48k" / "zx48_mic.yaml",
     ]
     host_paths = [
@@ -46,7 +46,7 @@ def test_component_graph_validates_with_z80():
         [str(path) for path in host_paths],
     )
     assert len(data["ics"]) == 3
-    assert len(data["devices"]) == 5
+    assert len(data["devices"]) == 6
     assert len(data["hosts"]) == 1
     assert data["components"]["ics"] == ["ula0", "zx48_loram", "zx48_hiram"]
     assert data["components"]["hosts"] == ["host0"]
@@ -55,7 +55,7 @@ def test_component_graph_validates_with_z80():
 def test_system_component_set_mismatch_fails(tmp_path):
     processor_path, system_path, ic_paths, device_paths, host_paths = _zx_paths()
     system_data = yaml.safe_load(system_path.read_text(encoding="utf-8"))
-    system_data["components"]["devices"] = ["keyboard0", "controller_zx48", "video0", "speaker0"]
+    system_data["components"]["devices"] = ["keyboard0", "controller_zx48", "video0", "beeper"]
     bad_system = tmp_path / "bad_system.yaml"
     bad_system.write_text(yaml.safe_dump(system_data, sort_keys=False), encoding="utf-8")
 

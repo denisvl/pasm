@@ -28,7 +28,8 @@ components:
   devices:
   - controller_atari2600
   - video_atari2600
-  - speaker_atari2600
+  - speaker
+  - tv
   hosts:
   - host_atari2600
   cartridge: atari2600_cart0
@@ -166,19 +167,35 @@ connections:
     kind: signal
     name: frame_present
   to:
-    component: host_atari2600
+    component: tv
     kind: handler
-    name: video_frame
+    name: on_frame_present
 - from:
     component: atari2600_tia
     kind: signal
     name: audio_level
   to:
-    component: speaker_atari2600
+    component: speaker
     kind: handler
     name: on_audio_level
 - from:
-    component: speaker_atari2600
+    component: speaker
+    kind: signal
+    name: pcm_sample
+  to:
+    component: tv
+    kind: handler
+    name: on_audio_level
+- from:
+    component: tv
+    kind: signal
+    name: frame_present
+  to:
+    component: host_atari2600
+    kind: handler
+    name: video_frame
+- from:
+    component: tv
     kind: signal
     name: pcm_sample
   to:
@@ -191,3 +208,22 @@ audio:
   channels: 1
 integrations:
   profile: atari2600_interactive
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

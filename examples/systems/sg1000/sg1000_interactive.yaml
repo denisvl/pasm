@@ -1,22 +1,19 @@
 metadata:
   name: Z80SG1000InteractiveSystem
-  version: "0.1"
-
+  version: '0.1'
 clock_hz: 3579545
 reset_delay_seconds: 0
-
 memory:
   default_size: 65536
   regions:
-    - name: CART_ROM_48K
-      start: 0x0000
-      size: 0xC000
-      read_only: true
-    - name: RAM_MAIN_16K
-      start: 0xC000
-      size: 0x4000
-      read_write: true
-
+  - name: CART_ROM_48K
+    start: 0
+    size: 49152
+    read_only: true
+  - name: RAM_MAIN_16K
+    start: 49152
+    size: 16384
+    read_write: true
 hooks:
   pre_fetch:
     enabled: false
@@ -32,89 +29,106 @@ hooks:
     enabled: false
   port_write_post:
     enabled: false
-
 components:
   ics:
-    - sg_bus0
-    - sg_ram0
-    - sg_vdp0
-    - sg_joy0
-    - sg_psg0
+  - sg_bus0
+  - sg_ram0
+  - sg_vdp0
+  - sg_joy0
+  - sg_psg0
   devices:
-    - video_sms
-    - speaker_sms
+  - video_sms
+  - tv
   hosts:
-    - host_sg1000
+  - host_sg1000
   cartridge: sg_cart0
-
 connections:
-  - from:
-      component: sg_joy0
-      kind: callback
-      name: joy1_read
-    to:
-      component: host_sg1000
-      kind: callback
-      name: read_joy1
-
-  - from:
-      component: sg_joy0
-      kind: callback
-      name: joy2_read
-    to:
-      component: host_sg1000
-      kind: callback
-      name: read_joy2
-
-  - from:
-      component: sg_vdp0
-      kind: signal
-      name: frame_ready
-    to:
-      component: video_sms
-      kind: handler
-      name: on_frame_ready
-
-  - from:
-      component: video_sms
-      kind: signal
-      name: frame_present
-    to:
-      component: host_sg1000
-      kind: handler
-      name: video_frame
-
-  - from:
-      component: sg_vdp0
-      kind: signal
-      name: irq_edge
-    to:
-      component: host_sg1000
-      kind: handler
-      name: irq_edge
-
-  - from:
-      component: sg_psg0
-      kind: signal
-      name: audio_level
-    to:
-      component: speaker_sms
-      kind: handler
-      name: on_audio_level
-
-  - from:
-      component: speaker_sms
-      kind: signal
-      name: pcm_sample
-    to:
-      component: host_sg1000
-      kind: handler
-      name: audio_pcm
-
+- from:
+    component: sg_joy0
+    kind: callback
+    name: joy1_read
+  to:
+    component: host_sg1000
+    kind: callback
+    name: read_joy1
+- from:
+    component: sg_joy0
+    kind: callback
+    name: joy2_read
+  to:
+    component: host_sg1000
+    kind: callback
+    name: read_joy2
+- from:
+    component: sg_vdp0
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_sms
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_sms
+    kind: signal
+    name: frame_present
+  to:
+    component: tv
+    kind: handler
+    name: on_frame_present
+- from:
+    component: sg_vdp0
+    kind: signal
+    name: irq_edge
+  to:
+    component: host_sg1000
+    kind: handler
+    name: irq_edge
+- from:
+    component: sg_psg0
+    kind: signal
+    name: pcm_sample_s16
+  to:
+    component: tv
+    kind: handler
+    name: on_pcm_s16
+- from:
+    component: tv
+    kind: signal
+    name: frame_present
+  to:
+    component: host_sg1000
+    kind: handler
+    name: video_frame
+- from:
+    component: tv
+    kind: signal
+    name: pcm_sample_s16
+  to:
+    component: host_sg1000
+    kind: handler
+    name: audio_pcm_s16
 audio:
   sample_rate: 44100
   format: s16le
   channels: 1
-
 integrations:
   profile: sg1000_interactive
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

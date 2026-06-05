@@ -33,7 +33,7 @@ IC_HIRAM="examples/ics/zx_spectrum48k/zx_spectrum_48k_hiram.yaml"
 DEVICE_KB="examples/devices/zx_spectrum48k/zx48_keyboard.yaml"
 DEVICE_CTRL="examples/devices/zx_spectrum48k/zx48_controller.yaml"
 DEVICE_VIDEO="examples/devices/zx_spectrum48k/zx48_video.yaml"
-DEVICE_SPK="examples/devices/zx_spectrum48k/zx48_speaker.yaml"
+DEVICE_BEEPER="examples/devices/zx_spectrum48k/zx48_beeper.yaml"
 DEVICE_MIC="examples/devices/zx_spectrum48k/zx48_mic.yaml"
 
 case "${PROFILE}" in
@@ -70,10 +70,10 @@ uv run python -m src.main generate \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \
-  --device "${DEVICE_SPK}" \
+  --device "${DEVICE_BEEPER}" \
   --device "${DEVICE_MIC}" \
   --host "${HOST}" \
-  --host-backend "${HOST_BACKEND:-sdl2}" \
+  --host-backend "${HOST_BACKEND:-glfw}" \
   --output "${OUTPUT_DIR}"
 
 echo "[2/3] Building emulator with CMake -> ${BUILD_DIR}"

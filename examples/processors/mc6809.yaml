@@ -7,10 +7,26 @@ metadata:
   undefined_opcode_policy: nop
   codegen:
     architecture_id: mc6809
+    architecture_enum_name: PASM_ARCH_MC6809
+    architecture_enum_value: 5
     numeric_style: asm_dollar
     flags_dump_style: raw
+    debug_flags_expr: cpu->flags.raw
+    numeric_formats:
+      hex8: "$%02X"
+      hex16: "$%04X"
     decode_quirks:
       mc6809_indexed_postbyte_length: true
+    helper_features:
+      condition_cases:
+      - "!($Z)"
+      - "$Z"
+      - "!($C)"
+      - "$C"
+      - "!($P)"
+      - "$P"
+      - "!($S)"
+      - "$S"
     display_kinds_enabled:
     - mc6809_idx
     - mc6809_pshs_mask

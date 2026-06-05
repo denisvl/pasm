@@ -220,7 +220,7 @@ CPUState *{cpu_prefix}_create(size_t memory_size) {{
     cpu->memory_size = memory_size;
     
     /* Initialize port memory */
-    cpu->port_size = 65536;
+    cpu->port_size = {port_size};
     cpu->port_memory = (uint8_t *)calloc(1, cpu->port_size);
     
     /* Initialize hooks */
@@ -341,7 +341,8 @@ uint8_t {cpu_prefix}_read_port(CPUState *cpu, uint16_t port) {{
     uint8_t __handled = 0u;
     uint8_t value = cpu_components_port_read(cpu, port, &__handled);
     if (__handled == 0u) {{
-        value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFF;
+        size_t port_index = (cpu->port_size > 0u) ? ((size_t)port % cpu->port_size) : 0u;
+        value = (cpu->port_size > 0u) ? cpu->port_memory[port_index] : 0xFF;
     }}
 {port_read_hook_post}
     return value;
@@ -352,8 +353,9 @@ void {cpu_prefix}_write_port(CPUState *cpu, uint16_t port, uint8_t value) {{
     uint8_t __handled = 0u;
     cpu_components_port_write(cpu, port, value, &__handled);
     if (__handled == 0u) {{
-        if (port >= cpu->port_size) return;
-        cpu->port_memory[port] = value;
+        if (cpu->port_size == 0u) return;
+        size_t port_index = (size_t)port % cpu->port_size;
+        cpu->port_memory[port_index] = value;
     }}
 {port_write_hook_post}
 }}

@@ -146,7 +146,7 @@ def _build_harness(generated_dir: pathlib.Path) -> pathlib.Path:
 
 
 @pytest.mark.skipif(
-    not (shutil.which("git") and (shutil.which("cc") or shutil.which("gcc"))),
+    not (shutil.which("git") and (shutil.which("cc") or shutil.which("gcc") or shutil.which("clang"))),
     reason="git and C compiler are required for SectorZ integration test",
 )
 def test_sectorz_print_from_main_emits_hello_world_and_nul_with_expected_cycles(tmp_path):

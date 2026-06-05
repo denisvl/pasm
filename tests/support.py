@@ -12,6 +12,24 @@ import yaml
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 
+def resolve_built_binary(build_dir: Path, binary_name: str) -> Path:
+    """Resolve CMake executable output across single- and multi-config generators."""
+    candidates = [
+        build_dir / binary_name,
+        build_dir / "Debug" / binary_name,
+        build_dir / "Release" / binary_name,
+        build_dir / "RelWithDebInfo" / binary_name,
+        build_dir / "MinSizeRel" / binary_name,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    for candidate in build_dir.rglob(binary_name):
+        if candidate.exists():
+            return candidate
+    raise AssertionError(f"Expected binary not found under: {build_dir}")
+
+
 def _resolve_example_system(filename: str) -> Path:
     """Resolve a system YAML filename in examples/systems (root or subfolder)."""
     direct = BASE_DIR / "examples" / "systems" / filename

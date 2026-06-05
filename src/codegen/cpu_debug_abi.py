@@ -8,6 +8,17 @@ from typing import Any, Dict, List
 from .interrupts import resolve_interrupt_model
 
 
+DEFAULT_ARCHITECTURE_ENUM = {
+    "z80": ("PASM_ARCH_Z80", 0),
+    "mos6502": ("PASM_ARCH_MOS6502", 1),
+    "mos6510": ("PASM_ARCH_MOS6510", 2),
+    "m68000": ("PASM_ARCH_MOTOROLA68000", 3),
+    "ricoh2a03": ("PASM_ARCH_RICOH2A03", 4),
+    "mc6809": ("PASM_ARCH_MC6809", 5),
+    "unknown": ("PASM_ARCH_UNKNOWN", 255),
+}
+
+
 def _to_c_ident(name: str) -> str:
     ident = re.sub(r"[^0-9A-Za-z_]", "_", str(name).strip())
     ident = ident.lower()
@@ -29,25 +40,37 @@ def _escape_c_string(value: str) -> str:
 
 
 def _architecture_const(isa_data: Dict[str, Any]) -> str:
+    codegen = _codegen_config(isa_data)
+    enum_name = str(codegen.get("architecture_enum_name", "")).strip()
+    if enum_name:
+        return enum_name
+
+    arch_id = str(codegen.get("architecture_id", "")).strip()
+    if arch_id not in DEFAULT_ARCHITECTURE_ENUM:
+        raise ValueError(f"Unsupported metadata.codegen.architecture_id: {arch_id}")
+    return DEFAULT_ARCHITECTURE_ENUM[arch_id][0]
+
+
+def _codegen_config(isa_data: Dict[str, Any]) -> Dict[str, Any]:
     metadata = isa_data.get("metadata", {})
     if not isinstance(metadata, dict):
         raise ValueError("ISA metadata must be an object")
     codegen = metadata.get("codegen")
     if not isinstance(codegen, dict):
         raise ValueError("ISA metadata.codegen must be an object")
-    arch_id = str(codegen.get("architecture_id", "")).strip()
-    mapping = {
-        "z80": "PASM_ARCH_Z80",
-        "mos6502": "PASM_ARCH_MOS6502",
-        "mos6510": "PASM_ARCH_MOS6510",
-        "mc6809": "PASM_ARCH_MC6809",
-        "m68000": "PASM_ARCH_MOTOROLA68000",
-        "ricoh2a03": "PASM_ARCH_RICOH2A03",
-        "unknown": "PASM_ARCH_UNKNOWN",
-    }
-    if arch_id not in mapping:
-        raise ValueError(f"Unsupported metadata.codegen.architecture_id: {arch_id}")
-    return mapping[arch_id]
+    return codegen
+
+
+def _architecture_enum_items(isa_data: Dict[str, Any]) -> List[tuple[str, int]]:
+    codegen = _codegen_config(isa_data)
+    enum_name = str(codegen.get("architecture_enum_name", "")).strip()
+    if enum_name:
+        enum_value = int(codegen.get("architecture_enum_value", 0))
+        items = [(enum_name, enum_value)]
+        if enum_name != "PASM_ARCH_UNKNOWN":
+            items.append(("PASM_ARCH_UNKNOWN", 255))
+        return items
+    return [(name, value) for name, value in DEFAULT_ARCHITECTURE_ENUM.values()]
 
 
 def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, str]:
@@ -104,21 +127,19 @@ def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, st
             f"    {{",
             f"        ComponentState_{comp_ident} *comp = &cpu->comp_{comp_ident};",
             "        if (comp->window != NULL) {",
-            "            SDL_Window *wnd = (SDL_Window *)comp->window;",
-            "            SDL_ShowWindow(wnd);",
-            "            SDL_RaiseWindow(wnd);",
-            "            (void)SDL_SetWindowInputFocus(wnd);",
+            "            cpu_host_hal_show_window(comp->window);",
+            "            cpu_host_hal_raise_window(comp->window);",
         ]
         if "has_keyboard_focus" in state_fields:
             block_lines.append(
-                "            comp->has_keyboard_focus = (SDL_GetKeyboardFocus() == wnd) ? 1u : 0u;"
+                "            comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);"
             )
         if "last_focus_state" in state_fields:
             if "has_keyboard_focus" in state_fields:
                 block_lines.append("            comp->last_focus_state = comp->has_keyboard_focus;")
             else:
                 block_lines.append(
-                    "            comp->last_focus_state = (SDL_GetKeyboardFocus() == wnd) ? 1u : 0u;"
+                    "            comp->last_focus_state = cpu_host_hal_window_has_focus(comp->window);"
                 )
         block_lines.extend(
             [
@@ -129,20 +150,23 @@ def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, st
         )
         focus_host_blocks.append("\n".join(block_lines))
 
-    needs_sdl_focus = bool(focus_host_blocks)
-    if needs_sdl_focus:
+    needs_host_focus = bool(focus_host_blocks)
+    host_focus_decl = ""
+    if needs_host_focus:
+        host_focus_decl = "\n".join(
+            [
+                "extern void cpu_host_hal_raise_window(void *window);",
+                "extern void cpu_host_hal_show_window(void *window);",
+                "extern uint8_t cpu_host_hal_window_has_focus(void *window);",
+            ]
+        )
         focus_impl = "\n".join(
             [
                 f"int {cpu_name.lower()}_dbg_focus_host_window(CPUState *cpu) {{",
                 "    if (!cpu) return -1;",
-                "#if defined(SDL_MAJOR_VERSION)",
                 "    int focused = 0;",
                 *focus_host_blocks,
                 "    return focused ? 0 : -1;",
-                "#else",
-                "    (void)cpu;",
-                "    return -1;",
-                "#endif",
                 "}",
             ]
         )
@@ -156,22 +180,13 @@ def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, st
             ]
         )
 
-    sdl_include_block = ""
-    if needs_sdl_focus:
-        sdl_include_block = """#if defined(__has_include)
-#  if __has_include(<SDL2/SDL.h>)
-#    include <SDL2/SDL.h>
-#  elif __has_include(<SDL.h>)
-#    include <SDL.h>
-#  endif
-#endif
-"""
     header = _generate_header(
         guard=guard,
         cpu_name=cpu_name,
         cpu_prefix=cpu_prefix,
         processor_name=processor_name,
         system_name=system_name,
+        architecture_enum_items=_architecture_enum_items(isa_data),
     )
     impl = _generate_impl(
         isa_data=isa_data,
@@ -182,7 +197,7 @@ def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, st
         registers=registers,
         interrupt_model=interrupt_model,
         ula_id=ula_id,
-        sdl_include_block=sdl_include_block,
+        host_focus_decl=host_focus_decl,
         focus_impl=focus_impl,
         keyboard_map_required=keyboard_map_required,
         has_cartridge=has_cartridge,
@@ -196,7 +211,11 @@ def _generate_header(
     cpu_prefix: str,
     processor_name: str,
     system_name: str,
+    architecture_enum_items: List[tuple[str, int]],
 ) -> str:
+    architecture_enum = "\n".join(
+        f"    {name} = {value}," for name, value in architecture_enum_items
+    )
     return f"""/*
  * Auto-generated Debug ABI
  * Generated by PASM
@@ -226,13 +245,7 @@ typedef enum {{
 }} PASMDebuggerMode;
 
 typedef enum {{
-    PASM_ARCH_Z80 = 0,
-    PASM_ARCH_MOS6502 = 1,
-    PASM_ARCH_MOS6510 = 2,
-    PASM_ARCH_MOTOROLA68000 = 3,
-    PASM_ARCH_RICOH2A03 = 4,
-    PASM_ARCH_MC6809 = 5,
-    PASM_ARCH_UNKNOWN = 255,
+{architecture_enum}
 }} PASMArchitecture;
 
 typedef struct {{
@@ -387,6 +400,7 @@ int {cpu_prefix}_dbg_set_pc(CPUState *cpu, uint64_t address);
 int {cpu_prefix}_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
 int {cpu_prefix}_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
 int {cpu_prefix}_dbg_focus_host_window(CPUState *cpu);
+int {cpu_prefix}_dbg_pump_host_events(CPUState *cpu);
 
 /* Generic bridge symbols for architecture-agnostic debugger frontends. */
 CPUState *pasm_dbg_create(size_t memory_size);
@@ -432,6 +446,7 @@ int pasm_dbg_set_pc(CPUState *cpu, uint64_t address);
 int pasm_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
 int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
 int pasm_dbg_focus_host_window(CPUState *cpu);
+int pasm_dbg_pump_host_events(CPUState *cpu);
 uint8_t pasm_dbg_requires_keyboard_map(void);
 uint8_t pasm_dbg_supports_cartridge(void);
 const char *pasm_dbg_processor_name(void);
@@ -471,11 +486,42 @@ def _generate_impl(
     registers: List[Dict[str, Any]],
     interrupt_model: str,
     ula_id: str | None,
-    sdl_include_block: str,
+    host_focus_decl: str,
     focus_impl: str,
     keyboard_map_required: bool,
     has_cartridge: bool,
 ) -> str:
+    has_components = bool(
+        isa_data.get("ics")
+        or isa_data.get("devices")
+        or isa_data.get("hosts")
+        or isa_data.get("cartridge")
+    )
+    has_hosts = bool(isa_data.get("hosts"))
+    host_pump_decl = "extern void cpu_host_hal_pump_events(void);" if has_hosts else ""
+    host_pump_body = (
+        "\n".join(
+            [
+                f"int {cpu_prefix}_dbg_pump_host_events(CPUState *cpu) {{",
+                "    (void)cpu;",
+                "    cpu_host_hal_pump_events();",
+                "    return 0;",
+                "}",
+            ]
+        )
+        if has_hosts
+        else "\n".join(
+            [
+                f"int {cpu_prefix}_dbg_pump_host_events(CPUState *cpu) {{",
+                "    (void)cpu;",
+                "    return 0;",
+                "}",
+            ]
+        )
+    )
+    active_component_decl = "    const char *saved_active_component_id;" if has_components else ""
+    active_component_save = "    saved_active_component_id = cpu->active_component_id;" if has_components else ""
+    active_component_restore = "    cpu->active_component_id = saved_active_component_id;" if has_components else ""
     explicit_prefixes = sorted(
         {
             int(inst.get("encoding", {}).get("prefix"))
@@ -551,24 +597,15 @@ def _generate_impl(
             f"    out_core->frame_index = cpu->comp_{ula_ident}.frame_index;",
         ]
 
-    if interrupt_model == "z80":
+    debug_snapshot = (isa_data.get("interrupts", {}) or {}).get("debug_snapshot", {})
+    if isinstance(debug_snapshot, dict):
         interrupt_assign = [
-            "    out_core->interrupt_mode = cpu->interrupt_mode;",
-            "    out_core->iff1 = cpu->interrupts_enabled ? 1u : 0u;",
-            "    out_core->iff2 = cpu->interrupt_pending ? 1u : 0u;",
-        ]
-    elif interrupt_model != "none":
-        interrupt_assign = [
-            "    out_core->interrupt_mode = 0u;",
-            "    out_core->iff1 = cpu->interrupts_enabled ? 1u : 0u;",
-            "    out_core->iff2 = cpu->interrupt_pending ? 1u : 0u;",
+            f"    out_core->interrupt_mode = {debug_snapshot.get('interrupt_mode', '0u')};",
+            f"    out_core->iff1 = {debug_snapshot.get('iff1', '0u')};",
+            f"    out_core->iff2 = {debug_snapshot.get('iff2', '0u')};",
         ]
     else:
-        interrupt_assign = [
-            "    out_core->interrupt_mode = 0u;",
-            "    out_core->iff1 = 0u;",
-            "    out_core->iff2 = 0u;",
-        ]
+        interrupt_assign = ["    out_core->interrupt_mode = 0u;", "    out_core->iff1 = 0u;", "    out_core->iff2 = 0u;"]
 
     target_name = _escape_c_string(str(isa_data.get("metadata", {}).get("name", cpu_name)))
     system_name = _escape_c_string(
@@ -586,7 +623,8 @@ def _generate_impl(
 #include <stdio.h>
 #include <string.h>
 #include "{cpu_name}_debug_abi.h"
-{sdl_include_block}
+{host_focus_decl}
+{host_pump_decl}
 
 static void dbg_copy(char *dst, size_t cap, const char *src) {{
     if (!dst || cap == 0) return;
@@ -638,20 +676,20 @@ static uint8_t dbg_peek_byte(CPUState *cpu, uint16_t addr) {{
     uint16_t saved_current_instruction_cycles;
     uint16_t saved_io_read_phase_ppu_dots;
     int saved_error_code;
-    const char *saved_active_component_id;
+{active_component_decl}
     uint8_t value;
     if (!cpu) return 0xFFu;
     saved_total_cycles = cpu->total_cycles;
     saved_current_instruction_cycles = cpu->current_instruction_cycles;
     saved_io_read_phase_ppu_dots = cpu->io_read_phase_ppu_dots;
     saved_error_code = cpu->error_code;
-    saved_active_component_id = cpu->active_component_id;
+{active_component_save}
     value = {cpu_prefix}_read_byte(cpu, addr);
     cpu->total_cycles = saved_total_cycles;
     cpu->current_instruction_cycles = saved_current_instruction_cycles;
     cpu->io_read_phase_ppu_dots = saved_io_read_phase_ppu_dots;
     cpu->error_code = saved_error_code;
-    cpu->active_component_id = saved_active_component_id;
+{active_component_restore}
     return value;
 }}
 
@@ -725,6 +763,7 @@ typedef struct {{
 }} PASMDebugHistoryStore;
 
 static PASMDebugHistoryStore g_dbg_history_slots[DBG_HISTORY_SLOTS];
+static uint32_t g_dbg_history_enabled_count = 0u;
 
 static PASMDebugHistoryStore *dbg_history_get_slot(CPUState *cpu, bool create) {{
     uint32_t i;
@@ -757,8 +796,15 @@ static void dbg_history_clear(CPUState *cpu) {{
 
 static void dbg_history_set_enabled(CPUState *cpu, uint8_t enabled) {{
     PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, enabled != 0u);
+    uint8_t was_enabled;
     if (!slot) return;
+    was_enabled = slot->enabled;
     slot->enabled = (enabled != 0u) ? 1u : 0u;
+    if (was_enabled == 0u && slot->enabled != 0u) {{
+        g_dbg_history_enabled_count += 1u;
+    }} else if (was_enabled != 0u && slot->enabled == 0u && g_dbg_history_enabled_count > 0u) {{
+        g_dbg_history_enabled_count -= 1u;
+    }}
     if (enabled == 0u) {{
         slot->head = 0u;
         slot->count = 0u;
@@ -766,8 +812,10 @@ static void dbg_history_set_enabled(CPUState *cpu, uint8_t enabled) {{
 }}
 
 static void dbg_history_record(CPUState *cpu, uint16_t addr) {{
-    PASMDebugHistoryStore *slot = dbg_history_get_slot(cpu, false);
+    PASMDebugHistoryStore *slot;
     uint32_t raw;
+    if (g_dbg_history_enabled_count == 0u) return;
+    slot = dbg_history_get_slot(cpu, false);
     if (!slot) return;
     if (slot->enabled == 0u) return;
     if (cpu->halted) return;
@@ -1330,11 +1378,14 @@ int {cpu_prefix}_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled) {{
 
 {focus_impl}
 
+{host_pump_body}
+
 CPUState *pasm_dbg_create(size_t memory_size) {{
     return {cpu_prefix}_create(memory_size);
 }}
 
 void pasm_dbg_destroy(CPUState *cpu) {{
+    dbg_history_set_enabled(cpu, 0u);
     dbg_history_clear(cpu);
     {cpu_prefix}_destroy(cpu);
 }}
@@ -1474,6 +1525,10 @@ int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled) {{
 
 int pasm_dbg_focus_host_window(CPUState *cpu) {{
     return {cpu_prefix}_dbg_focus_host_window(cpu);
+}}
+
+int pasm_dbg_pump_host_events(CPUState *cpu) {{
+    return {cpu_prefix}_dbg_pump_host_events(cpu);
 }}
 
 uint8_t pasm_dbg_requires_keyboard_map(void) {{

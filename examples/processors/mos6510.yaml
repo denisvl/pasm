@@ -7,10 +7,27 @@ metadata:
   undefined_opcode_policy: trap
   codegen:
     architecture_id: mos6510
+    architecture_enum_name: PASM_ARCH_MOS6510
+    architecture_enum_value: 2
     numeric_style: asm_dollar
     flags_dump_style: raw
+    debug_flags_expr: cpu->flags.raw
+    numeric_formats:
+      hex8: "$%02X"
+      hex16: "$%04X"
     decode_quirks:
       mc6809_indexed_postbyte_length: false
+    helper_features:
+      condition_cases:
+      - "!($Z)"
+      - "$Z"
+      - "!($C)"
+      - "$C"
+      - "!($P)"
+      - "$P"
+      - "!($S)"
+      - "$S"
+      runtime_cycle_penalties: mos6502_page_cross
     display_kinds_enabled: []
 registers:
 - name: A
@@ -58,6 +75,45 @@ flags:
   bit: 7
 interrupts:
   model: mos6502
+  dispatch:
+    kind: mos6502
+  state_fields:
+  - uint8_t interrupt_vector;
+  - bool interrupts_enabled;
+  - bool interrupt_pending;
+  - bool irq_pending;
+  - bool nmi_pending;
+  api_declarations:
+  - void {cpu_prefix}_interrupt(CPUState *cpu, uint8_t vector);
+  - void {cpu_prefix}_set_irq(CPUState *cpu, bool enabled);
+  reset:
+  - '    cpu->interrupt_vector = 0;'
+  - '    cpu->sp = 0xFDu;'
+  - '    cpu->flags.raw = 0x04u;'
+  - '    cpu->interrupts_enabled = false;'
+  - '    cpu->interrupt_pending = false;'
+  - '    cpu->irq_pending = false;'
+  - '    cpu->nmi_pending = false;'
+  reset_post:
+  - '    cpu->pc = {cpu_prefix}_read_word(cpu, 0xFFFCu);'
+  debug_snapshot:
+    interrupt_mode: '0u'
+    iff1: 'cpu->interrupts_enabled ? 1u : 0u'
+    iff2: 'cpu->interrupt_pending ? 1u : 0u'
+  api_impl: |
+    void {cpu_prefix}_interrupt(CPUState *cpu, uint8_t vector) {
+        cpu->interrupt_vector = vector;
+        if (vector == 0xFFu) {
+            cpu->nmi_pending = true;
+        } else {
+            cpu->irq_pending = true;
+        }
+        cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
+    }
+
+    void {cpu_prefix}_set_irq(CPUState *cpu, bool enabled) {
+        cpu->interrupts_enabled = enabled;
+    }
 instructions:
 - name: NOP
   display: 'NOP'

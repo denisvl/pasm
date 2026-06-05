@@ -50,7 +50,7 @@ IC_BUS="examples/ics/sg1000/sg1000_cpu_bus.yaml"
 IC_RAM="examples/ics/sg1000/sg1000_main_ram.yaml"
 IC_PSG="examples/ics/sg1000/sg1000_psg_sn76489.yaml"
 DEVICE_VIDEO="examples/devices/sms/sms_video.yaml"
-DEVICE_SPK="examples/devices/sms/sms_speaker.yaml"
+DEVICE_TV="examples/devices/common/tv_crt_mono.yaml"
 SYSTEM_DIR="examples/systems"
 
 case "${PROFILE}" in
@@ -97,9 +97,9 @@ uv run python -m src.main generate \
   --ic "${IC_RAM}" \
   --ic "${IC_PSG}" \
   --device "${DEVICE_VIDEO}" \
-  --device "${DEVICE_SPK}" \
+  --device "${DEVICE_TV}" \
   --host "${HOST}" \
-  --host-backend "${HOST_BACKEND:-sdl2}" \
+  --host-backend "${HOST_BACKEND:-glfw}" \
   --cartridge-map "${CARTRIDGE_MAP}" \
   --cartridge-rom "${CARTRIDGE_ROM_GEN}" \
   --output "${OUTPUT_DIR}"
@@ -134,7 +134,13 @@ if [[ -n "${CARTRIDGE_DIR}" ]]; then
   EXTRA_MAP_ARGS+=(--cartridge-dir "${CARTRIDGE_DIR}")
 fi
 
+PASM_EMU_BUILD_DIR="${BUILD_DIR}"
+if [[ -d "${BUILD_DIR}/${CMAKE_BUILD_TYPE}" ]]; then
+  PASM_EMU_BUILD_DIR="${BUILD_DIR}/${CMAKE_BUILD_TYPE}"
+fi
+
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
+PASM_EMU_BUILD_DIR="${PASM_EMU_BUILD_DIR}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 PASM_SG1000_JOY2_CONNECTED="${PASM_SG1000_JOY2_CONNECTED}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \

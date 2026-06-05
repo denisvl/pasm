@@ -9,6 +9,7 @@ use std::time::Duration;
 const MEMORY_BYTES_PER_ROW: u64 = 16;
 const MEMORY_WINDOW_ROWS: usize = 64;
 const MAX_HISTORY_ROWS: usize = 100;
+const PAUSED_REFRESH_INTERVAL: Duration = Duration::from_millis(1500);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Pane {
@@ -103,6 +104,7 @@ pub struct App {
     pub follow_pc: bool,
     pub run_speed_mode: RunSpeedMode,
     pub realtime_cycle_carry_nanos: u128,
+    pub paused_refresh_carry: Duration,
     pub jump_dialog: JumpDialog,
     pub run_to_target_address: Option<u64>,
     pub run_to_temp_breakpoint: bool,
@@ -138,6 +140,7 @@ impl App {
             follow_pc: true,
             run_speed_mode: RunSpeedMode::Realtime,
             realtime_cycle_carry_nanos: 0,
+            paused_refresh_carry: Duration::ZERO,
             jump_dialog: JumpDialog::default(),
             run_to_target_address: None,
             run_to_temp_breakpoint: false,
@@ -195,7 +198,9 @@ impl App {
     }
 
     pub fn on_tick_with_elapsed(&mut self, elapsed: Duration) -> Result<(), String> {
+        self.backend.pump_host_events()?;
         if self.snapshot.core.mode == DebuggerMode::Running {
+            self.paused_refresh_carry = Duration::ZERO;
             let mode = match self.run_speed_mode {
                 RunSpeedMode::Max => {
                     let max_steps =
@@ -241,6 +246,11 @@ impl App {
             }
             return Ok(());
         }
+        self.paused_refresh_carry = self.paused_refresh_carry.saturating_add(elapsed);
+        if self.paused_refresh_carry < PAUSED_REFRESH_INTERVAL {
+            return Ok(());
+        }
+        self.paused_refresh_carry = Duration::ZERO;
         self.refresh()?;
         Ok(())
     }
@@ -254,9 +264,16 @@ impl App {
         if cycles_to_run == 0 {
             cycles_to_run = 1;
         }
-        // Keep UI/input responsive even on slower generated backends.
-        let max_chunk = (clock_hz / 60).max(1);
+        // Keep UI/input responsive, but preserve excess elapsed time so slower
+        // frames can catch up instead of permanently lowering emulation speed.
+        let max_chunk = (clock_hz / 20).max(1);
         if cycles_to_run > max_chunk {
+            let excess_cycles = cycles_to_run - max_chunk;
+            let excess_nanos =
+                (u128::from(excess_cycles) * 1_000_000_000u128) / u128::from(clock_hz);
+            let max_carry = 1_000_000_000u128;
+            self.realtime_cycle_carry_nanos =
+                (self.realtime_cycle_carry_nanos + excess_nanos).min(max_carry);
             cycles_to_run = max_chunk;
         }
         cycles_to_run
@@ -1051,6 +1068,19 @@ mod tests {
         assert_eq!(app.snapshot.core.pc, pc0);
         app.handle_action(Action::RunPause).expect("pause");
         assert!(app.snapshot.core.pc > pc0);
+    }
+
+    #[test]
+    fn realtime_budget_preserves_slow_tick_backlog() {
+        let backend = Box::new(MockDebuggerBackend::new());
+        let mut app = App::new(backend).expect("app");
+        app.snapshot.core.clock_hz = 60_000;
+
+        let first = app.realtime_cycle_budget(Duration::from_millis(32));
+        let second = app.realtime_cycle_budget(Duration::from_millis(32));
+
+        assert_eq!(first, 1_920);
+        assert_eq!(second, 1_920);
     }
 
     #[test]

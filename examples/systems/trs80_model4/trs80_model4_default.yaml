@@ -1,31 +1,28 @@
 metadata:
   name: Z80TRS80Model4DefaultSystem
-  version: "0.1"
-
+  version: '0.1'
 clock_hz: 4000000
 reset_delay_seconds: 5
-
 memory:
   default_size: 65536
   regions:
-    - name: ROM_BOOT
-      start: 0x0000
-      size: 0x3800
-      read_only: true
-    - name: RAM_MAIN
-      start: 0x3800
-      size: 0xC000
-      read_write: true
-    - name: VIDEO_RAM
-      start: 0xF800
-      size: 0x0800
-      read_write: true
+  - name: ROM_BOOT
+    start: 0
+    size: 14336
+    read_only: true
+  - name: RAM_MAIN
+    start: 14336
+    size: 49152
+    read_write: true
+  - name: VIDEO_RAM
+    start: 63488
+    size: 2048
+    read_write: true
   rom_images:
-    - name: trs80_model4_rom
-      file: ../../roms/trs80_model4/model4.rom
-      target_region: ROM_BOOT
-      offset: 0
-
+  - name: trs80_model4_rom
+    file: ../../roms/trs80_model4/model4.rom
+    target_region: ROM_BOOT
+    offset: 0
 hooks:
   pre_fetch:
     enabled: false
@@ -41,93 +38,111 @@ hooks:
     enabled: false
   port_write_post:
     enabled: false
-
 components:
   ics:
-    - trs80_m4io
-    - trs80_m4ga
-    - trs80_m4ram
-    - trs80_m4fdc
-    - trs80_m4ppi
-    - trs80_m4sio
-    - trs80_m4video
-    - trs80_m4irq
-    - trs80_m4cass
+  - trs80_m4io
+  - trs80_m4ga
+  - trs80_m4ram
+  - trs80_m4fdc
+  - trs80_m4ppi
+  - trs80_m4sio
+  - trs80_m4video
+  - trs80_m4irq
+  - trs80_m4cass
   devices:
-    - keyboard_trs80
-    - video_trs80
-    - speaker_trs80
+  - keyboard_trs80
+  - video_trs80
+  - speaker
+  - monitor
   hosts:
-    - host_trs80
-
+  - host_trs80
 connections:
-  - from:
-      component: trs80_m4ppi
-      kind: callback
-      name: keyboard_read_row
-    to:
-      component: keyboard_trs80
-      kind: callback
-      name: read_row
-
-  - from:
-      component: keyboard_trs80
-      kind: callback
-      name: host_matrix
-    to:
-      component: host_trs80
-      kind: callback
-      name: keyboard_matrix
-
-  - from:
-      component: trs80_m4video
-      kind: signal
-      name: frame_ready
-    to:
-      component: video_trs80
-      kind: handler
-      name: on_frame_ready
-
-  - from:
-      component: video_trs80
-      kind: signal
-      name: frame_present
-    to:
-      component: host_trs80
-      kind: handler
-      name: video_frame
-
-  - from:
-      component: trs80_m4irq
-      kind: signal
-      name: irq_edge
-    to:
-      component: host_trs80
-      kind: handler
-      name: irq_edge
-
-  - from:
-      component: trs80_m4io
-      kind: signal
-      name: audio_level
-    to:
-      component: speaker_trs80
-      kind: handler
-      name: on_audio_level
-
-  - from:
-      component: speaker_trs80
-      kind: signal
-      name: pcm_sample
-    to:
-      component: host_trs80
-      kind: handler
-      name: audio_pcm
-
+- from:
+    component: trs80_m4ppi
+    kind: callback
+    name: keyboard_read_row
+  to:
+    component: keyboard_trs80
+    kind: callback
+    name: read_row
+- from:
+    component: keyboard_trs80
+    kind: callback
+    name: host_matrix
+  to:
+    component: host_trs80
+    kind: callback
+    name: keyboard_matrix
+- from:
+    component: trs80_m4video
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_trs80
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_trs80
+    kind: signal
+    name: frame_present
+  to:
+    component: monitor
+    kind: handler
+    name: on_frame_present
+- from:
+    component: trs80_m4irq
+    kind: signal
+    name: irq_edge
+  to:
+    component: host_trs80
+    kind: handler
+    name: irq_edge
+- from:
+    component: trs80_m4io
+    kind: signal
+    name: audio_level
+  to:
+    component: speaker
+    kind: handler
+    name: on_audio_level
+- from:
+    component: speaker
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_trs80
+    kind: handler
+    name: audio_pcm
+- from:
+    component: monitor
+    kind: signal
+    name: frame_present
+  to:
+    component: host_trs80
+    kind: handler
+    name: video_frame
 audio:
   sample_rate: 44100
   format: s16le
   channels: 1
-
 integrations:
   profile: trs80_model4_default
+display:
+  default_component: monitor
+  default_model: generic_crt_monitor_green
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

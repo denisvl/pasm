@@ -150,19 +150,76 @@ else()
 endif()
 """
     elif uses_glfw_backend:
-        auto_dependency_setup = """
+        auto_dependency_setup = f"""
+if(NOT DEFINED PASM_VCPKG_TRIPLET OR PASM_VCPKG_TRIPLET STREQUAL "")
+    if(DEFINED ENV{{VCPKG_TARGET_TRIPLET}} AND NOT "$ENV{{VCPKG_TARGET_TRIPLET}}" STREQUAL "")
+        set(PASM_VCPKG_TRIPLET "$ENV{{VCPKG_TARGET_TRIPLET}}")
+    elseif(WIN32)
+        set(PASM_VCPKG_TRIPLET "x64-windows")
+    elseif(APPLE)
+        set(PASM_VCPKG_TRIPLET "x64-osx")
+    else()
+        set(PASM_VCPKG_TRIPLET "x64-linux")
+    endif()
+endif()
+
 if(NOT TARGET glfw AND NOT TARGET glfw::glfw)
     find_package(glfw3 CONFIG QUIET)
 endif()
 if(NOT TARGET glfw AND NOT TARGET glfw::glfw)
     find_package(glfw3 QUIET)
 endif()
+find_package(OpenGL REQUIRED)
 
 set(PASM_GLFW_LINK_TARGET glfw)
 if(TARGET glfw::glfw)
     set(PASM_GLFW_LINK_TARGET glfw::glfw)
 elseif(TARGET glfw)
     set(PASM_GLFW_LINK_TARGET glfw)
+else()
+    set(PASM_VCPKG_ROOT_HINT "")
+    if(DEFINED ENV{{VCPKG_ROOT}} AND NOT "$ENV{{VCPKG_ROOT}}" STREQUAL "")
+        set(PASM_VCPKG_ROOT_HINT "$ENV{{VCPKG_ROOT}}")
+    elseif(EXISTS "D:/Development/vcpkg")
+        set(PASM_VCPKG_ROOT_HINT "D:/Development/vcpkg")
+    elseif(EXISTS "C:/vcpkg")
+        set(PASM_VCPKG_ROOT_HINT "C:/vcpkg")
+    endif()
+
+    if(NOT PASM_VCPKG_ROOT_HINT STREQUAL "")
+        set(PASM_VCPKG_BASE "${{PASM_VCPKG_ROOT_HINT}}/installed/${{PASM_VCPKG_TRIPLET}}")
+        find_path(PASM_GLFW_INCLUDE_DIR GLFW/glfw3.h
+            HINTS "${{PASM_VCPKG_BASE}}/include"
+        )
+        if(PASM_GLFW_INCLUDE_DIR)
+            target_include_directories({project_name}_test PRIVATE "${{PASM_GLFW_INCLUDE_DIR}}")
+            target_include_directories({cpu_core_target} PRIVATE "${{PASM_GLFW_INCLUDE_DIR}}")
+            target_include_directories({system_target} PRIVATE "${{PASM_GLFW_INCLUDE_DIR}}")
+        endif()
+
+        find_library(PASM_GLFW_LIBRARY NAMES glfw3dll glfw3 glfw
+            HINTS "${{PASM_VCPKG_BASE}}/lib" "${{PASM_VCPKG_BASE}}/debug/lib"
+        )
+        if(PASM_GLFW_LIBRARY)
+            set(PASM_GLFW_LINK_TARGET "${{PASM_GLFW_LIBRARY}}")
+        endif()
+    endif()
+
+    if(PASM_GLFW_LINK_TARGET STREQUAL "glfw")
+        message(FATAL_ERROR "GLFW backend selected, but GLFW was not found. Install it with D:/Development/vcpkg/vcpkg.exe install glfw3:${{PASM_VCPKG_TRIPLET}} or pass -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake.")
+    endif()
+endif()
+set(PASM_OPENGL_LINK_TARGET OpenGL::GL)
+set(PASM_ALSA_LINK_TARGET "")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_path(PASM_ALSA_INCLUDE_DIR alsa/asoundlib.h)
+    find_library(PASM_ALSA_LIBRARY NAMES asound)
+    if(NOT PASM_ALSA_INCLUDE_DIR OR NOT PASM_ALSA_LIBRARY)
+        message(FATAL_ERROR "GLFW backend audio on Linux requires ALSA development files. Install libasound2-dev on Debian/Ubuntu or alsa-lib-devel on Fedora/RHEL.")
+    endif()
+    target_include_directories({project_name}_test PRIVATE "${{PASM_ALSA_INCLUDE_DIR}}")
+    target_include_directories({system_target} PRIVATE "${{PASM_ALSA_INCLUDE_DIR}}")
+    set(PASM_ALSA_LINK_TARGET "${{PASM_ALSA_LIBRARY}}")
 endif()
 """
 
@@ -219,6 +276,10 @@ endif()
         cmake_lib_entries.append("${PASM_SDL2_LINK_TARGET}")
     if uses_glfw_backend and not has_explicit_glfw_link:
         cmake_lib_entries.append("${PASM_GLFW_LINK_TARGET}")
+    if uses_glfw_backend:
+        cmake_lib_entries.append("${PASM_OPENGL_LINK_TARGET}")
+        cmake_lib_entries.append("$<$<PLATFORM_ID:Windows>:winmm>")
+        cmake_lib_entries.append("$<$<PLATFORM_ID:Linux>:${PASM_ALSA_LINK_TARGET}>")
     extra_link_libs = ""
     if cmake_lib_entries:
         extra_link_libs = (
@@ -306,8 +367,15 @@ def generate_makefile(
     if uses_sdl2_backend and not has_explicit_sdl2_link:
         link_lib_flags_parts.append("-lSDL2")
     if uses_glfw_backend and not has_explicit_glfw_link:
-        link_lib_flags_parts.append("-lglfw")
+        link_lib_flags_parts.append("$(PASM_GLFW_LIB)")
+    if uses_glfw_backend:
+        link_lib_flags_parts.append("$(PASM_OPENGL_LIB)")
+        link_lib_flags_parts.append("$(PASM_WINMM_LIB)")
+        link_lib_flags_parts.append("$(PASM_ALSA_LIB)")
     link_lib_flags = " ".join(link_lib_flags_parts)
+    opengl_make = ""
+    if uses_glfw_backend:
+        opengl_make = "ifeq ($(OS),Windows_NT)\nPASM_GLFW_LIB = -lglfw3dll\nPASM_OPENGL_LIB = -lopengl32\nPASM_WINMM_LIB = -lwinmm\nPASM_ALSA_LIB =\nelse\nPASM_GLFW_LIB = -lglfw\nPASM_OPENGL_LIB = -lGL\nPASM_WINMM_LIB =\nPASM_ALSA_LIB = -lasound\nendif\n"
 
     system_source_lines = " \\\n    ".join(all_system_sources(isa_data, system_prefix))
     return f"""# Auto-generated Makefile
@@ -317,6 +385,7 @@ CC = gcc
 AR = ar
 CFLAGS = -Wall -Wextra {std_flag} -O2 {include_flags}
 LDFLAGS = {link_dir_flags} {link_lib_flags}
+{opengl_make}
 {dispatch_make}
 
 SRC_DIR = src

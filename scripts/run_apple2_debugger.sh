@@ -80,7 +80,7 @@ if [[ "${PROFILE}" == "interactive" ]]; then
     --device "${DEVICE_VIDEO}" \
     --device "${DEVICE_SPK}" \
     --host "${HOST_INTERACTIVE}" \
-  --host-backend "${HOST_BACKEND:-sdl2}" \
+  --host-backend "${HOST_BACKEND:-glfw}" \
     --output "${OUTPUT_DIR}"
 else
   uv run python -m src.main generate \

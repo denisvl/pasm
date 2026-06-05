@@ -1,5 +1,5 @@
 metadata:
-  id: speaker_bbc_micro
+  id: speaker
   type: audio_output
   model: bbc_micro_psg_command_bridge
   version: "1.0"
@@ -28,7 +28,7 @@ behavior:
     on_audio_level: |
       comp->level = (uint8_t)(args[0] & 0xFFu);
       comp->last_cycle = (uint64_t)args[1];
-      cpu_component_emit_signal(cpu, "speaker_bbc_micro", "pcm_sample", args, argc);
+      cpu_component_emit_signal(cpu, "speaker", "pcm_sample", args, argc);
 
 coding:
   headers: []

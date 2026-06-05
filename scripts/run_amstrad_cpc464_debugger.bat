@@ -8,6 +8,8 @@ if not defined START_PC set "START_PC=0x0000"
 if not defined MEMORY_SIZE set "MEMORY_SIZE=65536"
 if not defined EXTRA_CARGO_ARGS set "EXTRA_CARGO_ARGS=--release"
 if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=1"
+if not defined EXTRA_CMAKE_ARGS set "EXTRA_CMAKE_ARGS="
+if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
 if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/cpc464/host_keyboard_cpc.yaml"
@@ -16,8 +18,8 @@ if not defined PASM_CPC_KB_TRACE set "PASM_CPC_KB_TRACE=1"
 if not defined PASM_CPC_HOST_KB_TRACE set "PASM_CPC_HOST_KB_TRACE=1"
 if not defined PASM_CPC_IRQ_TRACE set "PASM_CPC_IRQ_TRACE=1"
 if not defined CLEAN_GENERATED set "CLEAN_GENERATED=1"
-if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
-if not defined AUTO_RUN set "AUTO_RUN=0"
+if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
+if not defined AUTO_RUN set "AUTO_RUN=1"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
@@ -63,6 +65,57 @@ if "%CLEAN_GENERATED%"=="1" (
   if exist "%OUTPUT_DIR%" rmdir /s /q "%OUTPUT_DIR%"
 )
 
+if not defined EXTRA_CMAKE_ARGS (
+  if defined VCPKG_ROOT (
+    set "VCPKG_CMAKE_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake"
+    if exist "%VCPKG_CMAKE_FILE%" (
+      set "VCPKG_CMAKE_FILE=%VCPKG_CMAKE_FILE:\=/%"
+      set "EXTRA_CMAKE_ARGS=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_CMAKE_FILE% -DVCPKG_TARGET_TRIPLET=%VCPKG_TARGET_TRIPLET%"
+    )
+  ) else (
+    if exist "D:\Development\vcpkg\scripts\buildsystems\vcpkg.cmake" (
+      set "EXTRA_CMAKE_ARGS=-DCMAKE_TOOLCHAIN_FILE=D:/Development/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=%VCPKG_TARGET_TRIPLET%"
+    )
+  )
+)
+
+set "VCPKG_INSTALLED_TRIPLET_DIR="
+if defined VCPKG_ROOT (
+  if exist "%VCPKG_ROOT%\installed\%VCPKG_TARGET_TRIPLET%" (
+    set "VCPKG_INSTALLED_TRIPLET_DIR=%VCPKG_ROOT%\installed\%VCPKG_TARGET_TRIPLET%"
+  )
+) else (
+  if exist "D:\Development\vcpkg\installed\%VCPKG_TARGET_TRIPLET%" (
+    set "VCPKG_INSTALLED_TRIPLET_DIR=D:\Development\vcpkg\installed\%VCPKG_TARGET_TRIPLET%"
+  )
+)
+
+if defined VCPKG_INSTALLED_TRIPLET_DIR (
+  if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\include" (
+    set "INCLUDE=%VCPKG_INSTALLED_TRIPLET_DIR%\include;%INCLUDE%"
+  )
+  if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\lib" (
+    set "LIB=%VCPKG_INSTALLED_TRIPLET_DIR%\lib;%LIB%"
+  )
+  if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\debug\lib" (
+    set "LIB=%VCPKG_INSTALLED_TRIPLET_DIR%\debug\lib;%LIB%"
+  )
+  if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\bin" (
+    set "PATH=%VCPKG_INSTALLED_TRIPLET_DIR%\bin;%PATH%"
+  )
+)
+
+if not defined PASM_EMU_EXTRA_LIB_DIRS (
+  if defined VCPKG_INSTALLED_TRIPLET_DIR (
+    if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\lib" (
+      set "PASM_EMU_EXTRA_LIB_DIRS=%VCPKG_INSTALLED_TRIPLET_DIR%\lib"
+      if exist "%VCPKG_INSTALLED_TRIPLET_DIR%\debug\lib" (
+        set "PASM_EMU_EXTRA_LIB_DIRS=%PASM_EMU_EXTRA_LIB_DIRS%,%VCPKG_INSTALLED_TRIPLET_DIR%\debug\lib"
+      )
+    )
+  )
+)
+
 echo [1/3] Generating emulator -^> %OUTPUT_DIR%
 uv run python -m src.main generate ^
   --processor "%PROCESSOR%" ^
@@ -82,7 +135,7 @@ uv run python -m src.main generate ^
 if errorlevel 1 exit /b %errorlevel%
 
 echo [2/3] Building emulator with CMake -^> %BUILD_DIR%
-cmake -S "%OUTPUT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE="%CMAKE_BUILD_TYPE%"
+cmake -S "%OUTPUT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE="%CMAKE_BUILD_TYPE%" %EXTRA_CMAKE_ARGS%
 if errorlevel 1 exit /b %errorlevel%
 cmake --build "%BUILD_DIR%" --config "%CMAKE_BUILD_TYPE%"
 if errorlevel 1 exit /b %errorlevel%

@@ -65,7 +65,8 @@ def test_apple2_interactive_component_graph_validates():
         "keyboard_apple2",
         "gameport_apple2",
         "video_apple2",
-        "speaker_apple2",
+        "speaker",
+        "monitor",
     ]
     assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_apple2"]
 
@@ -93,10 +94,30 @@ def test_generate_apple2_interactive_with_components():
     assert "0xC050u" in all_src and "0xC057u" in all_src
     assert "apple2_glyph" in system_glue
     assert "A2_HIRES_ADDR" in system_glue
+    assert "const uint32_t text_fg = 0xFFFFFFFFu;" in system_glue
+    assert "0xFFA8FF7Au" not in system_glue
+    assert 'cpu_component_emit_signal(cpu, "monitor", "frame_present", args, argc);' in system_glue
+    assert "void * display_shader;" in all_src
+    assert "apple2_crt_green_fragment_shader" in all_src
+    assert "const float CURVATURE = 4.5;" in all_src
+    assert "const vec3 PHOSPHOR_COLOR = vec3(0.12, 1.0, 0.18);" in all_src
+    assert "vec2 crtUV = curve(TexCoords);" in all_src
+    assert "uniform sampler2D screenTexture;" in all_src
+    assert "uniform vec2 sourceResolution;" in all_src
+    assert "float luma = dot(src, vec3(0.30, 0.59, 0.11));" in all_src
+    assert "comp->display_shader = cpu_host_hal_shader_create(" in all_src
+    assert "comp->display_shader_supported = (comp->display_shader != NULL && cpu_host_hal_renderer_supports_shaders(renderer) != 0) ? 1 : 0;" in all_src
+    assert "int shader_ready = (comp->display_shader_supported != 0) ? 1 : 0;" in all_src
+    assert "cpu_host_hal_render_copy_shader(renderer, texture, NULL, &dst, comp->display_shader, (int)w, (int)h, ww, wh)" in all_src
+    assert "uint64_t shader_count = (uint64_t)w * (uint64_t)h;" in all_src
+    assert "pixels[shader_i] = 0xFF000000u | (green << 8u);" in all_src
+    assert "uint32_t luma = (r * 30u + g * 59u + b * 11u) / 100u;" in all_src
     assert "cpu_host_hal_event_key_repeat(&ev) == 0" in all_src
     assert "CPU_HOST_MOD_SHIFT" in all_src
     assert "CPU_HOST_MOD_CTRL" in all_src
     assert "CPU_HOST_SCANCODE(A)" in all_src
     assert "CPU_HOST_SCANCODE(Z)" in all_src
     assert 'snprintf(rendered, sizeof(rendered), "LDA #%s"' in all_src
+    assert "int scaled_w = ww;" in all_src
+    assert "int scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);" in all_src
     assert "ch + (uint8_t)(x + y + comp->frame_count)" not in impl

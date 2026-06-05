@@ -1,27 +1,24 @@
 metadata:
   name: Z80AmstradCPC464InteractiveSystem
-  version: "0.1"
-
+  version: '0.1'
 clock_hz: 4000000
 reset_delay_seconds: 0
-
 memory:
   default_size: 65536
   regions:
-    - name: RAM_64K
-      start: 0x0000
-      size: 0x10000
-      read_write: true
+  - name: RAM_64K
+    start: 0
+    size: 65536
+    read_write: true
   rom_images:
-    - name: cpc464_os_rom
-      file: ../../roms/cpc464/OS_464.ROM
-      target_region: RAM_64K
-      offset: 0
-    - name: cpc464_basic_rom
-      file: ../../roms/cpc464/BASIC_1.0.ROM
-      target_region: RAM_64K
-      offset: 0xC000
-
+  - name: cpc464_os_rom
+    file: ../../roms/cpc464/OS_464.ROM
+    target_region: RAM_64K
+    offset: 0
+  - name: cpc464_basic_rom
+    file: ../../roms/cpc464/BASIC_1.0.ROM
+    target_region: RAM_64K
+    offset: 49152
 hooks:
   pre_fetch:
     enabled: false
@@ -37,162 +34,172 @@ hooks:
     enabled: false
   port_write_post:
     enabled: false
-
 components:
   ics:
-    - cpc_gate_array
-    - cpc_crtc
-    - cpc_ppi
-    - cpc_psg
-    - cpc464_ram
+  - cpc_gate_array
+  - cpc_crtc
+  - cpc_ppi
+  - cpc_psg
+  - cpc464_ram
   devices:
-    - keyboard_cpc
-    - gameport_cpc
-    - video_cpc
-    - speaker_cpc
+  - keyboard_cpc
+  - gameport_cpc
+  - video_cpc
+  - speaker
+  - monitor
   hosts:
-    - host_cpc
-
+  - host_cpc
 connections:
-  - from:
-      component: cpc_ppi
-      kind: callback
-      name: keyboard_read_row
-    to:
-      component: keyboard_cpc
-      kind: callback
-      name: read_row
-
-  - from:
-      component: keyboard_cpc
-      kind: callback
-      name: host_matrix
-    to:
-      component: host_cpc
-      kind: callback
-      name: keyboard_matrix
-
-  - from:
-      component: cpc_ppi
-      kind: callback
-      name: controller_read_row
-    to:
-      component: gameport_cpc
-      kind: callback
-      name: read_row
-
-  - from:
-      component: cpc_gate_array
-      kind: callback
-      name: crtc_read_reg
-    to:
-      component: cpc_crtc
-      kind: callback
-      name: read_reg
-
-  - from:
-      component: cpc_gate_array
-      kind: callback
-      name: ppi_write_io_page
-    to:
-      component: cpc_ppi
-      kind: callback
-      name: write_io_page
-
-  - from:
-      component: cpc_gate_array
-      kind: callback
-      name: ppi_read_port_c_raw
-    to:
-      component: cpc_ppi
-      kind: callback
-      name: read_port_c_latched
-
-  - from:
-      component: cpc_gate_array
-      kind: callback
-      name: ppi_read_io_page
-    to:
-      component: cpc_ppi
-      kind: callback
-      name: read_io_page
-
-  - from:
-      component: cpc_ppi
-      kind: callback
-      name: psg_bus_apply
-    to:
-      component: cpc_psg
-      kind: callback
-      name: bus_apply
-
-  - from:
-      component: cpc_gate_array
-      kind: callback
-      name: psg_tick_audio
-    to:
-      component: cpc_psg
-      kind: callback
-      name: tick_audio
-
-  - from:
-      component: gameport_cpc
-      kind: callback
-      name: host_matrix
-    to:
-      component: host_cpc
-      kind: callback
-      name: joystick_matrix
-
-  - from:
-      component: cpc_gate_array
-      kind: signal
-      name: frame_ready
-    to:
-      component: video_cpc
-      kind: handler
-      name: on_frame_ready
-
-  - from:
-      component: video_cpc
-      kind: signal
-      name: frame_present
-    to:
-      component: host_cpc
-      kind: handler
-      name: video_frame
-
-  - from:
-      component: cpc_gate_array
-      kind: signal
-      name: irq_edge
-    to:
-      component: host_cpc
-      kind: handler
-      name: irq_edge
-
-  - from:
-      component: cpc_gate_array
-      kind: signal
-      name: audio_level
-    to:
-      component: speaker_cpc
-      kind: handler
-      name: on_audio_level
-
-  - from:
-      component: speaker_cpc
-      kind: signal
-      name: pcm_sample
-    to:
-      component: host_cpc
-      kind: handler
-      name: audio_pcm
-
+- from:
+    component: cpc_ppi
+    kind: callback
+    name: keyboard_read_row
+  to:
+    component: keyboard_cpc
+    kind: callback
+    name: read_row
+- from:
+    component: keyboard_cpc
+    kind: callback
+    name: host_matrix
+  to:
+    component: host_cpc
+    kind: callback
+    name: keyboard_matrix
+- from:
+    component: cpc_ppi
+    kind: callback
+    name: controller_read_row
+  to:
+    component: gameport_cpc
+    kind: callback
+    name: read_row
+- from:
+    component: cpc_gate_array
+    kind: callback
+    name: crtc_read_reg
+  to:
+    component: cpc_crtc
+    kind: callback
+    name: read_reg
+- from:
+    component: cpc_gate_array
+    kind: callback
+    name: ppi_write_io_page
+  to:
+    component: cpc_ppi
+    kind: callback
+    name: write_io_page
+- from:
+    component: cpc_gate_array
+    kind: callback
+    name: ppi_read_port_c_raw
+  to:
+    component: cpc_ppi
+    kind: callback
+    name: read_port_c_latched
+- from:
+    component: cpc_gate_array
+    kind: callback
+    name: ppi_read_io_page
+  to:
+    component: cpc_ppi
+    kind: callback
+    name: read_io_page
+- from:
+    component: cpc_ppi
+    kind: callback
+    name: psg_bus_apply
+  to:
+    component: cpc_psg
+    kind: callback
+    name: bus_apply
+- from:
+    component: cpc_gate_array
+    kind: callback
+    name: psg_tick_audio
+  to:
+    component: cpc_psg
+    kind: callback
+    name: tick_audio
+- from:
+    component: gameport_cpc
+    kind: callback
+    name: host_matrix
+  to:
+    component: host_cpc
+    kind: callback
+    name: joystick_matrix
+- from:
+    component: cpc_gate_array
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_cpc
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_cpc
+    kind: signal
+    name: frame_present
+  to:
+    component: monitor
+    kind: handler
+    name: on_frame_present
+- from:
+    component: cpc_gate_array
+    kind: signal
+    name: irq_edge
+  to:
+    component: host_cpc
+    kind: handler
+    name: irq_edge
+- from:
+    component: cpc_gate_array
+    kind: signal
+    name: audio_level
+  to:
+    component: speaker
+    kind: handler
+    name: on_audio_level
+- from:
+    component: speaker
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_cpc
+    kind: handler
+    name: audio_pcm
+- from:
+    component: monitor
+    kind: signal
+    name: frame_present
+  to:
+    component: host_cpc
+    kind: handler
+    name: video_frame
 audio:
   sample_rate: 44100
   format: s16le
   channels: 1
-
 integrations:
   profile: amstrad_cpc464_interactive
+display:
+  default_component: monitor
+  default_model: generic_crt_monitor_color
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

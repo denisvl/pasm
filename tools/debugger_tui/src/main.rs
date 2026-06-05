@@ -125,8 +125,8 @@ fn run_ui(mut app: App, use_alt_screen: bool) -> Result<(), String> {
                 RunSpeedMode::Realtime => Duration::from_millis(16),
             }
         } else {
-            // Keep paused refreshes sparse so terminal selection/copy is usable.
-            Duration::from_millis(1500)
+            // Wake frequently enough to pump linked host windows; App throttles paused snapshots.
+            Duration::from_millis(16)
         };
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if event::poll(timeout).map_err(|e| e.to_string())? {

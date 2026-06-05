@@ -1,35 +1,32 @@
 metadata:
   name: BBCMicroInteractiveSystem
-  version: "0.1"
-
+  version: '0.1'
 clock_hz: 2000000
 reset_delay_seconds: 0
-
 memory:
   default_size: 65536
   regions:
-    - name: RAM_MAIN
-      start: 0x0000
-      size: 0x8000
-      read_write: true
-    - name: ROM_PAGED
-      start: 0x8000
-      size: 0x4000
-      read_only: true
-    - name: ROM_OS
-      start: 0xC000
-      size: 0x4000
-      read_only: true
+  - name: RAM_MAIN
+    start: 0
+    size: 32768
+    read_write: true
+  - name: ROM_PAGED
+    start: 32768
+    size: 16384
+    read_only: true
+  - name: ROM_OS
+    start: 49152
+    size: 16384
+    read_only: true
   rom_images:
-    - name: bbc_basic_rom
-      file: ../../roms/bbcmicro/BASIC2.ROM
-      target_region: ROM_PAGED
-      offset: 0
-    - name: bbc_mos_rom
-      file: ../../roms/bbcmicro/OS12.ROM
-      target_region: ROM_OS
-      offset: 0
-
+  - name: bbc_basic_rom
+    file: ../../roms/bbcmicro/BASIC2.ROM
+    target_region: ROM_PAGED
+    offset: 0
+  - name: bbc_mos_rom
+    file: ../../roms/bbcmicro/OS12.ROM
+    target_region: ROM_OS
+    offset: 0
 hooks:
   pre_fetch:
     enabled: false
@@ -45,85 +42,104 @@ hooks:
     enabled: false
   port_write_post:
     enabled: false
-
 components:
   ics:
-    - bbc_micro_crtc_6845
-    - bbc_micro_video_ula
-    - bbc_micro_system_via_6522
-    - bbc_micro_user_via_6522
-    - bbc_micro_teletext_saa5050
-    - bbc_micro_adc_upd7002
-    - bbc_micro_acia_6850
-    - bbc_micro_mmu_paged_rom
-    - sn76489_psg0
-    - bbc_micro_main_ram
+  - bbc_micro_crtc_6845
+  - bbc_micro_video_ula
+  - bbc_micro_system_via_6522
+  - bbc_micro_user_via_6522
+  - bbc_micro_teletext_saa5050
+  - bbc_micro_adc_upd7002
+  - bbc_micro_acia_6850
+  - bbc_micro_mmu_paged_rom
+  - sn76489_psg0
+  - bbc_micro_main_ram
   devices:
-    - keyboard_bbc_micro
-    - video_bbc_micro
-    - speaker_bbc_micro
+  - keyboard_bbc_micro
+  - video_bbc_micro
+  - speaker
+  - monitor
   hosts:
-    - host_bbc_micro
-
+  - host_bbc_micro
 connections:
-  - from:
-      component: bbc_micro_crtc_6845
-      kind: callback
-      name: keyboard_read_row
-    to:
-      component: host_bbc_micro
-      kind: callback
-      name: keyboard_read_row
-
-  - from:
-      component: bbc_micro_crtc_6845
-      kind: signal
-      name: frame_ready
-    to:
-      component: video_bbc_micro
-      kind: handler
-      name: on_frame_ready
-
-  - from:
-      component: video_bbc_micro
-      kind: signal
-      name: frame_present
-    to:
-      component: host_bbc_micro
-      kind: handler
-      name: video_frame
-
-  - from:
-      component: bbc_micro_crtc_6845
-      kind: signal
-      name: audio_command
-    to:
-      component: sn76489_psg0
-      kind: handler
-      name: on_audio_command
-
-  - from:
-      component: sn76489_psg0
-      kind: signal
-      name: audio_level
-    to:
-      component: speaker_bbc_micro
-      kind: handler
-      name: on_audio_level
-
-  - from:
-      component: speaker_bbc_micro
-      kind: signal
-      name: pcm_sample
-    to:
-      component: host_bbc_micro
-      kind: handler
-      name: audio_pcm
-
+- from:
+    component: bbc_micro_crtc_6845
+    kind: callback
+    name: keyboard_read_row
+  to:
+    component: host_bbc_micro
+    kind: callback
+    name: keyboard_read_row
+- from:
+    component: bbc_micro_crtc_6845
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_bbc_micro
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_bbc_micro
+    kind: signal
+    name: frame_present
+  to:
+    component: monitor
+    kind: handler
+    name: on_frame_present
+- from:
+    component: bbc_micro_crtc_6845
+    kind: signal
+    name: audio_command
+  to:
+    component: sn76489_psg0
+    kind: handler
+    name: on_audio_command
+- from:
+    component: sn76489_psg0
+    kind: signal
+    name: audio_level
+  to:
+    component: speaker
+    kind: handler
+    name: on_audio_level
+- from:
+    component: speaker
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_bbc_micro
+    kind: handler
+    name: audio_pcm
+- from:
+    component: monitor
+    kind: signal
+    name: frame_present
+  to:
+    component: host_bbc_micro
+    kind: handler
+    name: video_frame
 audio:
   sample_rate: 44100
   format: s16le
   channels: 1
-
 integrations:
   profile: bbc_micro_interactive
+display:
+  default_component: monitor
+  default_model: generic_crt_monitor_color
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

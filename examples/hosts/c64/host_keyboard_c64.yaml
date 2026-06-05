@@ -370,7 +370,7 @@ keyboard:
     presses:
     - row: 7
       bit: 2
-  - host_scancode: 57
+  - host_scancode: RCTRL
     mapper_key_id: K_RCTRL
     presses:
     - row: 7

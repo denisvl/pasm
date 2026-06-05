@@ -60,7 +60,7 @@ def test_zx48_split_generation_smoke(tmp_path):
         base / "examples" / "devices" / "zx_spectrum48k" / "zx48_keyboard.yaml",
         base / "examples" / "devices" / "zx_spectrum48k" / "zx48_controller.yaml",
         base / "examples" / "devices" / "zx_spectrum48k" / "zx48_video.yaml",
-        base / "examples" / "devices" / "zx_spectrum48k" / "zx48_speaker.yaml",
+        base / "examples" / "devices" / "zx_spectrum48k" / "zx48_beeper.yaml",
         base / "examples" / "devices" / "zx_spectrum48k" / "zx48_mic.yaml",
     ]
     systems = (

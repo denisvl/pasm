@@ -25,7 +25,7 @@ def _parse_kv(stdout: str) -> dict[str, str]:
 
 @pytest.fixture(scope="module")
 def z80_port_hook_harness(tmp_path_factory):
-    compiler = shutil.which("cc") or shutil.which("gcc")
+    compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
     if not compiler:
         pytest.skip("No C compiler available on PATH")
 
@@ -191,16 +191,20 @@ int main(int argc, char **argv) {
 
     binary_name = "port_hook_harness.exe" if os.name == "nt" else "port_hook_harness"
     binary = outdir / binary_name
+    src_dir = outdir / "src"
+    unit_sources = [
+        str(path)
+        for path in src_dir.glob("*.c")
+        if path.name not in ("main.c", "test_cpu.c", "Z80_debug_abi.c")
+    ]
     subprocess.check_call(
         [
             compiler,
             "-std=c11",
             "-O2",
             "-I",
-            str(outdir / "src"),
-            str(outdir / "src" / "Z80_core.c"),
-            str(outdir / "src" / "Z80_decoder.c"),
-            str(outdir / "src" / "Z80_hooks.c"),
+            str(src_dir),
+            *unit_sources,
             str(harness_c),
             "-o",
             str(binary),

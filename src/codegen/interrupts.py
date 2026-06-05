@@ -3,7 +3,6 @@
 from typing import Any, Dict, List
 
 INTERRUPT_MODE_IDS = {"IM0": 0, "IM1": 1, "IM2": 2}
-SUPPORTED_INTERRUPT_MODELS = {"none", "fixed_vector", "z80", "mos6502", "mc6809"}
 
 
 def configured_interrupt_modes(isa_data: Dict[str, Any]) -> List[int]:
@@ -20,26 +19,15 @@ def configured_interrupt_modes(isa_data: Dict[str, Any]) -> List[int]:
 
 
 def resolve_interrupt_model(isa_data: Dict[str, Any]) -> str:
-    """Resolve interrupt model with backwards-compatible defaults."""
+    """Resolve the YAML-declared interrupt model."""
     interrupts = isa_data.get("interrupts")
     if not isinstance(interrupts, dict):
         return "none"
 
     configured = str(interrupts.get("model", "")).strip().lower()
     if configured:
-        if configured not in SUPPORTED_INTERRUPT_MODELS:
-            raise ValueError(
-                "Unsupported interrupts.model: "
-                f"{configured}. Expected one of {sorted(SUPPORTED_INTERRUPT_MODELS)}"
-            )
         return configured
-
-    # Backwards-compatible inference:
-    # - IM* mode declarations imply Z80-style dispatch.
-    # - Otherwise use a fixed vector model.
-    if configured_interrupt_modes(isa_data):
-        return "z80"
-    return "fixed_vector"
+    return "none"
 
 
 def generate_interrupt_impl(isa_data: Dict[str, Any], cpu_name: str) -> str:

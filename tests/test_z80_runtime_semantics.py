@@ -7,7 +7,7 @@ import subprocess
 import pytest
 
 from src import generator as gen_mod
-from tests.support import example_pair
+from tests.support import example_pair, resolve_built_binary
 
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -91,9 +91,7 @@ def z80_binary(tmp_path_factory):
     )
 
     binary_name = "z80_test.exe" if os.name == "nt" else "z80_test"
-    binary = build_dir / binary_name
-    assert binary.exists(), f"Expected binary not found: {binary}"
-    return binary
+    return resolve_built_binary(build_dir, binary_name)
 
 
 @pytest.mark.skipif(

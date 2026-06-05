@@ -78,6 +78,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
+BUILD_DIR_ABS="$(cd "$(dirname "${BUILD_DIR}")" && pwd)/$(basename "${BUILD_DIR}")"
 SYSTEM_DIR="$(dirname "${SYSTEM}")"
 SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
 if [[ -z "${CARTRIDGE_DIR}" ]]; then
@@ -172,13 +173,17 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
-  --host-backend "${HOST_BACKEND:-sdl2}" \
+  --host-backend "${HOST_BACKEND:-glfw}" \
   "${GEN_CARTRIDGE_ARGS[@]}" \
   --output "${OUTPUT_DIR}"
 
 echo "[2/3] Building emulator with CMake -> ${BUILD_DIR}"
 cmake -S "${OUTPUT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
 cmake --build "${BUILD_DIR}" --config "${CMAKE_BUILD_TYPE}"
+PASM_EMU_BUILD_DIR="${BUILD_DIR_ABS}"
+if [[ -d "${BUILD_DIR_ABS}/${CMAKE_BUILD_TYPE}" ]]; then
+  PASM_EMU_BUILD_DIR="${BUILD_DIR_ABS}/${CMAKE_BUILD_TYPE}"
+fi
 
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
@@ -191,7 +196,7 @@ echo "    cartridge_dir=${CARTRIDGE_DIR}"
 echo "    boot_cartridge=${BOOT_CARTRIDGE}"
 echo "    cart_picker_raw_keys=${PASM_EMU_CART_PICKER_RAW_KEYS}"
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
-PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
+PASM_EMU_BUILD_DIR="${PASM_EMU_BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS}" \

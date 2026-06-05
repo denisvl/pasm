@@ -28,6 +28,9 @@ if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
 if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=1"
+set "PASM_TRACE=0"
+set "PASM_ATARI800XL_KEY_TRACE=0"
+set "PASM_ATARI800XL_KB_EVENTS=0"
 if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/atari800xl/host_keyboard_atari800xl.yaml"
 if not defined USE_CARTRIDGE set "USE_CARTRIDGE=1"
 if not defined BOOT_CARTRIDGE set "BOOT_CARTRIDGE=0"
@@ -38,7 +41,7 @@ if not defined CARTRIDGE_ROM_RUNTIME set "CARTRIDGE_ROM_RUNTIME="
 if not defined OS_ROM set "OS_ROM=../../roms/atari800xl/ATARIXL.ROM"
 if not defined BASIC_ROM set "BASIC_ROM=../../roms/atari800xl/BASIC_C.ROM"
 if not defined SELFTEST_ROM set "SELFTEST_ROM=../../roms/atari800xl/ATARIXL_SELFTEST.ROM"
-if not defined HOST_BACKEND set "HOST_BACKEND=sdl2"
+if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
@@ -57,7 +60,7 @@ set "IC_MAIN_RAM=examples/ics/atari800xl/atari800xl_main_ram.yaml"
 set "DEVICE_KB=examples/devices/atari800xl/atari800xl_keyboard.yaml"
 set "DEVICE_CTRL=examples/devices/atari800xl/atari800xl_controller.yaml"
 set "DEVICE_VIDEO=examples/devices/atari800xl/atari800xl_video.yaml"
-set "DEVICE_SPK=examples/devices/atari800xl/atari800xl_speaker.yaml"
+set "DEVICE_TV=examples/devices/common/tv_crt_mono.yaml"
 set "SYSTEM_DIR=examples/systems/atari800xl"
 
 if /I "%PROFILE%"=="default" (
@@ -182,7 +185,7 @@ uv run python -m src.main generate ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_CTRL%" ^
   --device "%DEVICE_VIDEO%" ^
-  --device "%DEVICE_SPK%" ^
+  --device "%DEVICE_TV%" ^
   --host "%HOST%" ^
   --host-backend "%HOST_BACKEND%" ^
   %GEN_CARTRIDGE_ARGS% ^
@@ -212,6 +215,10 @@ set "PASM_EMU_BUILD_DIR=%BUILD_DIR_ABS%"
 if exist "%CMAKE_CONFIG_BUILD_DIR%" set "PASM_EMU_BUILD_DIR=%CMAKE_CONFIG_BUILD_DIR_ABS%"
 set "PASM_EMU_MANIFEST=%OUTPUT_DIR_ABS%\debugger_link.json"
 set "PASM_HOST_AUDIO=%PASM_HOST_AUDIO%"
+set "PASM_TRACE=%PASM_TRACE%"
+set "PASM_TRACE_FILE="
+set "PASM_ATARI800XL_KEY_TRACE=%PASM_ATARI800XL_KEY_TRACE%"
+set "PASM_ATARI800XL_KB_EVENTS=%PASM_ATARI800XL_KB_EVENTS%"
 set "PASM_SYSTEM_DIR=%SYSTEM_DIR_ABS%"
 set "PASM_EMU_CART_PICKER_RAW_KEYS=%PASM_EMU_CART_PICKER_RAW_KEYS%"
 

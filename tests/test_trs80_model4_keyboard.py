@@ -18,8 +18,17 @@ def _trs80_interactive_paths():
     system_path = (
         BASE_DIR / "examples" / "systems" / "trs80_model4" / "trs80_model4_interactive.yaml"
     )
+    trs80_ics = BASE_DIR / "examples" / "ics" / "trs80_model4"
     ic_paths = [
-        BASE_DIR / "examples" / "ics" / "trs80_model4" / "trs80_model4_peripherals.yaml",
+        trs80_ics / "trs80_model4_peripherals.yaml",
+        trs80_ics / "trs80_model4_gate_array.yaml",
+        trs80_ics / "trs80_model4_main_ram.yaml",
+        trs80_ics / "trs80_model4_fdc.yaml",
+        trs80_ics / "trs80_model4_ppi.yaml",
+        trs80_ics / "trs80_model4_serial.yaml",
+        trs80_ics / "trs80_model4_video.yaml",
+        trs80_ics / "trs80_model4_irq.yaml",
+        trs80_ics / "trs80_model4_cassette.yaml",
     ]
     device_paths = [
         BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_keyboard.yaml",
@@ -43,7 +52,10 @@ def test_trs80_keyboard_matrix_codegen_uses_address_synthesized_logic(tmp_path):
         device_paths=[str(path) for path in device_paths],
         host_paths=[str(path) for path in host_paths],
     )
-    c_src = (outdir / "src" / "Z80_core.c").read_text(encoding="utf-8")
+    c_src = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (outdir / "src").glob("*.c")
+    )
 
     # Matrix is synthesized from address-selected row lines into column bits.
     assert "uint8_t row_lines = (uint8_t)(addr & 0xFFu);" in c_src
@@ -106,8 +118,17 @@ def test_trs80_keyboard_matrix_runtime_row_column_behavior(tmp_path):
     system_path = (
         BASE_DIR / "examples" / "systems" / "trs80_model4" / "trs80_model4_default.yaml"
     )
+    trs80_ics = BASE_DIR / "examples" / "ics" / "trs80_model4"
     ic_paths = [
-        BASE_DIR / "examples" / "ics" / "trs80_model4" / "trs80_model4_peripherals.yaml",
+        trs80_ics / "trs80_model4_peripherals.yaml",
+        trs80_ics / "trs80_model4_gate_array.yaml",
+        trs80_ics / "trs80_model4_main_ram.yaml",
+        trs80_ics / "trs80_model4_fdc.yaml",
+        trs80_ics / "trs80_model4_ppi.yaml",
+        trs80_ics / "trs80_model4_serial.yaml",
+        trs80_ics / "trs80_model4_video.yaml",
+        trs80_ics / "trs80_model4_irq.yaml",
+        trs80_ics / "trs80_model4_cassette.yaml",
     ]
     device_paths = [
         BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_keyboard.yaml",
@@ -237,7 +258,7 @@ int main(void) {
     src_dir = outdir / "src"
     split_units = [
         str(path)
-        for suffix in ("_system_bus.c", "_system_glue.c", "_host_glue.c", "_device_glue.c")
+        for suffix in ("_system_bus.c", "_system_glue.c", "_host_glue.c", "_device_glue.c", "_ic_*.c")
         for path in src_dir.glob(f"*{suffix}")
     ]
 

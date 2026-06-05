@@ -7,10 +7,26 @@ metadata:
   undefined_opcode_policy: trap
   codegen:
     architecture_id: unknown
+    architecture_enum_name: PASM_ARCH_UNKNOWN
+    architecture_enum_value: 255
     numeric_style: c_hex
     flags_dump_style: raw
+    debug_flags_expr: cpu->flags.raw
+    numeric_formats:
+      hex8: "0x%02X"
+      hex16: "0x%04X"
     decode_quirks:
       mc6809_indexed_postbyte_length: false
+    helper_features:
+      condition_cases:
+      - "!($Z)"
+      - "$Z"
+      - "!($C)"
+      - "$C"
+      - "!($P)"
+      - "$P"
+      - "!($S)"
+      - "$S"
     display_kinds_enabled: []
 registers:
 - name: R0

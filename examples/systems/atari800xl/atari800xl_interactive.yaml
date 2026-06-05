@@ -1,59 +1,56 @@
 metadata:
   name: Atari800XLInteractiveSystem
-  version: "0.1"
-
+  version: '0.1'
 clock_hz: 1789773
 reset_delay_seconds: 0
-
 memory:
   default_size: 65536
   regions:
-    - name: RAM_LOW
-      start: 0x0000
-      size: 0xA000
-      read_write: true
-    - name: ROM_BASIC
-      start: 0xA000
-      size: 0x2000
-      read_write: true
-    - name: RAM_B000
-      start: 0xB000
-      size: 0x1000
-      read_write: true
-    - name: ROM_SELFTEST
-      start: 0x5000
-      size: 0x0800
-      read_only: true
-    - name: ROM_OS_LOW
-      start: 0xC000
-      size: 0x1000
-      read_only: true
-    - name: IO_PAGE
-      start: 0xD000
-      size: 0x0800
-      read_write: true
-    - name: ROM_OS_HIGH
-      start: 0xD800
-      size: 0x2800
-      read_only: true
+  - name: RAM_LOW
+    start: 0
+    size: 40960
+    read_write: true
+  - name: ROM_BASIC
+    start: 40960
+    size: 8192
+    read_write: true
+  - name: RAM_B000
+    start: 45056
+    size: 4096
+    read_write: true
+  - name: ROM_SELFTEST
+    start: 20480
+    size: 2048
+    read_only: true
+  - name: ROM_OS_LOW
+    start: 49152
+    size: 4096
+    read_only: true
+  - name: IO_PAGE
+    start: 53248
+    size: 2048
+    read_write: true
+  - name: ROM_OS_HIGH
+    start: 55296
+    size: 10240
+    read_only: true
   rom_images:
-    - name: atari800xl_os_low
-      file: ../../roms/atari800xl/ATARIXL_C000.ROM
-      target_region: ROM_OS_LOW
-      offset: 0
-    - name: atari800xl_os_high
-      file: ../../roms/atari800xl/ATARIXL_D800.ROM
-      target_region: ROM_OS_HIGH
-      offset: 0
-    - name: atari800xl_selftest
-      file: ../../roms/atari800xl/ATARIXL_SELFTEST.ROM
-      target_region: ROM_SELFTEST
-      offset: 0
-    - name: atari800xl_basic
-      file: ../../roms/atari800xl/BASIC_C.ROM
-      target_region: ROM_BASIC
-      offset: 0
-
+  - name: atari800xl_os_low
+    file: ../../roms/atari800xl/ATARIXL_C000.ROM
+    target_region: ROM_OS_LOW
+    offset: 0
+  - name: atari800xl_os_high
+    file: ../../roms/atari800xl/ATARIXL_D800.ROM
+    target_region: ROM_OS_HIGH
+    offset: 0
+  - name: atari800xl_selftest
+    file: ../../roms/atari800xl/ATARIXL_SELFTEST.ROM
+    target_region: ROM_SELFTEST
+    offset: 0
+  - name: atari800xl_basic
+    file: ../../roms/atari800xl/BASIC_C.ROM
+    target_region: ROM_BASIC
+    offset: 0
 hooks:
   pre_fetch:
     enabled: false
@@ -69,257 +66,260 @@ hooks:
     enabled: false
   port_write_post:
     enabled: false
-
 components:
   ics:
-    - atari800xl_antic
-    - atari800xl_gtia
-    - atari800xl_pokey
-    - atari800xl_pia_6520
-    - atari800xl_mmu
-    - atari800xl_main_ram
+  - atari800xl_antic
+  - atari800xl_gtia
+  - atari800xl_pokey
+  - atari800xl_pia_6520
+  - atari800xl_mmu
+  - atari800xl_main_ram
   devices:
-    - keyboard_atari800xl
-    - controller_atari800xl
-    - video_atari800xl
-    - speaker_atari800xl
+  - keyboard_atari800xl
+  - controller_atari800xl
+  - video_atari800xl
+  - tv
   hosts:
-    - host_atari800xl
-
+  - host_atari800xl
 connections:
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: keyboard_ascii
-    to:
-      component: keyboard_atari800xl
-      kind: callback
-      name: read_ascii
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: break_state
-    to:
-      component: keyboard_atari800xl
-      kind: callback
-      name: read_break
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: consol_state
-    to:
-      component: controller_atari800xl
-      kind: callback
-      name: read_consol
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: joystick_porta
-    to:
-      component: controller_atari800xl
-      kind: callback
-      name: read_porta
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: trigger0
-    to:
-      component: controller_atari800xl
-      kind: callback
-      name: read_trigger0
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: trigger1
-    to:
-      component: controller_atari800xl
-      kind: callback
-      name: read_trigger1
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: trigger2
-    to:
-      component: controller_atari800xl
-      kind: callback
-      name: read_trigger2
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: trigger3
-    to:
-      component: controller_atari800xl
-      kind: callback
-      name: read_trigger3
-
-  - from:
-      component: keyboard_atari800xl
-      kind: callback
-      name: host_ascii
-    to:
-      component: host_atari800xl
-      kind: callback
-      name: keyboard_ascii
-  - from:
-      component: keyboard_atari800xl
-      kind: callback
-      name: host_break
-    to:
-      component: host_atari800xl
-      kind: callback
-      name: break_state
-
-  - from:
-      component: controller_atari800xl
-      kind: callback
-      name: host_consol
-    to:
-      component: host_atari800xl
-      kind: callback
-      name: consol_state
-  - from:
-      component: controller_atari800xl
-      kind: callback
-      name: host_porta
-    to:
-      component: host_atari800xl
-      kind: callback
-      name: joystick_porta
-  - from:
-      component: controller_atari800xl
-      kind: callback
-      name: host_trigger0
-    to:
-      component: host_atari800xl
-      kind: callback
-      name: trigger0
-  - from:
-      component: controller_atari800xl
-      kind: callback
-      name: host_trigger1
-    to:
-      component: host_atari800xl
-      kind: callback
-      name: trigger1
-  - from:
-      component: controller_atari800xl
-      kind: callback
-      name: host_trigger2
-    to:
-      component: host_atari800xl
-      kind: callback
-      name: trigger2
-  - from:
-      component: controller_atari800xl
-      kind: callback
-      name: host_trigger3
-    to:
-      component: host_atari800xl
-      kind: callback
-      name: trigger3
-
-  - from:
-      component: atari800xl_antic
-      kind: signal
-      name: frame_ready
-    to:
-      component: video_atari800xl
-      kind: handler
-      name: on_frame_ready
-
-  - from:
-      component: video_atari800xl
-      kind: signal
-      name: frame_present
-    to:
-      component: host_atari800xl
-      kind: handler
-      name: video_frame
-
-  - from:
-      component: atari800xl_antic
-      kind: signal
-      name: audio_level
-    to:
-      component: speaker_atari800xl
-      kind: handler
-      name: on_audio_level
-
-  - from:
-      component: speaker_atari800xl
-      kind: signal
-      name: pcm_sample
-    to:
-      component: host_atari800xl
-      kind: handler
-      name: audio_pcm
-
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: bus_read
-    to:
-      component: atari800xl_mmu
-      kind: callback
-      name: bus_read
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: bus_write
-    to:
-      component: atari800xl_mmu
-      kind: callback
-      name: bus_write
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: cart_present
-    to:
-      component: atari800xl_mmu
-      kind: callback
-      name: cart_present
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: cart_read
-    to:
-      component: atari800xl_mmu
-      kind: callback
-      name: cart_read
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: request_irq
-    to:
-      component: atari800xl_mmu
-      kind: callback
-      name: request_irq
-
-  - from:
-      component: atari800xl_antic
-      kind: callback
-      name: request_nmi
-    to:
-      component: atari800xl_mmu
-      kind: callback
-      name: request_nmi
-
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: keyboard_ascii
+  to:
+    component: keyboard_atari800xl
+    kind: callback
+    name: read_ascii
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: break_state
+  to:
+    component: keyboard_atari800xl
+    kind: callback
+    name: read_break
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: consol_state
+  to:
+    component: controller_atari800xl
+    kind: callback
+    name: read_consol
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: joystick_porta
+  to:
+    component: controller_atari800xl
+    kind: callback
+    name: read_porta
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: trigger0
+  to:
+    component: controller_atari800xl
+    kind: callback
+    name: read_trigger0
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: trigger1
+  to:
+    component: controller_atari800xl
+    kind: callback
+    name: read_trigger1
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: trigger2
+  to:
+    component: controller_atari800xl
+    kind: callback
+    name: read_trigger2
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: trigger3
+  to:
+    component: controller_atari800xl
+    kind: callback
+    name: read_trigger3
+- from:
+    component: keyboard_atari800xl
+    kind: callback
+    name: host_ascii
+  to:
+    component: host_atari800xl
+    kind: callback
+    name: keyboard_ascii
+- from:
+    component: keyboard_atari800xl
+    kind: callback
+    name: host_break
+  to:
+    component: host_atari800xl
+    kind: callback
+    name: break_state
+- from:
+    component: controller_atari800xl
+    kind: callback
+    name: host_consol
+  to:
+    component: host_atari800xl
+    kind: callback
+    name: consol_state
+- from:
+    component: controller_atari800xl
+    kind: callback
+    name: host_porta
+  to:
+    component: host_atari800xl
+    kind: callback
+    name: joystick_porta
+- from:
+    component: controller_atari800xl
+    kind: callback
+    name: host_trigger0
+  to:
+    component: host_atari800xl
+    kind: callback
+    name: trigger0
+- from:
+    component: controller_atari800xl
+    kind: callback
+    name: host_trigger1
+  to:
+    component: host_atari800xl
+    kind: callback
+    name: trigger1
+- from:
+    component: controller_atari800xl
+    kind: callback
+    name: host_trigger2
+  to:
+    component: host_atari800xl
+    kind: callback
+    name: trigger2
+- from:
+    component: controller_atari800xl
+    kind: callback
+    name: host_trigger3
+  to:
+    component: host_atari800xl
+    kind: callback
+    name: trigger3
+- from:
+    component: atari800xl_antic
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_atari800xl
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_atari800xl
+    kind: signal
+    name: frame_present
+  to:
+    component: tv
+    kind: handler
+    name: on_frame_present
+- from:
+    component: atari800xl_antic
+    kind: signal
+    name: audio_level
+  to:
+    component: tv
+    kind: handler
+    name: on_audio_level
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: bus_read
+  to:
+    component: atari800xl_mmu
+    kind: callback
+    name: bus_read
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: bus_write
+  to:
+    component: atari800xl_mmu
+    kind: callback
+    name: bus_write
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: cart_present
+  to:
+    component: atari800xl_mmu
+    kind: callback
+    name: cart_present
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: cart_read
+  to:
+    component: atari800xl_mmu
+    kind: callback
+    name: cart_read
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: request_irq
+  to:
+    component: atari800xl_mmu
+    kind: callback
+    name: request_irq
+- from:
+    component: atari800xl_antic
+    kind: callback
+    name: request_nmi
+  to:
+    component: atari800xl_mmu
+    kind: callback
+    name: request_nmi
+- from:
+    component: tv
+    kind: signal
+    name: frame_present
+  to:
+    component: host_atari800xl
+    kind: handler
+    name: video_frame
+- from:
+    component: tv
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_atari800xl
+    kind: handler
+    name: audio_pcm
 audio:
   sample_rate: 44100
   format: s16le
   channels: 1
-
 integrations:
   profile: atari800xl_interactive
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

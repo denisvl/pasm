@@ -68,7 +68,8 @@ def test_msx1_component_graph_validates():
         "keyboard_msx",
         "controller_msx",
         "video_msx",
-        "speaker_msx",
+        "speaker",
+        "tv",
     ]
     assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_msx"]
 
@@ -109,8 +110,7 @@ def test_msx1_ppi_keyboard_row_decode_and_bsr_generation(tmp_path):
     assert "uint8_t lo = (uint8_t)(comp->port_c & 0x0Fu);" in c_src
     assert "uint8_t hi = (uint8_t)((comp->port_c >> 4) & 0x0Fu);" in c_src
     assert "value = comp->port_c;" in c_src
-    assert "uint8_t value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFF;" in c_src or \
-           "uint8_t value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFFu;" in c_src
+    assert "uint8_t value = (cpu->port_size > 0u) ? cpu->port_memory[port_index] : 0xFF;" in c_src
     assert "CPU_HOST_SCANCODE(LEFT)" in c_src
     assert "CPU_HOST_SCANCODE(RIGHT)" in c_src
     assert "CPU_HOST_SCANCODE(RETURN)" in c_src

@@ -364,7 +364,7 @@ def test_z80_disassembler_resolves_implicit_ed_opcodes():
 
 
 @pytest.mark.skipif(
-    (shutil.which("cc") is None and shutil.which("gcc") is None),
+    (shutil.which("cc") is None and shutil.which("gcc") is None and shutil.which("clang") is None),
     reason="C compiler not available on PATH",
 )
 def test_z80_disassembler_renders_operand_resolved_ld_rr(tmp_path):
@@ -388,17 +388,22 @@ def test_z80_disassembler_renders_operand_resolved_ld_rr(tmp_path):
         encoding="utf-8",
     )
 
-    compiler = shutil.which("cc") or shutil.which("gcc")
+    compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
     binary = outdir / "disasm_harness"
+    src_dir = outdir / "src"
+    unit_sources = [
+        str(path)
+        for path in src_dir.glob("*.c")
+        if path.name not in ("main.c", "test_cpu.c", "Z80_debug_abi.c")
+    ]
     subprocess.check_call(
         [
             compiler,
             "-std=c11",
             "-O2",
             "-I",
-            str(outdir / "src"),
-            str(outdir / "src" / "Z80_core.c"),
-            str(outdir / "src" / "Z80_decoder.c"),
+            str(src_dir),
+            *unit_sources,
             str(harness_c),
             "-o",
             str(binary),
@@ -411,7 +416,7 @@ def test_z80_disassembler_renders_operand_resolved_ld_rr(tmp_path):
 
 
 @pytest.mark.skipif(
-    (shutil.which("cc") is None and shutil.which("gcc") is None),
+    (shutil.which("cc") is None and shutil.which("gcc") is None and shutil.which("clang") is None),
     reason="C compiler not available on PATH",
 )
 def test_z80_generated_decoder_covers_all_prefixed_opcode_spaces(tmp_path):
@@ -487,7 +492,7 @@ def test_z80_generated_decoder_covers_all_prefixed_opcode_spaces(tmp_path):
         encoding="utf-8",
     )
 
-    compiler = shutil.which("cc") or shutil.which("gcc")
+    compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
     binary = outdir / "scan_decode"
     subprocess.check_call(
         [

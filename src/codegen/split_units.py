@@ -46,8 +46,8 @@ def emit_ic_unit(isa_data: Dict[str, Any], cpu_name: str, component: Dict[str, A
     lifecycle_destroy = _ic_lifecycle_destroy_block(component)
     step_pre = _component_snippet_block(component, "step_pre")
     step_post = _component_snippet_block(component, "step_post")
-    needs_sms_overlay_include = any(
-        "sms_overlay_" in snippet
+    needs_pasm_overlay_include = any(
+        "pasm_overlay_" in snippet
         for snippet in (
             read_body,
             write_body,
@@ -66,7 +66,7 @@ def emit_ic_unit(isa_data: Dict[str, Any], cpu_name: str, component: Dict[str, A
         "/* Auto-generated split unit: per-IC ownership scaffold. */",
         f"/* IC id: {comp_id} */",
         f'#include "{cpu_name}.h"',
-        '#include <sms_overlay.h>' if needs_sms_overlay_include else "",
+        '#include <pasm_overlay_draw.h>' if needs_pasm_overlay_include else "",
         "",
         f"uint8_t cpu_component_ic_{comp_ident}_bus_read(CPUState *cpu, uint16_t addr, uint8_t *handled) {{",
         "    if (handled != NULL) *handled = 0u;",
@@ -530,7 +530,8 @@ def generate_system_bus_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
     parts.append("}\n\n")
     parts.append("uint8_t cpu_components_port_read(CPUState *cpu, uint16_t port, uint8_t *handled) {\n")
     parts.append("    if (handled != NULL) *handled = 0u;\n")
-    parts.append("    uint8_t value = (port < cpu->port_size) ? cpu->port_memory[port] : 0xFF;\n")
+    parts.append("    size_t port_index = (cpu->port_size > 0u) ? ((size_t)port % cpu->port_size) : 0u;\n")
+    parts.append("    uint8_t value = (cpu->port_size > 0u) ? cpu->port_memory[port_index] : 0xFF;\n")
     if port_read_pre_dispatch:
         parts.append("\n".join(port_read_pre_dispatch) + "\n")
     if port_read_post_dispatch:
@@ -542,8 +543,9 @@ def generate_system_bus_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
     parts.append("    if (handled != NULL) *handled = 0u;\n")
     if port_write_pre_dispatch:
         parts.append("\n".join(port_write_pre_dispatch) + "\n")
-    parts.append("    if (port >= cpu->port_size) return;\n")
-    parts.append("    cpu->port_memory[port] = value;\n")
+    parts.append("    if (cpu->port_size == 0u) return;\n")
+    parts.append("    size_t port_index = (size_t)port % cpu->port_size;\n")
+    parts.append("    cpu->port_memory[port_index] = value;\n")
     if port_write_post_dispatch:
         parts.append("\n".join(port_write_post_dispatch) + "\n")
     parts.append("    if (handled != NULL) *handled = 1u;\n")
@@ -751,12 +753,12 @@ def generate_system_interrupt_glue(isa_data: Dict[str, Any], cpu_name: str) -> s
     overlay_include = (
         "#include <pasm_overlay.h>\n\n"
         if (
-            "sms_overlay_" in component_runtime
-            or "sms_overlay_" in component_dispatch
-            or "sms_overlay_" in component_routing
-            or "sms_overlay_" in component_connections
-            or "sms_overlay_" in picker_runtime
-            or "sms_overlay_" in input_runtime_impl
+            "pasm_overlay_" in component_runtime
+            or "pasm_overlay_" in component_dispatch
+            or "pasm_overlay_" in component_routing
+            or "pasm_overlay_" in component_connections
+            or "pasm_overlay_" in picker_runtime
+            or "pasm_overlay_" in input_runtime_impl
         )
         else ""
     )
@@ -897,7 +899,16 @@ def generate_component_lifecycle_dispatch_glue(isa_data: Dict[str, Any]) -> str:
 def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
     """Generate runtime/step wrappers that dispatch IC step hooks only."""
     ics = [c for c in list(isa_data.get("ics", []) or []) if isinstance(c, dict)]
-    idents = [_to_ident(str((c.get("metadata") or {}).get("id", "ic"))) for c in ics]
+    pre_hook_ics = [
+        (c, _to_ident(str((c.get("metadata") or {}).get("id", "ic"))))
+        for c in ics
+        if _component_snippet_block(c, "step_pre")
+    ]
+    post_hook_ics = [
+        (c, _to_ident(str((c.get("metadata") or {}).get("id", "ic"))))
+        for c in ics
+        if _component_snippet_block(c, "step_post")
+    ]
     ic_ids = {
         str((c.get("metadata") or {}).get("id", "")).strip()
         for c in ics
@@ -908,13 +919,10 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
     ]
     has_runtime_cartridge = bool(isa_data.get("cartridge"))
     lines: List[str] = []
-    for ident in idents:
-        lines.extend(
-            [
-                f"void cpu_component_ic_{ident}_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);",
-                f"void cpu_component_ic_{ident}_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);",
-            ]
-        )
+    for _, ident in pre_hook_ics:
+        lines.append(f"void cpu_component_ic_{ident}_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);")
+    for _, ident in post_hook_ics:
+        lines.append(f"void cpu_component_ic_{ident}_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);")
     lines.extend(
         [
             "",
@@ -941,21 +949,18 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
             "void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {",
         ]
     )
-    if idents:
-        for ident in idents:
+    emitted_pre = False
+    if pre_hook_ics:
+        for _, ident in pre_hook_ics:
             lines.append(f"    cpu_component_ic_{ident}_step_pre(cpu, inst, pc_before);")
+            emitted_pre = True
     for comp in non_ic_components:
         snippet = _component_snippet_block(comp, "step_pre")
         if snippet:
             lines.append(textwrap.indent(snippet, "    "))
-    if not idents and not non_ic_components:
-        lines.extend(
-            [
-                "    (void)cpu;",
-                "    (void)inst;",
-                "    (void)pc_before;",
-            ]
-        )
+            emitted_pre = True
+    if not emitted_pre:
+        lines.extend(["    (void)cpu;", "    (void)inst;", "    (void)pc_before;"])
     lines.extend(
         [
             "}",
@@ -965,20 +970,19 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
     )
     if has_runtime_cartridge:
         lines.append("    cpu_component_cartridge_picker_update(cpu, cpu_host_hal_window_has_focus(NULL));")
-    if idents:
-        for ident in idents:
+    emitted_post = has_runtime_cartridge
+    if post_hook_ics:
+        for _, ident in post_hook_ics:
             lines.append(f"    cpu_component_ic_{ident}_step_post(cpu, inst, pc_before);")
+            emitted_post = True
     for comp in non_ic_components:
         snippet = _component_snippet_block(comp, "step_post")
         if snippet:
             lines.append(textwrap.indent(snippet, "    "))
-    if not idents and not non_ic_components:
-        lines.extend(
-            [
-                "    (void)cpu;",
-                "    (void)inst;",
-                "    (void)pc_before;",
-            ]
-        )
+            emitted_post = True
+    if not emitted_post:
+        lines.extend(["    (void)cpu;", "    (void)inst;", "    (void)pc_before;"])
+    else:
+        lines.extend(["    (void)inst;", "    (void)pc_before;"])
     lines.extend(["}", ""])
     return "\n".join(lines)

@@ -27,20 +27,8 @@ metadata:
     shader:
       name: crt_tv
       language: glsl
-      vertex_source: "#version 330 core\nlayout (location = 0) in vec3 aPos;\nlayout (location = 1) in vec2 aTexCoords;\n\
-        out vec2 TexCoords;\nvoid main() {\n    TexCoords = aTexCoords;\n    gl_Position = vec4(aPos, 1.0);\n}\n"
-      fragment_source: "#version 330 core\nout vec4 FragColor;\nin vec2 TexCoords;\nuniform sampler2D screenTexture;\nuniform\
-        \ vec2 sourceResolution;\nconst float CURVATURE = 8.0;\nconst float SCANLINE_WEIGHT = 0.10;\nconst float MASK_DARKNESS\
-        \ = 0.08;\nconst float GLOW_FACTOR = 0.05;\nvec2 curve(vec2 coord) {\n    coord = coord * 2.0 - 1.0;\n    coord.x\
-        \ *= 1.0 + pow((abs(coord.y) / CURVATURE), 2.0);\n    coord.y *= 1.0 + pow((abs(coord.x) / CURVATURE), 2.0);\n   \
-        \ return coord * 0.5 + 0.5;\n}\nvoid main() {\n    vec2 crtUV = curve(TexCoords);\n    if (crtUV.x < 0.0 || crtUV.x\
-        \ > 1.0 || crtUV.y < 0.0 || crtUV.y > 1.0) {\n        FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n        return;\n   \
-        \ }\n    vec3 baseColor = texture(screenTexture, crtUV).rgb;\n    vec3 blurColor = texture(screenTexture, crtUV +\
-        \ vec2(1.0 / sourceResolution.x, 0.0)).rgb;\n    baseColor = mix(baseColor, blurColor, GLOW_FACTOR);\n    float scan\
-        \ = 0.5 + 0.5 * sin(crtUV.y * sourceResolution.y * 3.14159265);\n    baseColor *= 1.0 - (SCANLINE_WEIGHT * (1.0 -\
-        \ scan));\n    float maskPhase = mod(gl_FragCoord.x + floor(gl_FragCoord.y * 0.5), 3.0);\n    float mask = 1.0 - (MASK_DARKNESS\
-        \ * step(maskPhase, 0.5));\n    baseColor *= mask;\n    baseColor *= 1.08;\n    FragColor = vec4(baseColor, 1.0);\n\
-        }\n"
+      vertex_source: "#version 330 core\nlayout (location = 0) in vec3 aPos;\nlayout (location = 1) in vec2 aTexCoords;\nout vec2 TexCoords;\nvoid main() {\n    TexCoords = aTexCoords;\n    gl_Position = vec4(aPos, 1.0);\n}\n"
+      fragment_source: "#version 330 core\nout vec4 FragColor;\nin vec2 TexCoords;\nuniform sampler2D screenTexture;\nuniform vec2 sourceResolution;\nconst float CURVATURE = 8.0;\nconst float SCANLINE_WEIGHT = 0.10;\nconst float MASK_DARKNESS = 0.08;\nconst float GLOW_FACTOR = 0.05;\nvec2 curve(vec2 coord) {\n    coord = coord * 2.0 - 1.0;\n    coord.x *= 1.0 + pow((abs(coord.y) / CURVATURE), 2.0);\n    coord.y *= 1.0 + pow((abs(coord.x) / CURVATURE), 2.0);\n    return coord * 0.5 + 0.5;\n}\nvoid main() {\n    vec2 crtUV = curve(TexCoords);\n    if (crtUV.x < 0.0 || crtUV.x > 1.0 || crtUV.y < 0.0 || crtUV.y > 1.0) {\n        FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n        return;\n    }\n    vec3 baseColor = texture(screenTexture, crtUV).rgb;\n    vec3 blurColor = texture(screenTexture, crtUV + vec2(1.0 / sourceResolution.x, 0.0)).rgb;\n    baseColor = mix(baseColor, blurColor, GLOW_FACTOR);\n    float scan = 0.5 + 0.5 * sin(crtUV.y * sourceResolution.y * 3.14159265);\n    baseColor *= 1.0 - (SCANLINE_WEIGHT * (1.0 - scan));\n    float maskPhase = mod(gl_FragCoord.x + floor(gl_FragCoord.y * 0.5), 3.0);\n    float mask = 1.0 - (MASK_DARKNESS * step(maskPhase, 0.5));\n    baseColor *= mask;\n    baseColor *= 1.08;\n    FragColor = vec4(baseColor, 1.0);\n}\n"
       uniforms:
       - screenTexture
       - sourceResolution
@@ -120,6 +108,10 @@ interfaces:
   - name: set_mute
     args:
     - u8
+  - name: on_pcm_s16
+    args:
+    - u16
+    - u64
   signals:
   - name: frame_present
     args:
@@ -138,6 +130,10 @@ interfaces:
     args:
     - u8
     - u64
+  - name: pcm_sample_s16
+    args:
+    - u16
+    - u64
 behavior:
   snippets: {}
   callback_handlers: {}
@@ -151,12 +147,7 @@ behavior:
       cpu_component_emit_signal(cpu, "tv", "frame_present", args, argc);
 
       '
-    on_audio_level: "uint32_t sample = (uint32_t)(args[0] & 0xFFu);\nif (comp->muted != 0u) {\n    sample = 128u;\n} else\
-      \ {\n    int32_t centered = (int32_t)sample - 128;\n    centered = (centered * (int32_t)comp->volume_percent) / 100;\n\
-      \    centered = (centered * (int32_t)comp->gain_q8_8) >> 8;\n    centered += 128;\n    if (centered < 0) centered =\
-      \ 0;\n    if (centered > 255) centered = 255;\n    sample = (uint32_t)centered;\n}\ncomp->level = (uint8_t)sample;\n\
-      uint64_t sig_args[2] = { sample, (argc > 1u) ? args[1] : cpu->total_cycles };\ncpu_component_emit_signal(cpu, \"tv\"\
-      , \"pcm_sample\", sig_args, 2);\n"
+    on_audio_level: "uint32_t sample = (uint32_t)(args[0] & 0xFFu);\nif (comp->muted != 0u) {\n    sample = 128u;\n} else {\n    int32_t centered = (int32_t)sample - 128;\n    centered = (centered * (int32_t)comp->volume_percent) / 100;\n    centered = (centered * (int32_t)comp->gain_q8_8) >> 8;\n    centered += 128;\n    if (centered < 0) centered = 0;\n    if (centered > 255) centered = 255;\n    sample = (uint32_t)centered;\n}\ncomp->level = (uint8_t)sample;\nuint64_t sig_args[2] = { sample, (argc > 1u) ? args[1] : cpu->total_cycles };\ncpu_component_emit_signal(cpu, \"tv\", \"pcm_sample\", sig_args, 2);\n"
     set_volume: 'uint32_t volume = (uint32_t)(args[0] & 0xFFu);
 
       if (volume > 100u) volume = 100u;
@@ -180,6 +171,7 @@ behavior:
       cpu_component_emit_signal(cpu, "tv", "frame_present5", args, argc);
 
       '
+    on_pcm_s16: "int32_t sample = (int16_t)(uint16_t)(args[0] & 0xFFFFu);\nif (comp->muted != 0u) {\n    sample = 0;\n} else {\n    sample = (sample * (int32_t)comp->volume_percent) / 100;\n    sample = (sample * (int32_t)comp->gain_q8_8) >> 8;\n    if (sample < -32768) sample = -32768;\n    if (sample > 32767) sample = 32767;\n}\ncomp->level = (uint8_t)((sample >> 8) + 128);\nuint64_t sig_args[2] = { (uint64_t)(uint16_t)(int16_t)sample, (argc > 1u) ? args[1] : cpu->total_cycles };\ncpu_component_emit_signal(cpu, \"tv\", \"pcm_sample_s16\", sig_args, 2);\n"
 coding:
   headers: []
   include_paths: []

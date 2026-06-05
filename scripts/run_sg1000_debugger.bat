@@ -10,8 +10,7 @@ pushd "%ROOT_DIR%" >nul
 set "OUT_DIR=generated\z80_sg1000_sdl"
 set "BUILD_DIR=%OUT_DIR%\build"
 set "BUILD_TYPE=Release"
-set "HOST_BACKEND=%PASM_HOST_BACKEND%"
-if "%HOST_BACKEND%"=="" set "HOST_BACKEND=sdl2"
+if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 
 set "PASM_HOST_AUDIO=%PASM_HOST_AUDIO%"
 if "%PASM_HOST_AUDIO%"=="" set "PASM_HOST_AUDIO=1"
@@ -26,10 +25,11 @@ set "CARTRIDGE_ROM_RUN=%PASM_SG1000_ROM%"
 if "%CARTRIDGE_ROM_RUN%"=="" set "CARTRIDGE_ROM_RUN=%ROOT_DIR%\examples\roms\sg1000\Hang-On II (Japan).sg"
 set "CARTRIDGE_DIR=%ROOT_DIR%\examples\roms\sg1000"
 
-set "HOST_YAML=examples/hosts/sg1000/sg1000_host_%HOST_BACKEND%_%PROFILE%.yaml"
+set "HOST_YAML=examples/hosts/sg1000/sg1000_host_hal_interactive.yaml"
 
 if /I "%PROFILE%"=="default" (
   set "OUT_DIR=generated\z80_sg1000"
+  set "HOST_YAML=examples/hosts/sg1000/sg1000_host_stub.yaml"
 )
 set "BUILD_DIR=%OUT_DIR%\build"
 
@@ -43,8 +43,8 @@ uv run python -m src.main generate ^
   --ic examples/ics/sg1000/sg1000_main_ram.yaml ^
   --ic examples/ics/sg1000/sg1000_psg_sn76489.yaml ^
   --device examples/devices/sms/sms_video.yaml ^
-  --device examples/devices/sms/sms_speaker.yaml ^
-  --host examples/hosts/sg1000/sg1000_host_hal_%PROFILE%.yaml ^
+  --device examples/devices/common/tv_crt_mono.yaml ^
+  --host "%HOST_YAML%" ^
   --host-backend "%HOST_BACKEND%" ^
   --cartridge-map "%CARTRIDGE_MAP%" ^
   --cartridge-rom "%CARTRIDGE_ROM_GEN%" ^
@@ -63,10 +63,16 @@ echo     cartridge_map=%CARTRIDGE_MAP%
 echo     cartridge_rom_gen=%CARTRIDGE_ROM_GEN%
 echo     cartridge_rom_runtime=%CARTRIDGE_ROM_RUN%
 
-set "PASM_EMU_DIR=%OUT_DIR%"
-set "PASM_EMU_BUILD_DIR=%BUILD_DIR%\%BUILD_TYPE%"
-set "PASM_EMU_MANIFEST=%OUT_DIR%\debugger_link.json"
-set "PASM_EMU_EXTRA_LIBS=SDL2"
+for %%I in ("%OUT_DIR%") do set "OUT_DIR_ABS=%%~fI"
+for %%I in ("%BUILD_DIR%") do set "BUILD_DIR_ABS=%%~fI"
+set "CMAKE_CONFIG_BUILD_DIR=%BUILD_DIR%\%BUILD_TYPE%"
+for %%I in ("%CMAKE_CONFIG_BUILD_DIR%") do set "CMAKE_CONFIG_BUILD_DIR_ABS=%%~fI"
+
+set "PASM_EMU_DIR=%OUT_DIR_ABS%"
+set "PASM_EMU_BUILD_DIR=%BUILD_DIR_ABS%"
+if exist "%CMAKE_CONFIG_BUILD_DIR%" set "PASM_EMU_BUILD_DIR=%CMAKE_CONFIG_BUILD_DIR_ABS%"
+set "PASM_EMU_MANIFEST=%OUT_DIR_ABS%\debugger_link.json"
+set "PATH=%PASM_EMU_BUILD_DIR%;%PATH%"
 
 if /I "%PROFILE%"=="interactive" goto :run_interactive
 if exist "%CARTRIDGE_DIR%" (

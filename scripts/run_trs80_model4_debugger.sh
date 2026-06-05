@@ -83,7 +83,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
-  --host-backend "${HOST_BACKEND:-sdl2}" \
+  --host-backend "${HOST_BACKEND:-glfw}" \
   --output "${OUTPUT_DIR}"
 
 echo "[2/3] Building emulator with CMake -> ${BUILD_DIR}"

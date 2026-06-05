@@ -1,5 +1,5 @@
 metadata:
-  id: speaker_atari2600
+  id: speaker
   type: audio_output
   model: atari2600_tia_pcm_bridge
   version: "1.0"
@@ -28,7 +28,7 @@ behavior:
     on_audio_level: |
       comp->level = (uint8_t)(args[0] & 0xFFu);
       comp->last_cycle = (uint64_t)args[1];
-      cpu_component_emit_signal(cpu, "speaker_atari2600", "pcm_sample", args, argc);
+      cpu_component_emit_signal(cpu, "speaker", "pcm_sample", args, argc);
 
 coding:
   headers: []

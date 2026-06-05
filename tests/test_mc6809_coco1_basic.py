@@ -71,7 +71,7 @@ def test_coco1_interactive_stack_validates():
     } <= state_names
     video = next(d for d in data["devices"] if d["metadata"]["id"] == "video_coco")
     assert video["metadata"]["model"] == "motorola_mc6847_vdg"
-    speaker = next(d for d in data["devices"] if d["metadata"]["id"] == "speaker_coco")
+    speaker = next(d for d in data["devices"] if d["metadata"]["id"] == "speaker")
     assert speaker["metadata"]["model"] == "coco1_dac6_pcm_bridge"
 
 

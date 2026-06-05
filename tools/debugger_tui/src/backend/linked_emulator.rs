@@ -55,6 +55,7 @@ unsafe extern "C" {
         max_cycles: c_ulonglong,
         out_mode: *mut c_uchar,
     ) -> c_int;
+    fn pasm_dbg_pump_host_events(cpu: *mut CPUState) -> c_int;
     fn pasm_dbg_pause(cpu: *mut CPUState) -> c_int;
     fn pasm_dbg_step_into(cpu: *mut CPUState) -> c_int;
     fn pasm_dbg_step_over(cpu: *mut CPUState) -> c_int;
@@ -692,6 +693,10 @@ impl DebuggerBackend for LinkedEmulatorBackend {
             pasm_dbg_run_for_cycles(self.cpu, cycles, &mut mode as *mut c_uchar)
         })?;
         Ok(Self::map_mode(mode))
+    }
+
+    fn pump_host_events(&mut self) -> Result<(), String> {
+        self.check(unsafe { pasm_dbg_pump_host_events(self.cpu) })
     }
 
     fn reset(&mut self) -> Result<(), String> {

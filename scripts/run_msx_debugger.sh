@@ -114,7 +114,7 @@ GEN_ARGS=(
   --device "${DEVICE_VIDEO}"
   --device "${DEVICE_SPK}"
   --host "${HOST}"
-  --host-backend "${HOST_BACKEND:-sdl2}"
+  --host-backend "${HOST_BACKEND:-glfw}"
   --output "${OUTPUT_DIR}"
 )
 RUN_ARGS=(

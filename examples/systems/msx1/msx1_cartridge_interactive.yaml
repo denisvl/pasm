@@ -1,27 +1,24 @@
 metadata:
   name: Z80MSX1InteractiveSystem
-  version: "0.1"
-
+  version: '0.1'
 clock_hz: 3579545
 reset_delay_seconds: 0
-
 memory:
   default_size: 65536
   regions:
-    - name: BIOS_32K
-      start: 0x0000
-      size: 0x8000
-      read_only: true
-    - name: RAM_MAIN
-      start: 0x8000
-      size: 0x8000
-      read_write: true
+  - name: BIOS_32K
+    start: 0
+    size: 32768
+    read_only: true
+  - name: RAM_MAIN
+    start: 32768
+    size: 32768
+    read_write: true
   rom_images:
-    - name: msx_bios_32k
-      file: ../../roms/msx1/msx.rom
-      target_region: BIOS_32K
-      offset: 0
-
+  - name: msx_bios_32k
+    file: ../../roms/msx1/msx.rom
+    target_region: BIOS_32K
+    offset: 0
 hooks:
   pre_fetch:
     enabled: false
@@ -37,109 +34,132 @@ hooks:
     enabled: false
   port_write_post:
     enabled: false
-
 components:
   ics:
-    - vdp0
-    - ppi0
-    - psg0
-    - msx1_main_ram
+  - vdp0
+  - ppi0
+  - psg0
+  - msx1_main_ram
   devices:
-    - keyboard_msx
-    - controller_msx
-    - video_msx
-    - speaker_msx
+  - keyboard_msx
+  - controller_msx
+  - video_msx
+  - speaker
+  - tv
   hosts:
-    - host_msx
+  - host_msx
   cartridge: msx_cart0
-
 connections:
-  - from:
-      component: ppi0
-      kind: callback
-      name: keyboard_read_row
-    to:
-      component: keyboard_msx
-      kind: callback
-      name: read_row
-
-  - from:
-      component: keyboard_msx
-      kind: callback
-      name: host_matrix
-    to:
-      component: host_msx
-      kind: callback
-      name: keyboard_matrix
-
-  - from:
-      component: psg0
-      kind: callback
-      name: joy_read
-    to:
-      component: controller_msx
-      kind: callback
-      name: read_state
-
-  - from:
-      component: controller_msx
-      kind: callback
-      name: host_state
-    to:
-      component: host_msx
-      kind: callback
-      name: joystick_state
-
-  - from:
-      component: vdp0
-      kind: signal
-      name: frame_ready
-    to:
-      component: video_msx
-      kind: handler
-      name: on_frame_ready
-
-  - from:
-      component: video_msx
-      kind: signal
-      name: frame_present
-    to:
-      component: host_msx
-      kind: handler
-      name: video_frame
-
-  - from:
-      component: vdp0
-      kind: signal
-      name: irq_edge
-    to:
-      component: host_msx
-      kind: handler
-      name: irq_edge
-
-  - from:
-      component: psg0
-      kind: signal
-      name: audio_level
-    to:
-      component: speaker_msx
-      kind: handler
-      name: on_audio_level
-
-  - from:
-      component: speaker_msx
-      kind: signal
-      name: pcm_sample
-    to:
-      component: host_msx
-      kind: handler
-      name: audio_pcm
-
+- from:
+    component: ppi0
+    kind: callback
+    name: keyboard_read_row
+  to:
+    component: keyboard_msx
+    kind: callback
+    name: read_row
+- from:
+    component: keyboard_msx
+    kind: callback
+    name: host_matrix
+  to:
+    component: host_msx
+    kind: callback
+    name: keyboard_matrix
+- from:
+    component: psg0
+    kind: callback
+    name: joy_read
+  to:
+    component: controller_msx
+    kind: callback
+    name: read_state
+- from:
+    component: controller_msx
+    kind: callback
+    name: host_state
+  to:
+    component: host_msx
+    kind: callback
+    name: joystick_state
+- from:
+    component: vdp0
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_msx
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_msx
+    kind: signal
+    name: frame_present
+  to:
+    component: tv
+    kind: handler
+    name: on_frame_present
+- from:
+    component: vdp0
+    kind: signal
+    name: irq_edge
+  to:
+    component: host_msx
+    kind: handler
+    name: irq_edge
+- from:
+    component: psg0
+    kind: signal
+    name: audio_level
+  to:
+    component: speaker
+    kind: handler
+    name: on_audio_level
+- from:
+    component: speaker
+    kind: signal
+    name: pcm_sample
+  to:
+    component: tv
+    kind: handler
+    name: on_audio_level
+- from:
+    component: tv
+    kind: signal
+    name: frame_present
+  to:
+    component: host_msx
+    kind: handler
+    name: video_frame
+- from:
+    component: tv
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_msx
+    kind: handler
+    name: audio_pcm
 audio:
   sample_rate: 44100
   format: s16le
   channels: 1
-
 integrations:
   profile: msx1_cartridge_interactive
-
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

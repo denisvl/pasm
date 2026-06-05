@@ -15,7 +15,7 @@ PASM_HOST_DEBUG="${PASM_HOST_DEBUG:-0}"
 PASM_NES_JOY2_CONNECTED="${PASM_NES_JOY2_CONNECTED:-0}"
 
 CARTRIDGE_MAP="examples/cartridges/nes/nes_mapper_auto.yaml"
-CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/nes/Super Mario Bros. 2 (USA) (Rev 1).nes}"
+CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/nes/Super Mario Bros. + Duck Hunt (USA).nes}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/nes/host_console_nes.yaml}"
 CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/nes/host_controller_nes.yaml}"
@@ -67,6 +67,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
+BUILD_DIR_ABS="$(cd "$(dirname "${BUILD_DIR}")" && pwd)/$(basename "${BUILD_DIR}")"
 SYSTEM_DIR="$(dirname "${SYSTEM}")"
 SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
 
@@ -98,7 +99,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --host "${HOST}" \
-  --host-backend "${HOST_BACKEND:-sdl2}" \
+  --host-backend "${HOST_BACKEND:-glfw}" \
   --cartridge-map "${CARTRIDGE_MAP}" \
   --cartridge-rom "${CARTRIDGE_ROM_GEN}" \
   --output "${OUTPUT_DIR}"
@@ -106,6 +107,10 @@ uv run python -m src.main generate \
 echo "[2/3] Building emulator with CMake -> ${BUILD_DIR}"
 cmake -S "${OUTPUT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
 cmake --build "${BUILD_DIR}" --config "${CMAKE_BUILD_TYPE}"
+PASM_EMU_BUILD_DIR="${BUILD_DIR_ABS}"
+if [[ -d "${BUILD_DIR_ABS}/${CMAKE_BUILD_TYPE}" ]]; then
+  PASM_EMU_BUILD_DIR="${BUILD_DIR_ABS}/${CMAKE_BUILD_TYPE}"
+fi
 
 if [[ -n "${START_PC}" ]]; then
   set -- --start-pc "${START_PC}"
@@ -115,7 +120,7 @@ fi
 
 echo "[3/3] Running Rust debugger (linked backend)"
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
-PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
+PASM_EMU_BUILD_DIR="${PASM_EMU_BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 PASM_HOST_DEBUG="${PASM_HOST_DEBUG}" \

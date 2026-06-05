@@ -54,7 +54,7 @@ IC_MAIN_RAM="examples/ics/c64/c64_main_ram.yaml"
 DEVICE_KB="examples/devices/c64/c64_keyboard.yaml"
 DEVICE_JOY="examples/devices/c64/c64_joystick.yaml"
 DEVICE_VIDEO="examples/devices/c64/c64_video.yaml"
-DEVICE_SPK="examples/devices/c64/c64_speaker.yaml"
+DEVICE_TV="examples/devices/common/tv_crt_mono.yaml"
 HOST_INTERACTIVE="examples/hosts/c64/c64_host_hal_interactive.yaml"
 
 case "${PROFILE}" in
@@ -101,6 +101,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
+BUILD_DIR_ABS="$(cd "$(dirname "${BUILD_DIR}")" && pwd)/$(basename "${BUILD_DIR}")"
 
 echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 if [[ "${PROFILE}" == "interactive" ]]; then
@@ -117,9 +118,9 @@ if [[ "${PROFILE}" == "interactive" ]]; then
     --device "${DEVICE_KB}" \
     --device "${DEVICE_JOY}" \
     --device "${DEVICE_VIDEO}" \
-    --device "${DEVICE_SPK}" \
+    --device "${DEVICE_TV}" \
     --host "${HOST_INTERACTIVE}" \
-    --host-backend "${HOST_BACKEND:-sdl2}" \
+    --host-backend "${HOST_BACKEND:-glfw}" \
     "${GEN_CARTRIDGE_ARGS[@]}" \
     --output "${OUTPUT_DIR}"
 else
@@ -133,6 +134,10 @@ fi
 echo "[2/3] Building emulator with CMake -> ${BUILD_DIR}"
 cmake -S "${OUTPUT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
 cmake --build "${BUILD_DIR}"
+PASM_EMU_BUILD_DIR="${BUILD_DIR_ABS}"
+if [[ -d "${BUILD_DIR_ABS}/${CMAKE_BUILD_TYPE}" ]]; then
+  PASM_EMU_BUILD_DIR="${BUILD_DIR_ABS}/${CMAKE_BUILD_TYPE}"
+fi
 
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED}"
@@ -157,6 +162,8 @@ fi
 RUN_ARGS+=("${RUN_CARTRIDGE_ARGS[@]}")
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
+PASM_EMU_BUILD_DIR="${PASM_EMU_BUILD_DIR}" \
+PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   "${RUN_ARGS[@]}"

@@ -295,6 +295,10 @@ impl DebuggerBackend for MockDebuggerBackend {
         self.run_slice(capped)
     }
 
+    fn pump_host_events(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
     fn pause(&mut self) -> Result<(), String> {
         self.running = false;
         Ok(())

@@ -32,6 +32,10 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
+PASM_TRACE="0"
+PASM_TRACE_FILE=""
+PASM_ATARI800XL_KEY_TRACE="0"
+PASM_ATARI800XL_KB_EVENTS="0"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
@@ -96,7 +100,7 @@ IC_MAIN_RAM="examples/ics/atari800xl/atari800xl_main_ram.yaml"
 DEVICE_KB="examples/devices/atari800xl/atari800xl_keyboard.yaml"
 DEVICE_CTRL="examples/devices/atari800xl/atari800xl_controller.yaml"
 DEVICE_VIDEO="examples/devices/atari800xl/atari800xl_video.yaml"
-DEVICE_SPK="examples/devices/atari800xl/atari800xl_speaker.yaml"
+DEVICE_TV="examples/devices/common/tv_crt_mono.yaml"
 case "${PROFILE}" in
   default)
     if [[ "${USE_CARTRIDGE}" != "0" ]]; then
@@ -228,9 +232,9 @@ uv run python -m src.main generate \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \
-  --device "${DEVICE_SPK}" \
+  --device "${DEVICE_TV}" \
   --host "${HOST}" \
-  --host-backend "${HOST_BACKEND:-sdl2}" \
+  --host-backend "${HOST_BACKEND:-glfw}" \
   "${GEN_CARTRIDGE_ARGS[@]}" \
   --output "${OUTPUT_DIR}"
 
@@ -267,6 +271,10 @@ PASM_EMU_BUILD_DIR="${BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
 PASM_SYSTEM_DIR="${SYSTEM_DIR_ABS}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
+PASM_TRACE="${PASM_TRACE}" \
+PASM_TRACE_FILE="${PASM_TRACE_FILE}" \
+PASM_ATARI800XL_KEY_TRACE="${PASM_ATARI800XL_KEY_TRACE}" \
+PASM_ATARI800XL_KB_EVENTS="${PASM_ATARI800XL_KB_EVENTS}" \
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \

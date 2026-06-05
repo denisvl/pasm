@@ -83,6 +83,14 @@
                 "unknown"
               ]
             },
+            "architecture_enum_name": {
+              "type": "string"
+            },
+            "architecture_enum_value": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
             "numeric_style": {
               "type": "string",
               "enum": [
@@ -97,6 +105,39 @@
                 "raw",
                 "z80_compact"
               ]
+            },
+            "debug_flags_expr": {
+              "type": "string"
+            },
+            "numeric_formats": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "hex8": {
+                  "type": "string"
+                },
+                "hex16": {
+                  "type": "string"
+                }
+              }
+            },
+            "helper_features": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "condition_cases": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "runtime_cycle_penalties": {
+                  "type": "string",
+                  "enum": [
+                    "mos6502_page_cross"
+                  ]
+                }
+              }
             },
             "decode_quirks": {
               "type": "object",
@@ -289,6 +330,64 @@
         "vector_size": {
           "type": "integer",
           "minimum": 1
+        },
+        "state_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "api_declarations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reset": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reset_post": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "debug_snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "interrupt_mode": {
+              "type": "string"
+            },
+            "iff1": {
+              "type": "string"
+            },
+            "iff2": {
+              "type": "string"
+            }
+          }
+        },
+        "api_impl": {
+          "type": "string"
+        },
+        "dispatch": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "none",
+                "fixed_vector",
+                "z80",
+                "mos6502",
+                "mc6809"
+              ]
+            }
+          }
         }
       }
     },

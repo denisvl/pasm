@@ -64,7 +64,8 @@ def test_c64_interactive_component_graph_validates():
         "keyboard_c64",
         "joystick_c64",
         "video_c64",
-        "speaker_c64",
+        "speaker",
+        "tv",
     ]
     assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_c64"]
 

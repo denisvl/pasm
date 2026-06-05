@@ -24,7 +24,7 @@ def _parse_kv(stdout: str) -> dict[str, str]:
 
 @pytest.fixture(scope="module")
 def z80_interrupt_harness(tmp_path_factory):
-    compiler = shutil.which("cc") or shutil.which("gcc")
+    compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
     if not compiler:
         pytest.skip("No C compiler available on PATH")
 

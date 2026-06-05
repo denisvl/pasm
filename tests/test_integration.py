@@ -46,8 +46,11 @@ def test_simple8_end_to_end(tmp_path):
     )
 
     # Run the ctest suite (which runs the basic test)
+    ctest_cmd = ["ctest", "--output-on-failure"]
+    if (build_dir / "Debug").exists():
+        ctest_cmd.extend(["-C", "Debug"])
     subprocess.check_call(
-        ["ctest", "--output-on-failure"],
+        ctest_cmd,
         cwd=str(build_dir),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,

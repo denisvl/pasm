@@ -107,7 +107,7 @@ behavior:
           {0x0E,0x11,0x01,0x02,0x04,0x00,0x04}  /* ?  */
       };
       const uint32_t text_bg = 0xFF000000u;
-      const uint32_t text_fg = 0xFFA8FF7Au;
+      const uint32_t text_fg = 0xFFFFFFFFu;
       const uint32_t hires_violet = 0xFFFF44FFu;
       const uint32_t hires_green = 0xFF40FF40u;
       const uint32_t hires_blue = 0xFF2F6BFFu;

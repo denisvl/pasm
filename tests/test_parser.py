@@ -60,17 +60,20 @@ def test_processor_rejects_formatter_not_enabled_by_codegen():
 
 def test_system_reset_delay_seconds_is_loaded():
     processor_path, system_path = example_pair("z80", "trs80_model4_interactive.yaml")
+    trs80_ics = BASE_DIR / "examples" / "ics" / "trs80_model4"
     data = yaml_loader.load_processor_system(
         str(processor_path),
         str(system_path),
         ic_paths=[
-            str(
-                BASE_DIR
-                / "examples"
-                / "ics"
-                / "trs80_model4"
-                / "trs80_model4_peripherals.yaml"
-            )
+            str(trs80_ics / "trs80_model4_peripherals.yaml"),
+            str(trs80_ics / "trs80_model4_gate_array.yaml"),
+            str(trs80_ics / "trs80_model4_main_ram.yaml"),
+            str(trs80_ics / "trs80_model4_fdc.yaml"),
+            str(trs80_ics / "trs80_model4_ppi.yaml"),
+            str(trs80_ics / "trs80_model4_serial.yaml"),
+            str(trs80_ics / "trs80_model4_video.yaml"),
+            str(trs80_ics / "trs80_model4_irq.yaml"),
+            str(trs80_ics / "trs80_model4_cassette.yaml"),
         ],
         device_paths=[
             str(BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_keyboard.yaml"),

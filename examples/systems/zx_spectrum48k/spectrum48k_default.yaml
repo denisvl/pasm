@@ -1,43 +1,40 @@
 metadata:
   name: Z80Spectrum48KSystem
-  version: "0.2"
-
+  version: '0.2'
 clock_hz: 3500000
 reset_delay_seconds: 0
-
 memory:
   default_size: 65536
   regions:
-    - name: ROM
-      start: 0x0000
-      size: 0x4000
-      read_only: true
-    - name: DISPLAY_BITMAP
-      start: 0x4000
-      size: 0x1800
-      read_write: true
-    - name: SCREEN_ATTRIBUTES
-      start: 0x5800
-      size: 0x0300
-      read_write: true
-    - name: PRINTER_BUFFER
-      start: 0x5B00
-      size: 0x0100
-      read_write: true
-    - name: SYSTEM_VARIABLES
-      start: 0x5C00
-      size: 0x00B6
-      read_write: true
-    - name: RAM_GENERAL
-      start: 0x5CB6
-      size: 0xA34A
-      read_write: true
+  - name: ROM
+    start: 0
+    size: 16384
+    read_only: true
+  - name: DISPLAY_BITMAP
+    start: 16384
+    size: 6144
+    read_write: true
+  - name: SCREEN_ATTRIBUTES
+    start: 22528
+    size: 768
+    read_write: true
+  - name: PRINTER_BUFFER
+    start: 23296
+    size: 256
+    read_write: true
+  - name: SYSTEM_VARIABLES
+    start: 23552
+    size: 182
+    read_write: true
+  - name: RAM_GENERAL
+    start: 23734
+    size: 41802
+    read_write: true
   rom_images:
-    - name: spectrum48_rom
-      file: ../../roms/zx_spectrum48k/48k.rom
-      target_region: ROM
-      offset: 0
-
+  - name: spectrum48_rom
+    file: ../../roms/zx_spectrum48k/48k.rom
+    target_region: ROM
+    offset: 0
 hooks:
   pre_fetch:
     enabled: false
@@ -53,144 +50,163 @@ hooks:
     enabled: false
   port_write_post:
     enabled: false
-
 components:
   ics:
-    - ula0
-    - zx48_loram
-    - zx48_hiram
+  - ula0
+  - zx48_loram
+  - zx48_hiram
   devices:
-    - keyboard0
-    - controller_zx48
-    - video0
-    - speaker0
-    - mic0
+  - keyboard0
+  - controller_zx48
+  - video0
+  - beeper
+  - mic0
+  - tv
   hosts:
-    - host0
-
+  - host0
 connections:
-  - from:
-      component: ula0
-      kind: callback
-      name: keyboard_read
-    to:
-      component: keyboard0
-      kind: callback
-      name: read_matrix
-
-  - from:
-      component: ula0
-      kind: callback
-      name: kempston_read
-    to:
-      component: controller_zx48
-      kind: callback
-      name: read_kempston
-
-  - from:
-      component: controller_zx48
-      kind: callback
-      name: host_kempston
-    to:
-      component: host0
-      kind: callback
-      name: read_kempston
-
-  - from:
-      component: keyboard0
-      kind: callback
-      name: host_matrix
-    to:
-      component: host0
-      kind: callback
-      name: keyboard_matrix
-
-  - from:
-      component: mic0
-      kind: callback
-      name: sample_input
-    to:
-      component: host0
-      kind: callback
-      name: mic_sample
-
-  - from:
-      component: mic0
-      kind: signal
-      name: mic_level
-    to:
-      component: ula0
-      kind: handler
-      name: mic_input
-
-  - from:
-      component: ula0
-      kind: signal
-      name: border_changed
-    to:
-      component: video0
-      kind: handler
-      name: on_border_changed
-
-  - from:
-      component: ula0
-      kind: signal
-      name: frame_boundary
-    to:
-      component: video0
-      kind: handler
-      name: on_frame_boundary
-
-  - from:
-      component: ula0
-      kind: signal
-      name: beeper_level
-    to:
-      component: speaker0
-      kind: handler
-      name: on_beeper_level
-
-  - from:
-      component: ula0
-      kind: signal
-      name: irq_edge
-    to:
-      component: host0
-      kind: handler
-      name: irq_edge
-
-  - from:
-      component: video0
-      kind: signal
-      name: frame_ready
-    to:
-      component: host0
-      kind: handler
-      name: video_frame
-
-  - from:
-      component: video0
-      kind: signal
-      name: border_present
-    to:
-      component: host0
-      kind: handler
-      name: video_border
-
-  - from:
-      component: speaker0
-      kind: signal
-      name: pcm_sample
-    to:
-      component: host0
-      kind: handler
-      name: audio_pcm
-
+- from:
+    component: ula0
+    kind: callback
+    name: keyboard_read
+  to:
+    component: keyboard0
+    kind: callback
+    name: read_matrix
+- from:
+    component: ula0
+    kind: callback
+    name: kempston_read
+  to:
+    component: controller_zx48
+    kind: callback
+    name: read_kempston
+- from:
+    component: controller_zx48
+    kind: callback
+    name: host_kempston
+  to:
+    component: host0
+    kind: callback
+    name: read_kempston
+- from:
+    component: keyboard0
+    kind: callback
+    name: host_matrix
+  to:
+    component: host0
+    kind: callback
+    name: keyboard_matrix
+- from:
+    component: mic0
+    kind: callback
+    name: sample_input
+  to:
+    component: host0
+    kind: callback
+    name: mic_sample
+- from:
+    component: mic0
+    kind: signal
+    name: mic_level
+  to:
+    component: ula0
+    kind: handler
+    name: mic_input
+- from:
+    component: ula0
+    kind: signal
+    name: border_changed
+  to:
+    component: video0
+    kind: handler
+    name: on_border_changed
+- from:
+    component: ula0
+    kind: signal
+    name: frame_boundary
+  to:
+    component: video0
+    kind: handler
+    name: on_frame_boundary
+- from:
+    component: ula0
+    kind: signal
+    name: beeper_level
+  to:
+    component: beeper
+    kind: handler
+    name: on_beeper_level
+- from:
+    component: ula0
+    kind: signal
+    name: irq_edge
+  to:
+    component: host0
+    kind: handler
+    name: irq_edge
+- from:
+    component: video0
+    kind: signal
+    name: frame_ready
+  to:
+    component: tv
+    kind: handler
+    name: on_frame_present5
+- from:
+    component: video0
+    kind: signal
+    name: border_present
+  to:
+    component: host0
+    kind: handler
+    name: video_border
+- from:
+    component: beeper
+    kind: signal
+    name: pcm_sample
+  to:
+    component: tv
+    kind: handler
+    name: on_audio_level
+- from:
+    component: tv
+    kind: signal
+    name: frame_present5
+  to:
+    component: host0
+    kind: handler
+    name: video_frame
+- from:
+    component: tv
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host0
+    kind: handler
+    name: audio_pcm
 audio:
   sample_rate: 44100
   format: s16le
   channels: 1
-
 integrations:
   profile: zx_spectrum_48k
-
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers
