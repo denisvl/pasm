@@ -82,6 +82,7 @@ def test_generate_apple2_interactive_with_components():
         ic_paths=[str(path) for path in ic_paths],
         device_paths=[str(path) for path in device_paths],
         host_paths=[str(path) for path in host_paths],
+        host_backend_target="glfw",
     )
 
     src_dir = outdir / "src"
@@ -99,7 +100,9 @@ def test_generate_apple2_interactive_with_components():
     assert 'cpu_component_emit_signal(cpu, "monitor", "frame_present", args, argc);' in system_glue
     assert "void * display_shader;" in all_src
     assert "apple2_crt_green_fragment_shader" in all_src
-    assert "const float CURVATURE = 4.5;" in all_src
+    assert "const float CURVATURE = 6.0;" in all_src
+    assert "int cpu_host_hal_gamepad_count(void);" in all_src
+    assert "int cpu_host_hal_joystick_count(void);" in all_src
     assert "const vec3 PHOSPHOR_COLOR = vec3(0.12, 1.0, 0.18);" in all_src
     assert "vec2 crtUV = curve(TexCoords);" in all_src
     assert "uniform sampler2D screenTexture;" in all_src
@@ -119,5 +122,34 @@ def test_generate_apple2_interactive_with_components():
     assert "CPU_HOST_SCANCODE(Z)" in all_src
     assert 'snprintf(rendered, sizeof(rendered), "LDA #%s"' in all_src
     assert "int scaled_w = ww;" in all_src
-    assert "int scaled_h = (int)((((int64_t)ww) * (int64_t)h) / (int64_t)w);" in all_src
+    assert "int scaled_h = (int)((((int64_t)ww) * (int64_t)aspect_h) / (int64_t)aspect_w);" in all_src
+    assert "int16_t next_level = (level_u != 0u) ? 9000 : -9000;" in all_src
+    assert "comp->audio_last_cycle = cycle;" in all_src
+    assert "comp->audio_level = next_level;" in all_src
+    assert 'SDL_Init(SDL_INIT_AUDIO)' in all_src
+    assert 'SDL_OpenAudioDevice(NULL, 0, &sdl_want, &sdl_have, allowed_changes);' in all_src
+    assert 'cpu_host_hal_glfw_sdl_audio_dev != 0u' in all_src
+    assert '"pipewire",' in all_src
+    assert 'snd_pcm_writei(cpu_host_hal_glfw_alsa_pcm, ptr, (snd_pcm_uframes_t)frames)' in all_src
+    assert 'if (cpu_host_hal_glfw_alsa_pcm != NULL) {\n        return 0u;' in all_src
+    assert "cpu_host_hal_glfw_audio_trace" not in all_src
+    assert "PASM_HOST_AUDIO_TRACE" not in all_src
+    assert "PASM_APPLE2_C030_TRACE" not in all_src
+    assert "aplay -q -t raw -f S16_LE" not in all_src
     assert "ch + (uint8_t)(x + y + comp->frame_count)" not in impl
+
+
+def test_apple2_interactive_runner_defaults_audio_and_sdl2_backend():
+    script = (BASE_DIR / "scripts" / "run_apple2_debugger.sh").read_text(encoding="utf-8")
+    assert 'PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"' in script
+    assert 'PASM_HOST_AUDIO_DEVICE="${PASM_HOST_AUDIO_DEVICE:-pipewire}"' in script
+    assert 'PASM_SDL_AUDIO_DRIVER="${PASM_SDL_AUDIO_DRIVER:-}"' in script
+    assert '--host-backend "${HOST_BACKEND:-glfw}"' in script
+    assert 'PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \\' in script
+    assert 'PASM_HOST_AUDIO_DEVICE="${PASM_HOST_AUDIO_DEVICE}" \\' in script
+
+
+def test_apple2_interactive_runner_forwards_extra_args():
+    script = (BASE_DIR / "scripts" / "run_apple2_debugger.sh").read_text(encoding="utf-8")
+    assert 'shift' in script
+    assert 'RUN_ARGS+=("$@")' in script

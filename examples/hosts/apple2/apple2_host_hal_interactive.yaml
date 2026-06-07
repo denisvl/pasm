@@ -152,53 +152,137 @@ interfaces:
   signals: []
 behavior:
   snippets:
-    init: "do {\n    if (comp->host_inited != 0u) break;\n    {\n        const char\
-      \ *disable_dead = cpu_host_hal_getenv(\"PASM_DISABLE_DEADKEYS\");\n        if\
-      \ (disable_dead == NULL || disable_dead[0] != '0') {\n            #if defined(__linux__)\n\
-      \            /* Keep scancode flow deterministic by disabling XIM dead-key composition\
-      \ for this process. */\n            setenv(\"XMODIFIERS\", \"@im=none\", 1);\n\
-      \            setenv(\"GTK_IM_MODULE\", \"xim\", 0);\n            setenv(\"QT_IM_MODULE\"\
-      , \"xim\", 0);\n            #endif\n        }\n    }\n    if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO\
-      \ | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) break;\n    cpu_host_hal_stop_text_input();\n\
-      \    comp->window = cpu_host_hal_create_window(\n        \"PASM Apple II\",\n\
-      \        CPU_HOST_WINDOWPOS_CENTERED,\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
-      \        280,\n        192,\n        CPU_HOST_WINDOW_RESIZABLE\n    );\n   \
-      \ if (comp->window == NULL) break;\n    comp->renderer = cpu_host_hal_create_renderer(comp->window,\
-      \ -1, CPU_HOST_RENDERER_ACCELERATED);\n    if (comp->renderer == NULL) {\n \
-      \       comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);\n\
-      \    }\n    if (comp->renderer == NULL) break;\n    {\n        static const char *apple2_crt_vertex_shader =\n            \"#version 330 core\\n\"\n            \"layout (location = 0) in vec3 aPos;\\n\"\n            \"layout (location = 1) in vec2 aTexCoords;\\n\"\n            \"out vec2 TexCoords;\\n\"\n            \"void main() {\\n\"\n            \"    TexCoords = aTexCoords;\\n\"\n            \"    gl_Position = vec4(aPos, 1.0);\\n\"\n            \"}\\n\";\n        static const char *apple2_crt_green_fragment_shader =\n            \"#version 330 core\\n\"\n            \"out vec4 FragColor;\\n\"\n            \"in vec2 TexCoords;\\n\"\n            \"uniform sampler2D screenTexture;\\n\"\n            \"uniform vec2 sourceResolution;\\n\"\n            \"const float CURVATURE = 6.0;\\n\"\n            \"const float SCANLINE_WEIGHT = 0.15;\\n\"\n            \"const float MASK_DARKNESS = 0.15;\\n\"\n            \"const vec3 PHOSPHOR_COLOR = vec3(0.12, 1.0, 0.18);\\n\"\n            \"vec2 curve(vec2 coord) {\\n\"\n            \"    coord = coord * 2.0 - 1.0;\\n\"\n            \"    coord.x *= 1.0 + pow((abs(coord.y) / CURVATURE), 2.0);\\n\"\n            \"    coord.y *= 1.0 + pow((abs(coord.x) / CURVATURE), 2.0);\\n\"\n            \"    return coord * 0.5 + 0.5;\\n\"\n            \"}\\n\"\n            \"void main() {\\n\"\n            \"    vec2 crtUV = curve(TexCoords);\\n\"\n            \"    if (crtUV.x < 0.0 || crtUV.x > 1.0 || crtUV.y < 0.0 || crtUV.y > 1.0) {\\n\"\n            \"        FragColor = vec4(0.0, 0.0, 0.0, 1.0);\\n\"\n            \"        return;\\n\"\n            \"    }\\n\"\n            \"    vec3 src = texture(screenTexture, crtUV).rgb;\\n\"\n            \"    float luma = dot(src, vec3(0.30, 0.59, 0.11));\\n\"\n            \"    vec3 baseColor = luma * PHOSPHOR_COLOR;\\n\"\n            \"    float scanline = sin(crtUV.y * sourceResolution.y * 3.14159265) * SCANLINE_WEIGHT;\\n\"\n            \"    baseColor -= vec3(scanline);\\n\"\n            \"    float mask = 1.0 - (MASK_DARKNESS * (1.0 - step(0.5, fract(gl_FragCoord.x / 3.0))));\\n\"\n            \"    baseColor *= mask;\\n\"\n            \"    baseColor *= 1.25;\\n\"\n            \"    FragColor = vec4(baseColor, 1.0);\\n\"\n            \"}\\n\";\n        comp->display_shader = cpu_host_hal_shader_create(comp->renderer, apple2_crt_vertex_shader, apple2_crt_green_fragment_shader);\n    }\n    comp->texture = cpu_host_hal_create_texture(\n\
-      \        comp->renderer,\n        CPU_HOST_PIXELFORMAT_ARGB8888,\n        CPU_HOST_TEXTUREACCESS_STREAMING,\n\
-      \        280,\n        192\n    );\n    if (comp->texture == NULL) break;\n\
-      \    {\n        const char *audio_env = cpu_host_hal_getenv(\"PASM_HOST_AUDIO\"\
-      );\n        if (audio_env == NULL || audio_env[0] != '0') {\n            CPUHostAudioSpec\
-      \ want;\n            CPUHostAudioSpec have;\n            cpu_host_audio_spec_zero(&want);\n\
-      \            cpu_host_audio_spec_zero(&have);\n            want.freq = (CPU_AUDIO_SAMPLE_RATE\
-      \ > 0u) ? (int)CPU_AUDIO_SAMPLE_RATE : 44100;\n            want.format = CPU_HOST_AUDIO_FORMAT_S16;\n\
-      \            want.channels = 1;\n            want.samples = 512;\n         \
-      \   want.callback = NULL;\n            comp->audio_device_samples = 0u;\n  \
-      \                  comp->audio_channels = 0u;\n            comp->audio_out_dev\
-      \ = cpu_host_hal_audio_open(NULL, 0, &want, &have, CPU_HOST_AUDIO_ALLOW_CHANNELS_CHANGE\
-      \ |\n                    CPU_HOST_AUDIO_ALLOW_SAMPLES_CHANGE);\n           \
-      \ if (comp->audio_out_dev != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16\
-      \ && have.channels <= 2u && have.channels >= 1u) {\n                uint32_t\
-      \ ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq * 2u) : 88200u;\n \
-      \               if (ring_capacity < 8192u) ring_capacity = 8192u;\n        \
-      \        comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity\
-      \ * sizeof(int16_t));\n                if (comp->audio_ring != NULL) {\n   \
-      \                 comp->audio_rate = (have.freq > 0) ? (uint32_t)have.freq :\
-      \ 44100u;\n                    comp->audio_ring_capacity = ring_capacity;\n\
-      \                    comp->audio_ring_read_idx = 0u;\n                    comp->audio_ring_write_idx\
-      \ = 0u;\n                    comp->audio_ring_fill = 0u;\n                 \
-      \   comp->audio_device_samples = (uint32_t)have.samples * (uint32_t)have.channels;\n\
-      \                    comp->audio_channels = (uint32_t)have.channels;\n     \
-      \               comp->audio_out_ready = 1u;\n                    cpu_host_hal_audio_pause(comp->audio_out_dev,\
-      \ 0);\n                } else {\n                    cpu_host_hal_audio_close(comp->audio_out_dev);\n\
-      \                    comp->audio_out_dev = 0u;\n                    comp->audio_device_samples\
-      \ = 0u;\n                    comp->audio_channels = 0u;\n                }\n\
-      \            } else if (comp->audio_out_dev != 0u) {\n                cpu_host_hal_audio_close(comp->audio_out_dev);\n\
-      \                comp->audio_out_dev = 0u;\n                comp->audio_device_samples\
-      \ = 0u;\n                    comp->audio_channels = 0u;\n            }\n   \
-      \     }\n    }\n    comp->host_inited = 1u;\n} while (0);\n"
+    init: |
+      do {
+          if (comp->host_inited != 0u) break;
+          {
+              const char *disable_dead = cpu_host_hal_getenv("PASM_DISABLE_DEADKEYS");
+              if (disable_dead == NULL || disable_dead[0] != '0') {
+      #if defined(__linux__)
+                  /* Keep scancode flow deterministic by disabling XIM dead-key composition for this process. */
+                  setenv("XMODIFIERS", "@im=none", 1);
+                  setenv("GTK_IM_MODULE", "xim", 0);
+                  setenv("QT_IM_MODULE", "xim", 0);
+      #endif
+              }
+          }
+          if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO | CPU_HOST_INIT_EVENTS) != 0) break;
+          cpu_host_hal_stop_text_input();
+          comp->window = cpu_host_hal_create_window(
+              "PASM Apple II",
+              CPU_HOST_WINDOWPOS_CENTERED,
+              CPU_HOST_WINDOWPOS_CENTERED,
+              280,
+              192,
+              CPU_HOST_WINDOW_RESIZABLE
+          );
+          if (comp->window != NULL) {
+              comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, CPU_HOST_RENDERER_ACCELERATED);
+              if (comp->renderer == NULL) {
+                  comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);
+              }
+              if (comp->renderer != NULL) {
+                  {
+                      static const char *apple2_crt_vertex_shader =
+                          "#version 330 core\n"
+                          "layout (location = 0) in vec3 aPos;\n"
+                          "layout (location = 1) in vec2 aTexCoords;\n"
+                          "out vec2 TexCoords;\n"
+                          "void main() {\n"
+                          "    TexCoords = aTexCoords;\n"
+                          "    gl_Position = vec4(aPos, 1.0);\n"
+                          "}\n";
+                      static const char *apple2_crt_green_fragment_shader =
+                          "#version 330 core\n"
+                          "out vec4 FragColor;\n"
+                          "in vec2 TexCoords;\n"
+                          "uniform sampler2D screenTexture;\n"
+                          "uniform vec2 sourceResolution;\n"
+                          "const float CURVATURE = 6.0;\n"
+                          "const float SCANLINE_WEIGHT = 0.15;\n"
+                          "const float MASK_DARKNESS = 0.15;\n"
+                          "const vec3 PHOSPHOR_COLOR = vec3(0.12, 1.0, 0.18);\n"
+                          "vec2 curve(vec2 coord) {\n"
+                          "    coord = coord * 2.0 - 1.0;\n"
+                          "    coord.x *= 1.0 + pow((abs(coord.y) / CURVATURE), 2.0);\n"
+                          "    coord.y *= 1.0 + pow((abs(coord.x) / CURVATURE), 2.0);\n"
+                          "    return coord * 0.5 + 0.5;\n"
+                          "}\n"
+                          "void main() {\n"
+                          "    vec2 crtUV = curve(TexCoords);\n"
+                          "    if (crtUV.x < 0.0 || crtUV.x > 1.0 || crtUV.y < 0.0 || crtUV.y > 1.0) {\n"
+                          "        FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n"
+                          "        return;\n"
+                          "    }\n"
+                          "    vec3 src = texture(screenTexture, crtUV).rgb;\n"
+                          "    float luma = dot(src, vec3(0.30, 0.59, 0.11));\n"
+                          "    vec3 baseColor = luma * PHOSPHOR_COLOR;\n"
+                          "    float scanline = sin(crtUV.y * sourceResolution.y * 3.14159265) * SCANLINE_WEIGHT;\n"
+                          "    baseColor -= vec3(scanline);\n"
+                          "    float mask = 1.0 - (MASK_DARKNESS * (1.0 - step(0.5, fract(gl_FragCoord.x / 3.0))));\n"
+                          "    baseColor *= mask;\n"
+                          "    baseColor *= 1.25;\n"
+                          "    FragColor = vec4(baseColor, 1.0);\n"
+                          "}\n";
+                      comp->display_shader = cpu_host_hal_shader_create(comp->renderer, apple2_crt_vertex_shader, apple2_crt_green_fragment_shader);
+                  }
+                  comp->texture = cpu_host_hal_create_texture(
+                      comp->renderer,
+                      CPU_HOST_PIXELFORMAT_ARGB8888,
+                      CPU_HOST_TEXTUREACCESS_STREAMING,
+                      280,
+                      192
+                  );
+              }
+          }
+          {
+              const char *audio_env = cpu_host_hal_getenv("PASM_HOST_AUDIO");
+              const char *audio_device_env = cpu_host_hal_getenv("PASM_HOST_AUDIO_DEVICE");
+              if (audio_device_env != NULL && audio_device_env[0] == '\0') audio_device_env = NULL;
+              if (audio_env == NULL || audio_env[0] != '0') {
+                  CPUHostAudioSpec want;
+                  CPUHostAudioSpec have;
+                  cpu_host_audio_spec_zero(&want);
+                  cpu_host_audio_spec_zero(&have);
+                  want.freq = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (int)CPU_AUDIO_SAMPLE_RATE : 44100;
+                  want.format = CPU_HOST_AUDIO_FORMAT_S16;
+                  want.channels = 1;
+                  want.samples = 512;
+                  want.callback = NULL;
+                  comp->audio_device_samples = 0u;
+                  comp->audio_channels = 0u;
+                  comp->audio_out_dev = cpu_host_hal_audio_open(audio_device_env, 0, &want, &have, CPU_HOST_AUDIO_ALLOW_CHANNELS_CHANGE |
+                          CPU_HOST_AUDIO_ALLOW_SAMPLES_CHANGE);
+                  if (comp->audio_out_dev != 0u && have.format == CPU_HOST_AUDIO_FORMAT_S16 && have.channels <= 2u && have.channels >= 1u) {
+                      uint32_t ring_capacity = (have.freq > 0) ? ((uint32_t)have.freq * 2u) : 88200u;
+                      if (ring_capacity < 8192u) ring_capacity = 8192u;
+                      comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));
+                      if (comp->audio_ring != NULL) {
+                          comp->audio_rate = (have.freq > 0) ? (uint32_t)have.freq : 44100u;
+                          comp->audio_ring_capacity = ring_capacity;
+                          comp->audio_ring_read_idx = 0u;
+                          comp->audio_ring_write_idx = 0u;
+                          comp->audio_ring_fill = 0u;
+                          comp->audio_device_samples = (uint32_t)have.samples * (uint32_t)have.channels;
+                          comp->audio_channels = (uint32_t)have.channels;
+                          comp->audio_out_ready = 1u;
+                          cpu_host_hal_audio_pause(comp->audio_out_dev, 0);
+                      } else {
+                          cpu_host_hal_audio_close(comp->audio_out_dev);
+                          comp->audio_out_dev = 0u;
+                          comp->audio_device_samples = 0u;
+                          comp->audio_channels = 0u;
+                      }
+                  } else if (comp->audio_out_dev != 0u) {
+                      cpu_host_hal_audio_close(comp->audio_out_dev);
+                      comp->audio_out_dev = 0u;
+                      comp->audio_device_samples = 0u;
+                      comp->audio_channels = 0u;
+                  }
+              }
+          }
+          comp->host_inited = 1u;
+      } while (0);
     reset: "comp->frame_count = 0u;\ncomp->audio_samples = 0u;\ncomp->audio_level\
       \ = 0;\ncomp->audio_last_cycle = 0u;\ncomp->audio_sample_cursor = 0u;\ncomp->audio_ring_read_idx\
       \ = 0u;\ncomp->audio_ring_write_idx = 0u;\ncomp->audio_ring_fill = 0u;\ncomp->key_ascii\
@@ -211,26 +295,9 @@ behavior:
       }\n"
     step_post: "if (comp->host_inited == 0u) return;\n{\n    uint64_t now = cpu->total_cycles;\n\
       \    uint64_t poll_interval = ((uint64_t)CPU_SYSTEM_CLOCK_HZ / 120u);\n    if (poll_interval < 2048u) poll_interval = 2048u;\n\
-      \    if ((now - comp->last_event_poll_cycle) < poll_interval) {\n        return;\n \
+      \    if ((now - comp->last_event_poll_cycle) < poll_interval) {\n        goto apple2_audio_service;\n \
       \   }\n    comp->last_event_poll_cycle = now;\n}\nCPUHostEvent ev;\nwhile (cpu_host_hal_poll_event(&ev))\
-      \ {\n    static int ev_trace_init = 0;\n    static int ev_trace_on = 0;\n  \
-      \  static FILE *ev_trace_fp = NULL;\n    if (ev_trace_init == 0) {\n       \
-      \ const char *env_ev = cpu_host_hal_getenv(\"PASM_APPLE2_HOST_KB_EVENTS\");\n\
-      \        ev_trace_on = (env_ev != NULL && env_ev[0] != '\\0' && env_ev[0] !=\
-      \ '0') ? 1 : 0;\n        ev_trace_init = 1;\n        if (ev_trace_on != 0) {\n\
-      \            ev_trace_fp = fopen(\"log/apple2_host_kb_events.log\", \"w\");\n\
-      \            if (ev_trace_fp == NULL) ev_trace_fp = stderr;\n            fprintf(ev_trace_fp,\
-      \ \"# cycle,type,scancode,scancode_name,key_name,mods_hex,repeat\\n\");\n  \
-      \          fflush(ev_trace_fp);\n        }\n    }\n    if (ev_trace_on != 0)\
-      \ {\n        uint32_t et = cpu_host_hal_event_type(&ev);\n        if (et ==\
-      \ CPU_HOST_EVENT_KEYDOWN || et == CPU_HOST_EVENT_KEYUP) {\n            int32_t\
-      \ sc_ev = cpu_host_hal_event_scancode(&ev);\n            fprintf(\n        \
-      \        ev_trace_fp,\n                \"%llu,%u,%d,%s,%s,0x%X,%u\\n\",\n  \
-      \              (unsigned long long)cpu->total_cycles,\n                (unsigned)et,\n\
-      \                (int)sc_ev,\n                cpu_host_hal_scancode_name(sc_ev),\n\
-      \                cpu_host_hal_key_name(cpu_host_hal_event_keycode(&ev)),\n               \
-      \ (unsigned)cpu_host_hal_event_mod_state(&ev),\n                (unsigned)cpu_host_hal_event_key_repeat(&ev)\n\
-      \            );\n            fflush(ev_trace_fp);\n        }\n    }\n    if\
+      \ {\n    if\
       \ (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT) {\n        cpu->running\
       \ = false;\n        cpu->halted = true;\n        return;\n    } else if (cpu_host_hal_event_type(&ev)\
       \ == CPU_HOST_EVENT_KEYDOWN && cpu_host_hal_event_key_repeat(&ev) == 0) {\n\
@@ -318,12 +385,31 @@ behavior:
       \    if (repeat_step == 0u) repeat_step = 1u;\n    if (cpu->total_cycles >=\
       \ comp->rept_next_cycle) {\n        cpu_component_keyboard_ascii_queue_push(comp->rept_last_ascii);\n\
       \        do {\n            comp->rept_next_cycle += repeat_step;\n        }\
-      \ while (comp->rept_next_cycle <= cpu->total_cycles);\n    }\n}\n{\n    pasm_overlay_update_perf(\n\
+      \ while (comp->rept_next_cycle <= cpu->total_cycles);\n    }\n}\napple2_audio_service:\n{\n    pasm_overlay_update_perf(\n\
       \        cpu_host_hal_ticks_ms(),\n        (uint64_t)comp->frame_count,\n  \
       \      cpu->total_cycles,\n        (uint64_t)CPU_SYSTEM_CLOCK_HZ,\n        &comp->overlay_last_ms,\n\
       \        &comp->overlay_last_frame_count,\n        &comp->overlay_last_cycle_count,\n\
       \        &comp->overlay_fps_x100,\n        &comp->overlay_cpu_hz,\n        &comp->overlay_cpu_pct_x10\n\
       \    );\n}\nif (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u &&\
+      \ comp->audio_ring != NULL && comp->audio_ring_capacity != 0u && comp->audio_last_cycle\
+      \ != 0u) {\n    uint64_t sample_rate = (comp->audio_rate > 0u) ? (uint64_t)comp->audio_rate\
+      \ : ((CPU_AUDIO_SAMPLE_RATE > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u);\n    uint64_t\
+      \ clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? CPU_SYSTEM_CLOCK_HZ : 1u;\n    uint64_t\
+      \ target_sample_index = (cpu->total_cycles * sample_rate) / clock_hz;\n   \
+      \ if (target_sample_index > comp->audio_sample_cursor) {\n        uint64_t samples_to_emit\
+      \ = target_sample_index - comp->audio_sample_cursor;\n        while (samples_to_emit\
+      \ > 0u) {\n            uint64_t n = (samples_to_emit > 4096u) ? 4096u : samples_to_emit;\n\
+      \            for (uint64_t i = 0u; i < n; ++i) {\n                if (comp->audio_ring_fill\
+      \ >= comp->audio_ring_capacity) {\n                    comp->audio_ring_read_idx\
+      \ += 1u;\n                    if (comp->audio_ring_read_idx >= comp->audio_ring_capacity)\
+      \ comp->audio_ring_read_idx = 0u;\n                    comp->audio_ring_fill\
+      \ -= 1u;\n                }\n                comp->audio_ring[comp->audio_ring_write_idx]\
+      \ = comp->audio_level;\n                comp->audio_ring_write_idx += 1u;\n\
+      \                if (comp->audio_ring_write_idx >= comp->audio_ring_capacity)\
+      \ comp->audio_ring_write_idx = 0u;\n                comp->audio_ring_fill +=\
+      \ 1u;\n            }\n            comp->audio_samples += (uint32_t)n;\n   \
+      \         comp->audio_sample_cursor += n;\n            samples_to_emit -= n;\n\
+      \        }\n        comp->audio_last_cycle = cpu->total_cycles;\n    }\n}\nif (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u &&\
       \ comp->audio_ring != NULL && comp->audio_ring_fill > 0u) {\n    uint32_t channels\
       \ = (comp->audio_channels > 0u) ? comp->audio_channels : 1u;\n    if (channels\
       \ > 2u) channels = 2u;\n    uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev)\

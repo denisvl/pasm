@@ -163,6 +163,15 @@ if(NOT DEFINED PASM_VCPKG_TRIPLET OR PASM_VCPKG_TRIPLET STREQUAL "")
     endif()
 endif()
 
+if(NOT TARGET SDL2::SDL2)
+    find_package(SDL2 CONFIG QUIET)
+endif()
+
+set(PASM_SDL2_LINK_TARGET SDL2)
+if(TARGET SDL2::SDL2)
+    set(PASM_SDL2_LINK_TARGET SDL2::SDL2)
+endif()
+
 if(NOT TARGET glfw AND NOT TARGET glfw::glfw)
     find_package(glfw3 CONFIG QUIET)
 endif()
@@ -221,6 +230,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_include_directories({system_target} PRIVATE "${{PASM_ALSA_INCLUDE_DIR}}")
     set(PASM_ALSA_LINK_TARGET "${{PASM_ALSA_LIBRARY}}")
 endif()
+find_package(Threads REQUIRED)
 """
 
     extra_include_dirs = ""
@@ -276,8 +286,11 @@ endif()
         cmake_lib_entries.append("${PASM_SDL2_LINK_TARGET}")
     if uses_glfw_backend and not has_explicit_glfw_link:
         cmake_lib_entries.append("${PASM_GLFW_LINK_TARGET}")
+    if uses_glfw_backend and not has_explicit_sdl2_link:
+        cmake_lib_entries.append("${PASM_SDL2_LINK_TARGET}")
     if uses_glfw_backend:
         cmake_lib_entries.append("${PASM_OPENGL_LINK_TARGET}")
+        cmake_lib_entries.append("Threads::Threads")
         cmake_lib_entries.append("$<$<PLATFORM_ID:Windows>:winmm>")
         cmake_lib_entries.append("$<$<PLATFORM_ID:Linux>:${PASM_ALSA_LINK_TARGET}>")
     extra_link_libs = ""
@@ -368,14 +381,17 @@ def generate_makefile(
         link_lib_flags_parts.append("-lSDL2")
     if uses_glfw_backend and not has_explicit_glfw_link:
         link_lib_flags_parts.append("$(PASM_GLFW_LIB)")
+    if uses_glfw_backend and not has_explicit_sdl2_link:
+        link_lib_flags_parts.append("$(PASM_SDL2_LIB)")
     if uses_glfw_backend:
         link_lib_flags_parts.append("$(PASM_OPENGL_LIB)")
+        link_lib_flags_parts.append("$(PASM_PTHREAD_LIB)")
         link_lib_flags_parts.append("$(PASM_WINMM_LIB)")
         link_lib_flags_parts.append("$(PASM_ALSA_LIB)")
     link_lib_flags = " ".join(link_lib_flags_parts)
     opengl_make = ""
     if uses_glfw_backend:
-        opengl_make = "ifeq ($(OS),Windows_NT)\nPASM_GLFW_LIB = -lglfw3dll\nPASM_OPENGL_LIB = -lopengl32\nPASM_WINMM_LIB = -lwinmm\nPASM_ALSA_LIB =\nelse\nPASM_GLFW_LIB = -lglfw\nPASM_OPENGL_LIB = -lGL\nPASM_WINMM_LIB =\nPASM_ALSA_LIB = -lasound\nendif\n"
+        opengl_make = "ifeq ($(OS),Windows_NT)\nPASM_GLFW_LIB = -lglfw3dll\nPASM_SDL2_LIB = -lSDL2\nPASM_OPENGL_LIB = -lopengl32\nPASM_WINMM_LIB = -lwinmm\nPASM_ALSA_LIB =\nPASM_PTHREAD_LIB =\nelse\nPASM_GLFW_LIB = -lglfw\nPASM_SDL2_LIB = -lSDL2\nPASM_OPENGL_LIB = -lGL\nPASM_WINMM_LIB =\nPASM_ALSA_LIB = -lasound\nPASM_PTHREAD_LIB = -pthread\nendif\n"
 
     system_source_lines = " \\\n    ".join(all_system_sources(isa_data, system_prefix))
     return f"""# Auto-generated Makefile

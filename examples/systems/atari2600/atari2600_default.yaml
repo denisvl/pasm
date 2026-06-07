@@ -173,19 +173,11 @@ connections:
 - from:
     component: atari2600_tia
     kind: signal
-    name: audio_level
+    name: audio_pcm
   to:
-    component: speaker
+    component: host_atari2600
     kind: handler
-    name: on_audio_level
-- from:
-    component: speaker
-    kind: signal
-    name: pcm_sample
-  to:
-    component: tv
-    kind: handler
-    name: on_audio_level
+    name: audio_pcm
 - from:
     component: tv
     kind: signal
@@ -194,14 +186,6 @@ connections:
     component: host_atari2600
     kind: handler
     name: video_frame
-- from:
-    component: tv
-    kind: signal
-    name: pcm_sample
-  to:
-    component: host_atari2600
-    kind: handler
-    name: audio_pcm
 audio:
   sample_rate: 44100
   format: s16le

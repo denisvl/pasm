@@ -61,6 +61,9 @@ state:
 - name: audio_samples
   type: uint32_t
   initial: '0'
+- name: audio_level
+  type: int16_t
+  initial: '0'
 - name: frame_count
   type: uint32_t
   initial: '0'
@@ -174,7 +177,7 @@ behavior:
       \ = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (uint32_t)CPU_AUDIO_SAMPLE_RATE : 44100u;\n\
       \            cpu_host_audio_spec_zero(&want);\n            cpu_host_audio_spec_zero(&have);\n\
       \            want.freq = (int)expected_rate;\n            want.format = CPU_HOST_AUDIO_FORMAT_S16;\n\
-      \            want.channels = 1;\n            want.samples = 512;\n         \
+      \            want.channels = 1;\n            want.samples = 16384;\n         \
       \   want.callback = NULL;\n\n            comp->audio_out_dev = cpu_host_hal_audio_open(\n\
       \                    NULL,\n                    0,\n                    &want,\n\
       \                    &have,\n                    CPU_HOST_AUDIO_ALLOW_CHANNELS_CHANGE\
@@ -419,7 +422,7 @@ behavior:
       \ ? comp->audio_device_samples : 512u;\n    uint32_t device_frames = device_samples\
       \ / channels;\n    uint32_t low_watermark;\n    uint32_t target_total;\n   \
       \ if (channels > 2u) channels = 2u;\n    if (device_frames == 0u) device_frames\
-      \ = 512u;\n    low_watermark = device_frames * 2u;\n    target_total = device_frames\
+      \ = 512u;\n    low_watermark = device_frames * 4u;\n    target_total = device_frames\
       \ * 4u;\n\n    if (queued_frames < low_watermark && comp->audio_ring_fill >\
       \ 0u) {\n        uint32_t desired = (queued_frames < target_total) ? (target_total\
       \ - queued_frames) : 0u;\n        uint32_t to_send = (comp->audio_ring_fill\
@@ -503,58 +506,24 @@ behavior:
       \ return;\n}\ncpu_host_hal_render_present(renderer);\n"
     irq_edge: "if (argc > 0 && ((args[0] & 0xFFu) != 0u)) {\n    comp->irq_edges +=\
       \ 1u;\n}\n"
-    audio_pcm: "if (argc < 1) {\n    return;\n}\nif (comp->audio_out_ready == 2u)\
-      \ {\n    return;\n}\n\n/* Lazy audio recovery: protects against reset-time host\
-      \ state loss. */\nif (\n    comp->audio_out_dev == 0u ||\n    comp->audio_out_ready\
-      \ == 0u ||\n    comp->audio_ring == NULL ||\n    comp->audio_ring_capacity ==\
-      \ 0u\n) {\n    const char *audio_env = cpu_host_hal_getenv(\"PASM_HOST_AUDIO\"\
-      );\n    if (audio_env != NULL && audio_env[0] == '0') {\n        comp->audio_channels\
-      \ = 0u;\n        comp->audio_out_ready = 2u;\n        return;\n    }\n\n   \
-      \ if (comp->audio_out_dev != 0u) {\n        cpu_host_hal_audio_close(comp->audio_out_dev);\n\
-      \        comp->audio_out_dev = 0u;\n    }\n    if (comp->audio_ring != NULL)\
-      \ {\n        cpu_host_hal_free(comp->audio_ring);\n        comp->audio_ring\
-      \ = NULL;\n    }\n    comp->audio_out_ready = 0u;\n    comp->audio_device_samples\
-      \ = 0u;\n    comp->audio_rate = 0u;\n    comp->audio_channels = 0u;\n    comp->audio_ring_capacity\
-      \ = 0u;\n    comp->audio_ring_read_idx = 0u;\n    comp->audio_ring_write_idx\
-      \ = 0u;\n    comp->audio_ring_fill = 0u;\n\n    {\n        CPUHostAudioSpec\
-      \ want;\n        CPUHostAudioSpec have;\n        uint32_t expected_rate = (CPU_AUDIO_SAMPLE_RATE\
-      \ > 0u) ? (uint32_t)CPU_AUDIO_SAMPLE_RATE : 44100u;\n        cpu_host_audio_spec_zero(&want);\n\
-      \        cpu_host_audio_spec_zero(&have);\n        want.freq = (int)expected_rate;\n\
-      \        want.format = CPU_HOST_AUDIO_FORMAT_S16;\n        want.channels = 1;\n\
-      \        want.samples = 512;\n        want.callback = NULL;\n\n        comp->audio_out_dev\
-      \ = cpu_host_hal_audio_open(\n                NULL,\n                0,\n  \
-      \              &want,\n                &have,\n                CPU_HOST_AUDIO_ALLOW_CHANNELS_CHANGE\
-      \ |\n                    CPU_HOST_AUDIO_ALLOW_SAMPLES_CHANGE\n            );\n\
-      \        if (\n            comp->audio_out_dev != 0u &&\n            have.format\
-      \ == CPU_HOST_AUDIO_FORMAT_S16 &&\n            have.channels <= 2u && have.channels\
-      \ >= 1u &&\n            have.freq > 0 &&\n            have.samples > 0\n   \
-      \     ) {\n            uint32_t ring_capacity = (uint32_t)have.samples * 8u;\n\
-      \            if (ring_capacity < 4096u) ring_capacity = 4096u;\n           \
-      \ comp->audio_ring = (int16_t *)cpu_host_hal_alloc((size_t)ring_capacity * sizeof(int16_t));\n\
-      \            if (comp->audio_ring != NULL) {\n                comp->audio_rate\
-      \ = (uint32_t)have.freq;\n                comp->audio_device_samples = (uint32_t)have.samples\
-      \ * (uint32_t)have.channels;\n                comp->audio_channels = (uint32_t)have.channels;\n\
-      \                comp->audio_ring_capacity = ring_capacity;\n              \
-      \  comp->audio_ring_read_idx = 0u;\n                comp->audio_ring_write_idx\
-      \ = 0u;\n                comp->audio_ring_fill = 0u;\n                comp->audio_out_ready\
-      \ = 1u;\n                cpu_host_hal_audio_pause(comp->audio_out_dev, 0);\n\
-      \            } else {\n                cpu_host_hal_audio_close(comp->audio_out_dev);\n\
-      \                comp->audio_out_dev = 0u;\n                comp->audio_channels\
-      \ = 0u;\n                comp->audio_out_ready = 2u;\n            }\n      \
-      \  } else {\n            if (comp->audio_out_dev != 0u) {\n                cpu_host_hal_audio_close(comp->audio_out_dev);\n\
-      \                comp->audio_out_dev = 0u;\n            }\n            comp->audio_channels\
-      \ = 0u;\n            comp->audio_out_ready = 2u;\n        }\n    }\n}\n\nif\
-      \ (\n    comp->audio_out_dev == 0u ||\n    comp->audio_out_ready == 0u ||\n\
-      \    comp->audio_out_ready == 2u ||\n    comp->audio_ring == NULL ||\n    comp->audio_ring_capacity\
-      \ == 0u\n) {\n    return;\n}\n\n{\n    uint8_t level = (uint8_t)(args[0] & 0xFFu);\n\
-      \    int centered = ((int)level) - 128;\n    int16_t sample = (int16_t)(centered\
-      \ * 128);\n    if (comp->audio_ring_fill >= comp->audio_ring_capacity) {\n \
-      \       comp->audio_ring_read_idx += 1u;\n        if (comp->audio_ring_read_idx\
-      \ >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;\n        comp->audio_ring_fill\
-      \ -= 1u;\n    }\n    comp->audio_ring[comp->audio_ring_write_idx] = sample;\n\
-      \    comp->audio_ring_write_idx += 1u;\n    if (comp->audio_ring_write_idx >=\
-      \ comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;\n    comp->audio_ring_fill\
-      \ += 1u;\n    comp->audio_samples += 1u;\n}\n"
+    audio_pcm: "if (comp->audio_out_dev == 0u || comp->audio_out_ready == 0u || comp->audio_ring == NULL || comp->audio_ring_capacity == 0u || argc < 1) return;
+{
+    uint8_t level_u = (uint8_t)(args[0] & 0xFFu);
+    int centered = ((int)level_u) - 128;
+    int16_t sample = (int16_t)(centered * 128);
+    if (comp->audio_ring_fill >= comp->audio_ring_capacity) {
+        comp->audio_ring_read_idx += 1u;
+        if (comp->audio_ring_read_idx >= comp->audio_ring_capacity) comp->audio_ring_read_idx = 0u;
+        comp->audio_ring_fill -= 1u;
+    }
+    comp->audio_ring[comp->audio_ring_write_idx] = sample;
+    comp->audio_ring_write_idx += 1u;
+    if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx = 0u;
+    comp->audio_ring_fill += 1u;
+    comp->audio_samples += 1u;
+    comp->audio_level = sample;
+}
+"
 coding:
   headers:
   - pasm_overlay.h

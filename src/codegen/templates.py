@@ -310,6 +310,7 @@ uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
     {{
         uint8_t __handled = 0u;
         uint8_t __value = cpu_components_bus_read(cpu, addr, &__handled);
+{memory_read_trace}
         if (__handled != 0u) return __value;
     }}
     if (addr >= cpu->memory_size) {{
@@ -588,6 +589,8 @@ void print_usage(const char *prog) {{
     printf("  --system-dir <dir>  Load system ROM manifests relative to this directory\\n");
     printf("  --rom <file>    Load ROM file\\n");
     printf("  --addr <addr>   Load address (default: 0x0000)\\n");
+    printf("  --keyboard-map <file>  Load runtime keyboard map YAML\\n");
+    printf("  --controller-map <file>  Load runtime controller map YAML\\n");
     printf("  --run           Run emulator\\n");
     printf("  --step          Run one instruction\\n");
     printf("  --cycles <n>    Run for n cycles\\n");
@@ -606,6 +609,8 @@ int main(int argc, char *argv[]) {{
     uint64_t max_cycles = 0;
     const char *system_dir = NULL;
     const char *rom_file = NULL;
+    const char *keyboard_map_file = NULL;
+    const char *controller_map_file = NULL;
     uint16_t load_addr = 0;
     const char *test_name = NULL;
     
@@ -614,6 +619,10 @@ int main(int argc, char *argv[]) {{
             system_dir = argv[++i];
         }} else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {{
             rom_file = argv[++i];
+        }} else if (strcmp(argv[i], "--keyboard-map") == 0 && i + 1 < argc) {{
+            keyboard_map_file = argv[++i];
+        }} else if (strcmp(argv[i], "--controller-map") == 0 && i + 1 < argc) {{
+            controller_map_file = argv[++i];
         }} else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {{
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
         }} else if (strcmp(argv[i], "--run") == 0) {{
@@ -635,6 +644,22 @@ int main(int argc, char *argv[]) {{
         }}
         {cpu_prefix}_reset(cpu);
         printf("Loaded system ROMs from: %s\\n", system_dir);
+    }}
+
+    if (keyboard_map_file && keyboard_map_file[0]) {{
+        if ({cpu_prefix}_load_keyboard_map(cpu, keyboard_map_file) != 0) {{
+            fprintf(stderr, "Failed to load keyboard map: %s\\n", keyboard_map_file);
+            return 1;
+        }}
+        printf("Loaded keyboard map: %s\\n", keyboard_map_file);
+    }}
+
+    if (controller_map_file && controller_map_file[0]) {{
+        if ({cpu_prefix}_load_controller_map(cpu, controller_map_file) != 0) {{
+            fprintf(stderr, "Failed to load controller map: %s\\n", controller_map_file);
+            return 1;
+        }}
+        printf("Loaded controller map: %s\\n", controller_map_file);
     }}
     
     if (rom_file) {{

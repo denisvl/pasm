@@ -26,6 +26,15 @@ behavior:
   callback_handlers: {}
   handler_bodies:
     on_audio_level: |
+      if ((cpu->total_cycles & 0x3FFFu) == 0u) {
+          FILE *trace_fp = fopen("log/cpc_audio_trace.log", "a");
+          if (trace_fp != NULL) {
+              fprintf(trace_fp, "cpc_speaker on_audio_level cyc=%llu level=%u\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)(args[0] & 0xFFu));
+              fclose(trace_fp);
+          }
+      }
       comp->level = (uint8_t)(args[0] & 0xFFu);
       comp->last_cycle = (uint64_t)args[1];
       cpu_component_emit_signal(cpu, "speaker", "pcm_sample", args, argc);

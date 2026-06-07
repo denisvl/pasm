@@ -611,12 +611,13 @@ def test_build_system_does_not_auto_link_sdl2_for_stub_backend():
     cmake = generate_cmake(isa, "BackendStub8")
     makefile = generate_makefile(isa, "BackendStub8")
 
-    assert "find_package(SDL2 CONFIG QUIET)" not in cmake
-    assert "${PASM_SDL2_LINK_TARGET}" not in cmake
-    assert "-lSDL2" not in makefile
+    assert "find_package(SDL2 CONFIG QUIET)" in cmake
+    assert "${PASM_SDL2_LINK_TARGET}" in cmake
+    assert "PASM_SDL2_LIB = -lSDL2" in makefile
+    assert "-lSDL2" in makefile
 
 
-def test_build_system_accepts_glfw_backend_without_auto_sdl2_linkage():
+def test_build_system_links_sdl2_for_glfw_backend():
     isa = _base_isa("BackendGlfw8")
     isa["hosts"] = [
         {
@@ -659,9 +660,10 @@ def test_build_system_accepts_glfw_backend_without_auto_sdl2_linkage():
     assert "PASM_OPENGL_LIB = -lopengl32" in makefile
     assert "PASM_WINMM_LIB = -lwinmm" in makefile
     assert "PASM_ALSA_LIB = -lasound" in makefile
-    assert "find_package(SDL2 CONFIG QUIET)" not in cmake
-    assert "${PASM_SDL2_LINK_TARGET}" not in cmake
-    assert "-lSDL2" not in makefile
+    assert "find_package(SDL2 CONFIG QUIET)" in cmake
+    assert "${PASM_SDL2_LINK_TARGET}" in cmake
+    assert "PASM_SDL2_LIB = -lSDL2" in makefile
+    assert "-lSDL2" in makefile
 
 
 def test_build_system_does_not_infer_sdl2_backend_from_linked_library_name():
@@ -1719,6 +1721,7 @@ def test_debugger_link_manifest_includes_backend_target_libraries(tmp_path):
         host_paths=[str(host_yaml)],
     )
     manifest_glfw = json.loads((outdir_glfw / "debugger_link.json").read_text(encoding="utf-8"))
+    assert "SDL2" in manifest_glfw["link"]["library_names"]
     assert ("glfw3dll" if os.name == "nt" else "glfw") in manifest_glfw["link"]["library_names"]
     assert ("opengl32" if os.name == "nt" else "GL") in manifest_glfw["link"]["library_names"]
     if os.name == "nt":
@@ -2783,7 +2786,8 @@ def test_runtime_hal_helpers_emit_glfw_impl_for_glfw_backend():
     assert "if (cpu_host_hal_glfw_inited == 0u) return 0u;" in code
     assert "if (!window) window = (void *)cpu_host_hal_glfw_primary_window;" in code
     assert "glfwGetWindowAttrib((GLFWwindow *)window, GLFW_FOCUSED)" in code
-    assert "if (!glfwInit()) return -1;" in code
+    assert "if (!glfwInit()) {" in code
+    assert "cpu_host_hal_log(\"host_init video unavailable; continuing without GLFW window path\");" in code
     assert "cpu_host_hal_glfw_inited = 1u;" in code
     assert "static GLFWwindow *cpu_host_hal_glfw_primary_window = NULL;" in code
     assert "static uint8_t cpu_host_hal_glfw_inited = 0u;" in code
@@ -3010,13 +3014,16 @@ def test_runtime_hal_frame_audio_helpers_emit_glfw_buffer_impl():
     ]
     code = generate_cpu_impl(data, "Z80")
     assert "static void cpu_host_hal_glfw_reset_audio_state(void)" in code
+    assert "static void cpu_host_hal_glfw_audio_thread_drain(uint32_t timeout_ms)" in code
+    assert "cpu_host_hal_glfw_audio_thread_drain(200u);" in code
+    assert "snd_pcm_drain(cpu_host_hal_glfw_alsa_pcm);" in code
     assert "cpu_host_hal_glfw_reset_audio_state();" in code
     assert "static uint8_t *cpu_host_hal_glfw_audio_buf = NULL;" in code
     assert "static uint32_t cpu_host_hal_glfw_audio_len = 0u;" in code
     assert "static uint32_t cpu_host_hal_glfw_audio_cap = 0u;" in code
     assert "static uint8_t cpu_host_hal_glfw_audio_opened = 0u;" in code
     assert "if (cpu_host_hal_glfw_inited == 0u) return -1;" in code
-    assert "if (dev != 1u || !data || len_bytes == 0u || cpu_host_hal_glfw_audio_opened == 0u) return -1;" in code
+    assert "if (dev == 0u || !data || len_bytes == 0u || cpu_host_hal_glfw_audio_opened == 0u) return -1;" in code
     assert "if (!want) return 0u;" in code
     assert "if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;" in code
     assert "cpu_host_hal_glfw_reset_audio_state();" in code
@@ -3034,14 +3041,13 @@ def test_runtime_hal_frame_audio_helpers_emit_glfw_buffer_impl():
     assert "new_buf = (uint8_t *)realloc(cpu_host_hal_glfw_audio_buf, (size_t)new_cap);" in code
     assert "cpu_host_hal_glfw_audio_len = need;" in code
     assert "if (cpu_host_hal_glfw_inited == 0u) return 0u;" in code
-    assert "if (dev != 1u || cpu_host_hal_glfw_audio_opened == 0u) return 0u;" in code
+    assert "if (dev == 0u || cpu_host_hal_glfw_audio_opened == 0u) return 0u;" in code
     assert "if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) return 0u;" in code
     assert "if (cpu_host_hal_glfw_audio_cap != 0u && cpu_host_hal_glfw_audio_buf == NULL) return 0u;" in code
     assert "if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) return 0u;" in code
     assert "if (cpu_host_hal_glfw_inited == 0u) return;" in code
-    assert "if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) return;" in code
-    assert "if (cpu_host_hal_glfw_audio_cap != 0u && cpu_host_hal_glfw_audio_buf == NULL) return;" in code
-    assert "if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) return;" in code
+    assert "snd_pcm_drop(cpu_host_hal_glfw_alsa_pcm);" in code
+    assert "snd_pcm_prepare(cpu_host_hal_glfw_alsa_pcm);" in code
     assert "cpu_host_hal_glfw_audio_len = 0u;" in code
     assert "if (out_w) *out_w = 0;" in code
     assert "if (out_h) *out_h = 0;" in code
