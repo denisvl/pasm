@@ -129,26 +129,29 @@ interfaces:
 behavior:
   snippets:
     init: "do {\n    if (comp->host_inited != 0u) break;\n    if (cpu_host_hal_init(CPU_HOST_INIT_VIDEO | CPU_HOST_INIT_AUDIO\
-      \ | CPU_HOST_INIT_EVENTS) != 0) break;\n\n    comp->window = cpu_host_hal_create_window(\n        \"PASM NES\",\n  \
-      \      CPU_HOST_WINDOWPOS_CENTERED,\n        CPU_HOST_WINDOWPOS_CENTERED,\n        256,\n        240,\n        CPU_HOST_WINDOW_RESIZABLE\n\
-      \    );\n    if (comp->window == NULL) break;\n\n    comp->renderer = cpu_host_hal_create_renderer(comp->window, -1,\
-      \ CPU_HOST_RENDERER_ACCELERATED);\n    if (comp->renderer == NULL) {\n        comp->renderer = cpu_host_hal_create_renderer(comp->window,\
-      \ -1, 0);\n    }\n    if (comp->renderer == NULL) break;\n\n    {\n        static const char *nes_crt_tv_vertex_shader\
-      \ =\n            \"#version 330 core\\n\"\n            \"layout (location = 0) in vec3 aPos;\\n\"\n            \"layout\
-      \ (location = 1) in vec2 aTexCoords;\\n\"\n            \"out vec2 TexCoords;\\n\"\n            \"void main() {\\n\"\n\
-      \            \"    TexCoords = aTexCoords;\\n\"\n            \"    gl_Position = vec4(aPos, 1.0);\\n\"\n           \
-      \ \"}\\n\";\n        static const char *nes_crt_tv_fragment_shader =\n            \"#version 330 core\\n\"\n       \
-      \     \"out vec4 FragColor;\\n\"\n            \"in vec2 TexCoords;\\n\"\n            \"uniform sampler2D screenTexture;\\\
-      n\"\n            \"uniform vec2 sourceResolution;\\n\"\n            \"const float CURVATURE = 8.0;\\n\"\n          \
-      \  \"const float SCANLINE_WEIGHT = 0.10;\\n\"\n            \"const float MASK_DARKNESS = 0.08;\\n\"\n            \"\
-      const float GLOW_FACTOR = 0.05;\\n\"\n            \"vec2 curve(vec2 coord) {\\n\"\n            \"    coord = coord *\
-      \ 2.0 - 1.0;\\n\"\n            \"    coord.x *= 1.0 + pow((abs(coord.y) / CURVATURE), 2.0);\\n\"\n            \"   \
-      \ coord.y *= 1.0 + pow((abs(coord.x) / CURVATURE), 2.0);\\n\"\n            \"    return coord * 0.5 + 0.5;\\n\"\n  \
-      \          \"}\\n\"\n            \"void main() {\\n\"\n            \"    vec2 crtUV = curve(TexCoords);\\n\"\n     \
-      \       \"    if (crtUV.x < 0.0 || crtUV.x > 1.0 || crtUV.y < 0.0 || crtUV.y > 1.0) {\\n\"\n            \"        FragColor\
-      \ = vec4(0.0, 0.0, 0.0, 1.0);\\n\"\n            \"        return;\\n\"\n            \"    }\\n\"\n            \"   \
-      \ vec3 baseColor = texture(screenTexture, crtUV).rgb;\\n\"\n            \"    vec3 blurColor = texture(screenTexture,\
-      \ crtUV + vec2(1.0 / sourceResolution.x, 0.0)).rgb;\\n\"\n            \"    baseColor = mix(baseColor, blurColor, GLOW_FACTOR);\\\
+      \ | CPU_HOST_INIT_EVENTS) != 0) break;\n\n    int window_w = 256;\n    int window_h = 240;\n    cpu_host_hal_display_window_size(\n\
+      \        cpu->comp_tv.display_width,\n        cpu->comp_tv.display_height,\n        cpu->comp_tv.aspect_width,\n   \
+      \     cpu->comp_tv.aspect_height,\n        cpu->comp_tv.display_inches,\n        256,\n        240,\n        &window_w,\n\
+      \        &window_h\n    );\n    comp->window = cpu_host_hal_create_window(\n        \"PASM NES\",\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
+      \        CPU_HOST_WINDOWPOS_CENTERED,\n        window_w,\n        window_h,\n        CPU_HOST_WINDOW_RESIZABLE\n   \
+      \ );\n    if (comp->window == NULL) break;\n\n    comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, CPU_HOST_RENDERER_ACCELERATED);\n\
+      \    if (comp->renderer == NULL) {\n        comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);\n  \
+      \  }\n    if (comp->renderer == NULL) break;\n\n    {\n        static const char *nes_crt_tv_vertex_shader =\n     \
+      \       \"#version 330 core\\n\"\n            \"layout (location = 0) in vec3 aPos;\\n\"\n            \"layout (location\
+      \ = 1) in vec2 aTexCoords;\\n\"\n            \"out vec2 TexCoords;\\n\"\n            \"void main() {\\n\"\n        \
+      \    \"    TexCoords = aTexCoords;\\n\"\n            \"    gl_Position = vec4(aPos, 1.0);\\n\"\n            \"}\\n\"\
+      ;\n        static const char *nes_crt_tv_fragment_shader =\n            \"#version 330 core\\n\"\n            \"out\
+      \ vec4 FragColor;\\n\"\n            \"in vec2 TexCoords;\\n\"\n            \"uniform sampler2D screenTexture;\\n\"\n\
+      \            \"uniform vec2 sourceResolution;\\n\"\n            \"const float CURVATURE = 8.0;\\n\"\n            \"\
+      const float SCANLINE_WEIGHT = 0.10;\\n\"\n            \"const float MASK_DARKNESS = 0.08;\\n\"\n            \"const\
+      \ float GLOW_FACTOR = 0.05;\\n\"\n            \"vec2 curve(vec2 coord) {\\n\"\n            \"    coord = coord * 2.0\
+      \ - 1.0;\\n\"\n            \"    coord.x *= 1.0 + pow((abs(coord.y) / CURVATURE), 2.0);\\n\"\n            \"    coord.y\
+      \ *= 1.0 + pow((abs(coord.x) / CURVATURE), 2.0);\\n\"\n            \"    return coord * 0.5 + 0.5;\\n\"\n          \
+      \  \"}\\n\"\n            \"void main() {\\n\"\n            \"    vec2 crtUV = curve(TexCoords);\\n\"\n            \"\
+      \    if (crtUV.x < 0.0 || crtUV.x > 1.0 || crtUV.y < 0.0 || crtUV.y > 1.0) {\\n\"\n            \"        FragColor =\
+      \ vec4(0.0, 0.0, 0.0, 1.0);\\n\"\n            \"        return;\\n\"\n            \"    }\\n\"\n            \"    vec3\
+      \ baseColor = texture(screenTexture, crtUV).rgb;\\n\"\n            \"    vec3 blurColor = texture(screenTexture, crtUV\
+      \ + vec2(1.0 / sourceResolution.x, 0.0)).rgb;\\n\"\n            \"    baseColor = mix(baseColor, blurColor, GLOW_FACTOR);\\\
       n\"\n            \"    float scan = 0.5 + 0.5 * sin(crtUV.y * sourceResolution.y * 3.14159265);\\n\"\n            \"\
       \    baseColor *= 1.0 - (SCANLINE_WEIGHT * (1.0 - scan));\\n\"\n            \"    float maskPhase = mod(gl_FragCoord.x\
       \ + floor(gl_FragCoord.y * 0.5), 3.0);\\n\"\n            \"    float mask = 1.0 - (MASK_DARKNESS * step(maskPhase, 0.5));\\\
@@ -334,29 +337,28 @@ behavior:
       \ comp->overlay_cpu_hz,\n        comp->overlay_cpu_pct_x10\n    );\n}\nif (comp->texture_w != w || comp->texture_h !=\
       \ h) {\n    cpu_host_hal_destroy_texture(texture);\n    texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888,\
       \ CPU_HOST_TEXTUREACCESS_STREAMING, (int)w, (int)h);\n    if (texture == NULL) return;\n    comp->texture = (void *)texture;\n\
-      \    comp->texture_w = w;\n    comp->texture_h = h;\n    if (comp->window != NULL) {\n        (void)cpu_host_hal_set_window_size(comp->window,\
-      \ (int)w, (int)h);\n    }\n}\nif (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(w * sizeof(uint32_t))) !=\
-      \ 0) return;\ncpu_host_hal_render_set_draw_color(renderer, 0, 0, 0, 255);\ncpu_host_hal_render_clear(renderer);\n{\n\
-      \    int ww = 0;\n    int wh = 0;\n    int scaled_w = 0;\n    int scaled_h = 0;\n    CPUHostRect dst;\n    if (cpu_host_hal_renderer_output_size(renderer,\
-      \ &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;\n    scaled_w = ww;\n    scaled_h = (int)((((int64_t)ww) * (int64_t)h)\
-      \ / (int64_t)w);\n    if (scaled_h > wh) {\n        scaled_h = wh;\n        scaled_w = (int)((((int64_t)wh) * (int64_t)w)\
-      \ / (int64_t)h);\n    }\n    dst.w = (scaled_w > 0) ? scaled_w : ww;\n    dst.h = (scaled_h > 0) ? scaled_h : wh;\n\
-      \    dst.x = (ww - dst.w) / 2;\n    dst.y = (wh - dst.h) / 2;\n    if (comp->display_shader_supported < 0) {\n     \
-      \   comp->display_shader_supported = (comp->display_shader != NULL && cpu_host_hal_renderer_supports_shaders(renderer)\
+      \    comp->texture_w = w;\n    comp->texture_h = h;\n}\nif (cpu_host_hal_update_texture(texture, NULL, pixels, (int)(w\
+      \ * sizeof(uint32_t))) != 0) return;\ncpu_host_hal_render_set_draw_color(renderer, 0, 0, 0, 255);\ncpu_host_hal_render_clear(renderer);\n\
+      {\n    int ww = 0;\n    int wh = 0;\n    int scaled_w = 0;\n    int scaled_h = 0;\n    CPUHostRect dst;\n    if (cpu_host_hal_renderer_output_size(renderer,\
+      \ &ww, &wh) != 0 || ww <= 0 || wh <= 0) return;\n    uint32_t aspect_w = cpu->comp_tv.aspect_width;\n    uint32_t aspect_h\
+      \ = cpu->comp_tv.aspect_height;\n    if (aspect_w == 0u || aspect_h == 0u) {\n        aspect_w = (uint32_t)(int)w;\n\
+      \        aspect_h = (uint32_t)(int)h;\n    }\n    scaled_w = ww;\n    scaled_h = (int)((((int64_t)ww) * (int64_t)aspect_h)\
+      \ / (int64_t)aspect_w);\n    if (scaled_h > wh) {\n        scaled_h = wh;\n        scaled_w = (int)((((int64_t)wh) *\
+      \ (int64_t)aspect_w) / (int64_t)aspect_h);\n    }\n    dst.w = (scaled_w > 0) ? scaled_w : ww;\n    dst.h = (scaled_h\
+      \ > 0) ? scaled_h : wh;\n    dst.x = (ww - dst.w) / 2;\n    dst.y = (wh - dst.h) / 2;\n    if (comp->display_shader_supported\
+      \ < 0) {\n        comp->display_shader_supported = (comp->display_shader != NULL && cpu_host_hal_renderer_supports_shaders(renderer)\
       \ != 0) ? 1 : 0;\n    }\n    if (comp->display_shader_supported != 0) {\n        if (cpu_host_hal_render_copy_shader(renderer,\
       \ texture, NULL, &dst, comp->display_shader, (int)w, (int)h, ww, wh) != 0) {\n            comp->display_shader_supported\
       \ = 0;\n            if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;\n        }\n    } else\
       \ if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;\n}\ncpu_host_hal_render_present(renderer);\n"
     audio_pcm: "if (\n    comp->audio_out_dev == 0u ||\n    comp->audio_out_ready == 0u ||\n    comp->audio_ring == NULL ||\n\
       \    comp->audio_ring_capacity == 0u ||\n    argc < 1\n) {\n    return;\n}\n{\n    uint8_t level = (uint8_t)(args[0]\
-      \ & 0xFFu);\n    int centered = ((int)level) - 128;\n    int32_t raw = (int32_t)(centered * 128);\n    /* Cheap anti-click\
-      \ smoothing: slew-limit + 1-pole LP in integer math. */\n    int32_t prev = comp->audio_hp_prev_out;\n    int32_t d\
-      \ = raw - prev;\n    if (d > 1024) raw = prev + 1024;\n    else if (d < -1024) raw = prev - 1024;\n    int32_t sample_i\
-      \ = prev + ((raw - prev) >> 2);\n    if (sample_i > 32767) sample_i = 32767;\n    if (sample_i < -32768) sample_i =\
-      \ -32768;\n    comp->audio_hp_prev_out = sample_i;\n    int16_t sample = (int16_t)sample_i;\n    if (comp->audio_ring_fill\
-      \ >= comp->audio_ring_capacity) {\n        return;\n    }\n    comp->audio_ring[comp->audio_ring_write_idx] = sample;\n\
-      \    comp->audio_ring_write_idx += 1u;\n    if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx\
-      \ = 0u;\n    comp->audio_ring_fill += 1u;\n    comp->audio_samples += 1u;\n}\n"
+      \ & 0xFFu);\n    int32_t raw = (((int32_t)level) - 128) << 8;\n    int32_t sample_i = raw - comp->audio_hp_prev_in +\
+      \ ((comp->audio_hp_prev_out * 32604) / 32768);\n    if (sample_i > 32767) sample_i = 32767;\n    if (sample_i < -32768)\
+      \ sample_i = -32768;\n    comp->audio_hp_prev_in = raw;\n    comp->audio_hp_prev_out = sample_i;\n    int16_t sample\
+      \ = (int16_t)sample_i;\n    if (comp->audio_ring_fill >= comp->audio_ring_capacity) {\n        return;\n    }\n    comp->audio_ring[comp->audio_ring_write_idx]\
+      \ = sample;\n    comp->audio_ring_write_idx += 1u;\n    if (comp->audio_ring_write_idx >= comp->audio_ring_capacity)\
+      \ comp->audio_ring_write_idx = 0u;\n    comp->audio_ring_fill += 1u;\n    comp->audio_samples += 1u;\n}\n"
 coding:
   headers:
   - pasm_overlay.h

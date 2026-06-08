@@ -66,6 +66,8 @@ def emit_ic_unit(isa_data: Dict[str, Any], cpu_name: str, component: Dict[str, A
         "/* Auto-generated split unit: per-IC ownership scaffold. */",
         f"/* IC id: {comp_id} */",
         f'#include "{cpu_name}.h"',
+        "int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes);",
+        "uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev);",
         '#include <pasm_overlay_draw.h>' if needs_pasm_overlay_include else "",
         "",
         f"uint8_t cpu_component_ic_{comp_ident}_bus_read(CPUState *cpu, uint16_t addr, uint8_t *handled) {{",
@@ -969,7 +971,9 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
         ]
     )
     if has_runtime_cartridge:
-        lines.append("    cpu_component_cartridge_picker_update(cpu, cpu_host_hal_window_has_focus(NULL));")
+        lines.append("    if (cpu_component_cartridge_picker_is_active() != 0u) {")
+        lines.append("        cpu_component_cartridge_picker_update(cpu, 1u);")
+        lines.append("    }")
     emitted_post = has_runtime_cartridge
     if post_hook_ics:
         for _, ident in post_hook_ics:

@@ -66,6 +66,15 @@ state:
 - name: aspect_height
   type: uint32_t
   initial: '3'
+- name: display_width
+  type: uint32_t
+  initial: '640'
+- name: display_height
+  type: uint32_t
+  initial: '400'
+- name: display_inches
+  type: uint32_t
+  initial: '12'
 interfaces:
   callbacks: []
   handlers:

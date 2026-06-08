@@ -20,6 +20,7 @@ START_PC="${START_PC:-0x0000}"
 MEMORY_SIZE="${MEMORY_SIZE:-65536}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
+PASM_SMS_DIRECT_PCM="${PASM_SMS_DIRECT_PCM:-1}"
 PASM_SMS_JOY2_CONNECTED="${PASM_SMS_JOY2_CONNECTED:-0}"
 PASM_SMS_CROP_LEFT8="${PASM_SMS_CROP_LEFT8:-1}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
@@ -67,9 +68,10 @@ cmake -S "${OUTPUT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYP
 cmake --build "${BUILD_DIR}"
 
 echo "[3/3] Running Rust debugger (linked backend, BIOS only)"
-echo "    memory_size=${MEMORY_SIZE} start_pc=${START_PC} host_audio=${PASM_HOST_AUDIO} joy2_connected=${PASM_SMS_JOY2_CONNECTED} crop_left8=${PASM_SMS_CROP_LEFT8} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
+echo "    memory_size=${MEMORY_SIZE} start_pc=${START_PC} host_audio=${PASM_HOST_AUDIO} direct_pcm=${PASM_SMS_DIRECT_PCM} joy2_connected=${PASM_SMS_JOY2_CONNECTED} crop_left8=${PASM_SMS_CROP_LEFT8} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
+PASM_SMS_DIRECT_PCM="${PASM_SMS_DIRECT_PCM}" \
 PASM_SMS_JOY2_CONNECTED="${PASM_SMS_JOY2_CONNECTED}" \
 PASM_SMS_CROP_LEFT8="${PASM_SMS_CROP_LEFT8}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \

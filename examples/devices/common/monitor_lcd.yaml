@@ -39,6 +39,15 @@ state:
 - name: aspect_height
   type: uint32_t
   initial: '3'
+- name: display_width
+  type: uint32_t
+  initial: '1280'
+- name: display_height
+  type: uint32_t
+  initial: '1024'
+- name: display_inches
+  type: uint32_t
+  initial: '17'
 interfaces:
   callbacks: []
   handlers:

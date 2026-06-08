@@ -230,4 +230,4 @@ int main(void) {
     assert int(vals["FRAME_EVENTS"]) >= 1
     assert int(vals["IRQ_EDGES"]) >= 1
     assert int(vals["AUDIO_SAMPLES"]) >= 1
-    assert int(vals["LAST_AUDIO"]) in (0, 1)
+    assert int(vals["LAST_AUDIO"]) > 1

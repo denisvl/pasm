@@ -615,6 +615,16 @@ behavior:
                   uint64_t ay_args[1] = { (uint64_t)ay_ticks };
                   uint8_t out_level = (uint8_t)cpu_component_call(cpu, "cpc_gate_array", "psg_tick_audio", ay_args, 1);
                   uint64_t sig_args[2] = { (uint64_t)out_level, cpu->total_cycles };
+                  if ((cpu->total_cycles & 0x3FFFu) == 0u) {
+                      FILE *trace_fp = fopen("log/cpc_audio_trace.log", "a");
+                      if (trace_fp != NULL) {
+                          fprintf(trace_fp, "cpc_gate_array audio_level cyc=%llu level=%u ay_ticks=%u\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)out_level,
+                              (unsigned)ay_ticks);
+                          fclose(trace_fp);
+                      }
+                  }
                   cpu_component_emit_signal(cpu, "cpc_gate_array", "audio_level", sig_args, 2);
               }
           }

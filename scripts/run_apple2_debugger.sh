@@ -12,13 +12,21 @@ set -euo pipefail
 #   OUTPUT_DIR=generated/apple2_interactive
 #   EXTRA_CARGO_ARGS="--release"
 #   RUN_SPEED=realtime|max
+#   PASM_SDL_AUDIO_DRIVER=pipewire|pulseaudio|alsa
+#   PASM_HOST_AUDIO_DEVICE=pipewire|default|plughw:0,0
 
 PROFILE="${1:-interactive}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
 START_PC="${START_PC:-}"
 MEMORY_SIZE="${MEMORY_SIZE:-65536}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
+PASM_HOST_AUDIO_DEVICE="${PASM_HOST_AUDIO_DEVICE:-pipewire}"
+PASM_SDL_AUDIO_DRIVER="${PASM_SDL_AUDIO_DRIVER:-}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/apple2/host_keyboard_apple2.yaml}"
 JOYSTICK_KEYBOARD_MAP="${JOYSTICK_KEYBOARD_MAP:-examples/hosts/apple2/host_keyboard_apple2_joystick.yaml}"
 CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/apple2/host_controller_apple2.yaml}"
@@ -117,7 +125,21 @@ fi
 if [[ -n "${START_PC}" ]]; then
   RUN_ARGS+=(--start-pc "${START_PC}")
 fi
+if [[ $# -gt 0 ]]; then
+  RUN_ARGS+=("$@")
+fi
 
-PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
-cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
-  "${RUN_ARGS[@]}"
+if [[ -n "${PASM_SDL_AUDIO_DRIVER}" ]]; then
+  SDL_AUDIODRIVER="${PASM_SDL_AUDIO_DRIVER}" \
+  PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
+  PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
+  PASM_HOST_AUDIO_DEVICE="${PASM_HOST_AUDIO_DEVICE}" \
+  cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
+    "${RUN_ARGS[@]}"
+else
+  PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
+  PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
+  PASM_HOST_AUDIO_DEVICE="${PASM_HOST_AUDIO_DEVICE}" \
+  cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
+    "${RUN_ARGS[@]}"
+fi

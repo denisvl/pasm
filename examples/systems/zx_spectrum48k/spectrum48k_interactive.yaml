@@ -174,9 +174,9 @@ connections:
     kind: signal
     name: pcm_sample
   to:
-    component: tv
+    component: host_zx48
     kind: handler
-    name: on_audio_level
+    name: audio_pcm
 - from:
     component: tv
     kind: signal
@@ -185,14 +185,6 @@ connections:
     component: host_zx48
     kind: handler
     name: video_frame
-- from:
-    component: tv
-    kind: signal
-    name: pcm_sample
-  to:
-    component: host_zx48
-    kind: handler
-    name: audio_pcm
 audio:
   sample_rate: 44100
   format: s16le

@@ -572,6 +572,8 @@ exit /b 0
             glfw_lib = "glfw3dll" if os.name == "nt" else "glfw"
             if glfw_lib not in link_library_names:
                 link_library_names.append(glfw_lib)
+            if "SDL2" not in link_library_names:
+                link_library_names.append("SDL2")
             opengl_lib = "opengl32" if os.name == "nt" else "GL"
             if opengl_lib not in link_library_names:
                 link_library_names.append(opengl_lib)

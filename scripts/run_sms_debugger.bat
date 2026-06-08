@@ -15,6 +15,7 @@ set "PASM_SMS_JOY2_CONNECTED=%PASM_SMS_JOY2_CONNECTED%"
 if not defined PASM_SMS_JOY2_CONNECTED set "PASM_SMS_JOY2_CONNECTED=0"
 set "PASM_SMS_CROP_LEFT8=%PASM_SMS_CROP_LEFT8%"
 if not defined PASM_SMS_CROP_LEFT8 set "PASM_SMS_CROP_LEFT8=1"
+set "PASM_SMS_DIRECT_PCM=%PASM_SMS_DIRECT_PCM%"
 set "CMAKE_BUILD_TYPE=%CMAKE_BUILD_TYPE%"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 set "RUN_SPEED=%RUN_SPEED%"
@@ -49,10 +50,12 @@ if /I "%PROFILE%"=="default" (
   set "SYSTEM=examples/systems/sms/sms_default.yaml"
   set "HOST=examples/hosts/sms/sms_host_stub.yaml"
   set "DEFAULT_OUTPUT=generated/z80_sms"
+  if not defined PASM_SMS_DIRECT_PCM set "PASM_SMS_DIRECT_PCM=0"
 ) else if /I "%PROFILE%"=="interactive" (
   set "SYSTEM=examples/systems/sms/sms_interactive.yaml"
   set "HOST=examples/hosts/sms/sms_host_hal_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/z80_sms_sdl"
+  if not defined PASM_SMS_DIRECT_PCM set "PASM_SMS_DIRECT_PCM=1"
 ) else (
   echo Unsupported profile: %PROFILE%
   echo Use: default ^| interactive
@@ -99,6 +102,7 @@ if errorlevel 1 exit /b %errorlevel%
 
 set "PASM_EMU_DIR=%OUTPUT_DIR_ABS%"
 set "PASM_HOST_AUDIO=%PASM_HOST_AUDIO%"
+set "PASM_SMS_DIRECT_PCM=%PASM_SMS_DIRECT_PCM%"
 set "PASM_SMS_JOY2_CONNECTED=%PASM_SMS_JOY2_CONNECTED%"
 
 set "PATH=%OUTPUT_DIR_ABS%\build\%CMAKE_BUILD_TYPE%;%OUTPUT_DIR_ABS%\build;%PATH%"

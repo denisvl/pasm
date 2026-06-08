@@ -469,7 +469,6 @@ state:
   - name: audio_level
     type: uint8_t
     initial: "128"
-
 interfaces:
   callbacks:
     - name: joy0_read
@@ -503,7 +502,7 @@ interfaces:
   signals:
     - name: frame_ready
       args: [u32, u64, u32, u32]
-    - name: audio_level
+    - name: audio_pcm
       args: [u8, u64]
 
 maps:
@@ -1024,7 +1023,6 @@ behavior:
       static uint8_t *player_decodes[8];
       static uint8_t *missile_decodes[8];
       static uint8_t decodes_init = 0u;
-      uint8_t aud_emitted = 0u;
 
       uint64_t cycles = inst->cycles;
       if (comp->wsync_extra_cycles != 0u) {
@@ -1037,13 +1035,39 @@ behavior:
           comp->wsync_extra_clocks = 0u;
       }
       {
-          uint64_t args_t[1] = { (uint64_t)((cycles > 0xFFFFFFFFu) ? 0xFFFFFFFFu : (uint32_t)cycles) };
-          (void)cpu_component_call(cpu, "atari2600_tia", "riot_step_timer", args_t, 1);
+          /* Inline the RIOT timer step to avoid a per-cycle callback hop. */
+          ComponentState_atari2600_riot *riot = &cpu->comp_atari2600_riot;
+          uint32_t step_cycles = (cycles > 0xFFFFFFFFu) ? 0xFFFFFFFFu : (uint32_t)cycles;
+          if (riot->riot_timer_interval != 0u) {
+              riot->riot_timer_div += step_cycles;
+              while (riot->riot_timer_div >= riot->riot_timer_interval) {
+                  riot->riot_timer_div -= riot->riot_timer_interval;
+                  if (riot->riot_timer > 0u) {
+                      riot->riot_timer = (uint8_t)(riot->riot_timer - 1u);
+                      if (riot->riot_timer == 0u) {
+                          riot->riot_instat = (uint8_t)(riot->riot_instat | 0x80u);
+                          riot->riot_timer_interval = 1u;
+                          riot->riot_timer_wrap_pending = 1u;
+                          break;
+                      }
+                  } else {
+                      if (riot->riot_timer_wrap_pending != 0u) {
+                          riot->riot_timer = 0xFFu;
+                          riot->riot_timer_wrap_pending = 0u;
+                      } else {
+                          riot->riot_timer = (uint8_t)(riot->riot_timer - 1u);
+                      }
+                      riot->riot_instat = (uint8_t)(riot->riot_instat | 0x80u);
+                      riot->riot_timer_interval = 1u;
+                  }
+              }
+          }
       }
       {
           /* Coarse paddle-cap model for INPT0..3. */
-          uint8_t joy0 = (uint8_t)cpu_component_call(cpu, "atari2600_tia", "joy0_read", NULL, 0);
-          uint8_t joy1 = (uint8_t)cpu_component_call(cpu, "atari2600_tia", "joy1_read", NULL, 0);
+          const ComponentState_host_atari2600 *host = &cpu->comp_host_atari2600;
+          uint8_t joy0 = host->joy1;
+          uint8_t joy1 = host->joy2;
           uint16_t pad_add = (cycles > 0xFFFFu) ? 0xFFFFu : (uint16_t)cycles;
           uint16_t th0 = (uint16_t)(((joy0 & 0x04u) != 0u) ? 64u : (((joy0 & 0x08u) != 0u) ? 1024u : 320u));
           uint16_t th1 = (uint16_t)(((joy0 & 0x08u) != 0u) ? 64u : (((joy0 & 0x04u) != 0u) ? 1024u : 320u));
@@ -1071,8 +1095,9 @@ behavior:
       }
       {
           /* Update trigger latches: when VBLANK bit 6 is set, inputs are transparent/reset. */
-          uint8_t joy0 = (uint8_t)cpu_component_call(cpu, "atari2600_tia", "joy0_read", NULL, 0);
-          uint8_t joy1 = (uint8_t)cpu_component_call(cpu, "atari2600_tia", "joy1_read", NULL, 0);
+          const ComponentState_host_atari2600 *host = &cpu->comp_host_atari2600;
+          uint8_t joy0 = host->joy1;
+          uint8_t joy1 = host->joy2;
           uint8_t trig4 = (uint8_t)(((joy0 & 0x10u) != 0u) ? 0x00u : 0x80u);
           uint8_t trig5 = (uint8_t)(((joy1 & 0x10u) != 0u) ? 0x00u : 0x80u);
           if ((comp->vblank & 0x40u) != 0u) {
@@ -1084,7 +1109,28 @@ behavior:
           }
       }
       {
-          (void)cpu_component_call(cpu, "atari2600_tia", "riot_sample_pa7", NULL, 0);
+          /* Inline PA7 sampling to avoid a callback-dispatch hop in the hot loop. */
+          ComponentState_atari2600_riot *riot = &cpu->comp_atari2600_riot;
+          const ComponentState_host_atari2600 *host = &cpu->comp_host_atari2600;
+          uint8_t joy0 = host->joy1;
+          uint8_t joy1 = host->joy2;
+          uint8_t in = 0xFFu;
+          if ((joy0 & 0x01u) != 0u) in &= (uint8_t)~0x10u;
+          if ((joy0 & 0x02u) != 0u) in &= (uint8_t)~0x20u;
+          if ((joy0 & 0x04u) != 0u) in &= (uint8_t)~0x40u;
+          if ((joy0 & 0x08u) != 0u) in &= (uint8_t)~0x80u;
+          if ((joy1 & 0x01u) != 0u) in &= (uint8_t)~0x01u;
+          if ((joy1 & 0x02u) != 0u) in &= (uint8_t)~0x02u;
+          if ((joy1 & 0x04u) != 0u) in &= (uint8_t)~0x04u;
+          if ((joy1 & 0x08u) != 0u) in &= (uint8_t)~0x08u;
+          uint8_t swcha = (uint8_t)((in & (uint8_t)~riot->riot_swacnt) | (riot->riot_swcha_out & riot->riot_swacnt));
+          uint8_t pa7 = (uint8_t)((swcha & 0x80u) != 0u);
+          uint8_t rising = (uint8_t)(riot->riot_pa7_last == 0u && pa7 != 0u);
+          uint8_t falling = (uint8_t)(riot->riot_pa7_last != 0u && pa7 == 0u);
+          if (riot->riot_pa7_irq_enable != 0u && ((riot->riot_pa7_posedge != 0u && rising != 0u) || (riot->riot_pa7_posedge == 0u && falling != 0u))) {
+              riot->riot_instat = (uint8_t)(riot->riot_instat | 0x40u);
+          }
+          riot->riot_pa7_last = pa7;
       }
       if (decodes_init == 0u) {
           for (uint32_t i = 0u; i < 160u; ++i) {
@@ -1639,14 +1685,13 @@ behavior:
                   comp->aud_sum_ct += 1u;
                   if (comp->aud_clock == 37u || comp->aud_clock == 149u) {
                       if (comp->aud_sum_ct != 0u) {
-                          uint32_t avg0 = comp->aud_sum0 / comp->aud_sum_ct;
-                          uint32_t avg1 = comp->aud_sum1 / comp->aud_sum_ct;
-                          uint32_t mix = avg0 + avg1;
-                          comp->audio_level = (uint8_t)((mix * 255u) / 30u);
-                          {
-                              uint64_t sig_args[2] = { (uint64_t)comp->audio_level, cpu->total_cycles };
-                              cpu_component_emit_signal(cpu, "atari2600_tia", "audio_level", sig_args, 2);
-                              aud_emitted = 1u;
+                        uint32_t avg0 = comp->aud_sum0 / comp->aud_sum_ct;
+                        uint32_t avg1 = comp->aud_sum1 / comp->aud_sum_ct;
+                        uint32_t mix = avg0 + avg1;
+                        comp->audio_level = (uint8_t)((mix * 255u) / 30u);
+                        {
+                            uint64_t sig_args[2] = { (uint64_t)comp->audio_level, cpu->total_cycles };
+                            cpu_component_emit_signal(cpu, "atari2600_tia", "audio_pcm", sig_args, 2);
                           }
                       }
                       comp->aud_sum0 = 0u;
@@ -1710,11 +1755,6 @@ behavior:
               }
           }
           clocks -= 1u;
-      }
-
-      if (aud_emitted == 0u) {
-          uint64_t sig_args[2] = { (uint64_t)comp->audio_level, cpu->total_cycles };
-          cpu_component_emit_signal(cpu, "atari2600_tia", "audio_level", sig_args, 2);
       }
   callback_handlers: {}
   handler_bodies: {}

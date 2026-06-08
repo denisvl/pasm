@@ -68,3 +68,36 @@ jobs:
         env:
           PASM_ENABLE_SECTORZ_TEST: "1"
         run: uv run --extra dev pytest -q tests/test_z80_sectorz_integration.py
+
+  schema-editor:
+    name: schema-editor-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+            install: sudo apt-get update && sudo apt-get install -y libsdl2-dev libsdl2-image-dev
+          - name: macos
+            os: macos-latest
+            install: brew install sdl2 sdl2_image
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install SDL2
+        run: ${{ matrix.install }}
+
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+
+      - name: Configure
+        run: cmake -S tools/schema_editor -B build/schema_editor -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build/schema_editor -j$(nproc)
+
+      - name: Test
+        run: ctest --test-dir build/schema_editor --output-on-failure

@@ -25,6 +25,7 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 PASM_SMS_JOY2_CONNECTED="${PASM_SMS_JOY2_CONNECTED:-0}"
 PASM_SMS_CROP_LEFT8="${PASM_SMS_CROP_LEFT8:-1}"
+PASM_SMS_DIRECT_PCM="${PASM_SMS_DIRECT_PCM:-}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/sms/sms_mapper_sega.yaml}"
@@ -54,11 +55,13 @@ case "${PROFILE}" in
     SYSTEM="examples/systems/sms/sms_default.yaml"
     HOST="examples/hosts/sms/sms_host_stub.yaml"
     DEFAULT_OUTPUT="generated/z80_sms"
+    PASM_SMS_DIRECT_PCM="${PASM_SMS_DIRECT_PCM:-0}"
     ;;
   interactive)
     SYSTEM="examples/systems/sms/sms_interactive.yaml"
     HOST="examples/hosts/sms/sms_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/z80_sms_sdl"
+    PASM_SMS_DIRECT_PCM="${PASM_SMS_DIRECT_PCM:-1}"
     ;;
   *)
     echo "Unsupported profile: ${PROFILE}" >&2
@@ -106,7 +109,7 @@ cmake -S "${OUTPUT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYP
 cmake --build "${BUILD_DIR}"
 
 echo "[3/3] Running Rust debugger (linked backend)"
-echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} host_audio=${PASM_HOST_AUDIO} joy2_connected=${PASM_SMS_JOY2_CONNECTED} crop_left8=${PASM_SMS_CROP_LEFT8} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
+echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} host_audio=${PASM_HOST_AUDIO} direct_pcm=${PASM_SMS_DIRECT_PCM} joy2_connected=${PASM_SMS_JOY2_CONNECTED} crop_left8=${PASM_SMS_CROP_LEFT8} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
 echo "    cartridge_map=${CARTRIDGE_MAP}"
 echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
 echo "    cartridge_rom_runtime=${CARTRIDGE_ROM_RUNTIME}"
@@ -125,6 +128,7 @@ fi
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
+PASM_SMS_DIRECT_PCM="${PASM_SMS_DIRECT_PCM}" \
 PASM_SMS_JOY2_CONNECTED="${PASM_SMS_JOY2_CONNECTED}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \

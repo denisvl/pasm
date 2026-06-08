@@ -301,7 +301,7 @@ behavior:
       if (comp->apu_dmc_irq_pending != 0u) status |= 0x80u;
       comp->apu_frame_irq_pending = 0u;
       {
-          uint8_t cart_irq = (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "irq_pending", NULL, 0);
+          uint8_t cart_irq = (uint8_t)(cpu->comp_nes_cart0.irq_pending & 0x01u);
           if (comp->apu_dmc_irq_pending == 0u && cart_irq == 0u) {
               cpu->irq_pending = false;
               cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
@@ -447,7 +447,7 @@ behavior:
               break;
       }
       {
-          uint8_t cart_irq = (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "irq_pending", NULL, 0);
+          uint8_t cart_irq = (uint8_t)(cpu->comp_nes_cart0.irq_pending & 0x01u);
           if (comp->apu_frame_irq_pending == 0u && comp->apu_dmc_irq_pending == 0u && cart_irq == 0u) {
               cpu->irq_pending = false;
               cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
@@ -584,17 +584,19 @@ behavior:
               uint8_t p2_env = (comp->apu_p2_constant != 0u) ? comp->apu_p2_volume : comp->apu_p2_env_decay;
               uint8_t n_env = (comp->apu_noise_constant != 0u) ? comp->apu_noise_volume : comp->apu_noise_env_decay;
               uint16_t mixed;
+              uint16_t level;
               if (comp->apu_p1_enabled != 0u && comp->apu_p1_length > 0u && comp->apu_p1_timer_period >= 8u && duty_table[comp->apu_p1_duty & 0x03u][comp->apu_p1_seq_pos & 0x07u] != 0u) p1 = p1_env;
               if (comp->apu_p2_enabled != 0u && comp->apu_p2_length > 0u && comp->apu_p2_timer_period >= 8u && duty_table[comp->apu_p2_duty & 0x03u][comp->apu_p2_seq_pos & 0x07u] != 0u) p2 = p2_env;
               if (comp->apu_tri_enabled != 0u && comp->apu_tri_length > 0u && comp->apu_tri_linear_counter > 0u) tri = tri_table[comp->apu_tri_seq_pos & 0x1Fu];
               if (comp->apu_noise_enabled != 0u && comp->apu_noise_length > 0u && (comp->apu_noise_shift & 0x0001u) == 0u) noi = n_env;
-              /* Lightweight integer mix (SMS-style low-cost path): avoid LUT/double in hot loop. */
+              /* Keep the TV/host audio contract centered: 128 is silence. */
               mixed = (uint16_t)(p1 + p2);
               mixed += (uint16_t)((uint16_t)tri >> 1u);
               mixed += (uint16_t)((uint16_t)noi >> 1u);
               mixed += (uint16_t)((comp->apu_dmc_output & 0x7Fu) >> 2u);
-              if (mixed > 255u) mixed = 255u;
-              comp->apu_mix_accum += (uint64_t)mixed;
+              level = (uint16_t)(128u + (((uint32_t)mixed * 5u) / 3u));
+              if (level > 255u) level = 255u;
+              comp->apu_mix_accum += (uint64_t)level;
               comp->apu_mix_cycles += 1u;
           }
 
@@ -615,7 +617,7 @@ behavior:
       }
 
       {
-          uint8_t cart_irq = (uint8_t)cpu_component_dispatch_callback(cpu, "nes_cart_bridge", "irq_pending", NULL, 0);
+          uint8_t cart_irq = (uint8_t)(cpu->comp_nes_cart0.irq_pending & 0x01u);
           uint8_t irq_now = 0u;
           if (comp->apu_frame_irq_pending != 0u || comp->apu_dmc_irq_pending != 0u || cart_irq != 0u) irq_now = 1u;
           if (irq_now != 0u) {

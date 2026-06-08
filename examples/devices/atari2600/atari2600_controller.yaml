@@ -41,6 +41,15 @@ behavior:
     read_console: |
       __result = cpu_component_call(cpu, "controller_atari2600", "host_console", NULL, 0);
       return __result;
+    host_joy0: |
+      __result = cpu->comp_host_atari2600.joy1;
+      return __result;
+    host_joy1: |
+      __result = cpu->comp_host_atari2600.joy2;
+      return __result;
+    host_console: |
+      __result = cpu->comp_host_atari2600.console_state;
+      return __result;
   handler_bodies: {}
 
 coding:

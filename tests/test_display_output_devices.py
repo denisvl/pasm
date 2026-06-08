@@ -323,10 +323,31 @@ def test_common_display_runtime_aspect_state_matches_display_metadata():
         if not display:
             continue
         aspect = display["aspect_ratio"]
+        resolution = display["max_resolution"]
         states = {entry["name"]: entry for entry in device.get("state", [])}
 
         assert states["aspect_width"]["initial"] == str(aspect["width"]), path
         assert states["aspect_height"]["initial"] == str(aspect["height"]), path
+        assert states["display_width"]["initial"] == str(resolution["width"]), path
+        assert states["display_height"]["initial"] == str(resolution["height"]), path
+        assert states["display_inches"]["initial"] == str(display["inches"]), path
+
+
+def test_interactive_hosts_size_windows_from_display_metadata():
+    for path in (BASE_DIR / "examples" / "hosts").rglob("*_host_hal_interactive.yaml"):
+        if path.name == "keymapper_host_hal_interactive.yaml":
+            continue
+        host = yaml.safe_load(path.read_text(encoding="utf-8"))
+        init = host.get("behavior", {}).get("snippets", {}).get("init", "")
+        body = host.get("behavior", {}).get("handler_bodies", {}).get("video_frame", "")
+        if not init or not body:
+            continue
+
+        assert "cpu_host_hal_display_window_size(" in init, path
+        assert ".display_width" in init, path
+        assert ".display_height" in init, path
+        assert ".display_inches" in init, path
+        assert "cpu_host_hal_set_window_size(" not in body, path
 
 
 def test_speaker_and_beeper_are_only_physical_system_components():

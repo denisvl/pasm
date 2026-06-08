@@ -10,6 +10,9 @@ state:
   - name: audio_enabled
     type: uint8_t
     initial: "1"
+  - name: direct_pcm
+    type: uint8_t
+    initial: "0"
   - name: latched_channel
     type: uint8_t
     initial: "0"
@@ -98,6 +101,8 @@ interfaces:
   signals:
     - name: audio_level
       args: [u8, u64]
+    - name: pcm_sample_s16
+      args: [u16, u64]
 
 maps:
   ports:
@@ -114,8 +119,10 @@ behavior:
     init: |
       {
           const char *audio_env = getenv("PASM_SDL_AUDIO");
+          const char *direct_env = getenv("PASM_SMS_DIRECT_PCM");
 
           comp->audio_enabled = (audio_env == NULL || audio_env[0] != '0') ? 1u : 0u;
+          comp->direct_pcm = (direct_env != NULL && direct_env[0] != '0') ? 1u : 0u;
       }
 
       comp->latched_channel = 0u;
@@ -152,8 +159,10 @@ behavior:
     reset: |
       {
           const char *audio_env = getenv("PASM_SDL_AUDIO");
+          const char *direct_env = getenv("PASM_SMS_DIRECT_PCM");
 
           comp->audio_enabled = (audio_env == NULL || audio_env[0] != '0') ? 1u : 0u;
+          comp->direct_pcm = (direct_env != NULL && direct_env[0] != '0') ? 1u : 0u;
       }
 
       comp->latched_channel = 0u;
@@ -301,98 +310,72 @@ behavior:
 
       comp->psg_tick_accum += (uint64_t) inst->cycles;
 
-      while (comp->psg_tick_accum >= 16u) {
-          comp->psg_tick_accum -= 16u;
+      {
+          uint64_t psg_ticks = comp->psg_tick_accum >> 4u;
+          comp->psg_tick_accum &= 15u;
 
-          {
+          if (psg_ticks > 0u) {
               uint16_t t0 = (uint16_t) (comp->tone0 & 0x03FFu);
               uint16_t t1 = (uint16_t) (comp->tone1 & 0x03FFu);
               uint16_t t2 = (uint16_t) (comp->tone2 & 0x03FFu);
+              uint16_t noise_period = 16u;
 
               if (t0 <= 1u) {
                   comp->out0 = 1u;
                   comp->ctr0 = 1u;
               } else {
-                  if (comp->ctr0 == 0u) {
-                      comp->ctr0 = t0;
-                  }
-
-                  comp->ctr0 -= 1u;
-
-                  if (comp->ctr0 == 0u) {
+                  uint64_t remaining = psg_ticks;
+                  if (comp->ctr0 == 0u) comp->ctr0 = t0;
+                  while (remaining >= (uint64_t)comp->ctr0) {
+                      remaining -= (uint64_t)comp->ctr0;
                       comp->ctr0 = t0;
                       comp->out0 ^= 1u;
                   }
+                  comp->ctr0 = (uint16_t)((uint64_t)comp->ctr0 - remaining);
               }
 
               if (t1 <= 1u) {
                   comp->out1 = 1u;
                   comp->ctr1 = 1u;
               } else {
-                  if (comp->ctr1 == 0u) {
-                      comp->ctr1 = t1;
-                  }
-
-                  comp->ctr1 -= 1u;
-
-                  if (comp->ctr1 == 0u) {
+                  uint64_t remaining = psg_ticks;
+                  if (comp->ctr1 == 0u) comp->ctr1 = t1;
+                  while (remaining >= (uint64_t)comp->ctr1) {
+                      remaining -= (uint64_t)comp->ctr1;
                       comp->ctr1 = t1;
                       comp->out1 ^= 1u;
                   }
+                  comp->ctr1 = (uint16_t)((uint64_t)comp->ctr1 - remaining);
               }
 
               if (t2 <= 1u) {
                   comp->out2 = 1u;
                   comp->ctr2 = 1u;
               } else {
-                  if (comp->ctr2 == 0u) {
-                      comp->ctr2 = t2;
-                  }
-
-                  comp->ctr2 -= 1u;
-
-                  if (comp->ctr2 == 0u) {
+                  uint64_t remaining = psg_ticks;
+                  if (comp->ctr2 == 0u) comp->ctr2 = t2;
+                  while (remaining >= (uint64_t)comp->ctr2) {
+                      remaining -= (uint64_t)comp->ctr2;
                       comp->ctr2 = t2;
                       comp->out2 ^= 1u;
                   }
+                  comp->ctr2 = (uint16_t)((uint64_t)comp->ctr2 - remaining);
               }
 
+              switch (comp->noise_reg & 0x03u) {
+                  case 0u: noise_period = 16u; break;
+                  case 1u: noise_period = 32u; break;
+                  case 2u: noise_period = 64u; break;
+                  case 3u: noise_period = (uint16_t)(comp->tone2 & 0x03FFu); break;
+                  default: noise_period = 16u; break;
+              }
+              if (noise_period <= 1u) noise_period = 1u;
+              if (comp->noise_ctr == 0u) comp->noise_ctr = noise_period;
+
               {
-                  uint16_t noise_period = 16u;
-
-                  switch (comp->noise_reg & 0x03u) {
-                      case 0u:
-                          noise_period = 16u;
-                          break;
-
-                      case 1u:
-                          noise_period = 32u;
-                          break;
-
-                      case 2u:
-                          noise_period = 64u;
-                          break;
-
-                      case 3u:
-                          noise_period = (uint16_t) (comp->tone2 & 0x03FFu);
-                          break;
-
-                      default:
-                          noise_period = 16u;
-                          break;
-                  }
-
-                  if (noise_period <= 1u) {
-                      noise_period = 1u;
-                  }
-
-                  if (comp->noise_ctr == 0u) {
-                      comp->noise_ctr = noise_period;
-                  }
-
-                  comp->noise_ctr -= 1u;
-
-                  if (comp->noise_ctr == 0u) {
+                  uint64_t remaining = psg_ticks;
+                  while (remaining >= (uint64_t)comp->noise_ctr) {
+                      remaining -= (uint64_t)comp->noise_ctr;
                       comp->noise_ctr = noise_period;
                       comp->noise_phase ^= 1u;
 
@@ -416,6 +399,7 @@ behavior:
                           comp->noise_out = (uint8_t) (comp->lfsr & 0x0001u);
                       }
                   }
+                  comp->noise_ctr = (uint16_t)((uint64_t)comp->noise_ctr - remaining);
               }
           }
       }
@@ -472,7 +456,14 @@ behavior:
               comp->last_mix = (uint8_t) filtered;
           }
 
-          {
+          if (comp->direct_pcm != 0u) {
+              int32_t pcm = (((int32_t)comp->last_mix) - 128) * 96;
+              uint64_t pcm_args[2] = {
+                  (uint64_t)(uint16_t)(int16_t)pcm,
+                  cpu->total_cycles
+              };
+              cpu_component_emit_signal(cpu, "sms_psg0", "pcm_sample_s16", pcm_args, 2);
+          } else {
               uint64_t sig_args[2] = {
                   (uint64_t) comp->last_mix,
                   cpu->total_cycles
