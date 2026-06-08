@@ -349,11 +349,10 @@ behavior:
       \ if (cpu_host_hal_render_copy(renderer, texture, NULL, &dst) != 0) return;\n}\ncpu_host_hal_render_present(renderer);\n"
     audio_pcm: "if (\n    comp->audio_out_dev == 0u ||\n    comp->audio_out_ready == 0u ||\n    comp->audio_ring == NULL ||\n\
       \    comp->audio_ring_capacity == 0u ||\n    argc < 1\n) {\n    return;\n}\n{\n    uint8_t level = (uint8_t)(args[0]\
-      \ & 0xFFu);\n    int centered = ((int)level) - 128;\n    int32_t raw = (int32_t)(centered * 128);\n    /* Cheap anti-click\
-      \ smoothing: slew-limit + 1-pole LP in integer math. */\n    int32_t prev = comp->audio_hp_prev_out;\n    int32_t d\
-      \ = raw - prev;\n    if (d > 1024) raw = prev + 1024;\n    else if (d < -1024) raw = prev - 1024;\n    int32_t sample_i\
-      \ = prev + ((raw - prev) >> 2);\n    if (sample_i > 32767) sample_i = 32767;\n    if (sample_i < -32768) sample_i =\
-      \ -32768;\n    comp->audio_hp_prev_out = sample_i;\n    int16_t sample = (int16_t)sample_i;\n    if (comp->audio_ring_fill\
+      \ & 0xFFu);\n    int32_t raw = (((int32_t)level) - 128) << 8;\n    int32_t sample_i = raw - comp->audio_hp_prev_in\
+      \ + ((comp->audio_hp_prev_out * 32604) / 32768);\n    if (sample_i > 32767) sample_i = 32767;\n    if (sample_i < -32768)\
+      \ sample_i = -32768;\n    comp->audio_hp_prev_in = raw;\n    comp->audio_hp_prev_out = sample_i;\n    int16_t sample\
+      \ = (int16_t)sample_i;\n    if (comp->audio_ring_fill\
       \ >= comp->audio_ring_capacity) {\n        return;\n    }\n    comp->audio_ring[comp->audio_ring_write_idx] = sample;\n\
       \    comp->audio_ring_write_idx += 1u;\n    if (comp->audio_ring_write_idx >= comp->audio_ring_capacity) comp->audio_ring_write_idx\
       \ = 0u;\n    comp->audio_ring_fill += 1u;\n    comp->audio_samples += 1u;\n}\n"

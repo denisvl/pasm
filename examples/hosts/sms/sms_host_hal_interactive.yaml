@@ -146,6 +146,10 @@ interfaces:
     args:
     - u8
     - u64
+  - name: audio_pcm_s16
+    args:
+    - u16
+    - u64
   signals: []
 behavior:
   snippets:
@@ -425,6 +429,18 @@ behavior:
       \ 0u\n    || argc < 1\n) {\n    return;\n}\n\n{\n    uint8_t level = (uint8_t)\
       \ (args[0] & 0xFFu);\n    int centered = ((int) level) - 128;\n    int16_t sample\
       \ = (int16_t) (centered * 128);\n\n    if (comp->audio_ring_fill >= comp->audio_ring_capacity)\
+      \ {\n        comp->audio_ring_read_idx += 1u;\n\n        if (comp->audio_ring_read_idx\
+      \ >= comp->audio_ring_capacity) {\n            comp->audio_ring_read_idx = 0u;\n\
+      \        }\n\n        comp->audio_ring_fill -= 1u;\n    }\n\n    comp->audio_ring[comp->audio_ring_write_idx]\
+      \ = sample;\n    comp->audio_ring_write_idx += 1u;\n\n    if (comp->audio_ring_write_idx\
+      \ >= comp->audio_ring_capacity) {\n        comp->audio_ring_write_idx = 0u;\n\
+      \    }\n\n    comp->audio_ring_fill += 1u;\n    comp->audio_samples += 1u;\n\
+      \    comp->audio_level = sample;\n    comp->audio_last_cycle = (argc > 1) ?\
+      \ (uint64_t) args[1] : cpu->total_cycles;\n}\n"
+    audio_pcm_s16: "if (\n    comp->audio_out_dev == 0u\n    || comp->audio_out_ready\
+      \ == 0u\n    || comp->audio_ring == NULL\n    || comp->audio_ring_capacity ==\
+      \ 0u\n    || argc < 1\n) {\n    return;\n}\n\n{\n    int16_t sample = (int16_t)(uint16_t)(args[0]\
+      \ & 0xFFFFu);\n\n    if (comp->audio_ring_fill >= comp->audio_ring_capacity)\
       \ {\n        comp->audio_ring_read_idx += 1u;\n\n        if (comp->audio_ring_read_idx\
       \ >= comp->audio_ring_capacity) {\n            comp->audio_ring_read_idx = 0u;\n\
       \        }\n\n        comp->audio_ring_fill -= 1u;\n    }\n\n    comp->audio_ring[comp->audio_ring_write_idx]\
