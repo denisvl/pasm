@@ -265,6 +265,9 @@ class EmulatorGenerator:
         )
         (output_path / "Makefile").write_text(makefile_code)
 
+        logger.info("  - Generating open_vs_debug.bat...")
+        (output_path / "open_vs_debug.bat").write_text(self._generate_vs_debug_script())
+
         # Generate include/cpu_defs.h
         defs_code = self._generate_defs_header()
         (include_dir / "cpu_defs.h").write_text(defs_code)
@@ -494,6 +497,52 @@ int main(int argc, char *argv[]) {{
 #include "{self.cpu_name}.h"
 
 #endif /* CPU_DEFS_H */
+"""
+
+    def _generate_vs_debug_script(self) -> str:
+        """Generate a Windows helper that creates and opens a Visual Studio solution."""
+
+        return f"""@echo off
+setlocal
+
+set "ROOT=%~dp0"
+if "%ROOT:~-1%"=="\\" set "ROOT=%ROOT:~0,-1%"
+set "BUILD_DIR=%ROOT%\\build_vs"
+set "GENERATOR=Visual Studio 17 2022"
+set "PLATFORM=x64"
+
+set "EXTRA_CMAKE_ARGS="
+if defined VCPKG_TARGET_TRIPLET (
+  set "PASM_VCPKG_TRIPLET=%VCPKG_TARGET_TRIPLET%"
+) else (
+  set "PASM_VCPKG_TRIPLET=x64-windows"
+)
+set "EXTRA_CMAKE_ARGS=%EXTRA_CMAKE_ARGS% -DVCPKG_TARGET_TRIPLET=%PASM_VCPKG_TRIPLET% -DPASM_VCPKG_TRIPLET=%PASM_VCPKG_TRIPLET%"
+
+if defined VCPKG_ROOT (
+  if exist "%VCPKG_ROOT%\\scripts\\buildsystems\\vcpkg.cmake" (
+    set "EXTRA_CMAKE_ARGS=%EXTRA_CMAKE_ARGS% -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\\scripts\\buildsystems\\vcpkg.cmake"
+  )
+) else if exist "D:\\Development\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake" (
+  set "VCPKG_ROOT=D:\\Development\\vcpkg"
+  set "EXTRA_CMAKE_ARGS=%EXTRA_CMAKE_ARGS% -DCMAKE_TOOLCHAIN_FILE=D:\\Development\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
+) else if exist "C:\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake" (
+  set "VCPKG_ROOT=C:\\vcpkg"
+  set "EXTRA_CMAKE_ARGS=%EXTRA_CMAKE_ARGS% -DCMAKE_TOOLCHAIN_FILE=C:\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
+)
+
+echo Generating Visual Studio solution for {self.cpu_name}...
+cmake -S "%ROOT%" -B "%BUILD_DIR%" -G "%GENERATOR%" -A "%PLATFORM%" %EXTRA_CMAKE_ARGS%
+if errorlevel 1 exit /b %ERRORLEVEL%
+
+set "SLN=%BUILD_DIR%\\{self.cpu_prefix}_emulator.sln"
+if not exist "%SLN%" (
+  echo Expected solution was not generated: "%SLN%"
+  exit /b 1
+)
+
+start "" "%SLN%"
+exit /b 0
 """
 
     def _generate_debugger_link_manifest(self) -> Dict[str, Any]:

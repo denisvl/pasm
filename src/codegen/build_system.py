@@ -21,6 +21,10 @@ def _make_path(path: str) -> str:
     return path.replace("\\", "/")
 
 
+def _cmake_escape_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def _single_host_backend_target(isa_data: Dict[str, Any]) -> Optional[str]:
     target = str(isa_data.get("host_backend_target", "")).strip().lower()
     hosts = isa_data.get("hosts", []) or []
@@ -96,6 +100,8 @@ def generate_cmake(
     backend_target = _single_host_backend_target(isa_data)
     uses_sdl2_backend = backend_target == "sdl2"
     uses_glfw_backend = backend_target == "glfw"
+    interactive_host_backend = backend_target in {"sdl2", "glfw"}
+    vs_debugger_args = "--run" if interactive_host_backend else "--test basic"
 
     auto_dependency_setup = ""
     if uses_sdl2_backend:
@@ -291,6 +297,40 @@ endif()
             + "\n)\n"
         )
 
+    vs_debugger_setup = f"""
+if(WIN32)
+    if(NOT DEFINED PASM_VCPKG_TRIPLET OR PASM_VCPKG_TRIPLET STREQUAL "")
+        if(DEFINED ENV{{VCPKG_TARGET_TRIPLET}} AND NOT "$ENV{{VCPKG_TARGET_TRIPLET}}" STREQUAL "")
+            set(PASM_VCPKG_TRIPLET "$ENV{{VCPKG_TARGET_TRIPLET}}")
+        else()
+            set(PASM_VCPKG_TRIPLET "x64-windows")
+        endif()
+    endif()
+
+    set(PASM_VS_VCPKG_ROOT_HINT "")
+    if(DEFINED ENV{{VCPKG_ROOT}} AND NOT "$ENV{{VCPKG_ROOT}}" STREQUAL "")
+        set(PASM_VS_VCPKG_ROOT_HINT "$ENV{{VCPKG_ROOT}}")
+    elseif(EXISTS "D:/Development/vcpkg")
+        set(PASM_VS_VCPKG_ROOT_HINT "D:/Development/vcpkg")
+    elseif(EXISTS "C:/vcpkg")
+        set(PASM_VS_VCPKG_ROOT_HINT "C:/vcpkg")
+    endif()
+
+    set(PASM_VS_DEBUGGER_ENVIRONMENT "PATH=$ENV{{PATH}}")
+    if(NOT PASM_VS_VCPKG_ROOT_HINT STREQUAL "")
+        set(PASM_VS_DEBUGGER_ENVIRONMENT
+            "PATH=${{PASM_VS_VCPKG_ROOT_HINT}}/installed/${{PASM_VCPKG_TRIPLET}}/debug/bin\\;${{PASM_VS_VCPKG_ROOT_HINT}}/installed/${{PASM_VCPKG_TRIPLET}}/bin\\;$ENV{{PATH}}"
+        )
+    endif()
+
+    set_target_properties({project_name}_test PROPERTIES
+        VS_DEBUGGER_COMMAND_ARGUMENTS "{_cmake_escape_string(vs_debugger_args)}"
+        VS_DEBUGGER_WORKING_DIRECTORY "${{CMAKE_CURRENT_SOURCE_DIR}}"
+        VS_DEBUGGER_ENVIRONMENT "${{PASM_VS_DEBUGGER_ENVIRONMENT}}"
+    )
+endif()
+"""
+
     return template.format(
         project_name=project_name,
         cpu_name=cpu_name,
@@ -303,6 +343,7 @@ endif()
         extra_include_dirs=extra_include_dirs,
         extra_link_dirs=extra_link_dirs,
         extra_link_libs=extra_link_libs,
+        vs_debugger_setup=vs_debugger_setup,
     )
 
 
