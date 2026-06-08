@@ -51,6 +51,15 @@ state:
 - name: aspect_height
   type: uint32_t
   initial: '9'
+- name: display_width
+  type: uint32_t
+  initial: '1920'
+- name: display_height
+  type: uint32_t
+  initial: '1080'
+- name: display_inches
+  type: uint32_t
+  initial: '32'
 - name: left_level
   type: uint8_t
   initial: '128'
