@@ -364,6 +364,12 @@ state:
   - name: inpt5_latch
     type: uint8_t
     initial: "128"
+  - name: inpt4_latch_mode
+    type: uint8_t
+    initial: "0"
+  - name: inpt5_latch_mode
+    type: uint8_t
+    initial: "0"
   - name: inpt0_latch
     type: uint8_t
     initial: "128"
@@ -696,6 +702,8 @@ behavior:
       comp->riot_pa7_posedge = 0u;
       comp->inpt4_latch = 0x80u;
       comp->inpt5_latch = 0x80u;
+      comp->inpt4_latch_mode = 0u;
+      comp->inpt5_latch_mode = 0u;
       comp->inpt0_latch = 0x80u;
       comp->inpt1_latch = 0x80u;
       comp->inpt2_latch = 0x80u;
@@ -767,10 +775,22 @@ behavior:
               case 0x0Au: return comp->inpt2_latch;
               case 0x0Bu: return comp->inpt3_latch;
               case 0x0Cu: {
-                  return comp->inpt4_latch;
+                  const ComponentState_host_atari2600 *host = &cpu->comp_host_atari2600;
+                  uint8_t trig4 = (uint8_t)(((host->joy1 & 0x10u) != 0u) ? 0x00u : 0x80u);
+                  if (comp->inpt4_latch_mode != 0u) {
+                      comp->inpt4_latch = (uint8_t)(comp->inpt4_latch & trig4);
+                      return comp->inpt4_latch;
+                  }
+                  return trig4;
               }
               case 0x0Du: {
-                  return comp->inpt5_latch;
+                  const ComponentState_host_atari2600 *host = &cpu->comp_host_atari2600;
+                  uint8_t trig5 = (uint8_t)(((host->joy2 & 0x10u) != 0u) ? 0x00u : 0x80u);
+                  if (comp->inpt5_latch_mode != 0u) {
+                      comp->inpt5_latch = (uint8_t)(comp->inpt5_latch & trig5);
+                      return comp->inpt5_latch;
+                  }
+                  return trig5;
               }
               default:
                   return 0x00u;
@@ -1142,21 +1162,6 @@ behavior:
           }
       }
       {
-          /* Update trigger latches: when VBLANK bit 6 is set, inputs are transparent/reset. */
-          const ComponentState_host_atari2600 *host = &cpu->comp_host_atari2600;
-          uint8_t joy0 = host->joy1;
-          uint8_t joy1 = host->joy2;
-          uint8_t trig4 = (uint8_t)(((joy0 & 0x10u) != 0u) ? 0x00u : 0x80u);
-          uint8_t trig5 = (uint8_t)(((joy1 & 0x10u) != 0u) ? 0x00u : 0x80u);
-          if ((comp->vblank & 0x40u) != 0u) {
-              comp->inpt4_latch = trig4;
-              comp->inpt5_latch = trig5;
-          } else {
-              if (trig4 == 0x00u) comp->inpt4_latch = 0x00u;
-              if (trig5 == 0x00u) comp->inpt5_latch = 0x00u;
-          }
-      }
-      {
           /* Inline PA7 sampling to avoid a callback-dispatch hop in the hot loop. */
           ComponentState_atari2600_riot *riot = &cpu->comp_atari2600_riot;
           const ComponentState_host_atari2600 *host = &cpu->comp_host_atari2600;
@@ -1271,7 +1276,18 @@ behavior:
                           else if (reg == 0x1Du) { comp->enam0 = val; }
                           else if (reg == 0x1Eu) { comp->enam1 = val; }
                           else if (reg == 0x1Fu) { comp->enabl = val; }
-                          else if (reg == 0x01u) { comp->vblank = val; }
+                          else if (reg == 0x01u) {
+                              comp->vblank = val;
+                              if ((val & 0x40u) != 0u) {
+                                  comp->inpt4_latch_mode = 1u;
+                                  comp->inpt5_latch_mode = 1u;
+                              } else {
+                                  comp->inpt4_latch_mode = 0u;
+                                  comp->inpt5_latch_mode = 0u;
+                                  comp->inpt4_latch = 0x80u;
+                                  comp->inpt5_latch = 0x80u;
+                              }
+                          }
                           else if (reg == 0x20u) { comp->hmp0 = val; }
                           else if (reg == 0x21u) { comp->hmp1 = val; }
                           else if (reg == 0x22u) { comp->hmm0 = val; }

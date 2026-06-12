@@ -47,3 +47,14 @@ def test_atari2600_system_audio_rate_matches_tia_sample_clock():
         system = Path(rel).read_text(encoding="utf-8")
         assert "sample_rate: 31400" in system
         assert "sample_rate: 44100" not in system
+
+
+def test_atari2600_tia_fire_latch_mode_is_controlled_by_vblank_writes():
+    tia = Path("examples/ics/atari2600/atari2600_tia.yaml").read_text(encoding="utf-8")
+    assert "inpt4_latch_mode" in tia
+    assert "inpt5_latch_mode" in tia
+    assert "if (comp->inpt4_latch_mode != 0u)" in tia
+    assert "comp->inpt4_latch = (uint8_t)(comp->inpt4_latch & trig4);" in tia
+    assert "comp->inpt4_latch_mode = 0u;" in tia
+    assert "comp->inpt4_latch = 0x80u;" in tia
+    assert "Update trigger latches: when VBLANK bit 6 is set" not in tia
