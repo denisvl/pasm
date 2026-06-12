@@ -433,6 +433,42 @@ state:
   - name: aud_clock
     type: uint16_t
     initial: "0"
+  - name: aud_clock_enable0
+    type: uint8_t
+    initial: "0"
+  - name: aud_clock_enable1
+    type: uint8_t
+    initial: "0"
+  - name: aud_noise_feedback0
+    type: uint8_t
+    initial: "0"
+  - name: aud_noise_feedback1
+    type: uint8_t
+    initial: "0"
+  - name: aud_noise_bit4_0
+    type: uint8_t
+    initial: "0"
+  - name: aud_noise_bit4_1
+    type: uint8_t
+    initial: "0"
+  - name: aud_pulse_hold0
+    type: uint8_t
+    initial: "0"
+  - name: aud_pulse_hold1
+    type: uint8_t
+    initial: "0"
+  - name: aud_pulse0
+    type: uint8_t
+    initial: "0"
+  - name: aud_pulse1
+    type: uint8_t
+    initial: "0"
+  - name: aud_noise0
+    type: uint8_t
+    initial: "0"
+  - name: aud_noise1
+    type: uint8_t
+    initial: "0"
   - name: aud_sum0
     type: uint32_t
     initial: "0"
@@ -683,6 +719,18 @@ behavior:
       comp->aud_lfsr4_0 = 0x0Fu;
       comp->aud_lfsr4_1 = 0x0Fu;
       comp->aud_clock = 0u;
+      comp->aud_clock_enable0 = 0u;
+      comp->aud_clock_enable1 = 0u;
+      comp->aud_noise_feedback0 = 0u;
+      comp->aud_noise_feedback1 = 0u;
+      comp->aud_noise_bit4_0 = 0u;
+      comp->aud_noise_bit4_1 = 0u;
+      comp->aud_pulse_hold0 = 0u;
+      comp->aud_pulse_hold1 = 0u;
+      comp->aud_pulse0 = 0u;
+      comp->aud_pulse1 = 0u;
+      comp->aud_noise0 = 0u;
+      comp->aud_noise1 = 0u;
       comp->aud_sum0 = 0u;
       comp->aud_sum1 = 0u;
       comp->aud_sum_ct = 0u;
@@ -1594,109 +1642,171 @@ behavior:
                   }
               }
           }
-          /* Advance TIA audio model each color clock (mode-driven approximation). */
+          /* Advance TIA audio model: volume is accumulated every color clock,
+             divider phase 0 runs at clocks 9/81, and output phase 1 emits at 37/149. */
           {
-              uint16_t p0 = (uint16_t)(comp->audf0 & 0x1Fu) + 1u;
-              uint16_t p1 = (uint16_t)(comp->audf1 & 0x1Fu) + 1u;
+              uint8_t f0 = (uint8_t)(comp->audf0 & 0x1Fu);
+              uint8_t f1 = (uint8_t)(comp->audf1 & 0x1Fu);
               uint8_t c0 = (uint8_t)(comp->audc0 & 0x0Fu);
               uint8_t c1 = (uint8_t)(comp->audc1 & 0x0Fu);
+              uint8_t v0 = (uint8_t)(comp->audv0 & 0x0Fu);
+              uint8_t v1 = (uint8_t)(comp->audv1 & 0x0Fu);
+              uint8_t phase0_tick = (uint8_t)(comp->aud_clock == 9u || comp->aud_clock == 81u);
+              uint8_t audio_tick = (uint8_t)(comp->aud_clock == 37u || comp->aud_clock == 149u);
 
-              comp->aud_div0 = (uint16_t)(comp->aud_div0 + 1u);
-              if (comp->aud_div0 >= p0) {
-                  comp->aud_div0 = 0u;
-                  switch (c0) {
-                      case 0x00u:
-                      case 0x0Bu:
-                          comp->aud_out0 = (uint8_t)(comp->aud_out0 ^ 1u);
-                          break;
-                      case 0x0Cu:
-                      case 0x0Du:
-                          comp->aud_out0 = 0u;
-                          break;
-                      case 0x0Fu:
-                          comp->aud_out0 = 1u;
-                          break;
-                      default: {
-                          uint8_t bit0;
-                          if (c0 == 0x08u || c0 == 0x09u) {
-                              uint8_t fb4 = (uint8_t)(((comp->aud_lfsr4_0 >> 0) ^ (comp->aud_lfsr4_0 >> 1)) & 1u);
-                              comp->aud_lfsr4_0 = (uint8_t)(((comp->aud_lfsr4_0 >> 1) | (uint8_t)(fb4 << 3)) & 0x0Fu);
-                              bit0 = (uint8_t)(comp->aud_lfsr4_0 & 1u);
-                          } else {
-                              uint8_t fb = (uint8_t)(((comp->aud_lfsr0 >> 0) ^ (comp->aud_lfsr0 >> 2)) & 1u);
-                              comp->aud_lfsr0 = (uint8_t)(((comp->aud_lfsr0 >> 1) | (uint8_t)(fb << 4)) & 0x1Fu);
-                              bit0 = (uint8_t)(comp->aud_lfsr0 & 1u);
-                          }
-                          if (c0 == 0x04u || c0 == 0x05u || c0 == 0x08u || c0 == 0x09u) {
-                              comp->aud_out0 = bit0;
-                          } else if (c0 == 0x06u || c0 == 0x0Au) {
-                              comp->aud_out0 = (uint8_t)((comp->aud_out0 ^ 1u) & bit0);
-                          } else {
-                              comp->aud_out0 = bit0;
-                          }
-                          break;
+              comp->aud_sum0 += (uint32_t)((comp->aud_pulse0 & 0x01u) != 0u ? v0 : 0u);
+              comp->aud_sum1 += (uint32_t)((comp->aud_pulse1 & 0x01u) != 0u ? v1 : 0u);
+              comp->aud_sum_ct += 1u;
+
+              if (phase0_tick != 0u) {
+                  if (comp->aud_clock_enable0 != 0u) {
+                      comp->aud_noise_bit4_0 = (uint8_t)(comp->aud_noise0 & 0x01u);
+                      switch (c0 & 0x03u) {
+                          case 0x00u:
+                          case 0x01u:
+                              comp->aud_pulse_hold0 = 0u;
+                              break;
+                          case 0x02u:
+                              comp->aud_pulse_hold0 = (uint8_t)((comp->aud_noise0 & 0x1Eu) != 0x02u);
+                              break;
+                          default:
+                              comp->aud_pulse_hold0 = (uint8_t)(comp->aud_noise_bit4_0 == 0u);
+                              break;
                       }
+                      if ((c0 & 0x03u) == 0u) {
+                          comp->aud_noise_feedback0 = (uint8_t)(
+                              (((comp->aud_pulse0 ^ comp->aud_noise0) & 0x01u) != 0u) ||
+                              ((comp->aud_noise0 == 0u) && (comp->aud_pulse0 == 0x0Au)) ||
+                              ((c0 & 0x0Cu) == 0u)
+                          );
+                      } else {
+                          comp->aud_noise_feedback0 = (uint8_t)(
+                              ((((comp->aud_noise0 & 0x04u) != 0u) ? 1u : 0u) ^ (comp->aud_noise0 & 0x01u)) ||
+                              (comp->aud_noise0 == 0u)
+                          );
+                      }
+                  }
+                  comp->aud_clock_enable0 = (uint8_t)(comp->aud_div0 == f0);
+                  if (comp->aud_div0 == f0 || comp->aud_div0 == 0x1Fu) {
+                      comp->aud_div0 = 0u;
+                  } else {
+                      comp->aud_div0 = (uint16_t)(comp->aud_div0 + 1u);
+                  }
+
+                  if (comp->aud_clock_enable1 != 0u) {
+                      comp->aud_noise_bit4_1 = (uint8_t)(comp->aud_noise1 & 0x01u);
+                      switch (c1 & 0x03u) {
+                          case 0x00u:
+                          case 0x01u:
+                              comp->aud_pulse_hold1 = 0u;
+                              break;
+                          case 0x02u:
+                              comp->aud_pulse_hold1 = (uint8_t)((comp->aud_noise1 & 0x1Eu) != 0x02u);
+                              break;
+                          default:
+                              comp->aud_pulse_hold1 = (uint8_t)(comp->aud_noise_bit4_1 == 0u);
+                              break;
+                      }
+                      if ((c1 & 0x03u) == 0u) {
+                          comp->aud_noise_feedback1 = (uint8_t)(
+                              (((comp->aud_pulse1 ^ comp->aud_noise1) & 0x01u) != 0u) ||
+                              ((comp->aud_noise1 == 0u) && (comp->aud_pulse1 == 0x0Au)) ||
+                              ((c1 & 0x0Cu) == 0u)
+                          );
+                      } else {
+                          comp->aud_noise_feedback1 = (uint8_t)(
+                              ((((comp->aud_noise1 & 0x04u) != 0u) ? 1u : 0u) ^ (comp->aud_noise1 & 0x01u)) ||
+                              (comp->aud_noise1 == 0u)
+                          );
+                      }
+                  }
+                  comp->aud_clock_enable1 = (uint8_t)(comp->aud_div1 == f1);
+                  if (comp->aud_div1 == f1 || comp->aud_div1 == 0x1Fu) {
+                      comp->aud_div1 = 0u;
+                  } else {
+                      comp->aud_div1 = (uint16_t)(comp->aud_div1 + 1u);
                   }
               }
 
-              comp->aud_div1 = (uint16_t)(comp->aud_div1 + 1u);
-              if (comp->aud_div1 >= p1) {
-                  comp->aud_div1 = 0u;
-                  switch (c1) {
-                      case 0x00u:
-                      case 0x0Bu:
-                          comp->aud_out1 = (uint8_t)(comp->aud_out1 ^ 1u);
-                          break;
-                      case 0x0Cu:
-                      case 0x0Du:
-                          comp->aud_out1 = 0u;
-                          break;
-                      case 0x0Fu:
-                          comp->aud_out1 = 1u;
-                          break;
-                      default: {
-                          uint8_t bit1;
-                          if (c1 == 0x08u || c1 == 0x09u) {
-                              uint8_t fb4 = (uint8_t)(((comp->aud_lfsr4_1 >> 0) ^ (comp->aud_lfsr4_1 >> 1)) & 1u);
-                              comp->aud_lfsr4_1 = (uint8_t)(((comp->aud_lfsr4_1 >> 1) | (uint8_t)(fb4 << 3)) & 0x0Fu);
-                              bit1 = (uint8_t)(comp->aud_lfsr4_1 & 1u);
-                          } else {
-                              uint8_t fb = (uint8_t)(((comp->aud_lfsr1 >> 0) ^ (comp->aud_lfsr1 >> 2)) & 1u);
-                              comp->aud_lfsr1 = (uint8_t)(((comp->aud_lfsr1 >> 1) | (uint8_t)(fb << 4)) & 0x1Fu);
-                              bit1 = (uint8_t)(comp->aud_lfsr1 & 1u);
-                          }
-                          if (c1 == 0x04u || c1 == 0x05u || c1 == 0x08u || c1 == 0x09u) {
-                              comp->aud_out1 = bit1;
-                          } else if (c1 == 0x06u || c1 == 0x0Au) {
-                              comp->aud_out1 = (uint8_t)((comp->aud_out1 ^ 1u) & bit1);
-                          } else {
-                              comp->aud_out1 = bit1;
-                          }
-                          break;
+              if (audio_tick != 0u) {
+                  if (comp->aud_clock_enable0 != 0u) {
+                      uint8_t pulse_feedback0 = 0u;
+                      switch (c0 >> 2) {
+                          case 0x00u:
+                              pulse_feedback0 = (uint8_t)(
+                                  (((((comp->aud_pulse0 & 0x02u) != 0u) ? 1u : 0u) ^ (comp->aud_pulse0 & 0x01u)) != 0u) &&
+                                  (comp->aud_pulse0 != 0x0Au) &&
+                                  ((c0 & 0x03u) != 0u)
+                              );
+                              break;
+                          case 0x01u:
+                              pulse_feedback0 = (uint8_t)((comp->aud_pulse0 & 0x08u) == 0u);
+                              break;
+                          case 0x02u:
+                              pulse_feedback0 = (uint8_t)(comp->aud_noise_bit4_0 == 0u);
+                              break;
+                          default:
+                              pulse_feedback0 = (uint8_t)(((comp->aud_pulse0 & 0x02u) == 0u) && ((comp->aud_pulse0 & 0x0Eu) != 0u));
+                              break;
+                      }
+                      comp->aud_noise0 = (uint8_t)(comp->aud_noise0 >> 1);
+                      if (comp->aud_noise_feedback0 != 0u) comp->aud_noise0 = (uint8_t)(comp->aud_noise0 | 0x10u);
+                      if (comp->aud_pulse_hold0 == 0u) {
+                          comp->aud_pulse0 = (uint8_t)(~(comp->aud_pulse0 >> 1) & 0x07u);
+                          if (pulse_feedback0 != 0u) comp->aud_pulse0 = (uint8_t)(comp->aud_pulse0 | 0x08u);
                       }
                   }
-              }
 
-              {
-                  uint8_t v0 = (uint8_t)(comp->audv0 & 0x0Fu);
-                  uint8_t v1 = (uint8_t)(comp->audv1 & 0x0Fu);
-                  comp->aud_sum0 += (uint32_t)(comp->aud_out0 != 0u ? v0 : 0u);
-                  comp->aud_sum1 += (uint32_t)(comp->aud_out1 != 0u ? v1 : 0u);
-                  comp->aud_sum_ct += 1u;
-                  if (comp->aud_clock == 37u || comp->aud_clock == 149u) {
-                      if (comp->aud_sum_ct != 0u) {
-                        uint32_t avg0 = comp->aud_sum0 / comp->aud_sum_ct;
-                        uint32_t avg1 = comp->aud_sum1 / comp->aud_sum_ct;
-                        uint32_t mix = avg0 + avg1;
-                        comp->audio_level = (uint8_t)((mix * 255u) / 30u);
-                        {
-                            uint64_t sig_args[2] = { (uint64_t)comp->audio_level, cpu->total_cycles };
-                            cpu_component_emit_signal(cpu, "atari2600_tia", "audio_pcm", sig_args, 2);
-                          }
+                  if (comp->aud_clock_enable1 != 0u) {
+                      uint8_t pulse_feedback1 = 0u;
+                      switch (c1 >> 2) {
+                          case 0x00u:
+                              pulse_feedback1 = (uint8_t)(
+                                  (((((comp->aud_pulse1 & 0x02u) != 0u) ? 1u : 0u) ^ (comp->aud_pulse1 & 0x01u)) != 0u) &&
+                                  (comp->aud_pulse1 != 0x0Au) &&
+                                  ((c1 & 0x03u) != 0u)
+                              );
+                              break;
+                          case 0x01u:
+                              pulse_feedback1 = (uint8_t)((comp->aud_pulse1 & 0x08u) == 0u);
+                              break;
+                          case 0x02u:
+                              pulse_feedback1 = (uint8_t)(comp->aud_noise_bit4_1 == 0u);
+                              break;
+                          default:
+                              pulse_feedback1 = (uint8_t)(((comp->aud_pulse1 & 0x02u) == 0u) && ((comp->aud_pulse1 & 0x0Eu) != 0u));
+                              break;
+                      }
+                      comp->aud_noise1 = (uint8_t)(comp->aud_noise1 >> 1);
+                      if (comp->aud_noise_feedback1 != 0u) comp->aud_noise1 = (uint8_t)(comp->aud_noise1 | 0x10u);
+                      if (comp->aud_pulse_hold1 == 0u) {
+                          comp->aud_pulse1 = (uint8_t)(~(comp->aud_pulse1 >> 1) & 0x07u);
+                          if (pulse_feedback1 != 0u) comp->aud_pulse1 = (uint8_t)(comp->aud_pulse1 | 0x08u);
+                      }
+                  }
+
+                  {
+                      uint32_t avg0 = (comp->aud_sum_ct != 0u) ? (comp->aud_sum0 / comp->aud_sum_ct) : 0u;
+                      uint32_t avg1 = (comp->aud_sum_ct != 0u) ? (comp->aud_sum1 / comp->aud_sum_ct) : 0u;
+                      uint32_t volume_sum = (uint32_t)v0 + (uint32_t)v1;
+                      if (volume_sum == 0u) {
+                          comp->audio_level = 128u;
+                      } else {
+                          int32_t signed_mix = ((int32_t)avg0 * 2) - (int32_t)v0;
+                          signed_mix += ((int32_t)avg1 * 2) - (int32_t)v1;
+                          signed_mix = (signed_mix * 127) / 30;
+                          signed_mix += 128;
+                          if (signed_mix < 0) signed_mix = 0;
+                          if (signed_mix > 255) signed_mix = 255;
+                          comp->audio_level = (uint8_t)signed_mix;
                       }
                       comp->aud_sum0 = 0u;
                       comp->aud_sum1 = 0u;
                       comp->aud_sum_ct = 0u;
+                  }
+                  {
+                      uint64_t sig_args[2] = { (uint64_t)comp->audio_level, cpu->total_cycles };
+                      cpu_component_emit_signal(cpu, "atari2600_tia", "audio_pcm", sig_args, 2);
                   }
               }
               comp->aud_clock = (uint16_t)(comp->aud_clock + 1u);
