@@ -310,9 +310,6 @@ state:
   - name: bl_moving
     type: uint8_t
     initial: "0"
-  - name: hmove_blank
-    type: uint8_t
-    initial: "0"
   - name: wsync_extra_clocks
     type: uint32_t
     initial: "0"
@@ -676,7 +673,6 @@ behavior:
       comp->m0_moving = 0u;
       comp->m1_moving = 0u;
       comp->bl_moving = 0u;
-      comp->hmove_blank = 0u;
       comp->wsync_extra_clocks = 0u;
       comp->wsync_extra_cycles = 0u;
       comp->wsync_overshoot_clocks = 0u;
@@ -878,10 +874,7 @@ behavior:
               case 0x0Eu: TIA_ENQUEUE(0x0Eu, value, 2u); return; /* PF1 */
               case 0x0Fu: TIA_ENQUEUE(0x0Fu, value, 2u); return; /* PF2 */
               case 0x10u: {
-                  /* RESPx strobes are observed by the TIA a little later than the
-                     CPU-side memory hook sees them. Bias by one CPU cycle (3 color
-                     clocks) so coarse positioning lines up with the render pipeline. */
-                  uint32_t cc = (comp->color_clock + 3u) % 228u;
+                  uint32_t cc = comp->color_clock;
                   uint8_t in_blank = (uint8_t)(cc < ((comp->extended_hblank != 0u) ? 76u : 68u));
                   uint8_t resx = (in_blank != 0u) ? ((cc >= 73u) ? 158u : 159u) : 157u;
                   comp->p0_counter = resx;
@@ -897,7 +890,7 @@ behavior:
                   return;
               }
               case 0x11u: {
-                  uint32_t cc = (comp->color_clock + 3u) % 228u;
+                  uint32_t cc = comp->color_clock;
                   uint8_t in_blank = (uint8_t)(cc < ((comp->extended_hblank != 0u) ? 76u : 68u));
                   uint8_t resx = (in_blank != 0u) ? ((cc >= 73u) ? 158u : 159u) : 157u;
                   comp->p1_counter = resx;
@@ -1320,7 +1313,14 @@ behavior:
 
           if (comp->hmove_pending != 0u) {
               comp->hmove_pending = 0u;
-              comp->hmove_blank = 8u;
+              if (comp->extended_hblank == 0u && comp->frame_started != 0u && ((comp->vblank & 0x02u) == 0u) && cc < 68u) {
+                  uint32_t y = comp->visible_y;
+                  if (y < 192u) {
+                      for (uint32_t i = 0u; i < 8u; ++i) {
+                          framebuf[y * 160u + i] = 0xFF000000u;
+                      }
+                  }
+              }
               comp->extended_hblank = 1u;
               comp->hmove_in_progress = 1u;
               comp->hmove_clock = 0u;
@@ -1348,9 +1348,28 @@ behavior:
                   if (mc == hm_p0) comp->p0_moving = 0u;
                   else {
                       if (comp->hstate == 0u) {
-                          /* During HBLANK HMOVE, adjust position counter only.
-                             Keep player render/sample phase updates in the
-                             normal per-color-clock render path. */
+                          uint8_t p0_live_div_hm = ((comp->nusiz0 & 0x07u) == 0x05u) ? 2u : (((comp->nusiz0 & 0x07u) == 0x07u) ? 4u : 1u);
+                          uint8_t p0_div_hm = (comp->p0_is_rendering != 0u) ? comp->p0_render_div : p0_live_div_hm;
+                          if (p0_div_hm == 0u) p0_div_hm = 1u;
+                          {
+                              uint8_t p0_decode_hm = player_decodes[(uint32_t)(comp->nusiz0 & 0x07u)][comp->p0_counter];
+                              if (p0_decode_hm != 0u) {
+                                  comp->p0_is_rendering = 1u;
+                                  comp->p0_render_counter = -5;
+                                  comp->p0_sample_counter = 0u;
+                                  comp->p0_render_div = p0_live_div_hm;
+                              } else if (comp->p0_is_rendering != 0u) {
+                                  comp->p0_render_counter += 1;
+                                  if (p0_div_hm == 1u) {
+                                      if (comp->p0_render_counter > 0) comp->p0_sample_counter = (uint8_t)(comp->p0_sample_counter + 1u);
+                                  } else {
+                                      if (comp->p0_render_counter > 1 && (((comp->p0_render_counter - 1) % (int)p0_div_hm) == 0)) {
+                                          comp->p0_sample_counter = (uint8_t)(comp->p0_sample_counter + 1u);
+                                      }
+                                  }
+                                  if (comp->p0_sample_counter > 7u) comp->p0_is_rendering = 0u;
+                              }
+                          }
                           comp->p0_counter = (uint8_t)(comp->p0_counter + 1u);
                           if (comp->p0_counter >= 160u) comp->p0_counter = 0u;
                       }
@@ -1361,9 +1380,28 @@ behavior:
                   if (mc == hm_p1) comp->p1_moving = 0u;
                   else {
                       if (comp->hstate == 0u) {
-                          /* During HBLANK HMOVE, adjust position counter only.
-                             Keep player render/sample phase updates in the
-                             normal per-color-clock render path. */
+                          uint8_t p1_live_div_hm = ((comp->nusiz1 & 0x07u) == 0x05u) ? 2u : (((comp->nusiz1 & 0x07u) == 0x07u) ? 4u : 1u);
+                          uint8_t p1_div_hm = (comp->p1_is_rendering != 0u) ? comp->p1_render_div : p1_live_div_hm;
+                          if (p1_div_hm == 0u) p1_div_hm = 1u;
+                          {
+                              uint8_t p1_decode_hm = player_decodes[(uint32_t)(comp->nusiz1 & 0x07u)][comp->p1_counter];
+                              if (p1_decode_hm != 0u) {
+                                  comp->p1_is_rendering = 1u;
+                                  comp->p1_render_counter = -5;
+                                  comp->p1_sample_counter = 0u;
+                                  comp->p1_render_div = p1_live_div_hm;
+                              } else if (comp->p1_is_rendering != 0u) {
+                                  comp->p1_render_counter += 1;
+                                  if (p1_div_hm == 1u) {
+                                      if (comp->p1_render_counter > 0) comp->p1_sample_counter = (uint8_t)(comp->p1_sample_counter + 1u);
+                                  } else {
+                                      if (comp->p1_render_counter > 1 && (((comp->p1_render_counter - 1) % (int)p1_div_hm) == 0)) {
+                                          comp->p1_sample_counter = (uint8_t)(comp->p1_sample_counter + 1u);
+                                      }
+                                  }
+                                  if (comp->p1_sample_counter > 7u) comp->p1_is_rendering = 0u;
+                              }
+                          }
                           comp->p1_counter = (uint8_t)(comp->p1_counter + 1u);
                           if (comp->p1_counter >= 160u) comp->p1_counter = 0u;
                       }
@@ -1647,9 +1685,6 @@ behavior:
                           if (hit_m0 != 0u && hit_m1 != 0u) comp->cxppmm |= 0x40u;
                       }
 
-                      if (comp->hmove_blank != 0u && x < (uint32_t)comp->hmove_blank) {
-                          color = 0x00u;
-                      }
                       if (y < 192u) {
                           uint8_t idx = (uint8_t)(color & 0xFEu);
                           uint32_t rgb = tia_ntsc_palette[(uint32_t)(idx >> 1)];
@@ -1873,7 +1908,6 @@ behavior:
               comp->m0_active = 0u;
               comp->m1_active = 0u;
               comp->bl_active = 0u;
-              if (comp->hmove_blank != 0u) comp->hmove_blank = 0u;
               comp->extended_hblank = 0u;
               {
                   /* Do not force frame boundaries by scanline budget here.

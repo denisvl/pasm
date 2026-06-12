@@ -58,3 +58,27 @@ def test_atari2600_tia_fire_latch_mode_is_controlled_by_vblank_writes():
     assert "comp->inpt4_latch_mode = 0u;" in tia
     assert "comp->inpt4_latch = 0x80u;" in tia
     assert "Update trigger latches: when VBLANK bit 6 is set" not in tia
+
+
+def test_atari2600_hmove_hblank_updates_player_render_state():
+    tia = Path("examples/ics/atari2600/atari2600_tia.yaml").read_text(encoding="utf-8")
+    assert "uint8_t p0_decode_hm = player_decodes" in tia
+    assert "uint8_t p1_decode_hm = player_decodes" in tia
+    assert "comp->p0_render_counter = -5;" in tia
+    assert "comp->p1_render_counter = -5;" in tia
+    assert "During HBLANK HMOVE, adjust position counter only" not in tia
+
+
+def test_atari2600_hmove_comb_is_cleared_once_when_hmove_starts():
+    tia = Path("examples/ics/atari2600/atari2600_tia.yaml").read_text(encoding="utf-8")
+    assert "if (comp->extended_hblank == 0u && comp->frame_started != 0u && ((comp->vblank & 0x02u) == 0u) && cc < 68u)" in tia
+    assert "for (uint32_t i = 0u; i < 8u; ++i)" in tia
+    assert "framebuf[y * 160u + i] = 0xFF000000u;" in tia
+    assert "x < (uint32_t)comp->hmove_blank" not in tia
+
+
+def test_atari2600_player_resp_uses_current_tia_clock():
+    tia = Path("examples/ics/atari2600/atari2600_tia.yaml").read_text(encoding="utf-8")
+    assert "case 0x10u: {\n                  uint32_t cc = comp->color_clock;" in tia
+    assert "case 0x11u: {\n                  uint32_t cc = comp->color_clock;" in tia
+    assert "CPU-side memory hook sees them" not in tia
