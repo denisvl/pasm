@@ -208,6 +208,59 @@ def test_cmake_emits_linkable_emulator_library_target():
     assert "src/system_device_glue.c" in cmake
 
 
+def test_cmake_emits_visual_studio_debugger_properties_for_cli_target():
+    isa = _base_isa("VsDebug8")
+    cmake = generate_cmake(isa, "VsDebug8")
+
+    assert "if(WIN32)" in cmake
+    assert "set_target_properties(vsdebug8_test PROPERTIES" in cmake
+    assert 'VS_DEBUGGER_COMMAND_ARGUMENTS "--test basic"' in cmake
+    assert 'VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"' in cmake
+    assert 'VS_DEBUGGER_ENVIRONMENT "${PASM_VS_DEBUGGER_ENVIRONMENT}"' in cmake
+    assert "PASM_VS_VCPKG_ROOT_HINT" in cmake
+    assert "/installed/${PASM_VCPKG_TRIPLET}/debug/bin" in cmake
+
+
+def test_cmake_uses_run_arguments_for_interactive_visual_studio_debugging():
+    isa = _base_isa("VsInteractive8")
+    isa["hosts"] = [
+        {
+            "metadata": {"id": "host0", "type": "host_adapter", "model": "test_host_hal"},
+            "backend": {"target": "sdl2"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {
+                "headers": [],
+                "include_paths": [],
+                "linked_libraries": [],
+                "library_paths": [],
+            },
+        }
+    ]
+
+    cmake = generate_cmake(isa, "VsInteractive8")
+
+    assert 'VS_DEBUGGER_COMMAND_ARGUMENTS "--run"' in cmake
+
+
+def test_generator_emits_visual_studio_debug_helper_script(tmp_path):
+    isa = _base_isa("VsScript8")
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "vs_script", isa)
+    outdir = tmp_path / "vs_script_out"
+
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    script = (outdir / "open_vs_debug.bat").read_text(encoding="utf-8")
+    assert 'set "GENERATOR=Visual Studio 17 2022"' in script
+    assert 'set "PLATFORM=x64"' in script
+    assert 'cmake -S "%ROOT%" -B "%BUILD_DIR%" -G "%GENERATOR%" -A "%PLATFORM%"' in script
+    assert "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\\scripts\\buildsystems\\vcpkg.cmake" in script
+    assert "-DVCPKG_TARGET_TRIPLET=%PASM_VCPKG_TRIPLET%" in script
+    assert 'set "SLN=%BUILD_DIR%\\vsscript8_emulator.sln"' in script
+    assert 'start "" "%SLN%"' in script
+
+
 def test_makefile_emits_linkable_emulator_library_target():
     isa = _base_isa("BuildLib8")
     makefile = generate_makefile(isa, "BuildLib8")

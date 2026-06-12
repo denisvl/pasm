@@ -568,6 +568,7 @@ target_include_directories({project_name}_test PRIVATE include src)
 {extra_include_dirs}
 {extra_link_dirs}
 {extra_link_libs}
+{vs_debugger_setup}
 
 # Enable testing
 enable_testing()
