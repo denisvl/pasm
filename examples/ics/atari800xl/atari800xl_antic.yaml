@@ -73,6 +73,69 @@ state:
   - name: last_frame_cycle
     type: uint64_t
     initial: "0"
+  - name: render_colpf0_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_colpf0_next_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_colpf1_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_colpf1_next_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_colpf2_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_colpf2_next_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_colpf3_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_colpf3_next_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_colbk_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_colbk_next_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_prior_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_prior_next_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_chactl_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_chactl_next_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_chbase_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_chbase_next_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_pmbase_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_pmbase_next_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_gtia_regs_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_gtia_regs_next_by_line
+    type: uint8_t *
+    initial: "NULL"
+  - name: render_next_valid
+    type: uint8_t
+    initial: "0u"
   - name: random_lfsr
     type: uint32_t
     initial: "0xACE1u"
@@ -232,6 +295,9 @@ interfaces:
     - name: cart_read
       args: [u16]
       returns: u8
+    - name: cart_maps_low_window
+      args: []
+      returns: u8
     - name: request_irq
       args: []
       returns: u8
@@ -279,6 +345,66 @@ behavior:
       if (comp->ram_under_selftest == NULL) {
           comp->ram_under_selftest = (uint8_t *)calloc(0x0800u, sizeof(uint8_t));
       }
+      if (comp->render_colpf0_by_line == NULL) {
+          comp->render_colpf0_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_colpf0_next_by_line == NULL) {
+          comp->render_colpf0_next_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_colpf1_by_line == NULL) {
+          comp->render_colpf1_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_colpf1_next_by_line == NULL) {
+          comp->render_colpf1_next_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_colpf2_by_line == NULL) {
+          comp->render_colpf2_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_colpf2_next_by_line == NULL) {
+          comp->render_colpf2_next_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_colpf3_by_line == NULL) {
+          comp->render_colpf3_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_colpf3_next_by_line == NULL) {
+          comp->render_colpf3_next_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_colbk_by_line == NULL) {
+          comp->render_colbk_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_colbk_next_by_line == NULL) {
+          comp->render_colbk_next_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_prior_by_line == NULL) {
+          comp->render_prior_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_prior_next_by_line == NULL) {
+          comp->render_prior_next_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_chactl_by_line == NULL) {
+          comp->render_chactl_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_chactl_next_by_line == NULL) {
+          comp->render_chactl_next_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_chbase_by_line == NULL) {
+          comp->render_chbase_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_chbase_next_by_line == NULL) {
+          comp->render_chbase_next_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_pmbase_by_line == NULL) {
+          comp->render_pmbase_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_pmbase_next_by_line == NULL) {
+          comp->render_pmbase_next_by_line = (uint8_t *)calloc(262u, sizeof(uint8_t));
+      }
+      if (comp->render_gtia_regs_by_line == NULL) {
+          comp->render_gtia_regs_by_line = (uint8_t *)calloc(19u * 262u, sizeof(uint8_t));
+      }
+      if (comp->render_gtia_regs_next_by_line == NULL) {
+          comp->render_gtia_regs_next_by_line = (uint8_t *)calloc(19u * 262u, sizeof(uint8_t));
+      }
     reset: |
       comp->pia_ora = 0xFFu;
       comp->pia_orb = 0xFFu;
@@ -302,6 +428,27 @@ behavior:
       comp->antic_chbase = 0u;
       comp->frame_counter = 0u;
       comp->last_frame_cycle = 0u;
+      if (comp->render_colpf0_by_line != NULL) memset(comp->render_colpf0_by_line, 0x44, 262u);
+      if (comp->render_colpf0_next_by_line != NULL) memset(comp->render_colpf0_next_by_line, 0x44, 262u);
+      if (comp->render_colpf1_by_line != NULL) memset(comp->render_colpf1_by_line, 0x88, 262u);
+      if (comp->render_colpf1_next_by_line != NULL) memset(comp->render_colpf1_next_by_line, 0x88, 262u);
+      if (comp->render_colpf2_by_line != NULL) memset(comp->render_colpf2_by_line, 0xCC, 262u);
+      if (comp->render_colpf2_next_by_line != NULL) memset(comp->render_colpf2_next_by_line, 0xCC, 262u);
+      if (comp->render_colpf3_by_line != NULL) memset(comp->render_colpf3_by_line, 0xAA, 262u);
+      if (comp->render_colpf3_next_by_line != NULL) memset(comp->render_colpf3_next_by_line, 0xAA, 262u);
+      if (comp->render_colbk_by_line != NULL) memset(comp->render_colbk_by_line, 0x00, 262u);
+      if (comp->render_colbk_next_by_line != NULL) memset(comp->render_colbk_next_by_line, 0x00, 262u);
+      if (comp->render_prior_by_line != NULL) memset(comp->render_prior_by_line, 0x00, 262u);
+      if (comp->render_prior_next_by_line != NULL) memset(comp->render_prior_next_by_line, 0x00, 262u);
+      if (comp->render_chactl_by_line != NULL) memset(comp->render_chactl_by_line, 0x00, 262u);
+      if (comp->render_chactl_next_by_line != NULL) memset(comp->render_chactl_next_by_line, 0x00, 262u);
+      if (comp->render_chbase_by_line != NULL) memset(comp->render_chbase_by_line, 0xE0, 262u);
+      if (comp->render_chbase_next_by_line != NULL) memset(comp->render_chbase_next_by_line, 0xE0, 262u);
+      if (comp->render_pmbase_by_line != NULL) memset(comp->render_pmbase_by_line, 0x00, 262u);
+      if (comp->render_pmbase_next_by_line != NULL) memset(comp->render_pmbase_next_by_line, 0x00, 262u);
+      if (comp->render_gtia_regs_by_line != NULL) memset(comp->render_gtia_regs_by_line, 0x00, 19u * 262u);
+      if (comp->render_gtia_regs_next_by_line != NULL) memset(comp->render_gtia_regs_next_by_line, 0x00, 19u * 262u);
+      comp->render_next_valid = 0u;
       comp->random_lfsr = 0xACE1u;
       comp->pokey_audf1 = 0u;
       comp->pokey_audc1 = 0u;
@@ -374,15 +521,15 @@ behavior:
           { uint64_t wa[2] = { 0xD302u, (uint64_t)comp->pia_cra }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
           { uint64_t wa[2] = { 0xD303u, (uint64_t)comp->pia_crb }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
       }
-      if (cpu->memory_size > 0xD407u) {
+      if (cpu->memory_size > 0xD409u) {
           { uint64_t wa[2] = { 0xD400u, (uint64_t)comp->antic_dmactl }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
           { uint64_t wa[2] = { 0xD401u, (uint64_t)comp->antic_chactl }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
           { uint64_t wa[2] = { 0xD402u, (uint64_t)comp->antic_dlistl }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
           { uint64_t wa[2] = { 0xD403u, (uint64_t)comp->antic_dlisth }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
           { uint64_t wa[2] = { 0xD404u, (uint64_t)comp->antic_hscrol }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
           { uint64_t wa[2] = { 0xD405u, (uint64_t)comp->antic_vscrol }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
-          { uint64_t wa[2] = { 0xD406u, (uint64_t)comp->antic_pmbase }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
-          { uint64_t wa[2] = { 0xD407u, (uint64_t)comp->antic_chbase }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
+          { uint64_t wa[2] = { 0xD407u, (uint64_t)comp->antic_pmbase }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
+          { uint64_t wa[2] = { 0xD409u, (uint64_t)comp->antic_chbase }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
       }
     destroy: |
       if (comp->ram_under_basic != NULL) {
@@ -405,6 +552,86 @@ behavior:
           free(comp->ram_under_selftest);
           comp->ram_under_selftest = NULL;
       }
+      if (comp->render_colpf0_by_line != NULL) {
+          free(comp->render_colpf0_by_line);
+          comp->render_colpf0_by_line = NULL;
+      }
+      if (comp->render_colpf0_next_by_line != NULL) {
+          free(comp->render_colpf0_next_by_line);
+          comp->render_colpf0_next_by_line = NULL;
+      }
+      if (comp->render_colpf1_by_line != NULL) {
+          free(comp->render_colpf1_by_line);
+          comp->render_colpf1_by_line = NULL;
+      }
+      if (comp->render_colpf1_next_by_line != NULL) {
+          free(comp->render_colpf1_next_by_line);
+          comp->render_colpf1_next_by_line = NULL;
+      }
+      if (comp->render_colpf2_by_line != NULL) {
+          free(comp->render_colpf2_by_line);
+          comp->render_colpf2_by_line = NULL;
+      }
+      if (comp->render_colpf2_next_by_line != NULL) {
+          free(comp->render_colpf2_next_by_line);
+          comp->render_colpf2_next_by_line = NULL;
+      }
+      if (comp->render_colpf3_by_line != NULL) {
+          free(comp->render_colpf3_by_line);
+          comp->render_colpf3_by_line = NULL;
+      }
+      if (comp->render_colpf3_next_by_line != NULL) {
+          free(comp->render_colpf3_next_by_line);
+          comp->render_colpf3_next_by_line = NULL;
+      }
+      if (comp->render_colbk_by_line != NULL) {
+          free(comp->render_colbk_by_line);
+          comp->render_colbk_by_line = NULL;
+      }
+      if (comp->render_colbk_next_by_line != NULL) {
+          free(comp->render_colbk_next_by_line);
+          comp->render_colbk_next_by_line = NULL;
+      }
+      if (comp->render_prior_by_line != NULL) {
+          free(comp->render_prior_by_line);
+          comp->render_prior_by_line = NULL;
+      }
+      if (comp->render_prior_next_by_line != NULL) {
+          free(comp->render_prior_next_by_line);
+          comp->render_prior_next_by_line = NULL;
+      }
+      if (comp->render_chactl_by_line != NULL) {
+          free(comp->render_chactl_by_line);
+          comp->render_chactl_by_line = NULL;
+      }
+      if (comp->render_chactl_next_by_line != NULL) {
+          free(comp->render_chactl_next_by_line);
+          comp->render_chactl_next_by_line = NULL;
+      }
+      if (comp->render_chbase_by_line != NULL) {
+          free(comp->render_chbase_by_line);
+          comp->render_chbase_by_line = NULL;
+      }
+      if (comp->render_chbase_next_by_line != NULL) {
+          free(comp->render_chbase_next_by_line);
+          comp->render_chbase_next_by_line = NULL;
+      }
+      if (comp->render_pmbase_by_line != NULL) {
+          free(comp->render_pmbase_by_line);
+          comp->render_pmbase_by_line = NULL;
+      }
+      if (comp->render_pmbase_next_by_line != NULL) {
+          free(comp->render_pmbase_next_by_line);
+          comp->render_pmbase_next_by_line = NULL;
+      }
+      if (comp->render_gtia_regs_by_line != NULL) {
+          free(comp->render_gtia_regs_by_line);
+          comp->render_gtia_regs_by_line = NULL;
+      }
+      if (comp->render_gtia_regs_next_by_line != NULL) {
+          free(comp->render_gtia_regs_next_by_line);
+          comp->render_gtia_regs_next_by_line = NULL;
+      }
     mem_read_pre: |
       if (addr >= 0x5000u && addr < 0x5800u) {
           if ((comp->portb & 0x80u) == 0u && comp->selftest_rom != NULL) {
@@ -417,6 +644,10 @@ behavior:
       if (addr >= 0xA000u && addr < 0xC000u) {
       #if CPU_CARTRIDGE_COUNT > 0
           uint8_t cart_present = (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "cart_present", NULL, 0) & 0x01u);
+          if (cart_present != 0u) {
+              uint64_t cart_args[1] = { (uint64_t)addr };
+              return (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "cart_read", cart_args, 1) & 0xFFu);
+          }
           if (cart_present == 0u)
       #endif
           {
@@ -425,19 +656,21 @@ behavior:
           }
           }
       }
-            if (addr >= 0x8000u && addr < 0xA000u) {
-          if ((cpu_component_call(cpu, "atari800xl_antic", "cart_present", NULL, 0) & 0x01u) != 0u) {
+      if (addr >= 0x8000u && addr < 0xA000u) {
+          if ((cpu_component_call(cpu, "atari800xl_antic", "cart_maps_low_window", NULL, 0) & 0x01u) != 0u) {
               uint64_t cart_args[1] = { (uint64_t)addr };
               return (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "cart_read", cart_args, 1) & 0xFFu);
           }
       }
       if (addr >= 0xC000u && addr < 0xD000u) {
-          if ((comp->portb & 0x01u) == 0u && comp->ram_under_os_low != NULL) {
+          if (comp->ram_under_os_low != NULL) {
+              /* ANTIC DMA must be able to see RAM hidden under the OS ROM. */
               return comp->ram_under_os_low[(uint16_t)(addr - 0xC000u)];
           }
       }
       if (addr >= 0xD800u) {
-          if ((comp->portb & 0x01u) == 0u && comp->ram_under_os_high != NULL) {
+          if (comp->ram_under_os_high != NULL) {
+              /* Star Raiders stores its custom mode-6 charset under the OS ROM. */
               return comp->ram_under_os_high[(uint16_t)(addr - 0xD800u)];
           }
       }
@@ -509,8 +742,8 @@ behavior:
           if (addr == 0xD403u) return comp->antic_dlisth;
           if (addr == 0xD404u) return comp->antic_hscrol;
           if (addr == 0xD405u) return comp->antic_vscrol;
-          if (addr == 0xD406u) return comp->antic_pmbase;
-          if (addr == 0xD407u) return comp->antic_chbase;
+          if (addr == 0xD407u) return comp->antic_pmbase;
+          if (addr == 0xD409u) return comp->antic_chbase;
           if (addr == 0xD40Fu) {
               /* ANTIC NMIST */
               return comp->nmi_status;
@@ -536,11 +769,11 @@ behavior:
               return trig;
           }
           if (addr == 0xD013u) {
-              /* GTIA TRIG3, active low (0=pressed, 1=released). */
+              /* GTIA TRIG3 doubles as XL/XE cartridge detect. */
               uint8_t trig = (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "trigger3", NULL, 0) & 0x01u);
-              /* XL/XE cartridge detect line: present cartridge pulls TRIG3 low. */
+              /* Match Atari800: a mapped cartridge drives TRIG3 high so the OS enters the cartridge boot path. */
               if ((cpu_component_call(cpu, "atari800xl_antic", "cart_present", NULL, 0) & 0x01u) != 0u) {
-                  trig = 0u;
+                  trig = 1u;
               }
               return trig;
           }
@@ -570,7 +803,7 @@ behavior:
           }
       }
       if (addr >= 0x8000u && addr < 0xA000u) {
-          if ((cpu_component_call(cpu, "atari800xl_antic", "cart_present", NULL, 0) & 0x01u) != 0u) {
+          if ((cpu_component_call(cpu, "atari800xl_antic", "cart_maps_low_window", NULL, 0) & 0x01u) != 0u) {
               /* 16K-style cart lower window is ROM while cartridge is present. */
               return;
           }
@@ -590,6 +823,118 @@ behavior:
 
       if (addr >= 0xD000u && addr < 0xD800u) {
           { uint64_t wa[2] = { (uint64_t)addr, (uint64_t)value }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
+          {
+              uint8_t enhanced_scanline_video = (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "cart_present", NULL, 0) & 0x01u);
+              uint8_t *tracked = NULL;
+              uint8_t *tracked_next = NULL;
+              uint8_t tracked_value = value;
+              uint32_t tracked_reg_offset = 0xFFFFFFFFu;
+              static const uint16_t gtia_track_addrs[19] = {
+                  0xD000u, 0xD001u, 0xD002u, 0xD003u,
+                  0xD004u, 0xD005u, 0xD006u, 0xD007u,
+                  0xD008u, 0xD009u, 0xD00Au, 0xD00Bu,
+                  0xD00Cu,
+                  0xD012u, 0xD013u, 0xD014u, 0xD015u,
+                  0xD01Cu, 0xD01Du
+              };
+              if (addr == 0xD016u) tracked = comp->render_colpf0_by_line;
+              else if (addr == 0xD017u) tracked = comp->render_colpf1_by_line;
+              else if (addr == 0xD018u) tracked = comp->render_colpf2_by_line;
+              else if (addr == 0xD019u) tracked = comp->render_colpf3_by_line;
+              else if (addr == 0xD01Au) tracked = comp->render_colbk_by_line;
+              else if (addr == 0xD01Bu) tracked = comp->render_prior_by_line;
+              else if (addr == 0xD401u) tracked = comp->render_chactl_by_line;
+              else if (addr == 0xD407u) tracked = comp->render_pmbase_by_line;
+              else if (addr == 0xD409u) {
+                  tracked_value = (uint8_t)(value & 0xFEu);
+              }
+              for (uint32_t reg_i = 0u; reg_i < 19u; ++reg_i) {
+                  if (addr == gtia_track_addrs[reg_i]) {
+                      tracked_reg_offset = reg_i;
+                      break;
+                  }
+              }
+              if (addr == 0xD016u) tracked_next = comp->render_colpf0_next_by_line;
+              else if (addr == 0xD017u) tracked_next = comp->render_colpf1_next_by_line;
+              else if (addr == 0xD018u) tracked_next = comp->render_colpf2_next_by_line;
+              else if (addr == 0xD019u) tracked_next = comp->render_colpf3_next_by_line;
+              else if (addr == 0xD01Au) tracked_next = comp->render_colbk_next_by_line;
+              else if (addr == 0xD01Bu) tracked_next = comp->render_prior_next_by_line;
+              else if (addr == 0xD401u) tracked_next = comp->render_chactl_next_by_line;
+              else if (addr == 0xD407u) tracked_next = comp->render_pmbase_next_by_line;
+              else if (addr == 0xD409u) {
+                  tracked = comp->render_chbase_by_line;
+                  tracked_next = comp->render_chbase_next_by_line;
+              }
+              if (enhanced_scanline_video != 0u && (tracked != NULL || tracked_reg_offset != 0xFFFFFFFFu)) {
+                  uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 29829u;
+                  if (frame_period == 0u) frame_period = 29829u;
+                  uint64_t in_frame = cpu->total_cycles - comp->last_frame_cycle;
+                  uint8_t *target = tracked;
+                  uint8_t *target_gtia = comp->render_gtia_regs_by_line;
+                      if (in_frame >= frame_period) {
+                          target = tracked_next;
+                          target_gtia = comp->render_gtia_regs_next_by_line;
+                          in_frame -= frame_period;
+                          if (in_frame >= frame_period) in_frame = frame_period - 1u;
+                          if ((target != NULL || tracked_reg_offset != 0xFFFFFFFFu) && comp->render_next_valid == 0u) {
+                              if (comp->render_colpf0_next_by_line != NULL) {
+                                  uint64_t ra[1] = { 0xD016u };
+                                  memset(comp->render_colpf0_next_by_line, (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu), 262u);
+                              }
+                              if (comp->render_colpf1_next_by_line != NULL) {
+                                  uint64_t ra[1] = { 0xD017u };
+                                  memset(comp->render_colpf1_next_by_line, (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu), 262u);
+                              }
+                              if (comp->render_colpf2_next_by_line != NULL) {
+                                  uint64_t ra[1] = { 0xD018u };
+                                  memset(comp->render_colpf2_next_by_line, (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu), 262u);
+                              }
+                              if (comp->render_colpf3_next_by_line != NULL) {
+                                  uint64_t ra[1] = { 0xD019u };
+                                  memset(comp->render_colpf3_next_by_line, (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu), 262u);
+                              }
+                              if (comp->render_colbk_next_by_line != NULL) {
+                                  uint64_t ra[1] = { 0xD01Au };
+                                  memset(comp->render_colbk_next_by_line, (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu), 262u);
+                              }
+                              if (comp->render_prior_next_by_line != NULL) {
+                                  uint64_t ra[1] = { 0xD01Bu };
+                                  memset(comp->render_prior_next_by_line, (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu), 262u);
+                              }
+                              if (comp->render_chactl_next_by_line != NULL) memset(comp->render_chactl_next_by_line, comp->antic_chactl, 262u);
+                              if (comp->render_pmbase_next_by_line != NULL) memset(comp->render_pmbase_next_by_line, comp->antic_pmbase, 262u);
+                              if (comp->render_chbase_next_by_line != NULL) memset(comp->render_chbase_next_by_line, comp->antic_chbase, 262u);
+                              if (comp->render_gtia_regs_next_by_line != NULL) {
+                                  for (uint32_t reg_i = 0u; reg_i < 19u; ++reg_i) {
+                                      uint64_t ra[1] = { gtia_track_addrs[reg_i] };
+                                      memset(
+                                          comp->render_gtia_regs_next_by_line + reg_i * 262u,
+                                          (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu),
+                                          262u
+                                      );
+                                  }
+                              }
+                              comp->render_next_valid = 1u;
+                          }
+                      }
+                  {
+                      uint32_t line = (uint32_t)((in_frame * 262u) / frame_period);
+                      if (line > 261u) line = 261u;
+                      if (target != NULL) {
+                          for (uint32_t i = line; i < 262u; ++i) {
+                              target[i] = tracked_value;
+                          }
+                      }
+                      if (tracked_reg_offset != 0xFFFFFFFFu && target_gtia != NULL) {
+                          uint8_t *reg_target = target_gtia + tracked_reg_offset * 262u;
+                          for (uint32_t i = line; i < 262u; ++i) {
+                              reg_target[i] = tracked_value;
+                          }
+                      }
+                  }
+              }
+          }
 
           if (addr == 0xD300u) {
               if ((comp->pia_cra & 0x04u) == 0u) {
@@ -746,11 +1091,11 @@ behavior:
               comp->antic_vscrol = value;
               return;
           }
-          if (addr == 0xD406u) {
+          if (addr == 0xD407u) {
               comp->antic_pmbase = value;
               return;
           }
-          if (addr == 0xD407u) {
+          if (addr == 0xD409u) {
               comp->antic_chbase = (uint8_t)(value & 0xFEu);
               return;
           }
@@ -806,10 +1151,23 @@ behavior:
              - AUDC distortion (poly4/poly5/poly9/poly17), pure tone, volume-only
              - fixed-cadence mixer output */
           const uint64_t sample_step_cycles = 57u; /* ~31.4kHz at 1.79MHz */
+          const uint64_t silent_batch_steps = 128u;
           if (comp->pokey_audio_tick_cycle == 0u) {
               comp->pokey_audio_tick_cycle = cpu->total_cycles;
           }
           while ((cpu->total_cycles - comp->pokey_audio_tick_cycle) >= sample_step_cycles) {
+              if (((comp->pokey_audc1 | comp->pokey_audc2 | comp->pokey_audc3 | comp->pokey_audc4) & 0x0Fu) == 0u) {
+                  uint64_t ready_steps = (cpu->total_cycles - comp->pokey_audio_tick_cycle) / sample_step_cycles;
+                  uint64_t batch_steps = (ready_steps > silent_batch_steps) ? silent_batch_steps : ready_steps;
+                  uint64_t ts = comp->pokey_audio_tick_cycle + (batch_steps * sample_step_cycles);
+                  comp->speaker_level = 128u;
+                  {
+                      uint64_t sig_args[2] = { 128u, ts };
+                      cpu_component_emit_signal(cpu, "atari800xl_antic", "audio_level", sig_args, 2);
+                  }
+                  comp->pokey_audio_tick_cycle = ts;
+                  continue;
+              }
               uint8_t audctl = comp->pokey_audctl;
               uint32_t base = ((audctl & 0x01u) != 0u) ? 114u : 28u;
               uint32_t p1 = (uint32_t)(comp->pokey_audf1 + 1u) * (((audctl & 0x40u) != 0u) ? 1u : base);
@@ -981,14 +1339,21 @@ behavior:
           }
 
           if (key != 0u) {
-              /* Host queues (KBCODE + 1), with shift/ctrl bits already latched at keydown time. */
-              comp->keyboard_code = (uint8_t)(key - 1u);
-              comp->keyboard_sticky = 1u;
-              /* Raise keyboard IRQ source (active-low bit 6). */
-              comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x40u);
-              if ((comp->pokey_irqen & 0x40u) != 0u) {
-                  cpu_component_call(cpu, "atari800xl_antic", "request_irq", NULL, 0);
+              uint8_t live_code = (uint8_t)(key - 1u);
+              if (comp->keyboard_atascii != live_code) {
+                  /* Present a stable live KBCODE while the key is held, but only signal IRQ on transitions. */
+                  comp->keyboard_code = live_code;
+                  comp->keyboard_atascii = live_code;
+                  comp->keyboard_sticky = 1u;
+                  comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x40u);
+                  if ((comp->pokey_irqen & 0x40u) != 0u) {
+                      cpu_component_call(cpu, "atari800xl_antic", "request_irq", NULL, 0);
+                  }
+              } else {
+                  comp->keyboard_code = live_code;
               }
+          } else {
+              comp->keyboard_atascii = 0xFFu;
           }
       }
       {
@@ -1030,20 +1395,56 @@ behavior:
 
       {
           /* ANTIC display-list driven rendering path (no forced display pointers). */
-          static const uint32_t atari_hues[16] = {
-              0x00C8C8C8u, 0x00D0A050u, 0x00D08040u, 0x00C86040u,
-              0x00B05070u, 0x008850A0u, 0x006060C0u, 0x004080D0u,
-              0x003070D0u, 0x002050D0u, 0x003050C0u, 0x005060B0u,
-              0x00A0A840u, 0x00C09040u, 0x00D07850u, 0x00D0B0A0u
+          static const uint32_t atari_ntsc_palette[256] = {
+              0xFF040404u, 0xFF0F0F0Fu, 0xFF1B1B1Bu, 0xFF272727u, 0xFF333333u, 0xFF414141u, 0xFF4F4F4Fu, 0xFF5E5E5Eu,
+              0xFF686868u, 0xFF787878u, 0xFF898989u, 0xFF9A9A9Au, 0xFFABABABu, 0xFFBFBFBFu, 0xFFD3D3D3u, 0xFFEAEAEAu,
+              0xFF041600u, 0xFF0F2200u, 0xFF1B2D00u, 0xFF273A00u, 0xFF334600u, 0xFF415300u, 0xFF4F6200u, 0xFF5E7001u,
+              0xFF687B08u, 0xFF788A18u, 0xFF899B29u, 0xFF9AAD3Bu, 0xFFABBE4Cu, 0xFFBFD160u, 0xFFD3E574u, 0xFFEAFC8Cu,
+              0xFF1C0800u, 0xFF281300u, 0xFF331F00u, 0xFF3F2B00u, 0xFF4B3700u, 0xFF594500u, 0xFF675300u, 0xFF766207u,
+              0xFF806C12u, 0xFF907C22u, 0xFFA18D34u, 0xFFB29E45u, 0xFFC3B057u, 0xFFD7C36Au, 0xFFEBD77Eu, 0xFFFFEE96u,
+              0xFF2F0000u, 0xFF3B0500u, 0xFF460F00u, 0xFF521C00u, 0xFF5E2800u, 0xFF6C3607u, 0xFF7A4416u, 0xFF895324u,
+              0xFF935D2Fu, 0xFFA36D3Fu, 0xFFB47E51u, 0xFFC58F62u, 0xFFD6A173u, 0xFFE9B487u, 0xFFFDC89Bu, 0xFFFFDFB2u,
+              0xFF390000u, 0xFF450002u, 0xFF50040Au, 0xFF5C0F17u, 0xFF681B23u, 0xFF762931u, 0xFF84373Fu, 0xFF92464Eu,
+              0xFF9D5058u, 0xFFAC6068u, 0xFFBD7179u, 0xFFCE838Au, 0xFFE0949Cu, 0xFFF3A7AFu, 0xFFFFBBC3u, 0xFFFFD2DAu,
+              0xFF380020u, 0xFF43002Cu, 0xFF4E0037u, 0xFF5A0743u, 0xFF66134Fu, 0xFF74215Du, 0xFF822F6Bu, 0xFF913E7Au,
+              0xFF9B4884u, 0xFFAB5894u, 0xFFBC6AA5u, 0xFFCD7BB6u, 0xFFDE8CC7u, 0xFFF1A0DBu, 0xFFFFB4EFu, 0xFFFFCBFFu,
+              0xFF2B0047u, 0xFF360052u, 0xFF42005Eu, 0xFF4E066Au, 0xFF5A1276u, 0xFF672083u, 0xFF762E91u, 0xFF843DA0u,
+              0xFF8E47AAu, 0xFF9E57BAu, 0xFFAF69CBu, 0xFFC07ADCu, 0xFFD18BEDu, 0xFFE59FFFu, 0xFFF9B3FFu, 0xFFFFCAFFu,
+              0xFF16005Fu, 0xFF21006Au, 0xFF2D0275u, 0xFF390C81u, 0xFF45188Du, 0xFF53269Bu, 0xFF6135A9u, 0xFF6F43B7u,
+              0xFF7A4EC1u, 0xFF895DD1u, 0xFF9B6FE2u, 0xFFAC80F3u, 0xFFBD91FFu, 0xFFD0A5FFu, 0xFFE4B9FFu, 0xFFFBD0FFu,
+              0xFF010063u, 0xFF08026Fu, 0xFF130B7Au, 0xFF201886u, 0xFF2C2492u, 0xFF3A329Fu, 0xFF4840ADu, 0xFF564FBCu,
+              0xFF6159C6u, 0xFF7169D5u, 0xFF827AE7u, 0xFF938CF8u, 0xFFA49DFFu, 0xFFB8B0FFu, 0xFFCCC4FFu, 0xFFE3DBFFu,
+              0xFF000453u, 0xFF000F5Fu, 0xFF011B6Au, 0xFF082776u, 0xFF143382u, 0xFF224190u, 0xFF314F9Eu, 0xFF3F5EACu,
+              0xFF4A68B6u, 0xFF5A78C6u, 0xFF6B89D7u, 0xFF7C9AE8u, 0xFF8DACF9u, 0xFFA1BFFFu, 0xFFB5D3FFu, 0xFFCCEAFFu,
+              0xFF001332u, 0xFF001E3Eu, 0xFF002A49u, 0xFF003655u, 0xFF044261u, 0xFF11506Fu, 0xFF205E7Du, 0xFF2E6D8Bu,
+              0xFF397796u, 0xFF4987A5u, 0xFF5A98B7u, 0xFF6CA9C8u, 0xFF7DBAD9u, 0xFF90CEECu, 0xFFA4E2FFu, 0xFFBCF9FFu,
+              0xFF001F07u, 0xFF002A12u, 0xFF00361Eu, 0xFF00422Au, 0xFF014E36u, 0xFF0A5C44u, 0xFF196A53u, 0xFF287861u,
+              0xFF32836Bu, 0xFF42927Bu, 0xFF54A38Cu, 0xFF65B59Eu, 0xFF76C6AFu, 0xFF8AD9C2u, 0xFF9EEDD6u, 0xFFB5FFEDu,
+              0xFF002500u, 0xFF003000u, 0xFF003C00u, 0xFF004801u, 0xFF03540Au, 0xFF0F6118u, 0xFF1E7027u, 0xFF2D7E35u,
+              0xFF378840u, 0xFF479850u, 0xFF59A961u, 0xFF6ABA72u, 0xFF7BCC84u, 0xFF8FDF97u, 0xFFA3F3ABu, 0xFFBAFFC2u,
+              0xFF002400u, 0xFF002F00u, 0xFF003B00u, 0xFF054700u, 0xFF115300u, 0xFF1F6000u, 0xFF2E6F04u, 0xFF3C7D12u,
+              0xFF47871Du, 0xFF57972Du, 0xFF68A83Eu, 0xFF79B950u, 0xFF8ACA61u, 0xFF9EDE75u, 0xFFB2F289u, 0xFFC9FFA0u,
+              0xFF001C00u, 0xFF052700u, 0xFF103300u, 0xFF1C3F00u, 0xFF284B00u, 0xFF365900u, 0xFF446700u, 0xFF537502u,
+              0xFF5D8009u, 0xFF6D8F1Au, 0xFF7EA12Bu, 0xFF90B23Du, 0xFFA1C34Eu, 0xFFB4D662u, 0xFFC8EA76u, 0xFFDFFF8Du,
+              0xFF120E00u, 0xFF1D1A00u, 0xFF292600u, 0xFF353200u, 0xFF413E00u, 0xFF4F4C00u, 0xFF5D5A00u, 0xFF6C6802u,
+              0xFF76730Bu, 0xFF86821Bu, 0xFF97942Du, 0xFFA8A53Eu, 0xFFB9B650u, 0xFFCDC963u, 0xFFE1DD78u, 0xFFF8F48Fu
           };
           uint8_t colpf0_raw = (cpu->memory_size > 0xD016u) ? ATARI_BUS_READ8(0xD016u) : 0x44u;
           uint8_t colpf1_raw = (cpu->memory_size > 0xD017u) ? ATARI_BUS_READ8(0xD017u) : 0x88u;
           uint8_t colpf2_raw = (cpu->memory_size > 0xD018u) ? ATARI_BUS_READ8(0xD018u) : 0xCCu;
           uint8_t colpf3_raw = (cpu->memory_size > 0xD019u) ? ATARI_BUS_READ8(0xD019u) : 0xAAu;
           uint8_t colbk_raw  = (cpu->memory_size > 0xD01Au) ? ATARI_BUS_READ8(0xD01Au) : 0x00u;
-          /* Prefer OS shadow colors (708..712 at 0x02C4..0x02C8).
-             BASIC/OS reliably updates these; hardware mirrors may lag in this model. */
-          if (cpu->memory_size > 0x02C8u) {
+          uint8_t prior_raw  = (cpu->memory_size > 0xD01Bu) ? ATARI_BUS_READ8(0xD01Bu) : 0x00u;
+          uint8_t colpm0_raw = (cpu->memory_size > 0xD012u) ? ATARI_BUS_READ8(0xD012u) : 0x00u;
+          uint8_t colpm1_raw = (cpu->memory_size > 0xD013u) ? ATARI_BUS_READ8(0xD013u) : 0x00u;
+          uint8_t colpm2_raw = (cpu->memory_size > 0xD014u) ? ATARI_BUS_READ8(0xD014u) : 0x00u;
+          uint8_t colpm3_raw = (cpu->memory_size > 0xD015u) ? ATARI_BUS_READ8(0xD015u) : 0x00u;
+          /* Use live hardware color registers first. OS shadows are only a fallback. */
+          if (
+              colpf0_raw == 0u && colpf1_raw == 0u && colpf2_raw == 0u &&
+              colpf3_raw == 0u && colbk_raw == 0u &&
+              cpu->memory_size > 0x02C8u
+          ) {
               colpf0_raw = ATARI_BUS_READ8(0x02C4u);
               colpf1_raw = ATARI_BUS_READ8(0x02C5u);
               colpf2_raw = ATARI_BUS_READ8(0x02C6u);
@@ -1053,41 +1454,34 @@ behavior:
           uint8_t col_raw[5] = { colpf0_raw, colpf1_raw, colpf2_raw, colpf3_raw, colbk_raw };
           uint32_t col_argb[5];
           for (uint32_t ci = 0u; ci < 5u; ++ci) {
-              uint8_t c = col_raw[ci];
-              uint32_t base = atari_hues[(c >> 4u) & 0x0Fu];
-              uint32_t lum = (uint32_t)(c & 0x0Fu);
-              uint32_t gain = 32u + (lum * 15u);
-              uint8_t r = (uint8_t)((((base >> 16u) & 0xFFu) * gain) >> 8u);
-              uint8_t g = (uint8_t)((((base >> 8u) & 0xFFu) * gain) >> 8u);
-              uint8_t b = (uint8_t)(((base & 0xFFu) * gain) >> 8u);
-              col_argb[ci] = 0xFF000000u | ((uint32_t)r << 16u) | ((uint32_t)g << 8u) | (uint32_t)b;
+              col_argb[ci] = atari_ntsc_palette[col_raw[ci]];
           }
-          const uint32_t pf0 = col_argb[0];
-          const uint32_t pf1 = col_argb[1];
-          const uint32_t pf2 = col_argb[2];
-          const uint32_t pf3 = col_argb[3];
-          const uint32_t bg = col_argb[4];
-          const uint32_t fg = pf2;
+          uint32_t pf0 = col_argb[0];
+          uint32_t pf1 = col_argb[1];
+          uint32_t pf2 = col_argb[2];
+          uint32_t pf3 = col_argb[3];
+          uint32_t bg = col_argb[4];
           uint16_t dl_ptr = 0u;
           uint16_t char_base = 0xE000u;
+          uint8_t chbas_shadow = 0u;
           uint8_t hscroll = (uint8_t)(comp->antic_hscrol & 0x0Fu);
           uint8_t vscroll = (uint8_t)(comp->antic_vscrol & 0x0Fu);
 
           dl_ptr = (uint16_t)((uint16_t)comp->antic_dlistl | ((uint16_t)comp->antic_dlisth << 8u));
-          if (cpu->memory_size > 0x0231u) {
-              /* OS keeps the active ANTIC display list in SDLST shadow.
-                 Prefer it when present so rendering follows BASIC/OS setup
-                 even before direct DLIST register writes are observed. */
+          if (dl_ptr < 0x0200u && cpu->memory_size > 0x0231u) {
+              /* SDLST is a fallback while hardware DLIST still points into bootstrap/page-zero RAM. */
               uint16_t sdlst = (uint16_t)ATARI_BUS_READ8(0x0230u) | ((uint16_t)ATARI_BUS_READ8(0x0231u) << 8u);
-              if (sdlst != 0u && (uint64_t)sdlst < cpu->memory_size) {
+              if (sdlst >= 0x0200u && (uint64_t)sdlst < cpu->memory_size) {
                   dl_ptr = sdlst;
               }
           }
           if (comp->antic_chbase != 0u) {
               char_base = (uint16_t)((uint16_t)(comp->antic_chbase & 0xFEu) << 8u);
           }
-          if (char_base == 0xE000u && cpu->memory_size > 0x02F4u) {
-              uint8_t chbas_shadow = ATARI_BUS_READ8(0x02F4u);
+          if (cpu->memory_size > 0x02F4u) {
+              chbas_shadow = ATARI_BUS_READ8(0x02F4u);
+          }
+          if (comp->antic_chbase == 0u && char_base == 0xE000u) {
               if (chbas_shadow != 0u) {
                   char_base = (uint16_t)((uint16_t)chbas_shadow << 8u);
               }
@@ -1095,30 +1489,34 @@ behavior:
           if ((uint64_t)char_base + 1024u > cpu->memory_size) {
               char_base = 0u;
           }
-          if ((uint64_t)dl_ptr >= cpu->memory_size && cpu->memory_size > 0x0231u) {
+          if (((uint64_t)dl_ptr >= cpu->memory_size || dl_ptr < 0x0200u) && cpu->memory_size > 0x0231u) {
               uint16_t sdlst = (uint16_t)ATARI_BUS_READ8(0x0230u) | ((uint16_t)ATARI_BUS_READ8(0x0231u) << 8u);
-              if ((uint64_t)sdlst < cpu->memory_size) {
+              if (sdlst >= 0x0200u && (uint64_t)sdlst < cpu->memory_size) {
                   dl_ptr = sdlst;
               }
           }
-
-          for (uint32_t i = 0u; i < 320u * 192u; ++i) {
-              framebuf[i] = bg;
+          for (uint32_t py = 0u; py < 192u; ++py) {
+              uint32_t line = py + 24u;
+              uint8_t line_bg_raw = colbk_raw;
+              if (comp->render_colbk_by_line != NULL && line < 262u) {
+                  line_bg_raw = comp->render_colbk_by_line[line];
+              }
+              {
+                  uint32_t line_bg = atari_ntsc_palette[line_bg_raw];
+                  for (uint32_t px = 0u; px < 320u; ++px) {
+                      framebuf[py * 320u + px] = line_bg;
+                  }
+              }
           }
 
           {
               /* Keep a fixed output surface and report logical output width by mode. */
               uint32_t frame_out_w = 320u;
-              uint32_t text_min_w = 320u;
-              uint32_t gfx_min_w = 320u;
-              uint8_t saw_text_mode = 0u;
-              uint8_t saw_gfx_mode = 0u;
-          if ((uint64_t)dl_ptr < cpu->memory_size) {
+          if ((uint64_t)dl_ptr < cpu->memory_size && dl_ptr >= 0x0200u) {
               const int32_t top_crop = 24;
               int32_t y = -top_crop;
               uint32_t safety = 0u;
               uint16_t scan_addr = 0u;
-
               while (y < 192 && safety < 2048u) {
                   uint8_t ir;
                   uint8_t mode;
@@ -1127,6 +1525,8 @@ behavior:
                   uint8_t text_mode = 0u;
                   uint8_t text_cols = 40u;
                   uint32_t logical_width = 320u;
+                  uint32_t mode_render_w = 320u;
+                  uint32_t row_hscroll = 0u;
 
                   if ((uint64_t)dl_ptr >= cpu->memory_size) break;
                   ir = ATARI_BUS_READ8(dl_ptr);
@@ -1134,6 +1534,9 @@ behavior:
                   safety += 1u;
 
                   mode = (uint8_t)(ir & 0x0Fu);
+                  if ((ir & 0x10u) != 0u) {
+                      row_hscroll = hscroll;
+                  }
                   if (mode == 0x01u) {
                       if ((uint64_t)(dl_ptr + 1u) >= cpu->memory_size) break;
                       {
@@ -1173,18 +1576,13 @@ behavior:
                       case 0x0Au: bytes_per_row = 20u; line_height = 4u; break;
                       case 0x0Bu: bytes_per_row = 20u; line_height = 2u; break;
                       case 0x0Cu: bytes_per_row = 20u; line_height = 1u; break;
-                      case 0x0Du: bytes_per_row = 20u; line_height = 2u; break;
-                      case 0x0Eu: bytes_per_row = 20u; line_height = 1u; break;
+                      case 0x0Du: bytes_per_row = 40u; line_height = 2u; break;
+                      case 0x0Eu: bytes_per_row = 40u; line_height = 1u; break;
                       case 0x0Fu: bytes_per_row = 40u; line_height = 1u; break;
                       default: bytes_per_row = 40u; line_height = 1u; break;
                   }
-
                   if (text_mode != 0u) {
                       logical_width = (uint32_t)text_cols * 8u;
-                      saw_text_mode = 1u;
-                      if (logical_width > 0u && logical_width < text_min_w) {
-                          text_min_w = logical_width;
-                      }
                   } else {
                       uint8_t bits_per_pixel_l = ((mode == 0x08u || mode == 0x0Au || mode == 0x0Du || mode == 0x0Eu) ? 2u : 1u);
                       uint32_t pixels_per_byte_l = (bits_per_pixel_l == 2u) ? 4u : 8u;
@@ -1200,73 +1598,142 @@ behavior:
                               mode == 0x0Du || mode == 0x0Eu
                           ) mode_out_w = 160u;
                           else if (mode == 0x0Fu) mode_out_w = 320u;
-                          saw_gfx_mode = 1u;
-                          if (mode_out_w > 0u && mode_out_w < gfx_min_w) {
-                              gfx_min_w = mode_out_w;
-                          }
+                          mode_render_w = mode_out_w;
                       }
                   }
 
                   if (text_mode != 0u && char_base != 0u) {
-                      uint8_t chact = (uint8_t)(comp->antic_chactl & 0x07u);
-                      uint8_t reflect = (uint8_t)((chact & 0x04u) != 0u);
-                      uint8_t inverse_enable = (uint8_t)((chact & 0x02u) != 0u);
-                      uint8_t blank_enable = (uint8_t)((chact & 0x01u) != 0u);
                       uint8_t mode_23 = (uint8_t)(mode == 0x02u || mode == 0x03u);
                       uint8_t mode_45 = (uint8_t)(mode == 0x04u || mode == 0x05u);
                       uint8_t mode_67 = (uint8_t)(mode == 0x06u || mode == 0x07u);
                       for (uint32_t py = 0u; py < line_height && y < 192; ++py) {
-                          uint8_t glyph_row = (uint8_t)((py < 8u) ? py : 7u);
+                          uint32_t line = (uint32_t)(y + top_crop);
+                          if (line > 261u) line = 261u;
+                          {
+                              uint8_t line_chactl = comp->antic_chactl;
+                              uint16_t line_char_base = char_base;
+                              uint8_t line_chbase = 0u;
+                              uint8_t line_chbase_from_shadow = 0u;
+                              if (comp->render_chactl_by_line != NULL) {
+                                  line_chactl = comp->render_chactl_by_line[line];
+                              }
+                              if (comp->render_chbase_by_line != NULL) {
+                                  line_chbase = comp->render_chbase_by_line[line];
+                                  if (
+                                      chbas_shadow != 0u &&
+                                      line_chbase == comp->antic_chbase &&
+                                      line_chbase != chbas_shadow
+                                  ) {
+                                      /* The OS updates CHBAS shadow even when our emulated D409
+                                         hardware register lags. Prefer the live shadow unless a
+                                         per-line D409 write has clearly diverged from global state. */
+                                      line_chbase = chbas_shadow;
+                                      line_chbase_from_shadow = 1u;
+                                  }
+                                  line_char_base = (uint16_t)(
+                                      line_chbase_from_shadow != 0u
+                                          ? ((uint16_t)line_chbase << 8u)
+                                          : ((uint16_t)(line_chbase & 0xFEu) << 8u)
+                                  );
+                                  if ((uint64_t)line_char_base + 1024u > cpu->memory_size) {
+                                      line_char_base = 0u;
+                                  }
+                              }
+                              if (line_char_base == 0u) {
+                                  y += 1u;
+                                  continue;
+                              }
+                              {
+                                  uint8_t chact = (uint8_t)(line_chactl & 0x07u);
+                                  uint8_t reflect = (uint8_t)((chact & 0x04u) != 0u);
+                                  uint8_t inverse_enable = (uint8_t)((chact & 0x02u) != 0u);
+                                  uint8_t blank_enable = (uint8_t)((chact & 0x01u) != 0u);
+                                  uint8_t line_colpf0 = colpf0_raw;
+                                  uint8_t line_colpf1 = colpf1_raw;
+                                  uint8_t line_colpf2 = colpf2_raw;
+                                  uint8_t line_colpf3 = colpf3_raw;
+                                  uint8_t line_colbk = colbk_raw;
+                                  if (comp->render_colpf0_by_line != NULL) line_colpf0 = comp->render_colpf0_by_line[line];
+                                  if (comp->render_colpf1_by_line != NULL) line_colpf1 = comp->render_colpf1_by_line[line];
+                                  if (comp->render_colpf2_by_line != NULL) line_colpf2 = comp->render_colpf2_by_line[line];
+                                  if (comp->render_colpf3_by_line != NULL) line_colpf3 = comp->render_colpf3_by_line[line];
+                                  if (comp->render_colbk_by_line != NULL) line_colbk = comp->render_colbk_by_line[line];
+                                  {
+                                      uint32_t line_pf0 = atari_ntsc_palette[line_colpf0];
+                                      uint32_t line_pf1 = atari_ntsc_palette[line_colpf1];
+                                      uint32_t line_pf2 = atari_ntsc_palette[line_colpf2];
+                                      uint32_t line_pf3 = atari_ntsc_palette[line_colpf3];
+                                      uint32_t line_bg = atari_ntsc_palette[line_colbk];
+                          uint8_t glyph_row = (uint8_t)(py & 0x07u);
+                          if (mode == 0x05u || mode == 0x07u) {
+                              glyph_row = (uint8_t)((py >> 1u) & 0x07u);
+                          } else if (mode == 0x03u && py >= 8u) {
+                              glyph_row = 7u;
+                          }
                           if (reflect != 0u) {
                               glyph_row = (uint8_t)(7u - glyph_row);
                           }
                           for (uint32_t col = 0u; col < (uint32_t)text_cols; ++col) {
                               uint16_t saddr = (uint16_t)(scan_addr + (uint16_t)col);
                               uint8_t raw = ((uint64_t)saddr < cpu->memory_size) ? ATARI_BUS_READ8(saddr) : 0u;
-                              uint8_t code = (uint8_t)(raw & 0x7Fu);
-                              uint8_t inverse_char = (uint8_t)((raw & 0x80u) != 0u);
-                              if (mode_67 != 0u) {
-                                  /* ANTIC 6/7 use 64-char set, high bits select glyph color. */
-                                  code = (uint8_t)(raw & 0x3Fu);
-                              }
-                              uint8_t blank_char =
-                                  (uint8_t)(mode_23 != 0u && inverse_char != 0u && blank_enable != 0u);
-                              uint8_t inverse_draw =
-                                  (uint8_t)(mode_23 != 0u && inverse_char != 0u && inverse_enable != 0u);
-                              /* Text modes: default background should come from playfield color,
-                                 not raw COLBK, to match Atari BASIC startup palette. */
-                              uint32_t cell_bg = pf2;
-                              uint32_t cell_fg = pf1;
-                              if (mode_67 != 0u) {
-                                  uint8_t csel = (uint8_t)((raw >> 6u) & 0x03u);
-                                  if (csel == 0u) cell_fg = pf0;
-                                  else if (csel == 1u) cell_fg = pf1;
-                                  else if (csel == 2u) cell_fg = pf2;
-                                  else cell_fg = pf3;
-                              }
-                              if (inverse_draw != 0u) {
-                                  cell_bg = pf1;
-                                  cell_fg = pf2;
-                              }
                               uint32_t x0 = col * 8u * (uint32_t)(40u / text_cols);
-                              uint16_t caddr = (uint16_t)(char_base + (uint16_t)(code * 8u + glyph_row));
-                              uint8_t bits = ((uint64_t)caddr < cpu->memory_size) ? ATARI_BUS_READ8(caddr) : 0u;
                               uint32_t x_scale = (uint32_t)(40u / text_cols);
                               if (mode_45 != 0u) x_scale *= 2u;
                               if (x_scale == 0u) x_scale = 1u;
-
-                              if (mode_45 != 0u) {
+                              {
+                                  uint16_t chbase20 = (uint16_t)((uint16_t)(line_chbase & 0xFEu) << 8u);
+                                  if (reflect != 0u) {
+                                      chbase20 ^= 7u;
+                                  }
+                              if (mode_67 != 0u) {
+                                  uint8_t code = (uint8_t)(raw & 0x3Fu);
+                                  uint16_t row_base = (uint16_t)(((mode == 0x06u ? (py & 7u) : (py >> 1u)) ^ chbase20));
+                                  uint16_t caddr = (uint16_t)(row_base + ((uint16_t)code << 3u));
+                                  uint8_t bits = ((uint64_t)caddr < cpu->memory_size) ? ATARI_BUS_READ8(caddr) : 0u;
+                                  if (bits == 0u && line_chbase == 0xE0u) {
+                                      uint16_t zero_base = (uint16_t)(mode == 0x06u ? (py & 7u) : (py >> 1u));
+                                      uint16_t zero_caddr = (uint16_t)(zero_base + ((uint16_t)code << 3u));
+                                      uint8_t zero_bits = ((uint64_t)zero_caddr < cpu->memory_size) ? ATARI_BUS_READ8(zero_caddr) : 0u;
+                                      if (zero_bits != 0u) {
+                                          bits = zero_bits;
+                                      }
+                                  }
+                                  uint32_t fg = line_pf0;
+                                  uint8_t csel = (uint8_t)((raw >> 6u) & 0x03u);
+                                  if (csel == 1u) fg = line_pf1;
+                                  else if (csel == 2u) fg = line_pf2;
+                                  else if (csel == 3u) fg = line_pf3;
+                                  for (uint32_t gx = 0u; gx < 8u; ++gx) {
+                                      uint32_t color = ((bits & (uint8_t)(0x80u >> gx)) != 0u) ? fg : line_bg;
+                                      for (uint32_t xs = 0u; xs < x_scale; ++xs) {
+                                          uint32_t px = x0 + gx * x_scale + xs + row_hscroll;
+                                          if (px < 320u) {
+                                              int32_t py_out = y;
+                                              if (py_out >= 0 && py_out < 192) {
+                                                  framebuf[py_out * 320u + px] = color;
+                                              }
+                                          }
+                                      }
+                                  }
+                              } else if (mode_45 != 0u) {
+                                  uint8_t code = (uint8_t)(raw & 0x7Fu);
+                                  uint16_t row_phase = (uint16_t)(mode == 0x04u ? (py & 7u) : (py >> 1u));
+                                  uint16_t row_base = (uint16_t)(((row_phase ^ chbase20) & 0xFC07u));
+                                  uint16_t caddr = (uint16_t)(row_base + ((uint16_t)code << 3u));
+                                  uint8_t bits = ((uint64_t)caddr < cpu->memory_size) ? ATARI_BUS_READ8(caddr) : 0u;
+                                  uint32_t pair_colors[4] = {
+                                      line_bg,
+                                      line_pf0,
+                                      line_pf1,
+                                      ((raw & 0x80u) != 0u) ? line_pf3 : line_pf2
+                                  };
                                   for (uint32_t gx = 0u; gx < 4u; ++gx) {
                                       uint8_t pair = (uint8_t)((bits >> ((3u - gx) * 2u)) & 0x03u);
-                                      uint32_t color = bg;
-                                      if (pair == 1u) color = pf0;
-                                      else if (pair == 2u) color = pf1;
-                                      else if (pair == 3u) color = (inverse_char != 0u) ? pf3 : pf2;
-                                      if (blank_char != 0u) color = bg;
+                                      uint32_t color = pair_colors[pair];
                                       for (uint32_t xs = 0u; xs < x_scale; ++xs) {
-                                          uint32_t px = x0 + gx * x_scale + xs + hscroll;
+                                          uint32_t px = x0 + gx * x_scale + xs + row_hscroll;
                                           if (px < 320u) {
-                                              int32_t py_out = y + (int32_t)vscroll;
+                                              int32_t py_out = y;
                                               if (py_out >= 0 && py_out < 192) {
                                                   framebuf[py_out * 320u + px] = color;
                                               }
@@ -1274,18 +1741,41 @@ behavior:
                                       }
                                   }
                               } else {
-                                  for (uint32_t gx = 0u; gx < 8u; ++gx) {
-                                      uint8_t on = (uint8_t)((bits & (uint8_t)(0x80u >> gx)) != 0u);
-                                      if (blank_char != 0u) on = 0u;
-                                      for (uint32_t xs = 0u; xs < x_scale; ++xs) {
-                                          uint32_t px = x0 + gx * x_scale + xs + hscroll;
+                                  uint8_t code = (uint8_t)(raw & 0x7Fu);
+                                  uint16_t row_base = (uint16_t)(((py ^ chbase20) & 0xFC07u));
+                                  uint16_t caddr = (uint16_t)(row_base + ((uint16_t)code << 3u));
+                                  uint8_t bits = ((uint64_t)caddr < cpu->memory_size) ? ATARI_BUS_READ8(caddr) : 0u;
+                                  uint8_t invert_mask = (uint8_t)(inverse_enable != 0u ? 0x80u : 0u);
+                                  uint8_t blank_mask = (uint8_t)(blank_enable != 0u ? 0xE0u : 0x60u);
+                                  uint8_t key = (uint8_t)(raw & blank_mask);
+                                  uint8_t draw_glyph = 1u;
+                                  if (key == 0x60u) {
+                                      draw_glyph = (uint8_t)((mode == 0x02u || (py & 0x0Eu) != 0u) ? 1u : 0u);
+                                  } else if (key == 0x00u || key == 0x20u || key == 0x40u) {
+                                      draw_glyph = (uint8_t)(((py & 0x0Eu) == 8u) ? 0u : 1u);
+                                  }
+                                  if (draw_glyph != 0u) {
+                                      bits = (uint8_t)((((raw & invert_mask) != 0u) ? 0xFFu : 0x00u) ^ bits);
+                                  } else {
+                                      bits = (uint8_t)(((raw & invert_mask) != 0u) ? 0xFFu : 0x00u);
+                                  }
+                                  {
+                                      uint8_t hi2_raw = (uint8_t)((line_colpf2 & 0xF0u) | (line_colpf1 & 0x0Fu));
+                                      uint32_t hi2 = atari_ntsc_palette[hi2_raw];
+                                      for (uint32_t gx = 0u; gx < 8u; ++gx) {
+                                          uint32_t color = ((bits & (uint8_t)(0x80u >> gx)) != 0u) ? hi2 : line_pf2;
+                                          uint32_t px = x0 + gx + row_hscroll;
                                           if (px < 320u) {
-                                              int32_t py_out = y + (int32_t)vscroll;
+                                              int32_t py_out = y;
                                               if (py_out >= 0 && py_out < 192) {
-                                                  framebuf[py_out * 320u + px] = (on != 0u) ? cell_fg : cell_bg;
+                                                  framebuf[py_out * 320u + px] = color;
                                               }
                                           }
                                       }
+                                  }
+                              }
+                              }
+                          }
                                   }
                               }
                           }
@@ -1298,21 +1788,41 @@ behavior:
                       }
 
                       uint32_t pixels_per_byte = (bits_per_pixel == 2u) ? 4u : 8u;
-                      /* ANTIC narrow modes are still displayed across the full 320-pixel output. */
                       uint32_t target_w = 320u;
                       uint32_t x_scale = (logical_width > 0u) ? (target_w / logical_width) : 1u;
                       if (x_scale == 0u) x_scale = 1u;
 
                       for (uint32_t py = 0u; py < line_height && y < 192; ++py) {
-                          int32_t py_out = y + (int32_t)vscroll;
+                          int32_t py_out = y;
+                          uint32_t line = (uint32_t)(y + top_crop);
+                          if (line > 261u) line = 261u;
+                          {
+                              uint8_t line_colpf0 = colpf0_raw;
+                              uint8_t line_colpf1 = colpf1_raw;
+                              uint8_t line_colpf2 = colpf2_raw;
+                              uint8_t line_colpf3 = colpf3_raw;
+                              uint8_t line_colbk = colbk_raw;
+                              uint8_t line_prior = prior_raw;
+                              if (comp->render_colpf0_by_line != NULL) line_colpf0 = comp->render_colpf0_by_line[line];
+                              if (comp->render_colpf1_by_line != NULL) line_colpf1 = comp->render_colpf1_by_line[line];
+                              if (comp->render_colpf2_by_line != NULL) line_colpf2 = comp->render_colpf2_by_line[line];
+                              if (comp->render_colpf3_by_line != NULL) line_colpf3 = comp->render_colpf3_by_line[line];
+                              if (comp->render_colbk_by_line != NULL) line_colbk = comp->render_colbk_by_line[line];
+                              if (comp->render_prior_by_line != NULL) line_prior = comp->render_prior_by_line[line];
+                              {
+                                  uint32_t line_pf0 = atari_ntsc_palette[line_colpf0];
+                                  uint32_t line_pf1 = atari_ntsc_palette[line_colpf1];
+                                  uint32_t line_pf2 = atari_ntsc_palette[line_colpf2];
+                                  uint32_t line_bg = atari_ntsc_palette[line_colbk];
+                                  uint8_t gtia_mode_line = (uint8_t)(line_prior >> 6u);
                           for (uint32_t bx = 0u; bx < bytes_per_row; ++bx) {
                               uint16_t saddr = (uint16_t)(scan_addr + (uint16_t)bx);
                               uint8_t bits = ((uint64_t)saddr < cpu->memory_size) ? ATARI_BUS_READ8(saddr) : 0u;
                               if (bits_per_pixel == 1u) {
                                   for (uint32_t bit = 0u; bit < 8u; ++bit) {
                                       uint8_t pix = (uint8_t)((bits >> (7u - bit)) & 0x01u);
-                                      uint32_t px0 = ((bx * 8u + bit) * x_scale) + hscroll;
-                                      uint32_t color = (pix != 0u) ? pf0 : bg;
+                                      uint32_t px0 = ((bx * 8u + bit) * x_scale) + row_hscroll;
+                                      uint32_t color = (pix != 0u) ? line_pf0 : line_bg;
                                       for (uint32_t xs = 0u; xs < x_scale; ++xs) {
                                           uint32_t px = px0 + xs;
                                           if (px < target_w && py_out >= 0 && py_out < 192) {
@@ -1321,20 +1831,67 @@ behavior:
                                       }
                                   }
                               } else {
-                                  for (uint32_t grp = 0u; grp < 4u; ++grp) {
-                                      uint8_t pix = (uint8_t)((bits >> ((3u - grp) * 2u)) & 0x03u);
-                                      uint32_t px0 = ((bx * 4u + grp) * x_scale) + hscroll;
-                                      uint32_t color = bg;
-                                      if (pix == 1u) color = pf0;
-                                      else if (pix == 2u) color = pf1;
-                                      else if (pix == 3u) color = pf2;
-                                      for (uint32_t xs = 0u; xs < x_scale; ++xs) {
-                                          uint32_t px = px0 + xs;
-                                          if (px < target_w && py_out >= 0 && py_out < 192) {
-                                              framebuf[py_out * 320u + px] = color;
+                                  if ((mode == 0x0Du || mode == 0x0Eu) && gtia_mode_line != 0u) {
+                                      for (uint32_t nib = 0u; nib < 2u; ++nib) {
+                                          uint8_t quad = (uint8_t)((nib == 0u) ? ((bits >> 4u) & 0x0Fu) : (bits & 0x0Fu));
+                                          uint8_t an0 = 0u;
+                                          uint8_t an1 = 0u;
+                                          if ((quad & 0x0Cu) == 0x08u) an0 = 1u;
+                                          else if ((quad & 0x0Cu) == 0x0Cu) an0 = 2u;
+                                          if ((quad & 0x03u) == 0x02u) an1 = 1u;
+                                          else if ((quad & 0x03u) == 0x03u) an1 = 2u;
+                                          {
+                                              uint8_t pix = (uint8_t)((an0 << 2u) | an1);
+                                              uint32_t px0 = ((bx * 2u + nib) * (target_w / 80u)) + row_hscroll;
+                                              uint32_t color = line_bg;
+                                              if (gtia_mode_line == 1u) {
+                                                  color = atari_ntsc_palette[(uint8_t)((line_colpf3 & 0xF0u) | (pix & 0x0Fu))];
+                                              } else if (gtia_mode_line == 2u) {
+                                                  static const uint8_t gtia10_lookup[16] = {
+                                                      0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u,
+                                                      8u, 8u, 8u, 8u, 4u, 5u, 6u, 7u
+                                                  };
+                                                  uint8_t color_sel = gtia10_lookup[pix & 0x0Fu];
+                                                  uint8_t color_raw = colbk_raw;
+                                                  if (color_sel == 0u) color_raw = colpm0_raw;
+                                                  else if (color_sel == 1u) color_raw = colpm1_raw;
+                                                  else if (color_sel == 2u) color_raw = colpm2_raw;
+                                                  else if (color_sel == 3u) color_raw = colpm3_raw;
+                                                  else if (color_sel == 4u) color_raw = line_colpf0;
+                                                  else if (color_sel == 5u) color_raw = line_colpf1;
+                                                  else if (color_sel == 6u) color_raw = line_colpf2;
+                                                  else if (color_sel == 7u) color_raw = line_colpf3;
+                                                  else color_raw = line_colbk;
+                                                  color = atari_ntsc_palette[color_raw];
+                                              } else if (gtia_mode_line == 3u) {
+                                                  color = atari_ntsc_palette[(uint8_t)(((pix & 0x0Fu) << 4u) | (line_colpf3 & 0x0Fu))];
+                                              }
+                                              for (uint32_t xs = 0u; xs < (target_w / 80u); ++xs) {
+                                                  uint32_t px = px0 + xs;
+                                                  if (px < target_w && py_out >= 0 && py_out < 192) {
+                                                      framebuf[py_out * 320u + px] = color;
+                                                  }
+                                              }
+                                          }
+                                      }
+                                  } else {
+                                      for (uint32_t grp = 0u; grp < 4u; ++grp) {
+                                          uint8_t pix = (uint8_t)((bits >> ((3u - grp) * 2u)) & 0x03u);
+                                          uint32_t px0 = ((bx * 4u + grp) * x_scale) + row_hscroll;
+                                          uint32_t color = line_bg;
+                                          if (pix == 1u) color = line_pf0;
+                                          else if (pix == 2u) color = line_pf1;
+                                          else if (pix == 3u) color = line_pf2;
+                                          for (uint32_t xs = 0u; xs < x_scale; ++xs) {
+                                              uint32_t px = px0 + xs;
+                                              if (px < target_w && py_out >= 0 && py_out < 192) {
+                                                  framebuf[py_out * 320u + px] = color;
+                                              }
                                           }
                                       }
                                   }
+                              }
+                          }
                               }
                           }
                           y += 1u;
@@ -1346,14 +1903,6 @@ behavior:
               }
 
           {
-              if (saw_gfx_mode != 0u) {
-                  frame_out_w = gfx_min_w;
-              } else if (saw_text_mode != 0u) {
-                  frame_out_w = text_min_w;
-              } else {
-                  frame_out_w = 320u;
-              }
-              if (frame_out_w == 0u || frame_out_w > 320u) frame_out_w = 320u;
               uint64_t frame_args[4] = {
                   (uint64_t)comp->frame_counter,
                   (uint64_t)(uintptr_t)framebuf,
@@ -1361,6 +1910,167 @@ behavior:
                   192u
               };
               cpu_component_emit_signal(cpu, "atari800xl_antic", "frame_ready", frame_args, 4);
+          }
+          uint8_t had_render_next_valid = comp->render_next_valid;
+          if (had_render_next_valid != 0u) {
+              if (comp->render_colpf0_by_line != NULL && comp->render_colpf0_next_by_line != NULL) memcpy(comp->render_colpf0_by_line, comp->render_colpf0_next_by_line, 262u);
+              if (comp->render_colpf1_by_line != NULL && comp->render_colpf1_next_by_line != NULL) memcpy(comp->render_colpf1_by_line, comp->render_colpf1_next_by_line, 262u);
+              if (comp->render_colpf2_by_line != NULL && comp->render_colpf2_next_by_line != NULL) memcpy(comp->render_colpf2_by_line, comp->render_colpf2_next_by_line, 262u);
+              if (comp->render_colpf3_by_line != NULL && comp->render_colpf3_next_by_line != NULL) memcpy(comp->render_colpf3_by_line, comp->render_colpf3_next_by_line, 262u);
+              if (comp->render_colbk_by_line != NULL && comp->render_colbk_next_by_line != NULL) memcpy(comp->render_colbk_by_line, comp->render_colbk_next_by_line, 262u);
+              if (comp->render_prior_by_line != NULL && comp->render_prior_next_by_line != NULL) memcpy(comp->render_prior_by_line, comp->render_prior_next_by_line, 262u);
+              if (comp->render_chactl_by_line != NULL && comp->render_chactl_next_by_line != NULL) memcpy(comp->render_chactl_by_line, comp->render_chactl_next_by_line, 262u);
+              if (comp->render_pmbase_by_line != NULL && comp->render_pmbase_next_by_line != NULL) memcpy(comp->render_pmbase_by_line, comp->render_pmbase_next_by_line, 262u);
+              if (comp->render_chbase_by_line != NULL && comp->render_chbase_next_by_line != NULL) memcpy(comp->render_chbase_by_line, comp->render_chbase_next_by_line, 262u);
+              if (comp->render_gtia_regs_by_line != NULL && comp->render_gtia_regs_next_by_line != NULL) memcpy(comp->render_gtia_regs_by_line, comp->render_gtia_regs_next_by_line, 19u * 262u);
+          } else {
+              if (comp->render_colpf0_by_line != NULL) memset(comp->render_colpf0_by_line, colpf0_raw, 262u);
+              if (comp->render_colpf1_by_line != NULL) memset(comp->render_colpf1_by_line, colpf1_raw, 262u);
+              if (comp->render_colpf2_by_line != NULL) memset(comp->render_colpf2_by_line, colpf2_raw, 262u);
+              if (comp->render_colpf3_by_line != NULL) memset(comp->render_colpf3_by_line, colpf3_raw, 262u);
+              if (comp->render_colbk_by_line != NULL) memset(comp->render_colbk_by_line, colbk_raw, 262u);
+              if (comp->render_prior_by_line != NULL) memset(comp->render_prior_by_line, prior_raw, 262u);
+              if (comp->render_chactl_by_line != NULL) memset(comp->render_chactl_by_line, comp->antic_chactl, 262u);
+              if (comp->render_pmbase_by_line != NULL) memset(comp->render_pmbase_by_line, comp->antic_pmbase, 262u);
+              if (comp->render_chbase_by_line != NULL) memset(comp->render_chbase_by_line, comp->antic_chbase, 262u);
+          }
+          comp->render_next_valid = 0u;
+          {
+              /* Minimal PMG overlay: enough to render status-panel/player text that
+                 lives in GTIA player/missile DMA over blank playfield rows. */
+              uint8_t dmactl = comp->antic_dmactl;
+              static const uint8_t pm_width[4] = { 1u, 2u, 1u, 4u };
+              uint8_t singleline = (uint8_t)((dmactl & 0x10u) != 0u);
+              uint8_t uniform_regs = (uint8_t)(had_render_next_valid == 0u);
+              uint8_t raw_hposp[4] = { 0u, 0u, 0u, 0u };
+              uint8_t raw_hposm[4] = { 0u, 0u, 0u, 0u };
+              uint8_t raw_sizep[4] = { 0u, 0u, 0u, 0u };
+              uint8_t raw_line_colpm[4] = { 0u, 0u, 0u, 0u };
+              uint8_t raw_sizem = 0u;
+              uint8_t raw_vdelay = 0u;
+              uint8_t raw_gractl = 0u;
+              if (uniform_regs != 0u) {
+                  raw_hposp[0] = ATARI_BUS_READ8(0xD000u);
+                  raw_hposp[1] = ATARI_BUS_READ8(0xD001u);
+                  raw_hposp[2] = ATARI_BUS_READ8(0xD002u);
+                  raw_hposp[3] = ATARI_BUS_READ8(0xD003u);
+                  raw_hposm[0] = ATARI_BUS_READ8(0xD004u);
+                  raw_hposm[1] = ATARI_BUS_READ8(0xD005u);
+                  raw_hposm[2] = ATARI_BUS_READ8(0xD006u);
+                  raw_hposm[3] = ATARI_BUS_READ8(0xD007u);
+                  raw_sizep[0] = ATARI_BUS_READ8(0xD008u);
+                  raw_sizep[1] = ATARI_BUS_READ8(0xD009u);
+                  raw_sizep[2] = ATARI_BUS_READ8(0xD00Au);
+                  raw_sizep[3] = ATARI_BUS_READ8(0xD00Bu);
+                  raw_sizem = ATARI_BUS_READ8(0xD00Cu);
+                  raw_line_colpm[0] = ATARI_BUS_READ8(0xD012u);
+                  raw_line_colpm[1] = ATARI_BUS_READ8(0xD013u);
+                  raw_line_colpm[2] = ATARI_BUS_READ8(0xD014u);
+                  raw_line_colpm[3] = ATARI_BUS_READ8(0xD015u);
+                  raw_vdelay = ATARI_BUS_READ8(0xD01Cu);
+                  raw_gractl = ATARI_BUS_READ8(0xD01Du);
+              }
+              if ((uniform_regs != 0u) || (comp->render_gtia_regs_by_line != NULL && comp->render_pmbase_by_line != NULL)) {
+                  for (uint32_t py = 0u; py < 192u; ++py) {
+                      uint32_t hw_line = py + 24u;
+                      uint8_t *gtia_line = (uniform_regs == 0u) ? (comp->render_gtia_regs_by_line + hw_line) : NULL;
+                      uint8_t line_pmbase = (uniform_regs != 0u) ? comp->antic_pmbase : comp->render_pmbase_by_line[hw_line];
+                      uint16_t pmbase_d = (uint16_t)(((uint16_t)(line_pmbase & 0xFCu)) << 8u);
+                      uint16_t pmbase_s = (uint16_t)(pmbase_d & 0xF8FFu);
+                      uint8_t hposp[4] = {
+                          (uniform_regs != 0u) ? raw_hposp[0] : gtia_line[0u * 262u],
+                          (uniform_regs != 0u) ? raw_hposp[1] : gtia_line[1u * 262u],
+                          (uniform_regs != 0u) ? raw_hposp[2] : gtia_line[2u * 262u],
+                          (uniform_regs != 0u) ? raw_hposp[3] : gtia_line[3u * 262u]
+                      };
+                      uint8_t hposm[4] = {
+                          (uniform_regs != 0u) ? raw_hposm[0] : gtia_line[4u * 262u],
+                          (uniform_regs != 0u) ? raw_hposm[1] : gtia_line[5u * 262u],
+                          (uniform_regs != 0u) ? raw_hposm[2] : gtia_line[6u * 262u],
+                          (uniform_regs != 0u) ? raw_hposm[3] : gtia_line[7u * 262u]
+                      };
+                      uint8_t sizep[4] = {
+                          (uniform_regs != 0u) ? raw_sizep[0] : gtia_line[8u * 262u],
+                          (uniform_regs != 0u) ? raw_sizep[1] : gtia_line[9u * 262u],
+                          (uniform_regs != 0u) ? raw_sizep[2] : gtia_line[10u * 262u],
+                          (uniform_regs != 0u) ? raw_sizep[3] : gtia_line[11u * 262u]
+                      };
+                      uint8_t sizem = (uniform_regs != 0u) ? raw_sizem : gtia_line[12u * 262u];
+                      uint8_t line_colpm[4] = {
+                          (uniform_regs != 0u) ? raw_line_colpm[0] : gtia_line[13u * 262u],
+                          (uniform_regs != 0u) ? raw_line_colpm[1] : gtia_line[14u * 262u],
+                          (uniform_regs != 0u) ? raw_line_colpm[2] : gtia_line[15u * 262u],
+                          (uniform_regs != 0u) ? raw_line_colpm[3] : gtia_line[16u * 262u]
+                      };
+                      uint8_t vdelay = (uniform_regs != 0u) ? raw_vdelay : gtia_line[17u * 262u];
+                      uint8_t gractl = (uniform_regs != 0u) ? raw_gractl : gtia_line[18u * 262u];
+                      uint8_t player_dma = (uint8_t)((dmactl & 0x08u) != 0u && (gractl & 0x02u) != 0u);
+                      uint8_t missile_dma = (uint8_t)((dmactl & 0x04u) != 0u && (gractl & 0x01u) != 0u);
+                      if (player_dma == 0u && missile_dma == 0u) continue;
+                      uint32_t pm_row = singleline != 0u ? hw_line : (hw_line >> 1u);
+                      uint16_t pm_base = (singleline != 0u) ? pmbase_s : pmbase_d;
+                      for (uint32_t pn = 0u; pn < 4u; ++pn) {
+                          uint8_t graf = 0u;
+                          if (player_dma != 0u) {
+                              uint16_t offs = singleline != 0u
+                                  ? (uint16_t)(0x0400u + pn * 0x0100u)
+                                  : (uint16_t)(0x0200u + pn * 0x0080u);
+                              uint16_t addr = (uint16_t)(pm_base + offs + (uint16_t)pm_row);
+                              if ((uint64_t)addr < cpu->memory_size) {
+                                  graf = ATARI_BUS_READ8(addr);
+                              }
+                              if ((singleline == 0u) && ((hw_line & 1u) == 0u) && ((vdelay & (uint8_t)(0x10u << pn)) != 0u)) {
+                                  /* Approximate VDELAY: keep prior odd-line DMA sample on even lines. */
+                                  uint32_t prev_row = (pm_row > 0u) ? (pm_row - 1u) : 0u;
+                                  addr = (uint16_t)(pm_base + offs + (uint16_t)prev_row);
+                                  if ((uint64_t)addr < cpu->memory_size) {
+                                      graf = ATARI_BUS_READ8(addr);
+                                  }
+                              }
+                          } else if (cpu->memory_size > (0xD00Du + pn)) {
+                              graf = ATARI_BUS_READ8((uint16_t)(0xD00Du + pn));
+                          }
+                          if (graf != 0u) {
+                              uint32_t scale = pm_width[sizep[pn] & 0x03u];
+                              int32_t xpair0 = (int32_t)hposp[pn] - 0x20;
+                              uint32_t color = atari_ntsc_palette[(uint8_t)(line_colpm[pn] & 0xFEu)];
+                              for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                                  if ((graf & (uint8_t)(0x80u >> bit)) == 0u) continue;
+                                  for (uint32_t dup = 0u; dup < scale; ++dup) {
+                                      int32_t xpair = xpair0 + (int32_t)(bit * scale + dup);
+                                      int32_t px0 = xpair * 2;
+                                      for (int32_t px = px0; px < px0 + 2; ++px) {
+                                          if (px >= 0 && px < 320) {
+                                              framebuf[py * 320u + (uint32_t)px] = color;
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                      if (missile_dma != 0u) {
+                          uint16_t moffs = (uint16_t)(singleline != 0u ? 0x0300u : 0x0180u);
+                          uint16_t maddr = (uint16_t)(pm_base + moffs + (uint16_t)pm_row);
+                          uint8_t mgraf = ((uint64_t)maddr < cpu->memory_size) ? ATARI_BUS_READ8(maddr) : 0u;
+                          static const uint8_t missile_masks[4] = { 0x03u, 0x0Cu, 0x30u, 0xC0u };
+                          for (uint32_t mn = 0u; mn < 4u; ++mn) {
+                              if ((mgraf & missile_masks[mn]) == 0u) continue;
+                              uint32_t scale = pm_width[(sizem >> (mn * 2u)) & 0x03u];
+                              int32_t xpair0 = (int32_t)hposm[mn] - 0x20;
+                              uint32_t color = atari_ntsc_palette[(uint8_t)(line_colpm[mn] & 0xFEu)];
+                              for (uint32_t dup = 0u; dup < scale; ++dup) {
+                                  int32_t xpair = xpair0 + (int32_t)dup;
+                                  int32_t px0 = xpair * 2;
+                                  for (int32_t px = px0; px < px0 + 2; ++px) {
+                                      if (px >= 0 && px < 320) {
+                                          framebuf[py * 320u + (uint32_t)px] = color;
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
           }
           }
       }

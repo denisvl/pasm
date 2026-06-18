@@ -169,14 +169,20 @@ void App::render() {
     renderNewFileDialog();
 
     if (m_showSchemaInspector) {
-        ImGui::Begin("Schema Inspector", &m_showSchemaInspector, ImGuiWindowFlags_AlwaysAutoResize);
+        static bool maximized = false;
+        ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
+        ImGui::Begin("Schema Inspector", &m_showSchemaInspector);
+        if (ImGui::Button(maximized ? "Restore" : "Maximize")) {
+            maximized = !maximized;
+            if (maximized)
+                ImGui::SetWindowPos(ImVec2(0, 0));
+            ImGui::SetWindowSize(maximized ? ImGui::GetMainViewport()->Size : ImVec2(500, 400));
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(raw JSON)");
+        ImGui::Separator();
         Document* doc = activeDocOrNull();
-        if (!doc || doc->schemaPath.empty()) {
-            ImGui::TextDisabled("No schema loaded");
-        } else {
-            ImGui::Text("Schema: %s", doc->schemaTitle.c_str());
-            ImGui::Text("File: %s", doc->schemaPath.c_str());
-            ImGui::Separator();
+        if (doc) {
             std::ifstream fin(doc->schemaPath);
             if (fin.is_open()) {
                 std::stringstream ss;
@@ -200,6 +206,8 @@ void App::render() {
 
     ImGui::BeginChild("MainArea", ImVec2(avail.x, avail.y - statusHeight), false);
 
+    float mainH = ImGui::GetContentRegionAvail().y;
+
     // Resizable left panel
     m_filePanelWidth = std::max(140.0f, std::min(m_filePanelWidth, avail.x * 0.5f));
 
@@ -213,14 +221,9 @@ void App::render() {
 
     ImGui::SameLine();
 
-    // Vertical splitter handle (span full height)
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.5f,0.5f,0.5f,0.3f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.5f,0.5f,0.5f,0.2f));
+    // Vertical splitter handle
     const float splitterW = 6.0f;
-    float panelH = ImGui::GetContentRegionAvail().y;
-    ImGui::InvisibleButton("##split", ImVec2(splitterW, panelH));
-    ImGui::PopStyleColor(3);
+    ImGui::InvisibleButton("##split", ImVec2(splitterW, mainH));
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 0))
         m_filePanelWidth += ImGui::GetIO().MouseDelta.x;
     if (ImGui::IsItemHovered())

@@ -23,6 +23,7 @@ from src.codegen.split_units import (
     extract_split_section,
     extract_split_sections,
     extract_host_hal_function_prototypes,
+    generate_component_runtime_dispatch_glue,
     generate_host_picker_glue,
     promote_host_hal_symbols,
 )
@@ -558,6 +559,7 @@ def test_system_glue_owns_dispatch_not_ic_stateful_impl(tmp_path):
     assert "ComponentState_sms_vdp0 *comp = &cpu->comp_sms_vdp0;" not in post_block
     assert "ComponentState_sms_joy0 *comp = &cpu->comp_sms_joy0;" not in post_block
     assert "ComponentState_sms_psg0 *comp = &cpu->comp_sms_psg0;" not in post_block
+    assert "cpu_component_cartridge_picker_update(cpu, 1u);" not in post_block
 
 
 def test_generator_emits_split_link_order_in_generated_cmake(tmp_path):
@@ -1241,6 +1243,43 @@ def test_host_picker_glue_uses_strict_picker_symbols_when_cartridge_enabled():
     assert "if (!cpu_component_cartridge_picker_set_dir)" not in host_glue_impl
     assert "if (!cpu_component_cartridge_picker_apply_pending_swap)" not in host_glue_impl
     assert "if (!cpu_component_cartridge_picker_is_active)" not in host_glue_impl
+
+
+def test_component_runtime_dispatch_glue_keeps_picker_out_of_step_post():
+    isa = _base_isa("HostStep8")
+    isa["cartridge"] = {"metadata": {"id": "cart", "type": "cartridge_map", "model": "test"}}
+    glue = generate_component_runtime_dispatch_glue(isa)
+
+    assert "if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {" in glue
+    post_block = glue.split("void cpu_components_step_post(", 1)[1].split("}\n", 1)[0]
+    assert "cpu_component_cartridge_picker_update(cpu, 1u);" not in post_block
+    assert "cpu_component_cartridge_picker_is_active() != 0u" not in post_block
+
+
+def test_video_frame_handler_polls_picker_at_frame_cadence():
+    isa = _base_isa("HostFrame8")
+    isa["cartridge"] = {
+        "metadata": {"id": "cart", "type": "cartridge_map", "model": "test"},
+        "state": [
+            {"name": "rom_data", "type": "uint8_t *", "initial": "NULL"},
+            {"name": "rom_size", "type": "uint32_t", "initial": "0"},
+        ],
+        "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+        "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+        "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+    }
+    isa["hosts"] = [
+        {
+            "metadata": {"id": "host0"},
+            "interfaces": {"callbacks": [], "handlers": [{"name": "video_frame", "args": ["u32", "u64", "u32", "u32"]}], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {"video_frame": ""}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    impl = generate_cpu_impl(isa, "HostFrame8")
+
+    assert "cpu_component_host_picker_step(cpu, 1u);" in impl
+    assert "cpu_component_cartridge_picker_draw_overlay(cpu, picker_pixels, picker_w, picker_h);" in impl
 
 
 def test_cpu_core_emits_host_hal_split_markers(tmp_path):

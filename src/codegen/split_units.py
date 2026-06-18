@@ -970,11 +970,7 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
             "void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {",
         ]
     )
-    if has_runtime_cartridge:
-        lines.append("    if (cpu_component_cartridge_picker_is_active() != 0u) {")
-        lines.append("        cpu_component_cartridge_picker_update(cpu, 1u);")
-        lines.append("    }")
-    emitted_post = has_runtime_cartridge
+    emitted_post = False
     if post_hook_ics:
         for _, ident in post_hook_ics:
             lines.append(f"    cpu_component_ic_{ident}_step_post(cpu, inst, pc_before);")

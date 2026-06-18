@@ -1,8 +1,16 @@
 {
   "dark_theme": true,
-  "last_file": "/home/dvlop/projects/pasm/examples/cartridges/atari2600/atari2600_mapper_none.yaml",
+  "last_file": "/home/dvlop/projects/pasm/examples/processors/mc6809.yaml",
   "open_dirs": [
-    "cartridges/atari2600"
+    "cartridges/atari2600",
+    "devices",
+    "devices/apple2",
+    "hosts/apple2",
+    "ics/apple2",
+    "processors",
+    "roms/apple2",
+    "systems",
+    "systems/apple2"
   ],
-  "panel_width": 280.0
+  "panel_width": 245.0
 }

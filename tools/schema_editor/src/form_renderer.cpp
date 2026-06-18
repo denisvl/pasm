@@ -121,7 +121,7 @@ void FormRenderer::ensureNode(YAML::Node& data, const std::string& type) {
         data = YAML::Node(YAML::NodeType::Map);
 }
 
-void FormRenderer::renderField(const SchemaField& field, YAML::Node& data, const std::string& label) {
+void FormRenderer::renderField(const SchemaField& field, YAML::Node& data, const std::string& label, float maxLabelWidth) {
     ImGui::PushID(field.name.c_str());
 
     std::string dispLabel = label.empty() ? field.name : label;
@@ -179,16 +179,20 @@ void FormRenderer::renderField(const SchemaField& field, YAML::Node& data, const
     // Simple scalar field: label + widget
     bool showDesc = renderLabel(field, dispLabel);
 
-    float labelWidth = ImGui::CalcTextSize(dispLabel.c_str()).x
-                     + (showDesc ? ImGui::GetStyle().ItemInnerSpacing.x + ImGui::GetTextLineHeight() : 0)
-                     + (field.required ? ImGui::CalcTextSize(" *").x : 0)
-                     + ImGui::GetStyle().FramePadding.x * 2;
-
-    float widgetWidth = ImGui::GetContentRegionAvail().x - labelWidth - ImGui::GetStyle().ItemSpacing.x;
-    widgetWidth = std::max(widgetWidth, 120.0f);
-
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(widgetWidth);
+    if (maxLabelWidth > 0.0f) {
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(maxLabelWidth);
+        ImGui::SetNextItemWidth(-1);
+    } else {
+        float labelWidth = ImGui::CalcTextSize(dispLabel.c_str()).x
+                         + (showDesc ? ImGui::GetStyle().ItemInnerSpacing.x + ImGui::GetTextLineHeight() : 0)
+                         + (field.required ? ImGui::CalcTextSize(" *").x : 0)
+                         + ImGui::GetStyle().FramePadding.x * 2;
+        float widgetWidth = ImGui::GetContentRegionAvail().x - labelWidth - ImGui::GetStyle().ItemSpacing.x;
+        widgetWidth = std::max(widgetWidth, 120.0f);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(widgetWidth);
+    }
 
     std::string err = validate(field, data);
     if (!err.empty()) {
@@ -215,6 +219,20 @@ void FormRenderer::renderField(const SchemaField& field, YAML::Node& data, const
 void FormRenderer::renderObject(const SchemaField& field, YAML::Node& data) {
     ensureNode(data, "object");
 
+    // Compute max label pixel width for aligned scalar widgets
+    float maxLabelWidth = 0.0f;
+    for (const auto& prop : field.properties) {
+        if (prop.type == "object" || prop.type == "array" || prop.type == "oneOf")
+            continue;
+        if (prop.isCCodeField && prop.type == "string")
+            continue;
+        float w = ImGui::CalcTextSize(prop.name.c_str()).x
+                + (prop.required ? ImGui::CalcTextSize(" *").x : 0)
+                + (!prop.description.empty() ? ImGui::GetStyle().ItemInnerSpacing.x + ImGui::GetTextLineHeight() : 0)
+                + ImGui::GetStyle().FramePadding.x * 2;
+        maxLabelWidth = std::max(maxLabelWidth, w);
+    }
+
     for (const auto& prop : field.properties) {
         std::string key = prop.name;
 
@@ -240,7 +258,7 @@ void FormRenderer::renderObject(const SchemaField& field, YAML::Node& data) {
         }
 
         YAML::Node child = data[prop.name];
-        renderField(prop, child);
+        renderField(prop, child, "", maxLabelWidth);
     }
 
     if (field.hasAdditionalProperties) {

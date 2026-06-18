@@ -8,16 +8,20 @@
 #include "app.h"
 
 int main(int, char**) {
+    // Prefer X11 video driver for proper window decorations on Linux
+    SDL_SetHint(SDL_HINT_VIDEODRIVER, "x11");
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
     }
 
+    int windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
     SDL_Window* window = SDL_CreateWindow(
         "PASM Schema Editor",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         1400, 900,
-        SDL_WINDOW_RESIZABLE
+        windowFlags
     );
     if (!window) {
         SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());

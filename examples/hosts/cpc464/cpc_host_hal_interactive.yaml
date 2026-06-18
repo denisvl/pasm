@@ -127,6 +127,9 @@ state:
 - name: row9
   type: uint8_t
   initial: '0xFF'
+- name: keyboard_dirty
+  type: uint8_t
+  initial: '1'
 interfaces:
   callbacks:
   - name: keyboard_matrix
@@ -259,10 +262,12 @@ behavior:
 
       comp->display_shader_supported = (comp->display_shader != NULL) ? -1 : 0;
 
+      comp->keyboard_dirty = 1u;
+
       if (comp->audio_out_dev != 0u) cpu_host_hal_audio_clear(comp->audio_out_dev);
 
       '
-    step_post: "if (comp->host_inited == 0u) return;\nif ((cpu->total_cycles - comp->last_event_poll_cycle) < 1024u) return;\n\
+    step_post: "if (comp->host_inited == 0u) return;\nif ((cpu->total_cycles - comp->last_event_poll_cycle) < 8192u) return;\n\
       comp->last_event_poll_cycle = cpu->total_cycles;\n\nstatic uint8_t latched_scancodes[1024];\nstatic int latched_init\
       \ = 0;\nstatic uint8_t synth_sc6_oneshot = 0u;\nconst uint32_t CPU_HOST_EVENT_TEXTEDITING = 0x302u;\nconst uint32_t\
       \ CPU_HOST_EVENT_TEXTINPUT = 0x303u;\nif (latched_init == 0) {\n    for (int i = 0; i < 1024; ++i) latched_scancodes[i]\
@@ -295,8 +300,8 @@ behavior:
       \ ||\n        cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYUP\n    ) {\n        int32_t sc_ev = cpu_host_hal_event_scancode(&ev);\n\
       \        uint8_t is_down_ev = (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN) ? 1u : 0u;\n        int32_t sc_from_key\
       \ = cpu_host_hal_scancode_from_key((int32_t)cpu_host_hal_event_keycode(&ev));\n        uint8_t down = is_down_ev;\n\
-      \        if (sc_ev >= 0 && sc_ev < 1024) {\n            latched_scancodes[sc_ev] = down;\n        }\n        if (sc_from_key\
-      \ >= 0 && sc_from_key < 1024) {\n            latched_scancodes[sc_from_key] = down;\n        }\n        if (comp->window\
+      \        if (sc_ev >= 0 && sc_ev < 1024) {\n            latched_scancodes[sc_ev] = down;\n            comp->keyboard_dirty = 1u;\n        }\n        if (sc_from_key\
+      \ >= 0 && sc_from_key < 1024) {\n            latched_scancodes[sc_from_key] = down;\n            comp->keyboard_dirty = 1u;\n        }\n        if (comp->window\
       \ != NULL) {\n            const RuntimeKeyboardBinding *matched = NULL;\n            char title[256];\n            for\
       \ (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {\n                const RuntimeKeyboardBinding *b =\
       \ &g_runtime_keyboard_map.bindings[i];\n                if (b->scancode == sc_ev) {\n                    matched = b;\n\
@@ -325,26 +330,21 @@ behavior:
       \ ((size_t)CPU_HOST_SCANCODE(LSHIFT) < 1024u && latched_scancodes[CPU_HOST_SCANCODE(LSHIFT)] != 0u) shift_down = 1u;\n\
       \        if ((size_t)CPU_HOST_SCANCODE(RSHIFT) < 1024u && latched_scancodes[CPU_HOST_SCANCODE(RSHIFT)] != 0u) shift_down\
       \ = 1u;\n        if (shift_down != 0u && (size_t)CPU_HOST_SCANCODE(6) < 1024u) {\n            latched_scancodes[CPU_HOST_SCANCODE(6)]\
-      \ = 1u;\n            synth_sc6_oneshot = 1u;\n        }\n    }\n    if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT)\
+      \ = 1u;\n            synth_sc6_oneshot = 1u;\n            comp->keyboard_dirty = 1u;\n        }\n    }\n    if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_QUIT)\
       \ {\n        cpu->running = false;\n        cpu->halted = true;\n    }\n}\n\ncpu_host_hal_pump_events();\ncomp->has_keyboard_focus\
       \ = cpu_host_hal_window_has_focus(comp->window);\nif (comp->has_keyboard_focus != comp->last_focus_state) {\n    comp->last_focus_state\
       \ = comp->has_keyboard_focus;\n    if (comp->window != NULL) {\n        cpu_host_hal_set_window_title(\n           \
       \ comp->window,\n            (comp->has_keyboard_focus != 0u)\n                ? \"PASM Amstrad CPC464 [FOCUS]\"\n \
-      \               : \"PASM Amstrad CPC464 [NO-FOCUS]\"\n        );\n    }\n}\n{\n    pasm_overlay_update_perf(\n     \
+      \               : \"PASM Amstrad CPC464 [NO-FOCUS]\"\n        );\n    }\n    comp->keyboard_dirty = 1u;\n}\n{\n    pasm_overlay_update_perf(\n     \
       \   cpu_host_hal_ticks_ms(),\n        (uint64_t)comp->frame_count,\n        cpu->total_cycles,\n        (uint64_t)CPU_SYSTEM_CLOCK_HZ,\n\
       \        &comp->overlay_last_ms,\n        &comp->overlay_last_frame_count,\n        &comp->overlay_last_cycle_count,\n\
       \        &comp->overlay_fps_x100,\n        &comp->overlay_cpu_hz,\n        &comp->overlay_cpu_pct_x10\n    );\n}\n\n\
-      {\n    int key_count = 0;\n    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n    if (ks != NULL && key_count\
-      \ > 0) {\n        uint8_t merged_keys[1024];\n        static int host_trace_init = 0;\n        static int host_trace_on\
+      {\n    if (comp->keyboard_dirty != 0u) {\n        uint8_t merged_keys[1024];\n        static int host_trace_init = 0;\n        static int host_trace_on\
       \ = 0;\n        static uint32_t host_trace_count = 0u;\n        static FILE *host_trace_fp = NULL;\n        static uint8_t\
       \ host_prev_rows[10] = {\n            0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu\n       \
       \ };\n        uint8_t rows[10] = { 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu };\n       \
-      \ int merged_count = key_count;\n        if (merged_count < 0) merged_count = 0;\n        if (merged_count > 1024) merged_count\
-      \ = 1024;\n        for (int i = 0; i < merged_count; ++i) {\n            uint8_t v_state = (ks[i] != 0u) ? 1u : 0u;\n\
-      \            uint8_t v_latch = latched_scancodes[i];\n            merged_keys[i] = (v_state != 0u || v_latch != 0u)\
-      \ ? 1u : 0u;\n        }\n        if (\n            synth_sc6_oneshot != 0u &&\n            (size_t)CPU_HOST_SCANCODE(6)\
-      \ < (size_t)merged_count &&\n            (size_t)CPU_HOST_SCANCODE(6) < (size_t)key_count &&\n            ks[CPU_HOST_SCANCODE(6)]\
-      \ == 0u\n        ) {\n            latched_scancodes[CPU_HOST_SCANCODE(6)] = 0u;\n            synth_sc6_oneshot = 0u;\n\
+      \ int merged_count = 1024;\n        for (int i = 0; i < merged_count; ++i) {\n            merged_keys[i] = latched_scancodes[i];\n\
+      \        }\n        if (\n            synth_sc6_oneshot != 0u &&\n            (size_t)CPU_HOST_SCANCODE(6) < (size_t)merged_count\n        ) {\n            latched_scancodes[CPU_HOST_SCANCODE(6)] = 0u;\n            synth_sc6_oneshot = 0u;\n\
       \        }\n        if (host_trace_init == 0) {\n            const char *env = cpu_host_hal_getenv(\"PASM_CPC_HOST_KB_TRACE\"\
       );\n            host_trace_on = (env != NULL && env[0] != '\\0' && env[0] != '0') ? 1 : 0;\n            host_trace_init\
       \ = 1;\n            if (host_trace_on != 0) {\n                host_trace_fp = fopen(\"log/cpc_host_kb_trace.log\",\
@@ -370,8 +370,8 @@ behavior:
       \                    (unsigned)rows[6],\n                    (unsigned)rows[7],\n                    (unsigned)rows[8],\n\
       \                    (unsigned)rows[9]\n                );\n                host_trace_count += 1u;\n              \
       \  if ((host_trace_count & 63u) == 0u) fflush(host_trace_fp);\n                for (int i = 0; i < 10; ++i) host_prev_rows[i]\
-      \ = rows[i];\n            }\n        }\n    }\n}\n\nif (\n    comp->audio_out_dev != 0u &&\n    comp->audio_out_ready\
-      \ != 0u &&\n    comp->audio_ring != NULL\n) {\n    uint32_t channels = (comp->audio_channels > 0u) ? comp->audio_channels\
+      \ = rows[i];\n            }\n        }\n        comp->keyboard_dirty = 0u;\n    }\n}\n\nif (
+    comp->audio_out_dev != 0u &&\n    comp->audio_out_ready\n      \ != 0u &&\n    comp->audio_ring != NULL\n) {\n    uint32_t channels = (comp->audio_channels > 0u) ? comp->audio_channels\
       \ : 1u;\n    uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev) / (uint32_t)sizeof(int16_t);\n\
       \    uint32_t queued_frames = queued_samples / channels;\n    uint32_t device_samples = (comp->audio_device_samples\
       \ > 0u) ? comp->audio_device_samples : 512u;\n    uint32_t device_frames = device_samples / channels;\n    uint32_t\

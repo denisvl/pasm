@@ -4456,6 +4456,7 @@ def _generate_ic_runtime_blocks(
                 "    if (!event) return 0;",
                 "    if (cpu_host_hal_glfw_inited == 0u) return 0;",
                 "    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_EVENTS) == 0u) return 0;",
+                "    glfwPollEvents();",
                 "    if (cpu_host_hal_glfw_primary_window != NULL &&",
                 "        glfwWindowShouldClose(cpu_host_hal_glfw_primary_window) != 0 &&",
                 "        cpu_host_hal_glfw_quit_emitted == 0u) {",
@@ -7307,6 +7308,7 @@ def _generate_ic_runtime_blocks(
             helper_lines.append(f"    ComponentState_{comp_ident} *comp = &cpu->comp_{comp_ident};")
             helper_lines.append(f'    cpu->active_component_id = "{_escape_c_string(comp_id)}";')
             if handler_name == "video_frame":
+                helper_lines.append("    cpu_component_host_picker_step(cpu, 1u);")
                 helper_lines.append("    if (argc >= 4u) {")
                 helper_lines.append("        uint32_t *picker_pixels = (uint32_t *)(uintptr_t)args[1];")
                 helper_lines.append("        uint32_t picker_w = (uint32_t)(args[2] & 0xFFFFFFFFu);")
@@ -7474,22 +7476,29 @@ def _generate_ic_runtime_blocks(
     helper_lines.extend(
         [
             "void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {",
-            "    (void)inst;",
-            "    (void)pc_before;",
         ]
     )
-    if has_runtime_cartridge:
-        helper_lines.extend(
-            [
-                "    if (cpu_component_cartridge_picker_is_active() != 0u) {",
-                "        cpu_component_cartridge_picker_update(cpu, 1u);",
-                "    }",
-            ]
-        )
+    emitted_post = False
     for component in components:
         block = _snippet_block(component, "step_post")
         if block:
             helper_lines.append(block)
+            emitted_post = True
+    if not emitted_post:
+        helper_lines.extend(
+            [
+                "    (void)cpu;",
+                "    (void)inst;",
+                "    (void)pc_before;",
+            ]
+        )
+    else:
+        helper_lines.extend(
+            [
+                "    (void)inst;",
+                "    (void)pc_before;",
+            ]
+        )
     helper_lines.append("}")
     helper_lines.append("/* PASM_SPLIT_END:COMPONENT_RUNTIME */")
 

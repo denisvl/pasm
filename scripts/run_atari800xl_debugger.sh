@@ -14,11 +14,12 @@ set -euo pipefail
 #   CMAKE_BUILD_TYPE=Release
 #   RUN_SPEED=realtime|max
 #   PASM_HOST_AUDIO=1
+#   CONTROLLER_MAP=examples/hosts/atari800xl/host_controller_atari800xl.yaml
 #   CARTRIDGE_MAP=examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml
 #   CARTRIDGE_ROM_GEN=../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/cart.rom
-#   USE_CARTRIDGE=0|1                           (default 1: picker-enabled system)
-#   BOOT_CARTRIDGE=0|1                          (default 0: boot BASIC/no cart)
+#   USE_CARTRIDGE=0|1                           (default 0: boot without cartridge system)
+#   BOOT_CARTRIDGE=0|1                          (default 1: boot cartridge ROM when cartridge mode is enabled)
 #   CARTRIDGE_DIR=/abs/path/to/atari800xl/roms   (enable runtime cartridge picker list)
 #   PASM_EMU_CART_PICKER_RAW_KEYS=0|1            (default 1; raw picker hotkey F12)
 #   OS_ROM=../../roms/atari800xl/ATARIXL.ROM
@@ -26,6 +27,10 @@ set -euo pipefail
 #   SELFTEST_ROM=../../roms/atari800xl/ATARIXL_SELFTEST.ROM
 
 PROFILE="${1:-interactive}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+EXTRA_DEBUGGER_ARGS=("$@")
 START_PC="${START_PC:-}"
 MEMORY_SIZE="${MEMORY_SIZE:-65536}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
@@ -39,13 +44,14 @@ PASM_ATARI800XL_KB_EVENTS="0"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
-USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
-BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-0}"
+USE_CARTRIDGE="${USE_CARTRIDGE:-0}"
+BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-1}"
 CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
 OS_ROM="${OS_ROM:-../../roms/atari800xl/ATARIXL.ROM}"
 BASIC_ROM="${BASIC_ROM:-../../roms/atari800xl/BASIC_C.ROM}"
 SELFTEST_ROM="${SELFTEST_ROM:-../../roms/atari800xl/ATARIXL_SELFTEST.ROM}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/atari800xl/host_keyboard_atari800xl.yaml}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/atari800xl/host_controller_atari800xl.yaml}"
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -256,14 +262,14 @@ if [[ "${USE_CARTRIDGE}" != "0" ]]; then
 fi
 
 if [[ -n "${START_PC}" ]]; then
-  set -- --start-pc "${START_PC}"
-else
-  set --
+  EXTRA_DEBUGGER_ARGS+=(--start-pc "${START_PC}")
 fi
 
 KEYBOARD_ARGS=()
+CONTROLLER_ARGS=()
 if [[ "${PROFILE}" == "interactive" ]]; then
   KEYBOARD_ARGS=(--keyboard-map "${KEYBOARD_MAP}")
+  CONTROLLER_ARGS=(--controller-map "${CONTROLLER_MAP}")
 fi
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
@@ -281,6 +287,7 @@ cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --fe
   --memory-size "${MEMORY_SIZE}" \
   --system-dir "${SYSTEM_DIR}" \
   "${KEYBOARD_ARGS[@]}" \
+  "${CONTROLLER_ARGS[@]}" \
   "${RUN_CARTRIDGE_ARGS[@]}" \
-  "$@" \
+  "${EXTRA_DEBUGGER_ARGS[@]}" \
   --run-speed "${RUN_SPEED}"

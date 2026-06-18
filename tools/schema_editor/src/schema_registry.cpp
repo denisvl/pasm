@@ -105,7 +105,7 @@ const SchemaInfo* SchemaRegistry::findSchemaForFile(const std::string& yamlPath)
                 prio = 200;
         }
         else if (m_schemas[i].displayName == "Keyboards") {
-            if (lower.find("host_keyboard_") != std::string::npos ||
+            if (lower.find("host_keyboard") != std::string::npos ||
                 lower.find("host_console_") != std::string::npos)
                 prio = 150;
         }

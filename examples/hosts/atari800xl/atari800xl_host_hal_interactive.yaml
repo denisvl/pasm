@@ -82,6 +82,9 @@ state:
 - name: key_ascii
   type: uint8_t
   initial: '0'
+- name: key_mods
+  type: uint8_t
+  initial: '0'
 - name: key_queue
   type: uint8_t *
   initial: 'NULL'
@@ -242,19 +245,22 @@ behavior:
       \   } else if (comp->audio_out_dev != 0u) {\n                cpu_host_hal_audio_close(comp->audio_out_dev);\n      \
       \          comp->audio_out_dev = 0u;\n                comp->audio_device_samples = 0u;\n                    comp->audio_channels\
       \ = 0u;\n            }\n            }\n        }\n    }\n    comp->host_inited = 1u;\n} while (0);\n"
-    reset: "comp->frame_count = 0u;\ncomp->audio_samples = 0u;\ncomp->audio_level = 0;\ncomp->audio_hp_prev_in = 0;\ncomp->audio_hp_prev_out\
+    reset: "cpu->debug_overlay_enabled = true;\ncomp->frame_count = 0u;\ncomp->audio_samples = 0u;\ncomp->audio_level = 0;\ncomp->audio_hp_prev_in = 0;\ncomp->audio_hp_prev_out\
       \ = 0;\ncomp->audio_last_cycle = 0u;\ncomp->audio_sample_cursor = 0u;\ncomp->audio_ring_read_idx = 0u;\ncomp->audio_ring_write_idx\
-      \ = 0u;\ncomp->audio_ring_fill = 0u;\ncomp->key_ascii = 0u;\nif (comp->key_queue != NULL) {\n    memset(comp->key_queue,\
+      \ = 0u;\ncomp->audio_ring_fill = 0u;\ncomp->key_ascii = 0u;\ncomp->key_mods = 0u;\nif (comp->key_queue != NULL) {\n    memset(comp->key_queue,\
       \ 0, 16u * sizeof(uint8_t));\n}\ncomp->key_q_read_idx = 0u;\ncomp->key_q_write_idx = 0u;\ncomp->consol_state = 0x07u;\n\
       comp->joy0_state = 0x0Fu;\ncomp->joy1_state = 0x0Fu;\ncomp->trig0 = 1u;\ncomp->trig1 = 1u;\ncomp->trig2 = 1u;\ncomp->trig3\
       \ = 1u;\ncomp->last_event_poll_cycle = 0u;\ncomp->overlay_last_ms = 0u;\ncomp->overlay_last_frame_count = 0u;\ncomp->overlay_last_cycle_count\
       \ = 0u;\ncomp->overlay_fps_x100 = 0u;\ncomp->overlay_cpu_hz = 0u;\ncomp->overlay_cpu_pct_x10 = 0u;\nif (comp->audio_out_dev\
       \ != 0u) {\n    cpu_host_hal_audio_clear(comp->audio_out_dev);\n}\n"
     step_post: "if (comp->host_inited == 0u) return;\n{\n    uint64_t now = cpu->total_cycles;\n    if ((now - comp->last_event_poll_cycle)\
-      \ < 256u) {\n        return;\n    }\n    comp->last_event_poll_cycle = now;\n}\nCPUHostEvent ev;\nwhile (cpu_host_hal_poll_event(&ev))\
+      \ < 4096u) {\n        return;\n    }\n    comp->last_event_poll_cycle = now;\n}\nCPUHostEvent ev;\nwhile (cpu_host_hal_poll_event(&ev))\
       \ {\n    if (\n        cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN ||\n        cpu_host_hal_event_type(&ev)\
       \ == CPU_HOST_EVENT_KEYUP\n    ) {\n        int32_t sc_ev = cpu_host_hal_event_scancode(&ev);\n        uint8_t is_down_ev\
-      \ = (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN) ? 1u : 0u;\n    }\n    if (cpu_host_hal_event_type(&ev)\
+      \ = (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN) ? 1u : 0u;\n        const char *kb_trace = cpu_host_hal_getenv(\"PASM_ATARI800XL_KB_EVENTS\");\n\
+      \        if (kb_trace != NULL && kb_trace[0] == '1') {\n            cpu_host_hal_log(\"atari800xl_kb_event cycle=%llu sc=%d down=%u repeat=%u\",\n\
+      \                (unsigned long long)cpu->total_cycles,\n                (int)sc_ev,\n                (unsigned)is_down_ev,\n\
+      \                (unsigned)cpu_host_hal_event_key_repeat(&ev));\n        }\n    }\n    if (cpu_host_hal_event_type(&ev)\
       \ == CPU_HOST_EVENT_QUIT) {\n        cpu->running = false;\n        cpu->halted = true;\n        return;\n    } else\
       \ if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN && cpu_host_hal_event_key_repeat(&ev) == 0) {\n       \
       \ int32_t sc = cpu_host_hal_event_scancode(&ev);\n        /* Discover special scancodes from the runtime map by mapper_key_id\
@@ -263,10 +269,10 @@ behavior:
       \                    const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];\n                    if\
       \ (b->mapper_key_id[0] == '\\0') continue;\n                    if (strcmp(b->mapper_key_id, \"key_break\") == 0) break_sc\
       \ = b->scancode;\n                }\n            }\n            if (break_sc >= 0 && sc == break_sc) {\n           \
-      \     comp->break_pressed = 1u;\n                continue;\n            }\n        }\n        if (sc == CPU_HOST_SCANCODE(F2))\
+      \     comp->break_pressed = 1u;\n                continue;\n            }\n        }\n        if (sc == CPU_HOST_SCANCODE(F2) || sc == CPU_HOST_SCANCODE(HOME))\
       \ {\n            comp->consol_state = (uint8_t)(comp->consol_state & (uint8_t)~0x04u); /* OPTION */\n            continue;\n\
-      \        }\n        if (sc == CPU_HOST_SCANCODE(F3)) {\n            comp->consol_state = (uint8_t)(comp->consol_state\
-      \ & (uint8_t)~0x02u); /* SELECT */\n            continue;\n        }\n        if (sc == CPU_HOST_SCANCODE(F4)) {\n \
+      \        }\n        if (sc == CPU_HOST_SCANCODE(F3) || sc == CPU_HOST_SCANCODE(END)) {\n            comp->consol_state = (uint8_t)(comp->consol_state\
+      \ & (uint8_t)~0x02u); /* SELECT */\n            continue;\n        }\n        if (sc == CPU_HOST_SCANCODE(F4) || sc == CPU_HOST_SCANCODE(PAGEUP)) {\n \
       \           comp->consol_state = (uint8_t)(comp->consol_state & (uint8_t)~0x01u); /* START */\n            continue;\n\
       \        }\n        if (sc == CPU_HOST_SCANCODE(UP) || sc == CPU_HOST_SCANCODE(KP_8)) {\n            comp->joy0_state\
       \ = (uint8_t)(comp->joy0_state & (uint8_t)~0x01u);\n            continue;\n        }\n        if (sc == CPU_HOST_SCANCODE(DOWN)\
@@ -304,10 +310,10 @@ behavior:
       \ *b = &g_runtime_keyboard_map.bindings[i];\n                    if (b->mapper_key_id[0] == '\\0') continue;\n     \
       \               if (strcmp(b->mapper_key_id, \"key_break\") == 0) break_sc = b->scancode;\n                }\n     \
       \       }\n            if (break_sc >= 0 && sc == break_sc) {\n                comp->break_pressed = 0u;\n         \
-      \   }\n        }\n        if (sc == CPU_HOST_SCANCODE(F2)) {\n            comp->consol_state = (uint8_t)(comp->consol_state\
-      \ | 0x04u);\n        } else if (sc == CPU_HOST_SCANCODE(F3)) {\n            comp->consol_state = (uint8_t)(comp->consol_state\
-      \ | 0x02u);\n        } else if (sc == CPU_HOST_SCANCODE(F4)) {\n            comp->consol_state = (uint8_t)(comp->consol_state\
-      \ | 0x01u);\n        }\n    }\n}\n/* Optional controller map: when present, it drives joystick/trigger state (host-abstracted).\
+      \   }\n        }\n        if (sc == CPU_HOST_SCANCODE(F2) || sc == CPU_HOST_SCANCODE(HOME)) {\n            comp->consol_state = (uint8_t)(comp->consol_state\
+      \ | 0x04u);\n        } else if (sc == CPU_HOST_SCANCODE(F3) || sc == CPU_HOST_SCANCODE(END)) {\n            comp->consol_state = (uint8_t)(comp->consol_state\
+      \ | 0x02u);\n        } else if (sc == CPU_HOST_SCANCODE(F4) || sc == CPU_HOST_SCANCODE(PAGEUP)) {\n            comp->consol_state = (uint8_t)(comp->consol_state\
+      \ | 0x01u);\n        }\n    }\n}\n{\n    int key_count = 0;\n    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n    uint8_t shifted = 0u;\n    uint8_t controlled = 0u;\n    uint8_t any_key = 0u;\n    uint8_t live_out = 0u;\n    if (ks != NULL && key_count > 0) {\n        size_t kcount = (size_t)key_count;\n        for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {\n            const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];\n            if (b->scancode < 0 || (size_t)b->scancode >= kcount) continue;\n            if (ks[b->scancode] == 0u) continue;\n            if (b->is_shift_modifier != 0u) {\n                shifted = 1u;\n                continue;\n            }\n            if (b->is_ctrl_modifier != 0u) {\n                controlled = 1u;\n                continue;\n            }\n            if (b->has_ascii != 0u) {\n                any_key = 1u;\n                if (live_out == 0u && b->ascii != 0u) {\n                    live_out = (uint8_t)(b->ascii + 1u);\n                }\n            }\n        }\n    }\n    comp->key_ascii = live_out;\n    comp->key_mods = (uint8_t)((shifted ? 0x01u : 0u) | (controlled ? 0x02u : 0u) | (any_key ? 0x04u : 0u));\n}\n/* Optional controller map: when present, it drives joystick/trigger state (host-abstracted).\
       \ */\nif (g_runtime_controller_map.loaded != 0u) {\n    uint8_t focus = (comp->window != NULL) ? cpu_host_hal_window_has_focus(comp->window)\
       \ : 1u;\n    uint8_t j0 = 0x0Fu;\n    uint8_t j1 = 0x0Fu;\n    uint8_t t0 = 1u;\n    uint8_t t1 = 1u;\n    cpu_component_controller_map_poll(cpu,\
       \ focus);\n    if (cpu_component_controller_pressed(\"P1_UP\")) j0 = (uint8_t)(j0 & (uint8_t)~0x01u);\n    if (cpu_component_controller_pressed(\"\
@@ -318,10 +324,7 @@ behavior:
       \ (uint8_t)~0x02u);\n    if (cpu_component_controller_pressed(\"P2_LEFT\")) j1 = (uint8_t)(j1 & (uint8_t)~0x04u);\n\
       \    if (cpu_component_controller_pressed(\"P2_RIGHT\")) j1 = (uint8_t)(j1 & (uint8_t)~0x08u);\n    if (cpu_component_controller_pressed(\"\
       P2_BUTTON0\")) t1 = 0u;\n    comp->joy0_state = j0;\n    comp->joy1_state = j1;\n    comp->trig0 = t0;\n    comp->trig1\
-      \ = t1;\n}\n{\n    pasm_overlay_update_perf(\n        cpu_host_hal_ticks_ms(),\n        (uint64_t)comp->frame_count,\n\
-      \        cpu->total_cycles,\n        (uint64_t)CPU_SYSTEM_CLOCK_HZ,\n        &comp->overlay_last_ms,\n        &comp->overlay_last_frame_count,\n\
-      \        &comp->overlay_last_cycle_count,\n        &comp->overlay_fps_x100,\n        &comp->overlay_cpu_hz,\n      \
-      \  &comp->overlay_cpu_pct_x10\n    );\n}\nif (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u && comp->audio_ring\
+      \ = t1;\n}\nif (comp->audio_out_dev != 0u && comp->audio_out_ready != 0u && comp->audio_ring\
       \ != NULL && comp->audio_ring_fill > 0u) {\n    uint32_t channels = (comp->audio_channels > 0u) ? comp->audio_channels\
       \ : 1u;\n    if (channels > 2u) channels = 2u;\n    uint32_t queued_samples = cpu_host_hal_audio_queued_bytes(comp->audio_out_dev)\
       \ / (uint32_t)sizeof(int16_t);\n    uint32_t queued_frames = queued_samples / channels;\n    uint32_t device_samples\
@@ -353,21 +356,22 @@ behavior:
       \ = NULL;\n}\nif (comp->host_inited != 0u) {\n    cpu_host_hal_quit_subsystems();\n    cpu_host_hal_quit();\n    comp->host_inited\
       \ = 0u;\n}\n"
   callback_handlers:
-    keyboard_ascii: 'return (uint64_t)cpu_component_keyboard_ascii_pop();
+    keyboard_ascii: 'return (uint64_t)comp->key_ascii;
 
       '
-    keyboard_mods: "int key_count = 0;\nconst uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\nuint8_t shifted = 0u;\n\
-      uint8_t controlled = 0u;\nuint8_t any_key = 0u;\nif (ks != NULL && key_count > 0) {\n    size_t kcount = (size_t)key_count;\n\
-      \    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {\n        const RuntimeKeyboardBinding *b =\
-      \ &g_runtime_keyboard_map.bindings[i];\n        if (b->scancode < 0 || (size_t)b->scancode >= kcount) continue;\n  \
-      \      if (ks[b->scancode] == 0u) continue;\n        if (b->is_shift_modifier != 0u) shifted = 1u;\n        if (b->is_ctrl_modifier\
-      \ != 0u) controlled = 1u;\n        if (b->is_shift_modifier == 0u && b->is_ctrl_modifier == 0u && b->has_ascii != 0u)\
-      \ {\n            any_key = 1u;\n        }\n    }\n}\nreturn (uint64_t)((shifted ? 0x01u : 0u) | (controlled ? 0x02u\
-      \ : 0u) | (any_key ? 0x04u : 0u));\n"
+    keyboard_mods: 'return (uint64_t)comp->key_mods;
+
+      '
     break_state: 'return (uint64_t)(comp->break_pressed & 0x01u);
 
       '
-    consol_state: 'return (uint64_t)(comp->consol_state & 0x07u);
+    consol_state: '{
+      const char *auto_start = cpu_host_hal_getenv("PASM_ATARI800XL_AUTO_START");
+      if (auto_start != NULL && auto_start[0] == ''1'' && comp->frame_count >= 30u && comp->frame_count < 36u) {
+          return 0x06u; /* pulse START low for a few frames */
+      }
+      return (uint64_t)(comp->consol_state & 0x07u);
+      }
 
       '
     joystick_porta: 'return (uint64_t)(((comp->joy1_state & 0x0Fu) << 4u) | (comp->joy0_state & 0x0Fu));
@@ -390,7 +394,9 @@ behavior:
       uint32_t frame = (uint32_t)(args[0] & 0xFFFFFFFFu);\nuint32_t *pixels = (uint32_t *)(uintptr_t)args[1];\nuint32_t logical_w\
       \ = (uint32_t)(args[2] & 0xFFFFFFFFu);\nuint32_t logical_h = (uint32_t)(args[3] & 0xFFFFFFFFu);\nconst uint32_t buf_w\
       \ = 320u;\nconst uint32_t buf_h = 192u;\nif (renderer == NULL || texture == NULL || pixels == NULL || logical_w == 0u\
-      \ || logical_h == 0u) return;\ncomp->frame_count = frame;\nif (cpu->debug_overlay_enabled) {\n    pasm_overlay_draw_perf(\n\
+      \ || logical_h == 0u) return;\ncomp->frame_count = frame;\npasm_overlay_update_perf(\n    cpu_host_hal_ticks_ms(),\n    (uint64_t)frame,\n\
+      \    cpu->total_cycles,\n    (uint64_t)CPU_SYSTEM_CLOCK_HZ,\n    &comp->overlay_last_ms,\n    &comp->overlay_last_frame_count,\n\
+      \    &comp->overlay_last_cycle_count,\n    &comp->overlay_fps_x100,\n    &comp->overlay_cpu_hz,\n    &comp->overlay_cpu_pct_x10\n);\nif (cpu->debug_overlay_enabled) {\n    pasm_overlay_draw_perf(\n\
       \        pixels,\n        buf_w,\n        buf_h,\n        comp->overlay_fps_x100,\n        comp->overlay_cpu_hz,\n \
       \       comp->overlay_cpu_pct_x10\n    );\n}\nif (comp->texture_w != buf_w || comp->texture_h != buf_h) {\n    cpu_host_hal_destroy_texture(texture);\n\
       \    texture = cpu_host_hal_create_texture(renderer, CPU_HOST_PIXELFORMAT_ARGB8888, CPU_HOST_TEXTUREACCESS_STREAMING,\

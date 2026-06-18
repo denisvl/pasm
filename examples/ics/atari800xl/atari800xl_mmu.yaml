@@ -20,6 +20,9 @@ interfaces:
     - name: cart_read
       args: [u16]
       returns: u8
+    - name: cart_maps_low_window
+      args: []
+      returns: u8
     - name: request_irq
       args: []
       returns: u8
@@ -59,7 +62,7 @@ behavior:
       if (argc < 1u) return 0u;
       uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
       #if CPU_CARTRIDGE_COUNT > 0
-      if (addr >= 0x8000u && addr < 0xA000u && cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) {
+      if (cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) {
           uint8_t *rom = cpu->comp_atari_cart0.rom_data;
           uint32_t size = cpu->comp_atari_cart0.rom_size;
           uint32_t base_off = 0u;
@@ -68,10 +71,30 @@ behavior:
               base_off = 16u;
               eff_size -= 16u;
           }
-          if (eff_size > 0x2000u) {
+          if (addr >= 0x8000u && addr < 0xA000u && eff_size > 0x2000u) {
               uint32_t off = base_off + (uint32_t)(addr - 0x8000u);
               if (off < size) return (uint64_t)rom[off];
           }
+          if (addr >= 0xA000u && addr < 0xC000u && eff_size > 0u) {
+              uint32_t in_bank = (uint32_t)(addr - 0xA000u);
+              uint32_t bank_base = (eff_size > 0x2000u) ? (eff_size - 0x2000u) : 0u;
+              uint32_t off = base_off + bank_base + in_bank;
+              if (off < size) return (uint64_t)rom[off];
+          }
+      }
+      #endif
+      return 0u;
+    cart_maps_low_window: |
+      (void)argc;
+      (void)args;
+      #if CPU_CARTRIDGE_COUNT > 0
+      if (cpu->comp_atari_cart0.rom_data != NULL && cpu->comp_atari_cart0.rom_size > 0u) {
+          uint8_t *rom = cpu->comp_atari_cart0.rom_data;
+          uint32_t eff_size = cpu->comp_atari_cart0.rom_size;
+          if (eff_size >= 16u && rom[0] == 'C' && rom[1] == 'A' && rom[2] == 'R' && rom[3] == 'T') {
+              eff_size -= 16u;
+          }
+          return (uint64_t)(eff_size > 0x2000u ? 1u : 0u);
       }
       #endif
       return 0u;

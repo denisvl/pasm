@@ -28,7 +28,7 @@ private:
                           std::vector<ValidationError>& out, const std::string& prefix) const;
 
 private:
-    void renderField(const SchemaField& field, YAML::Node& data, const std::string& label = "");
+    void renderField(const SchemaField& field, YAML::Node& data, const std::string& label = "", float maxLabelWidth = 0.0f);
     void renderString(const SchemaField& field, YAML::Node& data);
     void renderInteger(const SchemaField& field, YAML::Node& data);
     void renderNumber(const SchemaField& field, YAML::Node& data);
