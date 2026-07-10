@@ -17,6 +17,9 @@ state:
   - name: control_reg
     type: uint8_t
     initial: "0x82"
+  - name: prev_port_c_hi
+    type: uint8_t
+    initial: "0x00"
 
 interfaces:
   callbacks:
@@ -24,7 +27,9 @@ interfaces:
       args: [u8]
       returns: u8
   handlers: []
-  signals: []
+  signals:
+    - name: cassette_write
+      args: [u8, u64]
 
 maps:
   ports:
@@ -71,32 +76,44 @@ behavior:
       if (p == 0xA8u) {
           comp->slot_select = value;
       } else if (p == 0xAAu) {
-          comp->port_c = value;
-          {
-              uint8_t lo = (uint8_t)(comp->port_c & 0x0Fu);
-              uint8_t hi = (uint8_t)((comp->port_c >> 4) & 0x0Fu);
-              if (lo <= 10u) {
-                  comp->keyboard_row = lo;
-              } else if (hi <= 10u) {
-                  comp->keyboard_row = hi;
-              } else {
-                  comp->keyboard_row = lo;
-              }
+          uint8_t new_port_c = (uint8_t)value;
+          uint8_t lo = (uint8_t)(new_port_c & 0x0Fu);
+          uint8_t hi = (uint8_t)((new_port_c >> 4) & 0x0Fu);
+          uint8_t prev_hi = (uint8_t)(comp->prev_port_c_hi & 0x0Fu);
+          comp->port_c = new_port_c;
+          if (lo <= 10u) {
+              comp->keyboard_row = lo;
+          } else if (hi <= 10u) {
+              comp->keyboard_row = hi;
+          } else {
+              comp->keyboard_row = lo;
           }
+          if (((prev_hi ^ hi) & 0x01u) != 0u) {
+              uint64_t motor_args[1] = { (uint64_t)((hi & 0x01u) == 0u) };
+              (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_motor", motor_args, 1);
+          }
+          if (((prev_hi ^ hi) & 0x02u) != 0u) {
+              uint64_t sig_args[2] = { (uint64_t)((hi & 0x02u) != 0u), cpu->total_cycles };
+              cpu_component_emit_signal(cpu, "ppi0", "cassette_write", sig_args, 2);
+          }
+          comp->prev_port_c_hi = hi;
       } else if (p == 0xABu) {
           if ((value & 0x80u) != 0u) {
               comp->control_reg = value;
           } else {
               uint8_t bit = (uint8_t)((value >> 1) & 0x07u);
               uint8_t mask = (uint8_t)(1u << bit);
+              uint8_t next_port_c = comp->port_c;
               if ((value & 0x01u) != 0u) {
-                  comp->port_c = (uint8_t)(comp->port_c | mask);
+                  next_port_c = (uint8_t)(next_port_c | mask);
               } else {
-                  comp->port_c = (uint8_t)(comp->port_c & (uint8_t)~mask);
+                  next_port_c = (uint8_t)(next_port_c & (uint8_t)~mask);
               }
               {
-                  uint8_t lo = (uint8_t)(comp->port_c & 0x0Fu);
-                  uint8_t hi = (uint8_t)((comp->port_c >> 4) & 0x0Fu);
+                  uint8_t lo = (uint8_t)(next_port_c & 0x0Fu);
+                  uint8_t hi = (uint8_t)((next_port_c >> 4) & 0x0Fu);
+                  uint8_t prev_hi = (uint8_t)(comp->prev_port_c_hi & 0x0Fu);
+                  comp->port_c = next_port_c;
                   if (lo <= 10u) {
                       comp->keyboard_row = lo;
                   } else if (hi <= 10u) {
@@ -104,6 +121,15 @@ behavior:
                   } else {
                       comp->keyboard_row = lo;
                   }
+                  if (((prev_hi ^ hi) & 0x01u) != 0u) {
+                      uint64_t motor_args[1] = { (uint64_t)((hi & 0x01u) == 0u) };
+                      (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_motor", motor_args, 1);
+                  }
+                  if (((prev_hi ^ hi) & 0x02u) != 0u) {
+                      uint64_t sig_args[2] = { (uint64_t)((hi & 0x02u) != 0u), cpu->total_cycles };
+                      cpu_component_emit_signal(cpu, "ppi0", "cassette_write", sig_args, 2);
+                  }
+                  comp->prev_port_c_hi = hi;
               }
           }
       }

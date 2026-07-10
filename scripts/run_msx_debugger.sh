@@ -58,6 +58,7 @@ DEVICE_KB="examples/devices/msx1/msx_keyboard.yaml"
 DEVICE_CTRL="examples/devices/msx1/msx_controller.yaml"
 DEVICE_VIDEO="examples/devices/msx1/msx_video.yaml"
 DEVICE_SPK="examples/devices/msx1/msx_speaker.yaml"
+DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
 
 case "${PROFILE}" in
   default)
@@ -113,6 +114,7 @@ GEN_ARGS=(
   --device "${DEVICE_CTRL}"
   --device "${DEVICE_VIDEO}"
   --device "${DEVICE_SPK}"
+  --device "${DEVICE_CASS}"
   --host "${HOST}"
   --host-backend "${HOST_BACKEND:-glfw}"
   --output "${OUTPUT_DIR}"

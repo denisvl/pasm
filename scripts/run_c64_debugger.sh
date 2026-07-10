@@ -54,6 +54,7 @@ IC_MAIN_RAM="examples/ics/c64/c64_main_ram.yaml"
 DEVICE_KB="examples/devices/c64/c64_keyboard.yaml"
 DEVICE_JOY="examples/devices/c64/c64_joystick.yaml"
 DEVICE_VIDEO="examples/devices/c64/c64_video.yaml"
+DEVICE_DATASETTE="examples/devices/c64/c64_datasette.yaml"
 DEVICE_TV="examples/devices/common/tv_crt_mono.yaml"
 HOST_INTERACTIVE="examples/hosts/c64/c64_host_hal_interactive.yaml"
 
@@ -118,6 +119,7 @@ if [[ "${PROFILE}" == "interactive" ]]; then
     --device "${DEVICE_KB}" \
     --device "${DEVICE_JOY}" \
     --device "${DEVICE_VIDEO}" \
+    --device "${DEVICE_DATASETTE}" \
     --device "${DEVICE_TV}" \
     --host "${HOST_INTERACTIVE}" \
     --host-backend "${HOST_BACKEND:-glfw}" \

@@ -12,6 +12,7 @@ pub enum Action {
     ToggleInstructionInfo,
     ToggleHistory,
     ToggleOverlay,
+    FocusEmulator,
     ToggleBreakpoint,
     SelectNextPane,
     SelectPrevPane,
@@ -29,6 +30,9 @@ pub fn map_key_event(ev: KeyEvent) -> Action {
         let lower = ch.to_ascii_lowercase();
         if ev.modifiers.contains(KeyModifiers::CONTROL) && lower == 'c' {
             return Action::Quit;
+        }
+        if ev.modifiers.contains(KeyModifiers::CONTROL) && lower == 'e' {
+            return Action::FocusEmulator;
         }
         return match lower {
             'q' => Action::Quit,
@@ -130,6 +134,13 @@ mod tests {
         assert_eq!(
             map_key_event(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE)),
             Action::ToggleOverlay
+        );
+        assert_eq!(
+            map_key_event(KeyEvent::new(
+                KeyCode::Char('e'),
+                KeyModifiers::CONTROL
+            )),
+            Action::FocusEmulator
         );
         assert_eq!(
             map_key_event(KeyEvent::new(KeyCode::Char('O'), KeyModifiers::SHIFT)),

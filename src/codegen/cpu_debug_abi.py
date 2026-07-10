@@ -128,7 +128,6 @@ def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, st
             f"        ComponentState_{comp_ident} *comp = &cpu->comp_{comp_ident};",
             "        if (comp->window != NULL) {",
             "            cpu_host_hal_show_window(comp->window);",
-            "            cpu_host_hal_raise_window(comp->window);",
         ]
         if "has_keyboard_focus" in state_fields:
             block_lines.append(

@@ -61,9 +61,27 @@ components:
   - video0
   - beeper
   - mic0
+  - cassette_transport
   - tv
   hosts:
   - host0
+  cassette: cassette_transport
+cassette:
+  component: cassette_transport
+  directory: examples/cassettes/zx_spectrum48k
+  allowed_extensions: [yaml, wav]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
 connections:
 - from:
     component: ula0
@@ -102,9 +120,9 @@ connections:
     kind: callback
     name: sample_input
   to:
-    component: host0
+    component: cassette_transport
     kind: callback
-    name: mic_sample
+    name: sample_input
 - from:
     component: mic0
     kind: signal
@@ -140,6 +158,14 @@ connections:
 - from:
     component: ula0
     kind: signal
+    name: tape_out
+  to:
+    component: cassette_transport
+    kind: handler
+    name: on_output_sample
+- from:
+    component: ula0
+    kind: signal
     name: irq_edge
   to:
     component: host0
@@ -169,6 +195,14 @@ connections:
     component: tv
     kind: handler
     name: on_audio_level
+- from:
+    component: cassette_transport
+    kind: signal
+    name: playback_sample
+  to:
+    component: beeper
+    kind: handler
+    name: on_tape_playback_sample
 - from:
     component: tv
     kind: signal

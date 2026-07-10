@@ -47,7 +47,9 @@ interfaces:
     - name: read_io_page
       args: [u16, u8, u8]
       returns: u8
-  handlers: []
+  handlers:
+    - name: tape_input
+      args: [u8, u64]
   signals: []
 
 maps:
@@ -79,6 +81,10 @@ behavior:
       }
       if (ph == 0xF600u) {
           comp->port_c = v;
+          if ((comp->ctrl & 0x08u) == 0u) {
+              uint64_t motor_args[1] = { (uint64_t)((comp->port_c & 0x10u) != 0u) };
+              (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_motor", motor_args, 1);
+          }
           {
               uint64_t psg_args[2] = { (uint64_t)(comp->port_c & 0xC0u), (uint64_t)comp->port_a };
               (void)cpu_component_call(cpu, "cpc_ppi", "psg_bus_apply", psg_args, 2);
@@ -95,6 +101,10 @@ behavior:
               } else {
                   comp->port_c = (uint8_t)(comp->port_c & (uint8_t)~(uint8_t)(1u << bit));
               }
+          }
+          if ((comp->ctrl & 0x08u) == 0u) {
+              uint64_t motor_args[1] = { (uint64_t)((comp->port_c & 0x10u) != 0u) };
+              (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_motor", motor_args, 1);
           }
           {
               uint64_t psg_args[2] = { (uint64_t)(comp->port_c & 0xC0u), (uint64_t)comp->port_a };
@@ -128,6 +138,10 @@ behavior:
       if (ph == 0xF500u) {
           uint8_t pb_input = (uint8_t)((comp->ctrl & 0x02u) != 0u);
           if (pb_input != 0u) {
+              {
+                  uint64_t tape_args[1] = { 2u };
+                  comp->tape_level = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "sample_input", tape_args, 1);
+              }
               uint8_t v = (uint8_t)(comp->tape_level & 0x80u);
               if (comp->printer_ready == 0u) v |= 0x40u;
               v = (uint8_t)(v | (comp->jumpers & 0x7Fu));
@@ -145,14 +159,16 @@ behavior:
               c = (uint8_t)(c & 0x0Fu);
               if (val == 0xC0u) val = 0x80u;
               c = (uint8_t)(c | val | 0x20u);
-              if ((comp->tape_level & 0x10u) != 0u) c = (uint8_t)(c | 0x10u);
+              if (cpu_component_dispatch_callback(cpu, "cassette_transport", "query_transport_state", NULL, 0) & (1ull << 8u)) c = (uint8_t)(c | 0x10u);
           }
           return c;
       }
 
       if (ph == 0xF700u) return comp->ctrl;
       return 0xFFu;
-  handler_bodies: {}
+  handler_bodies:
+    tape_input: |
+      comp->tape_level = (uint8_t)(args[0] & 0xF0u);
 
 coding:
   headers: []

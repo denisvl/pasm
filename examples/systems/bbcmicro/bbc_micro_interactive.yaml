@@ -58,9 +58,28 @@ components:
   - keyboard_bbc_micro
   - video_bbc_micro
   - speaker
+  - bbc_micro_cassette_adapter
+  - cassette_transport
   - monitor
   hosts:
   - host_bbc_micro
+  cassette: bbc_micro_cassette_adapter
+cassette:
+  component: bbc_micro_cassette_adapter
+  directory: examples/cassettes/bbcmicro
+  allowed_extensions: [yaml, wav]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
 connections:
 - from:
     component: bbc_micro_crtc_6845

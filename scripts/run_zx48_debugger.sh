@@ -35,6 +35,7 @@ DEVICE_CTRL="examples/devices/zx_spectrum48k/zx48_controller.yaml"
 DEVICE_VIDEO="examples/devices/zx_spectrum48k/zx48_video.yaml"
 DEVICE_BEEPER="examples/devices/zx_spectrum48k/zx48_beeper.yaml"
 DEVICE_MIC="examples/devices/zx_spectrum48k/zx48_mic.yaml"
+DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
 
 case "${PROFILE}" in
   default)
@@ -72,6 +73,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_BEEPER}" \
   --device "${DEVICE_MIC}" \
+  --device "${DEVICE_CASS}" \
   --host "${HOST}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
   --output "${OUTPUT_DIR}"

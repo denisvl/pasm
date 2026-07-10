@@ -23,6 +23,15 @@ interfaces:
     - name: cass_port_write
       args: [u8, u8]
       returns: u8
+    - name: transport_sample_in
+      args: []
+      returns: u8
+    - name: transport_push_out
+      args: [u8, u64]
+      returns: u8
+    - name: transport_set_motor
+      args: [u8]
+      returns: u8
   handlers: []
   signals: []
 
@@ -45,7 +54,7 @@ behavior:
       if (argc < 1u) return 0xFFu;
       uint8_t p = (uint8_t)(args[0] & 0xFFu);
       (void)p;
-      /* Cassette input idle-high for now. */
+      comp->in_level = (uint8_t)(((uint8_t)cpu_component_call(cpu, "trs80_m4cass", "transport_sample_in", NULL, 0)) >= 128u);
       return (uint64_t)((comp->in_level != 0u) ? 0xFFu : 0x00u);
     cass_port_write: |
       if (argc < 2u) return 0u;
@@ -54,6 +63,14 @@ behavior:
       (void)p;
       comp->motor_on = (uint8_t)((value & 0x01u) != 0u);
       comp->out_level = (uint8_t)((value & 0x02u) != 0u);
+      {
+          uint64_t motor_args[1] = { (uint64_t)comp->motor_on };
+          (void)cpu_component_call(cpu, "trs80_m4cass", "transport_set_motor", motor_args, 1);
+      }
+      {
+          uint64_t out_args[2] = { (uint64_t)(comp->out_level != 0u ? 255u : 0u), cpu->total_cycles };
+          (void)cpu_component_call(cpu, "trs80_m4cass", "transport_push_out", out_args, 2);
+      }
       return 0u;
   handler_bodies: {}
 

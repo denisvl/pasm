@@ -11,12 +11,25 @@ state:
   - name: last_cycle
     type: uint64_t
     initial: "0"
+  - name: tape_level
+    type: uint8_t
+    initial: "128"
+  - name: cassette_transport_mode
+    type: uint8_t
+    initial: "0"
+  - name: cassette_motor_on
+    type: uint8_t
+    initial: "0"
 
 interfaces:
   callbacks: []
   handlers:
     - name: on_audio_level
       args: [u8, u64]
+    - name: on_tape_playback_sample
+      args: [u8, u64]
+    - name: on_transport_state
+      args: [u64]
   signals:
     - name: pcm_sample
       args: [u8, u64]
@@ -28,7 +41,34 @@ behavior:
     on_audio_level: |
       comp->level = (uint8_t)(args[0] & 0xFFu);
       comp->last_cycle = (uint64_t)args[1];
-      cpu_component_emit_signal(cpu, "speaker", "pcm_sample", args, argc);
+      uint8_t mixed = comp->level;
+      if (comp->cassette_transport_mode == 1u && comp->cassette_motor_on != 0u) {
+          int32_t centered = (int32_t)comp->level - 128;
+          int32_t tape = (int32_t)comp->tape_level - 128;
+          int32_t sum = 128 + centered + (tape / 2);
+          if (sum < 0) sum = 0;
+          if (sum > 255) sum = 255;
+          mixed = (uint8_t)sum;
+      }
+      uint64_t out_args[2] = { (uint64_t)mixed, comp->last_cycle };
+      cpu_component_emit_signal(cpu, "speaker", "pcm_sample", out_args, 2);
+    on_tape_playback_sample: |
+      if (argc < 2u) return;
+      comp->tape_level = (uint8_t)(args[0] & 0xFFu);
+      if (comp->cassette_transport_mode == 1u && comp->cassette_motor_on != 0u) {
+          int32_t centered = (int32_t)comp->level - 128;
+          int32_t tape = (int32_t)comp->tape_level - 128;
+          int32_t sum = 128 + centered + (tape / 2);
+          if (sum < 0) sum = 0;
+          if (sum > 255) sum = 255;
+          uint64_t out_args[2] = { (uint64_t)(uint8_t)sum, (uint64_t)args[1] };
+          cpu_component_emit_signal(cpu, "speaker", "pcm_sample", out_args, 2);
+      }
+    on_transport_state: |
+      if (argc < 1u) return;
+      uint64_t state = args[0];
+      comp->cassette_transport_mode = (uint8_t)(state & 0xFFu);
+      comp->cassette_motor_on = (uint8_t)((state >> 8u) & 0x01u);
 
 coding:
   headers: []

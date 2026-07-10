@@ -164,6 +164,48 @@ state:
   - name: acia_tx_data
     type: uint8_t
     initial: "0"
+  - name: tape_edge_level
+    type: uint8_t
+    initial: "1"
+  - name: tape_edge_last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: tape_short_halfwaves
+    type: uint8_t
+    initial: "0"
+  - name: tape_long_halfwaves
+    type: uint8_t
+    initial: "0"
+  - name: tape_rx_active
+    type: uint8_t
+    initial: "0"
+  - name: tape_rx_shift
+    type: uint8_t
+    initial: "0"
+  - name: tape_rx_bit_count
+    type: uint8_t
+    initial: "0"
+  - name: tape_poll_cycle
+    type: uint64_t
+    initial: "0"
+  - name: tape_carrier_halfwaves
+    type: uint16_t
+    initial: "0"
+  - name: tape_dcd_level
+    type: uint8_t
+    initial: "0"
+  - name: tape_bit_deadline_cycle
+    type: uint64_t
+    initial: "0"
+  - name: tape_cell_short_halfwaves
+    type: uint8_t
+    initial: "0"
+  - name: tape_cell_long_halfwaves
+    type: uint8_t
+    initial: "0"
+  - name: tape_cell_collect_cycle
+    type: uint64_t
+    initial: "0"
   - name: fdc_status
     type: uint8_t
     initial: "0x00"
@@ -431,6 +473,37 @@ behavior:
       }
       if (addr == 0xFE08u) {
           /* 6850 ACIA status (minimal): bit1 TDRE set when transmit register empty. */
+          {
+              static int tape_trace = -1;
+              static FILE *tape_trace_fp = NULL;
+              static uint32_t tape_trace_count = 0u;
+              if (tape_trace < 0) {
+                  const char *e = getenv("PASM_BBC_TAPE_TRACE");
+                  tape_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+                  if (tape_trace != 0) {
+                      const char *p = getenv("PASM_BBC_TAPE_TRACE_FILE");
+                      if (p == NULL || p[0] == '\0') p = "/tmp/bbc_tape_trace.log";
+                      tape_trace_fp = fopen(p, "a");
+                      if (tape_trace_fp != NULL) {
+                          fprintf(tape_trace_fp, "# kind,cycle,pc,a,b,c,d\n");
+                          fflush(tape_trace_fp);
+                      } else {
+                          tape_trace = 0;
+                      }
+                  }
+              }
+              if (tape_trace != 0 && tape_trace_fp != NULL && tape_trace_count < 2000u) {
+                  fprintf(tape_trace_fp, "acia_status_read,%llu,%04X,%02X,%02X,%02X,%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)comp->acia_status,
+                          (unsigned)comp->acia_control,
+                          (unsigned)comp->serial_ula,
+                          (unsigned)comp->acia_rx_data);
+                  fflush(tape_trace_fp);
+                  tape_trace_count += 1u;
+              }
+          }
           return comp->acia_status;
       }
       if (addr == 0xFE09u) {
@@ -438,6 +511,37 @@ behavior:
           uint8_t v = comp->acia_rx_data;
           comp->acia_status = (uint8_t)(comp->acia_status & (uint8_t)~0x81u);
           comp->acia_status = (uint8_t)(comp->acia_status | 0x02u);
+          {
+              static int tape_trace = -1;
+              static FILE *tape_trace_fp = NULL;
+              static uint32_t tape_trace_count = 0u;
+              if (tape_trace < 0) {
+                  const char *e = getenv("PASM_BBC_TAPE_TRACE");
+                  tape_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+                  if (tape_trace != 0) {
+                      const char *p = getenv("PASM_BBC_TAPE_TRACE_FILE");
+                      if (p == NULL || p[0] == '\0') p = "/tmp/bbc_tape_trace.log";
+                      tape_trace_fp = fopen(p, "a");
+                      if (tape_trace_fp != NULL) {
+                          fprintf(tape_trace_fp, "# kind,cycle,pc,a,b,c,d\n");
+                          fflush(tape_trace_fp);
+                      } else {
+                          tape_trace = 0;
+                      }
+                  }
+              }
+              if (tape_trace != 0 && tape_trace_fp != NULL && tape_trace_count < 2000u) {
+                  fprintf(tape_trace_fp, "acia_data_read,%llu,%04X,%02X,%02X,%02X,%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)v,
+                          (unsigned)comp->acia_status,
+                          (unsigned)comp->acia_control,
+                          (unsigned)comp->serial_ula);
+                  fflush(tape_trace_fp);
+                  tape_trace_count += 1u;
+              }
+          }
           return v;
       }
       if (addr == 0xFEC0u) {
@@ -560,7 +664,52 @@ behavior:
           return;
       }
       if (addr == 0xFE10u) {
+          {
+              static int tape_trace = -1;
+              static FILE *tape_trace_fp = NULL;
+              static uint32_t tape_trace_count = 0u;
+              if (tape_trace < 0) {
+                  const char *e = getenv("PASM_BBC_TAPE_TRACE");
+                  tape_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+                  if (tape_trace != 0) {
+                      const char *p = getenv("PASM_BBC_TAPE_TRACE_FILE");
+                      if (p == NULL || p[0] == '\0') p = "/tmp/bbc_tape_trace.log";
+                      tape_trace_fp = fopen(p, "a");
+                      if (tape_trace_fp != NULL) {
+                          fprintf(tape_trace_fp, "# kind,cycle,pc,a,b,c,d\n");
+                          fflush(tape_trace_fp);
+                      } else {
+                          tape_trace = 0;
+                      }
+                  }
+              }
+              if (tape_trace != 0 && tape_trace_fp != NULL && tape_trace_count < 2000u) {
+                  fprintf(tape_trace_fp, "serial_ula_write,%llu,%04X,%02X,%02X,%02X,%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)value,
+                          (unsigned)comp->serial_ula,
+                          (unsigned)comp->acia_control,
+                          (unsigned)comp->acia_status);
+                  fflush(tape_trace_fp);
+                  tape_trace_count += 1u;
+              }
+          }
           comp->serial_ula = (uint8_t)(value & 0xFFu);
+          if ((comp->serial_ula & 0xC0u) != 0x80u) {
+              comp->tape_carrier_halfwaves = 0u;
+              comp->tape_dcd_level = 0u;
+              comp->tape_short_halfwaves = 0u;
+              comp->tape_long_halfwaves = 0u;
+              comp->tape_rx_active = 0u;
+              comp->tape_rx_shift = 0u;
+              comp->tape_rx_bit_count = 0u;
+              comp->tape_bit_deadline_cycle = 0u;
+              comp->tape_cell_short_halfwaves = 0u;
+              comp->tape_cell_long_halfwaves = 0u;
+              comp->tape_cell_collect_cycle = 0u;
+              comp->acia_status = (uint8_t)(comp->acia_status & (uint8_t)~0x84u);
+          }
           return;
       }
       if (addr == 0xFE18u) {
@@ -585,12 +734,74 @@ behavior:
               comp->acia_rx_data = 0u;
               comp->acia_tx_data = 0u;
           }
+          {
+              static int tape_trace = -1;
+              static FILE *tape_trace_fp = NULL;
+              static uint32_t tape_trace_count = 0u;
+              if (tape_trace < 0) {
+                  const char *e = getenv("PASM_BBC_TAPE_TRACE");
+                  tape_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+                  if (tape_trace != 0) {
+                      const char *p = getenv("PASM_BBC_TAPE_TRACE_FILE");
+                      if (p == NULL || p[0] == '\0') p = "/tmp/bbc_tape_trace.log";
+                      tape_trace_fp = fopen(p, "a");
+                      if (tape_trace_fp != NULL) {
+                          fprintf(tape_trace_fp, "# kind,cycle,pc,a,b,c,d\n");
+                          fflush(tape_trace_fp);
+                      } else {
+                          tape_trace = 0;
+                      }
+                  }
+              }
+              if (tape_trace != 0 && tape_trace_fp != NULL && tape_trace_count < 2000u) {
+                  fprintf(tape_trace_fp, "acia_ctrl_write,%llu,%04X,%02X,%02X,%02X,%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)comp->acia_control,
+                          (unsigned)comp->acia_status,
+                          (unsigned)comp->serial_ula,
+                          (unsigned)comp->acia_tx_data);
+                  fflush(tape_trace_fp);
+                  tape_trace_count += 1u;
+              }
+          }
           return;
       }
       if (addr == 0xFE09u) {
           /* ACIA transmit data write. Keep TDRE set in minimal model. */
           comp->acia_tx_data = (uint8_t)(value & 0xFFu);
           comp->acia_status = (uint8_t)(comp->acia_status | 0x02u);
+          {
+              static int tape_trace = -1;
+              static FILE *tape_trace_fp = NULL;
+              static uint32_t tape_trace_count = 0u;
+              if (tape_trace < 0) {
+                  const char *e = getenv("PASM_BBC_TAPE_TRACE");
+                  tape_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+                  if (tape_trace != 0) {
+                      const char *p = getenv("PASM_BBC_TAPE_TRACE_FILE");
+                      if (p == NULL || p[0] == '\0') p = "/tmp/bbc_tape_trace.log";
+                      tape_trace_fp = fopen(p, "a");
+                      if (tape_trace_fp != NULL) {
+                          fprintf(tape_trace_fp, "# kind,cycle,pc,a,b,c,d\n");
+                          fflush(tape_trace_fp);
+                      } else {
+                          tape_trace = 0;
+                      }
+                  }
+              }
+              if (tape_trace != 0 && tape_trace_fp != NULL && tape_trace_count < 2000u) {
+                  fprintf(tape_trace_fp, "acia_tx_write,%llu,%04X,%02X,%02X,%02X,%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)comp->acia_tx_data,
+                          (unsigned)comp->acia_status,
+                          (unsigned)comp->serial_ula,
+                          (unsigned)comp->acia_control);
+                  fflush(tape_trace_fp);
+                  tape_trace_count += 1u;
+              }
+          }
           return;
       }
       if (addr == 0xFEC0u) {
@@ -744,6 +955,65 @@ behavior:
       }
     step_post: |
       {
+          /* BBC cassette path:
+             use an offline edge-window CUTS decoder in the shared cassette transport.
+             This matches reference emulators more closely than trying to reconstruct
+             bytes from the live comparator stream at CPU-step granularity. */
+          static int tape_trace = -1;
+          static FILE *tape_trace_fp = NULL;
+          static uint32_t tape_trace_count = 0u;
+          uint8_t tape_enabled = (uint8_t)((comp->serial_ula & 0xC0u) == 0x80u ? 1u : 0u);
+          if (tape_trace < 0) {
+              const char *e = getenv("PASM_BBC_TAPE_TRACE");
+              tape_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+              if (tape_trace != 0) {
+                  const char *p = getenv("PASM_BBC_TAPE_TRACE_FILE");
+                  if (p == NULL || p[0] == '\0') p = "/tmp/bbc_tape_trace.log";
+                  tape_trace_fp = fopen(p, "a");
+                  if (tape_trace_fp != NULL) {
+                      fprintf(tape_trace_fp, "# kind,cycle,pc,a,b,c,d\n");
+                      fflush(tape_trace_fp);
+                  } else {
+                      tape_trace = 0;
+                  }
+              }
+          }
+          if (tape_enabled == 0u) {
+              comp->acia_status = (uint8_t)(comp->acia_status & (uint8_t)~0x85u);
+          } else {
+              uint64_t tape_args[2] = { 0u, cpu->total_cycles };
+              uint64_t packed = cpu_component_dispatch_callback(cpu, "bbc_micro_cassette_adapter", "sample_input", tape_args, 2);
+              uint8_t line_state = (uint8_t)((packed >> 16u) & 0x01u);
+              uint8_t have_byte = (uint8_t)(packed & 0x01u);
+              comp->tape_dcd_level = line_state;
+              if (line_state != 0u) comp->acia_status = (uint8_t)(comp->acia_status | 0x04u);
+              else comp->acia_status = (uint8_t)(comp->acia_status & (uint8_t)~0x04u);
+              if (have_byte != 0u) {
+                  uint8_t rx = (uint8_t)((packed >> 8u) & 0xFFu);
+                  if ((comp->acia_control & 0x10u) == 0u) {
+                      rx = (uint8_t)(rx & 0x7Fu);
+                  }
+                  if ((comp->acia_status & 0x01u) != 0u) {
+                      comp->acia_status = (uint8_t)(comp->acia_status | 0xA0u);
+                  } else {
+                      comp->acia_rx_data = rx;
+                      comp->acia_status = (uint8_t)(comp->acia_status | 0x81u);
+                  }
+                  if (tape_trace != 0 && tape_trace_fp != NULL && tape_trace_count < 2000u) {
+                      fprintf(tape_trace_fp, "byte,%llu,%04X,%02X,%02X,%02X,%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc,
+                              (unsigned)rx,
+                              (unsigned)comp->acia_status,
+                              (unsigned)comp->acia_control,
+                              (unsigned)comp->serial_ula);
+                      fflush(tape_trace_fp);
+                      tape_trace_count += 1u;
+                  }
+              }
+          }
+      }
+      {
           /* BBC keyboard CA2-like strobe behavior. */
           uint8_t do_keyboard_scan = 0u;
           if (comp->keyboard_scan_last_cycle == 0u ||
@@ -878,6 +1148,9 @@ behavior:
                   }
               }
           }
+      }
+      if ((comp->acia_status & 0x80u) != 0u) {
+          mos6502_interrupt(cpu, 0u);
       }
       if (((comp->via_ifr & comp->via_ier & 0x7Fu) != 0u) || ((comp->uvia_ifr & comp->uvia_ier & 0x7Fu) != 0u)) {
           mos6502_interrupt(cpu, 0u);

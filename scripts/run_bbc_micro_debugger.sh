@@ -51,6 +51,8 @@ IC_MAIN_RAM="examples/ics/bbcmicro/bbc_micro_main_ram.yaml"
 DEVICE_KB="examples/devices/bbcmicro/bbc_micro_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/bbcmicro/bbc_micro_video.yaml"
 DEVICE_SPK="examples/devices/bbcmicro/bbc_micro_speaker.yaml"
+DEVICE_CASS_ADAPTER="examples/devices/bbcmicro/bbc_micro_cassette_adapter.yaml"
+DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
 HOST_INTERACTIVE="examples/hosts/bbcmicro/bbc_micro_host_hal_interactive.yaml"
 HOST_STUB="examples/hosts/bbcmicro/bbc_micro_host_stub.yaml"
 HOST_FILE="${HOST_FILE:-}"
@@ -99,6 +101,8 @@ UV_CACHE_DIR="${UV_CACHE_DIR}" uv run python -m src.main generate \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
+  --device "${DEVICE_CASS_ADAPTER}" \
+  --device "${DEVICE_CASS}" \
   --host "${HOST_FILE}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
   --output "${OUTPUT_DIR}"

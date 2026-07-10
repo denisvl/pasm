@@ -5,10 +5,28 @@ metadata:
   version: "1.0"
 
 state:
+  - name: machine_level
+    type: uint8_t
+    initial: "128"
   - name: level
+    type: uint8_t
+    initial: "128"
+  - name: tape_level
+    type: uint8_t
+    initial: "128"
+  - name: cassette_transport_mode
+    type: uint8_t
+    initial: "0"
+  - name: cassette_motor_on
     type: uint8_t
     initial: "0"
   - name: last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: next_sample_cycle
+    type: uint64_t
+    initial: "0"
+  - name: sample_period_residue
     type: uint64_t
     initial: "0"
 
@@ -17,18 +35,63 @@ interfaces:
   handlers:
     - name: on_audio_level
       args: [u8, u64]
+    - name: on_tape_playback_sample
+      args: [u8, u64]
+    - name: on_transport_state
+      args: [u64]
   signals:
     - name: pcm_sample
       args: [u8, u64]
 
 behavior:
-  snippets: {}
+  snippets:
+    reset: |
+      comp->machine_level = 128u;
+      comp->level = 128u;
+      comp->tape_level = 128u;
+      comp->cassette_transport_mode = 0u;
+      comp->cassette_motor_on = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->next_sample_cycle = cpu->total_cycles;
+      comp->sample_period_residue = 0u;
+    step_post: |
+      if (CPU_AUDIO_SAMPLE_RATE > 0u && CPU_SYSTEM_CLOCK_HZ > 0u) {
+          uint64_t period = CPU_SYSTEM_CLOCK_HZ / CPU_AUDIO_SAMPLE_RATE;
+          uint64_t rem = CPU_SYSTEM_CLOCK_HZ % CPU_AUDIO_SAMPLE_RATE;
+          if (period == 0u) period = 1u;
+          while (cpu->total_cycles >= comp->next_sample_cycle) {
+              int32_t machine = (int32_t)comp->machine_level;
+              int32_t tape = (comp->cassette_transport_mode == 1u && comp->cassette_motor_on != 0u)
+                  ? (int32_t)comp->tape_level
+                  : 128;
+              int32_t mixed = machine + tape - 128;
+              if (mixed < 0) mixed = 0;
+              if (mixed > 255) mixed = 255;
+              comp->level = (uint8_t)mixed;
+              {
+                  uint64_t sig_args[2] = { (uint64_t)comp->level, comp->next_sample_cycle };
+                  cpu_component_emit_signal(cpu, "speaker", "pcm_sample", sig_args, 2);
+              }
+              comp->next_sample_cycle += period;
+              comp->sample_period_residue += rem;
+              if (comp->sample_period_residue >= CPU_AUDIO_SAMPLE_RATE) {
+                  comp->next_sample_cycle += 1u;
+                  comp->sample_period_residue -= CPU_AUDIO_SAMPLE_RATE;
+              }
+          }
+      }
   callback_handlers: {}
   handler_bodies:
     on_audio_level: |
-      comp->level = (uint8_t)(args[0] & 0xFFu);
+      comp->machine_level = (uint8_t)(args[0] & 0xFFu);
       comp->last_cycle = (uint64_t)args[1];
-      cpu_component_emit_signal(cpu, "speaker", "pcm_sample", args, argc);
+    on_tape_playback_sample: |
+      comp->tape_level = (uint8_t)(args[0] & 0xFFu);
+      comp->last_cycle = (uint64_t)args[1];
+    on_transport_state: |
+      uint64_t packed = args[0];
+      comp->cassette_transport_mode = (uint8_t)(packed & 0xFFu);
+      comp->cassette_motor_on = (uint8_t)((packed >> 8u) & 0x01u);
 
 coding:
   headers: []

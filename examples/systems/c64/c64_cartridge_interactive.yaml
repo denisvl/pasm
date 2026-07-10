@@ -68,6 +68,7 @@ components:
   - c64_pla
   - c64_main_ram
   devices:
+  - datasette_c64
   - keyboard_c64
   - joystick_c64
   - video_c64
@@ -75,6 +76,24 @@ components:
   hosts:
   - host_c64_sdl2
   cartridge: c64_cart0
+  cassette: datasette_c64
+cassette:
+  component: datasette_c64
+  directory: examples/cassettes/c64
+  allowed_extensions: [yaml, wav]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+    play_sets_motor: false
 connections:
 - from:
     component: c64_pla

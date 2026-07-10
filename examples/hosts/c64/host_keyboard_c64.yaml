@@ -75,6 +75,10 @@ keyboard:
       bit: 6
   - host_scancode: F12
     emulator_key_id: EMU_CART_PICKER
+  - host_scancode: F11
+    emulator_key_id: EMU_CASSETTE_PICKER
+  - host_scancode: F10
+    emulator_key_id: EMU_CASSETTE_PLAY
   - host_scancode: DOWN
     mapper_key_id: K_DOWN
     presses:

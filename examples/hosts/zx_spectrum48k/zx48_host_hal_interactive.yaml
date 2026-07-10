@@ -420,9 +420,11 @@ behavior:
       \ == 0u || argc < 1) return;\nuint8_t level = (uint8_t)(args[0] & 0xFFu);\nuint64_t cycle = (argc > 1) ? (uint64_t)args[1]\
       \ : cpu->total_cycles;\nuint64_t sample_rate = (comp->audio_rate > 0u) ? (uint64_t)comp->audio_rate : ((CPU_AUDIO_SAMPLE_RATE\
       \ > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u);\nuint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? CPU_SYSTEM_CLOCK_HZ : 1u;\n\
-      uint64_t target_sample_index = (cycle * sample_rate) / clock_hz;\nint16_t target = (level != 0u) ? 4200 : 0;\nif (comp->audio_last_level\
+      uint64_t target_sample_index = (cycle * sample_rate) / clock_hz;\nint16_t target;\nif (level <= 1u) target = (level\
+      \ != 0u) ? 4200 : 0;\nelse {\n    int32_t centered = ((int32_t)level - 128) * 96;\n    if (centered < -12000) centered\
+      \ = -12000;\n    if (centered > 12000) centered = 12000;\n    target = (int16_t)centered;\n}\nif (comp->audio_last_level\
       \ != level) {\n    comp->audio_last_level = level;\n    if (comp->debug_enabled != 0u) {\n        cpu_host_hal_log(\"\
-      host_zx48: beeper level=%u\", (unsigned)level);\n    }\n}\nint16_t next_level = (int16_t)(comp->audio_level + ((target\
+      host_zx48: audio level=%u\", (unsigned)level);\n    }\n}\nint16_t next_level = (int16_t)(comp->audio_level + ((target\
       \ - comp->audio_level) / 6));\nif (level == 0u && next_level > -4 && next_level < 4) next_level = 0;\nif (comp->audio_last_cycle\
       \ == 0u && comp->audio_sample_cursor == 0u && comp->audio_samples == 0u) {\n    comp->audio_last_cycle = cycle;\n  \
       \  comp->audio_sample_cursor = target_sample_index;\n    comp->audio_level = next_level;\n    return;\n}\nif (target_sample_index\

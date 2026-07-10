@@ -17,6 +17,8 @@ interfaces:
   handlers:
     - name: on_audio_level
       args: [u8, u64]
+    - name: on_tape_playback_sample
+      args: [u8, u64]
   signals:
     - name: pcm_sample
       args: [u8, u64]
@@ -26,6 +28,10 @@ behavior:
   callback_handlers: {}
   handler_bodies:
     on_audio_level: |
+      comp->level = (uint8_t)(args[0] & 0xFFu);
+      comp->last_cycle = (uint64_t)args[1];
+      cpu_component_emit_signal(cpu, "speaker", "pcm_sample", args, argc);
+    on_tape_playback_sample: |
       comp->level = (uint8_t)(args[0] & 0xFFu);
       comp->last_cycle = (uint64_t)args[1];
       cpu_component_emit_signal(cpu, "speaker", "pcm_sample", args, argc);

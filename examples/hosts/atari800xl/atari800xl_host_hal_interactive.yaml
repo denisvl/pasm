@@ -258,8 +258,8 @@ behavior:
       \ {\n    if (\n        cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN ||\n        cpu_host_hal_event_type(&ev)\
       \ == CPU_HOST_EVENT_KEYUP\n    ) {\n        int32_t sc_ev = cpu_host_hal_event_scancode(&ev);\n        uint8_t is_down_ev\
       \ = (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN) ? 1u : 0u;\n        const char *kb_trace = cpu_host_hal_getenv(\"PASM_ATARI800XL_KB_EVENTS\");\n\
-      \        if (kb_trace != NULL && kb_trace[0] == '1') {\n            cpu_host_hal_log(\"atari800xl_kb_event cycle=%llu sc=%d down=%u repeat=%u\",\n\
-      \                (unsigned long long)cpu->total_cycles,\n                (int)sc_ev,\n                (unsigned)is_down_ev,\n\
+      \        if (kb_trace != NULL && kb_trace[0] == '1') {\n            int32_t key_ev = cpu_host_hal_event_keycode(&ev);\n            cpu_host_hal_log(\"atari800xl_kb_event cycle=%llu sc=%d sc_name=%s key=%d key_name=%s down=%u repeat=%u\",\n\
+      \                (unsigned long long)cpu->total_cycles,\n                (int)sc_ev,\n                cpu_host_hal_scancode_name(sc_ev),\n                (int)key_ev,\n                cpu_host_hal_key_name(key_ev),\n                (unsigned)is_down_ev,\n\
       \                (unsigned)cpu_host_hal_event_key_repeat(&ev));\n        }\n    }\n    if (cpu_host_hal_event_type(&ev)\
       \ == CPU_HOST_EVENT_QUIT) {\n        cpu->running = false;\n        cpu->halted = true;\n        return;\n    } else\
       \ if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN && cpu_host_hal_event_key_repeat(&ev) == 0) {\n       \
@@ -298,11 +298,7 @@ behavior:
       \ != 0u) controlled = 1u;\n                }\n                for (size_t i = 0; i < g_runtime_keyboard_map.binding_count;\
       \ ++i) {\n                    const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];\n             \
       \       if (b->scancode == sc) { matched = b; break; }\n                }\n            }\n            if (matched !=\
-      \ NULL) {\n                /* Push base keycode only; modifiers are applied in the IC. */\n                uint8_t out\
-      \ = 0u;\n                if (matched->has_ascii != 0u && matched->ascii != 0u) {\n                    uint8_t kb = (uint8_t)(matched->ascii\
-      \ - 1u);\n                    if (shifted != 0u) kb = (uint8_t)(kb | 0x40u);\n                    if (controlled !=\
-      \ 0u) kb = (uint8_t)(kb | 0x80u);\n                    /* Queue encoded (KBCODE + 1), so 0 means \"no event\". */\n\
-      \                    out = (uint8_t)(kb + 1u);\n                }\n                cpu_component_keyboard_ascii_queue_push(out);\n\
+      \ NULL) {\n                uint8_t out = 0u;\n                if (controlled != 0u && matched->has_ascii_ctrl != 0u) out = matched->ascii_ctrl;\n                else if (shifted != 0u && matched->has_ascii_shift != 0u) out = matched->ascii_shift;\n                else if (matched->has_ascii != 0u) out = matched->ascii;\n                cpu_component_keyboard_ascii_queue_push(out);\n\
       \            }\n        }\n    } else if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYUP) {\n        int32_t sc\
       \ = cpu_host_hal_event_scancode(&ev);\n        /* Clear special-key pressed state on release. */\n        {\n      \
       \      static int32_t break_sc = -2;\n            if (break_sc == -2) {\n                break_sc = -1;\n          \
@@ -313,7 +309,7 @@ behavior:
       \   }\n        }\n        if (sc == CPU_HOST_SCANCODE(F2) || sc == CPU_HOST_SCANCODE(HOME)) {\n            comp->consol_state = (uint8_t)(comp->consol_state\
       \ | 0x04u);\n        } else if (sc == CPU_HOST_SCANCODE(F3) || sc == CPU_HOST_SCANCODE(END)) {\n            comp->consol_state = (uint8_t)(comp->consol_state\
       \ | 0x02u);\n        } else if (sc == CPU_HOST_SCANCODE(F4) || sc == CPU_HOST_SCANCODE(PAGEUP)) {\n            comp->consol_state = (uint8_t)(comp->consol_state\
-      \ | 0x01u);\n        }\n    }\n}\n{\n    int key_count = 0;\n    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n    uint8_t shifted = 0u;\n    uint8_t controlled = 0u;\n    uint8_t any_key = 0u;\n    uint8_t live_out = 0u;\n    if (ks != NULL && key_count > 0) {\n        size_t kcount = (size_t)key_count;\n        for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {\n            const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];\n            if (b->scancode < 0 || (size_t)b->scancode >= kcount) continue;\n            if (ks[b->scancode] == 0u) continue;\n            if (b->is_shift_modifier != 0u) {\n                shifted = 1u;\n                continue;\n            }\n            if (b->is_ctrl_modifier != 0u) {\n                controlled = 1u;\n                continue;\n            }\n            if (b->has_ascii != 0u) {\n                any_key = 1u;\n                if (live_out == 0u && b->ascii != 0u) {\n                    live_out = (uint8_t)(b->ascii + 1u);\n                }\n            }\n        }\n    }\n    comp->key_ascii = live_out;\n    comp->key_mods = (uint8_t)((shifted ? 0x01u : 0u) | (controlled ? 0x02u : 0u) | (any_key ? 0x04u : 0u));\n}\n/* Optional controller map: when present, it drives joystick/trigger state (host-abstracted).\
+      \ | 0x01u);\n        }\n    }\n}\n{\n    int key_count = 0;\n    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n    uint8_t shifted = 0u;\n    uint8_t controlled = 0u;\n    uint8_t any_key = 0u;\n    uint8_t live_out = 0u;\n    if (ks != NULL && key_count > 0) {\n        size_t kcount = (size_t)key_count;\n        for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {\n            const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];\n            if (b->scancode < 0 || (size_t)b->scancode >= kcount) continue;\n            if (ks[b->scancode] == 0u) continue;\n            if (b->is_shift_modifier != 0u) shifted = 1u;\n            if (b->is_ctrl_modifier != 0u) controlled = 1u;\n        }\n        for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {\n            const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];\n            if (b->scancode < 0 || (size_t)b->scancode >= kcount) continue;\n            if (ks[b->scancode] == 0u) continue;\n            if (b->is_shift_modifier != 0u || b->is_ctrl_modifier != 0u) continue;\n            if (b->has_ascii != 0u || b->has_ascii_shift != 0u || b->has_ascii_ctrl != 0u) {\n                uint8_t out = 0u;\n                any_key = 1u;\n                if (controlled != 0u && b->has_ascii_ctrl != 0u) out = b->ascii_ctrl;\n                else if (shifted != 0u && b->has_ascii_shift != 0u) out = b->ascii_shift;\n                else if (b->has_ascii != 0u) out = b->ascii;\n                if (live_out == 0u && out != 0u) {\n                    /* The runtime map already stores Atari KBCODE + 1. */\n                    live_out = out;\n                }\n            }\n        }\n    }\n    comp->key_ascii = live_out;\n    comp->key_mods = (uint8_t)((shifted ? 0x01u : 0u) | (controlled ? 0x02u : 0u) | (any_key ? 0x04u : 0u));\n}\n/* Optional controller map: when present, it drives joystick/trigger state (host-abstracted).\
       \ */\nif (g_runtime_controller_map.loaded != 0u) {\n    uint8_t focus = (comp->window != NULL) ? cpu_host_hal_window_has_focus(comp->window)\
       \ : 1u;\n    uint8_t j0 = 0x0Fu;\n    uint8_t j1 = 0x0Fu;\n    uint8_t t0 = 1u;\n    uint8_t t1 = 1u;\n    cpu_component_controller_map_poll(cpu,\
       \ focus);\n    if (cpu_component_controller_pressed(\"P1_UP\")) j0 = (uint8_t)(j0 & (uint8_t)~0x01u);\n    if (cpu_component_controller_pressed(\"\
@@ -356,7 +352,29 @@ behavior:
       \ = NULL;\n}\nif (comp->host_inited != 0u) {\n    cpu_host_hal_quit_subsystems();\n    cpu_host_hal_quit();\n    comp->host_inited\
       \ = 0u;\n}\n"
   callback_handlers:
-    keyboard_ascii: 'return (uint64_t)comp->key_ascii;
+    keyboard_ascii: '{
+      static uint32_t auto_boot_last_return_frame = 0u;
+      static uint32_t auto_boot_last_space_frame = 0u;
+      uint8_t queued = cpu_component_keyboard_ascii_queue_pop();
+      const char *auto_boot = cpu_host_hal_getenv("PASM_ATARI800XL_AUTO_CASSETTE_BOOT");
+      if (comp->frame_count == 0u) {
+          auto_boot_last_return_frame = 0u;
+          auto_boot_last_space_frame = 0u;
+      }
+      if (auto_boot != NULL && auto_boot[0] == ''1'') {
+          if (comp->frame_count >= 1u && (auto_boot_last_return_frame == 0u || (comp->frame_count - auto_boot_last_return_frame) >= 24u) && comp->frame_count <= 240u) {
+              cpu_component_keyboard_ascii_queue_push(13u); /* RETURN KBCODE+1 */
+              auto_boot_last_return_frame = comp->frame_count;
+          }
+          if (comp->frame_count >= 48u && (auto_boot_last_space_frame == 0u || (comp->frame_count - auto_boot_last_space_frame) >= 48u) && comp->frame_count <= 240u) {
+              cpu_component_keyboard_ascii_queue_push(34u); /* SPACE KBCODE+1 */
+              auto_boot_last_space_frame = comp->frame_count;
+          }
+          queued = cpu_component_keyboard_ascii_queue_pop();
+      }
+      if (queued != 0u) return (uint64_t)queued;
+      return (uint64_t)comp->key_ascii;
+      }
 
       '
     keyboard_mods: 'return (uint64_t)comp->key_mods;
@@ -366,11 +384,46 @@ behavior:
 
       '
     consol_state: '{
+      static uint8_t auto_boot_reads = 0u;
+      static int trace_init = -1;
+      static FILE *trace_fp = NULL;
+      static uint32_t trace_count = 0u;
+      uint8_t result;
+      const char *auto_boot = cpu_host_hal_getenv("PASM_ATARI800XL_AUTO_CASSETTE_BOOT");
       const char *auto_start = cpu_host_hal_getenv("PASM_ATARI800XL_AUTO_START");
-      if (auto_start != NULL && auto_start[0] == ''1'' && comp->frame_count >= 30u && comp->frame_count < 36u) {
-          return 0x06u; /* pulse START low for a few frames */
+      if (comp->frame_count == 0u) auto_boot_reads = 0u;
+      if (trace_init < 0) {
+          const char *env = cpu_host_hal_getenv("PASM_ATARI800XL_BOOT_TRACE");
+          trace_init = (env != NULL && env[0] != ''\0'' && env[0] != ''0'') ? 1 : 0;
+          if (trace_init != 0) {
+              const char *path = cpu_host_hal_getenv("PASM_ATARI800XL_BOOT_TRACE_FILE");
+              if (path != NULL && path[0] != ''\0'') trace_fp = fopen(path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
       }
-      return (uint64_t)(comp->consol_state & 0x07u);
+      if (auto_boot != NULL && auto_boot[0] == ''1'' && auto_boot_reads < 8u) {
+          auto_boot_reads += 1u;
+          result = 0x02u; /* hold OPTION+START low across early OS console reads */
+      } else if (auto_start != NULL && auto_start[0] == ''1'' && auto_boot_reads < 6u) {
+          auto_boot_reads += 1u;
+          result = 0x06u; /* hold START low across the early OS console reads */
+      } else {
+          result = (uint8_t)(comp->consol_state & 0x07u);
+      }
+      if (trace_init != 0 && trace_count < 32u) {
+          fprintf(
+              trace_fp,
+              "boot_trace consol frame=%u read=%u auto_boot=%c auto_start=%c result=%02X\n",
+              (unsigned)comp->frame_count,
+              (unsigned)auto_boot_reads,
+              (auto_boot != NULL && auto_boot[0] != ''\0'') ? auto_boot[0] : ''-'',
+              (auto_start != NULL && auto_start[0] != ''\0'') ? auto_start[0] : ''-'',
+              (unsigned)result
+          );
+          fflush(trace_fp);
+          trace_count += 1u;
+      }
+      return (uint64_t)result;
       }
 
       '

@@ -45,10 +45,28 @@ components:
   - controller_msx
   - video_msx
   - speaker
+  - cassette_transport
   - tv
   hosts:
   - host_msx
   cartridge: msx_cart0
+  cassette: cassette_transport
+cassette:
+  component: cassette_transport
+  directory: examples/cassettes/msx1
+  allowed_extensions: [yaml, wav]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
 connections:
 - from:
     component: ppi0
@@ -74,6 +92,14 @@ connections:
     component: controller_msx
     kind: callback
     name: read_state
+- from:
+    component: psg0
+    kind: callback
+    name: cassette_read
+  to:
+    component: cassette_transport
+    kind: callback
+    name: sample_input
 - from:
     component: controller_msx
     kind: callback
@@ -114,6 +140,22 @@ connections:
     component: speaker
     kind: handler
     name: on_audio_level
+- from:
+    component: ppi0
+    kind: signal
+    name: cassette_write
+  to:
+    component: cassette_transport
+    kind: handler
+    name: on_output_sample
+- from:
+    component: cassette_transport
+    kind: signal
+    name: transport_state
+  to:
+    component: speaker
+    kind: handler
+    name: on_transport_state
 - from:
     component: speaker
     kind: signal

@@ -91,6 +91,9 @@ state:
 - name: last_event_poll_cycle
   type: uint64_t
   initial: '0'
+- name: keyboard_matrix_refresh_cycle
+  type: uint64_t
+  initial: '0'
 - name: overlay_last_ms
   type: uint32_t
   initial: '0'
@@ -289,28 +292,7 @@ behavior:
       \ = NULL;\n}\nif (comp->host_inited != 0u) {\n    cpu_host_hal_stop_text_input();\n    cpu_host_hal_quit_subsystems();\n\
       \    cpu_host_hal_quit();\n    comp->host_inited = 0u;\n}\n"
   callback_handlers:
-    keyboard_matrix: "if (comp->host_inited != 0u) {\n    cpu_host_hal_pump_events();\n    comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);\n\
-      \    int key_count = 0;\n    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n    if (ks != NULL && key_count\
-      \ > 0) {\n        uint8_t rows[11] = {\n            0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,\n            0xFFu, 0xFFu,\
-      \ 0xFFu, 0xFFu, 0xFFu\n        };\n        cpu_component_apply_declared_keymap(\n            cpu,\n            \"host_msx\"\
-      ,\n            ks,\n            (size_t)key_count,\n            rows,\n            11u,\n            comp->has_keyboard_focus\n\
-      \        );\n        /* Locale bridge: if host reports semantic quote while Shift is down,\n         * force HotBit\
-      \ matrix key \"6\" (Shift+6 => double quote). */\n        {\n            uint8_t shift_down = ((ks[CPU_HOST_SCANCODE(LSHIFT)]\
-      \ != 0u) || (ks[CPU_HOST_SCANCODE(RSHIFT)] != 0u)) ? 1u : 0u;\n            if (shift_down != 0u) {\n               \
-      \ for (int sc = 0; sc < key_count; ++sc) {\n                    if (ks[sc] == 0u) {\n                        continue;\n\
-      \                    }\n                    int32_t kc = cpu_host_hal_key_from_scancode(sc);\n                    if\
-      \ (kc == CPU_HOST_KEYCODE_QUOTE) {\n                        rows[0] &= (uint8_t)~(1u << 6); /* key \"6\" */\n      \
-      \                  rows[2] |= (uint8_t)(1u << 0);  /* release quote key */\n                        rows[2] |= (uint8_t)(1u\
-      \ << 1);  /* release backquote key */\n                        break;\n                    }\n                }\n  \
-      \          }\n        }\n        comp->row0 = rows[0];\n        comp->row1 = rows[1];\n        comp->row2 = rows[2];\n\
-      \        comp->row3 = rows[3];\n        comp->row4 = rows[4];\n        comp->row5 = rows[5];\n        comp->row6 = rows[6];\n\
-      \        comp->row7 = rows[7];\n        comp->row8 = rows[8];\n        comp->row9 = rows[9];\n        comp->row10 =\
-      \ rows[10];\n    }\n}\nuint8_t row = (argc > 0) ? (uint8_t)(args[0] & 0x0Fu) : 0xFFu;\nuint8_t value = 0xFFu;\nswitch\
-      \ (row) {\n    case 0u: value = comp->row0; break;\n    case 1u: value = comp->row1; break;\n    case 2u: value = comp->row2;\
-      \ break;\n    case 3u: value = comp->row3; break;\n    case 4u: value = comp->row4; break;\n    case 5u: value = comp->row5;\
-      \ break;\n    case 6u: value = comp->row6; break;\n    case 7u: value = comp->row7; break;\n    case 8u: value = comp->row8;\
-      \ break;\n    case 9u: value = comp->row9; break;\n    case 10u: value = comp->row10; break;\n    default: value = 0xFFu;\
-      \ break;\n}\nreturn (uint64_t)value;\n"
+    keyboard_matrix: "if (comp->host_inited != 0u) {\n    uint64_t now = cpu->total_cycles;\n    if ((now - comp->keyboard_matrix_refresh_cycle) >= 128u) {\n        comp->keyboard_matrix_refresh_cycle = now;\n        cpu_host_hal_pump_events();\n        comp->has_keyboard_focus = cpu_host_hal_window_has_focus(comp->window);\n        int key_count = 0;\n        const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n        if (ks != NULL && key_count > 0) {\n            uint8_t rows[11] = {\n                0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,\n                0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu\n            };\n            cpu_component_apply_declared_keymap(\n                cpu,\n                \"host_msx\",\n                ks,\n                (size_t)key_count,\n                rows,\n                11u,\n                comp->has_keyboard_focus\n            );\n            /* Locale bridge: if host reports semantic quote while Shift is down,\n             * force HotBit matrix key \"6\" (Shift+6 => double quote). */\n            {\n                uint8_t shift_down = ((ks[CPU_HOST_SCANCODE(LSHIFT)] != 0u) || (ks[CPU_HOST_SCANCODE(RSHIFT)] != 0u)) ? 1u : 0u;\n                if (shift_down != 0u) {\n                    for (int sc = 0; sc < key_count; ++sc) {\n                        if (ks[sc] == 0u) {\n                            continue;\n                        }\n                        int32_t kc = cpu_host_hal_key_from_scancode(sc);\n                        if (kc == CPU_HOST_KEYCODE_QUOTE) {\n                            rows[0] &= (uint8_t)~(1u << 6); /* key \"6\" */\n                            rows[2] |= (uint8_t)(1u << 0);  /* release quote key */\n                            rows[2] |= (uint8_t)(1u << 1);  /* release backquote key */\n                            break;\n                        }\n                    }\n                }\n            }\n            comp->row0 = rows[0];\n            comp->row1 = rows[1];\n            comp->row2 = rows[2];\n            comp->row3 = rows[3];\n            comp->row4 = rows[4];\n            comp->row5 = rows[5];\n            comp->row6 = rows[6];\n            comp->row7 = rows[7];\n            comp->row8 = rows[8];\n            comp->row9 = rows[9];\n            comp->row10 = rows[10];\n        }\n    }\n}\nuint8_t row = (argc > 0) ? (uint8_t)(args[0] & 0x0Fu) : 0xFFu;\nuint8_t value = 0xFFu;\nswitch (row) {\n    case 0u: value = comp->row0; break;\n    case 1u: value = comp->row1; break;\n    case 2u: value = comp->row2; break;\n    case 3u: value = comp->row3; break;\n    case 4u: value = comp->row4; break;\n    case 5u: value = comp->row5; break;\n    case 6u: value = comp->row6; break;\n    case 7u: value = comp->row7; break;\n    case 8u: value = comp->row8; break;\n    case 9u: value = comp->row9; break;\n    case 10u: value = comp->row10; break;\n    default: value = 0xFFu; break;\n}\nreturn (uint64_t)value;\n"
     joystick_state: 'if (comp->host_inited == 0u) return 0xFFu;
 
       cpu_host_hal_pump_events();

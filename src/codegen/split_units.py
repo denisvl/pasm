@@ -11,6 +11,7 @@ from .cpu_impl import generate_component_routing_glue
 from .cpu_impl import generate_host_hal_contract_support
 from .cpu_impl import generate_host_hal_impl_glue
 from .cpu_impl import generate_input_runtime_glue
+from .cpu_impl import generate_input_runtime_contract_support
 from .cpu_runtime import generate_cartridge_rom_loader, generate_system_rom_loader
 from .interrupts import generate_interrupt_impl
 
@@ -19,12 +20,16 @@ def emit_split_unit(isa_data: Dict[str, Any], cpu_name: str, suffix: str) -> str
     """Emit a split unit body by suffix ownership."""
     if suffix == "runtime":
         return generate_runtime_glue(isa_data, cpu_name)
+    if suffix == "picker_glue":
+        return generate_picker_glue(isa_data, cpu_name)
     if suffix == "system_glue":
         return generate_system_interrupt_glue(isa_data, cpu_name)
     if suffix == "host_glue":
         return generate_host_picker_glue(isa_data, cpu_name)
     if suffix == "system_bus":
         return generate_system_bus_glue(isa_data, cpu_name)
+    if suffix == "device_glue":
+        return generate_device_glue(isa_data, cpu_name)
     return (
         "/* Auto-generated split unit scaffold. */\n"
         f'#include "{cpu_name}.h"\n'
@@ -654,29 +659,31 @@ def generate_host_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         + "#define CPU_HOST_HAT_LEFT 0x08u\n"
         + "\n"
     )
-    has_cartridge = bool(isa_data.get("cartridge"))
-    if has_cartridge:
+    has_picker = bool(isa_data.get("cartridge")) or bool(isa_data.get("cassette"))
+    if has_picker:
         return (
             "/* Auto-generated split unit: host-side glue ownership. */\n"
             f'#include "{cpu_name}.h"\n\n'
             + host_hal_prelude
             + host_hal_impl
             + "\n"
-            "extern int cpu_component_cartridge_picker_set_dir(const char *path);\n"
             "extern uint8_t cpu_component_cartridge_picker_is_active(void);\n"
             "extern void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus);\n"
             "extern void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
             "int cpu_component_host_picker_set_dir(const char *path) {\n"
-            "    return cpu_component_cartridge_picker_set_dir(path);\n"
+            "    (void)path;\n"
+            "    return 0;\n"
             "}\n\n"
             "uint8_t cpu_component_host_picker_is_active(void) {\n"
-            "    return cpu_component_cartridge_picker_is_active();\n"
+            "    return (uint8_t)(cpu_component_cartridge_picker_is_active() != 0u || cpu_component_cassette_picker_is_active() != 0u);\n"
             "}\n\n"
             "void cpu_component_host_picker_step(CPUState *cpu, uint8_t has_focus) {\n"
             "    cpu_component_cartridge_picker_update(cpu, has_focus);\n"
+            "    cpu_component_cassette_picker_update(cpu, has_focus);\n"
             "}\n\n"
             "void cpu_component_host_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {\n"
             "    cpu_component_cartridge_picker_draw_overlay(cpu, pixels, w, h);\n"
+            "    cpu_component_cassette_picker_draw_overlay(cpu, pixels, w, h);\n"
             "}\n"
         )
     return (
@@ -717,41 +724,116 @@ def generate_runtime_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
     )
 
 
+def generate_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Generate split picker/runtime ownership for cartridge/cassette media UI."""
+    picker_runtime = generate_cartridge_picker_runtime_glue(isa_data, cpu_name)
+    input_runtime_support = generate_input_runtime_contract_support(isa_data, cpu_name)
+    host_hal_support = generate_host_hal_contract_support(isa_data, cpu_name)
+    overlay_include = (
+        "#include <pasm_overlay.h>\n\n"
+        if "pasm_overlay_" in picker_runtime
+        else ""
+    )
+    return (
+        "/* Auto-generated split unit: media picker ownership. */\n"
+        f'#include "{cpu_name}.h"\n\n'
+        + overlay_include
+        + host_hal_support
+        + input_runtime_support
+        + "static char *cpu_component_trim(char *s) {\n"
+        + "    char *end;\n"
+        + "    while (s && *s && (*s == ' ' || *s == '\\t' || *s == '\\r' || *s == '\\n')) s++;\n"
+        + "    if (!s || !*s) return s;\n"
+        + "    end = s + strlen(s);\n"
+        + "    while (end > s && (end[-1] == ' ' || end[-1] == '\\t' || end[-1] == '\\r' || end[-1] == '\\n')) end--;\n"
+        + "    *end = '\\0';\n"
+        + "    return s;\n"
+        + "}\n\n"
+        + "static char *cpu_component_unquote(char *s) {\n"
+        + "    size_t n;\n"
+        + "    if (s == NULL) return NULL;\n"
+        + "    s = cpu_component_trim(s);\n"
+        + "    n = strlen(s);\n"
+        + "    if (n >= 2u) {\n"
+        + "        if ((s[0] == '\\'' && s[n - 1u] == '\\'') || (s[0] == '\"' && s[n - 1u] == '\"')) {\n"
+        + "            s[n - 1u] = '\\0';\n"
+        + "            return s + 1;\n"
+        + "        }\n"
+        + "    }\n"
+        + "    return s;\n"
+        + "}\n\n"
+        + "uint8_t cpu_component_keyboard_host_shift_down(const uint8_t *host_keys, size_t host_key_count) {\n"
+        + "    if (host_keys == NULL || host_key_count == 0u) return 0u;\n"
+        + "    if ((size_t)CPU_HOST_SCANCODE(LSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LSHIFT)] != 0u) return 1u;\n"
+        + "    if ((size_t)CPU_HOST_SCANCODE(RSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RSHIFT)] != 0u) return 1u;\n"
+        + "    return 0u;\n"
+        + "}\n\n"
+        + "static uint8_t cpu_runtime_keyboard_binding_pressed(const RuntimeKeyboardBinding *b, const uint8_t *host_keys, size_t host_key_count) {\n"
+        + "    uint8_t shift_down;\n"
+        + "    if (b == NULL || host_keys == NULL || host_key_count == 0u) return 0u;\n"
+        + "    shift_down = cpu_component_keyboard_host_shift_down(host_keys, host_key_count);\n"
+        + "    if (b->shift_mode == 1u && shift_down != 0u) return 0u;\n"
+        + "    if (b->shift_mode == 2u && shift_down == 0u) return 0u;\n"
+        + "    if (b->source_kind == 1u) {\n"
+        + "        if (b->scancode < 0 || (size_t)b->scancode >= host_key_count) return 0u;\n"
+        + "        return (uint8_t)(host_keys[b->scancode] != 0u);\n"
+        + "    }\n"
+        + "    if (b->source_kind == 2u) {\n"
+        + "        if (b->host_key_name[0] == '\\0') return 0u;\n"
+        + "        for (size_t i = 0; i < host_key_count; ++i) {\n"
+        + "            const char *key_name;\n"
+        + "            if (host_keys[i] == 0u) continue;\n"
+        + "            key_name = cpu_host_hal_key_name(cpu_host_hal_key_from_scancode((int)i));\n"
+        + "            if (key_name != NULL && strcmp(key_name, b->host_key_name) == 0) return 1u;\n"
+        + "        }\n"
+        + "    }\n"
+        + "    return 0u;\n"
+        + "}\n\n"
+        + "uint8_t cpu_component_keyboard_emulator_action_pressed(const char *action_id, const uint8_t *host_keys, size_t host_key_count, uint8_t has_focus) {\n"
+        + "    if (g_runtime_keyboard_map.loaded == 0u) return 0u;\n"
+        + "    if (!action_id || action_id[0] == '\\0') return 0u;\n"
+        + "    if (!host_keys || host_key_count == 0u) return 0u;\n"
+        + "    if (g_runtime_keyboard_map.focus_required != 0u && has_focus == 0u) return 0u;\n"
+        + "    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {\n"
+        + "        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];\n"
+        + "        if (b->emulator_key_id[0] == '\\0') continue;\n"
+        + "        if (strcmp(b->emulator_key_id, action_id) != 0) continue;\n"
+        + "        if (cpu_runtime_keyboard_binding_pressed(b, host_keys, host_key_count) != 0u) return 1u;\n"
+        + "    }\n"
+        + "    return 0u;\n"
+        + "}\n\n"
+        + picker_runtime
+        + "\n"
+    )
+
+
 def generate_system_interrupt_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
     """Generate split system_glue unit ownership for routing/dispatch/interrupt glue."""
-    backend_target = _single_host_backend_target(isa_data)
-    backend_include = ""
-    if backend_target == "sdl2":
-        backend_include = (
-            "#include <SDL2/SDL.h>\n"
-            "#ifndef CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE\n"
-            "#define CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE 0x00000001\n"
-            "#endif\n"
-            "#ifndef CPU_HOST_AUDIO_ALLOW_FORMAT_CHANGE\n"
-            "#define CPU_HOST_AUDIO_ALLOW_FORMAT_CHANGE 0x00000002\n"
-            "#endif\n"
-            "#ifndef CPU_HOST_AUDIO_ALLOW_CHANNELS_CHANGE\n"
-            "#define CPU_HOST_AUDIO_ALLOW_CHANNELS_CHANGE 0x00000004\n"
-            "#endif\n"
-            "#ifndef CPU_HOST_AUDIO_ALLOW_SAMPLES_CHANGE\n"
-            "#define CPU_HOST_AUDIO_ALLOW_SAMPLES_CHANGE 0x00000008\n"
-            "#endif\n"
-            "#ifndef SDL_AUDIO_ALLOW_ANY_CHANGE\n"
-            "#define SDL_AUDIO_ALLOW_ANY_CHANGE ("
-            "SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | "
-            "SDL_AUDIO_ALLOW_FORMAT_CHANGE | "
-            "SDL_AUDIO_ALLOW_CHANNELS_CHANGE | "
-            "SDL_AUDIO_ALLOW_SAMPLES_CHANGE)\n"
-            "#endif\n\n"
-        )
+    return (
+        "/* Auto-generated split unit: system-side glue ownership. */\n"
+        f'#include "{cpu_name}.h"\n\n'
+        + generate_interrupt_impl(isa_data, cpu_name)
+        + "\n"
+    )
+
+
+def generate_device_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
+    """Generate split device/runtime ownership for non-CPU component glue."""
     component_runtime = generate_component_runtime_dispatch_glue(isa_data)
     component_lifecycle = generate_component_lifecycle_dispatch_glue(isa_data)
     component_dispatch = generate_component_dispatch_glue(isa_data, cpu_name)
     component_routing = generate_component_routing_glue(isa_data, cpu_name)
     component_connections = generate_component_connections_glue(isa_data, cpu_name)
-    picker_runtime = generate_cartridge_picker_runtime_glue(isa_data, cpu_name)
-    host_hal_support = generate_host_hal_contract_support(isa_data, cpu_name)
     input_runtime_impl = generate_input_runtime_glue(isa_data, cpu_name)
+    input_runtime_impl = input_runtime_impl.replace(
+        "static RuntimeKeyboardMap g_runtime_keyboard_map = {0};",
+        "RuntimeKeyboardMap g_runtime_keyboard_map = {0};",
+    )
+    input_runtime_impl = input_runtime_impl.replace(
+        "static uint8_t cpu_component_keyboard_emulator_action_pressed(",
+        "uint8_t cpu_component_keyboard_emulator_action_pressed(",
+    )
+    host_hal_support = generate_host_hal_contract_support(isa_data, cpu_name)
     overlay_include = (
         "#include <pasm_overlay.h>\n\n"
         if (
@@ -759,26 +841,29 @@ def generate_system_interrupt_glue(isa_data: Dict[str, Any], cpu_name: str) -> s
             or "pasm_overlay_" in component_dispatch
             or "pasm_overlay_" in component_routing
             or "pasm_overlay_" in component_connections
-            or "pasm_overlay_" in picker_runtime
             or "pasm_overlay_" in input_runtime_impl
         )
         else ""
     )
     return (
-        "/* Auto-generated split unit: system-side glue ownership. */\n"
+        "/* Auto-generated split unit: device/runtime ownership. */\n"
         f'#include "{cpu_name}.h"\n\n'
         + overlay_include
-        + backend_include
         + host_hal_support
+        + "int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);\n"
+        + "uint8_t cpu_component_cartridge_picker_is_active(void);\n"
+        + "void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus);\n"
+        + "void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n"
+        + "uint8_t cpu_component_cassette_picker_is_active(void);\n"
+        + "uint8_t cpu_component_cassette_picker_overlay_visible(void);\n"
+        + "void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus);\n"
+        + "void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
         + input_runtime_impl
-        + picker_runtime
         + component_connections
         + component_dispatch
         + component_routing
         + component_lifecycle
         + component_runtime
-        + "\n"
-        + generate_interrupt_impl(isa_data, cpu_name)
         + "\n"
     )
 
@@ -920,6 +1005,7 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
         if str((c.get("metadata") or {}).get("id", "")).strip() not in ic_ids
     ]
     has_runtime_cartridge = bool(isa_data.get("cartridge"))
+    has_runtime_cassette = bool(isa_data.get("cassette"))
     lines: List[str] = []
     for _, ident in pre_hook_ics:
         lines.append(f"void cpu_component_ic_{ident}_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);")
@@ -938,6 +1024,14 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
         lines.extend(
             [
                 "    if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {",
+                "        return -1;",
+                "    }",
+            ]
+        )
+    if has_runtime_cassette:
+        lines.extend(
+            [
+                "    if (cpu_component_cassette_picker_apply_pending_load(cpu) != 0) {",
                 "        return -1;",
                 "    }",
             ]

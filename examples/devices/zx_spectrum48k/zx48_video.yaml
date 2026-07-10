@@ -11,6 +11,21 @@ state:
   - name: border_color
     type: uint8_t
     initial: "0"
+  - name: frame_start_border_color
+    type: uint8_t
+    initial: "0"
+  - name: border_event_count
+    type: uint16_t
+    initial: "0"
+  - name: border_event_colors
+    type: uint8_t *
+    initial: "NULL"
+  - name: border_event_tstates
+    type: uint32_t *
+    initial: "NULL"
+  - name: border_timeline
+    type: uint8_t *
+    initial: "NULL"
 
 interfaces:
   callbacks: []
@@ -18,7 +33,7 @@ interfaces:
     - name: on_frame_boundary
       args: [u32]
     - name: on_border_changed
-      args: [u8]
+      args: [u8, u64]
   signals:
     - name: frame_ready
       args: [u32, u64, u32, u32, u8]
@@ -26,7 +41,15 @@ interfaces:
       args: [u8]
 
 behavior:
-  snippets: {}
+  snippets:
+    init: |
+      comp->border_event_colors = (uint8_t *)calloc(2048u, sizeof(uint8_t));
+      comp->border_event_tstates = (uint32_t *)calloc(2048u, sizeof(uint32_t));
+      comp->border_timeline = (uint8_t *)calloc(69888u, sizeof(uint8_t));
+    destroy: |
+      if (comp->border_event_colors != NULL) free(comp->border_event_colors);
+      if (comp->border_event_tstates != NULL) free(comp->border_event_tstates);
+      if (comp->border_timeline != NULL) free(comp->border_timeline);
   callback_handlers: {}
   handler_bodies:
     on_frame_boundary: |
@@ -37,7 +60,13 @@ behavior:
           ZX_ACTIVE_W = 256u,
           ZX_ACTIVE_H = 192u,
           ZX_BORDER_X = 48u,
-          ZX_BORDER_Y = 48u
+          ZX_BORDER_Y = 48u,
+          ZX_ULA_LINES = 312u,
+          ZX_ULA_TSTATES_PER_LINE = 224u,
+          ZX_VISIBLE_LINE_START = 16u,
+          ZX_VISIBLE_TSTATE_START = 24u,
+          ZX_TSTATES_PER_PIXEL_X_NUM = 1u,
+          ZX_TSTATES_PER_PIXEL_X_DEN = 2u
       };
       static uint32_t framebuf[ZX_FB_W * ZX_FB_H];
       static const uint32_t palette[16] = {
@@ -46,10 +75,29 @@ behavior:
           0xFF000000u, 0xFF0000FFu, 0xFFFF0000u, 0xFFFF00FFu,
           0xFF00FF00u, 0xFF00FFFFu, 0xFFFFFF00u, 0xFFFFFFFFu
       };
-      uint32_t border_px = palette[(uint8_t)(comp->border_color & 0x07u)];
       uint8_t flash_phase = (uint8_t)((comp->frame_count >> 5) & 1u);
-      for (uint32_t i = 0; i < (uint32_t)(ZX_FB_W * ZX_FB_H); ++i) {
-          framebuf[i] = border_px;
+      if (comp->border_timeline != NULL) {
+          uint32_t color = (uint32_t)(comp->frame_start_border_color & 0x07u);
+          uint32_t ev = 0u;
+          for (uint32_t ts = 0u; ts < (ZX_ULA_LINES * ZX_ULA_TSTATES_PER_LINE); ++ts) {
+              while (ev < (uint32_t)comp->border_event_count && comp->border_event_tstates[ev] == ts) {
+                  color = (uint32_t)(comp->border_event_colors[ev] & 0x07u);
+                  ev += 1u;
+              }
+              comp->border_timeline[ts] = (uint8_t)color;
+          }
+      }
+      for (uint32_t y = 0; y < ZX_FB_H; ++y) {
+          uint32_t ula_line = ZX_VISIBLE_LINE_START + y;
+          uint32_t ts_base = ula_line * ZX_ULA_TSTATES_PER_LINE;
+          for (uint32_t x = 0; x < ZX_FB_W; ++x) {
+              uint32_t ula_tstate = ZX_VISIBLE_TSTATE_START + (x / 2u);
+              uint8_t border = 0u;
+              if (comp->border_timeline != NULL) {
+                  border = comp->border_timeline[ts_base + ula_tstate];
+              }
+              framebuf[y * ZX_FB_W + x] = palette[(uint8_t)(border & 0x07u)];
+          }
       }
       for (uint32_t y = 0; y < ZX_ACTIVE_H; y++) {
           uint16_t pix_row = (uint16_t)(0x4000u + ((y & 0xC0u) << 5) + ((y & 0x07u) << 8) + ((y & 0x38u) << 2));
@@ -83,8 +131,15 @@ behavior:
           (uint64_t)comp->border_color
       };
       cpu_component_emit_signal(cpu, "video0", "frame_ready", sig_args, 5);
+      comp->frame_start_border_color = comp->border_color;
+      comp->border_event_count = 0u;
     on_border_changed: |
       comp->border_color = (uint8_t)(args[0] & 0xFFu);
+      if (argc > 1u && comp->border_event_colors != NULL && comp->border_event_tstates != NULL && comp->border_event_count < 2048u) {
+          comp->border_event_colors[comp->border_event_count] = comp->border_color;
+          comp->border_event_tstates[comp->border_event_count] = (uint32_t)(args[1] & 0xFFFFFFFFu);
+          comp->border_event_count += 1u;
+      }
       cpu_component_emit_signal(cpu, "video0", "border_present", args, argc);
 
 coding:

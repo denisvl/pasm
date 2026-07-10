@@ -388,3 +388,11 @@ keyboard:
     presses:
     - row: 2
       bit: 2
+  - host_scancode: F11
+    emulator_key_id: EMU_CASSETTE_PICKER
+  - host_scancode: F10
+    emulator_key_id: EMU_CASSETTE_PLAY
+  - host_scancode: PAGEUP
+    emulator_key_id: EMU_CASSETTE_VOL_UP
+  - host_scancode: PAGEDOWN
+    emulator_key_id: EMU_CASSETTE_VOL_DOWN

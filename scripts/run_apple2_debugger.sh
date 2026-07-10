@@ -41,6 +41,7 @@ IC_KBD="examples/ics/apple2/apple2_keyboard_encoder_ay_5_3600.yaml"
 IC_GAMEIO="examples/ics/apple2/apple2_gameio_ne558.yaml"
 IC_VIDEO_SW="examples/ics/apple2/apple2_video_softswitches.yaml"
 IC_SPK_SW="examples/ics/apple2/apple2_speaker_toggle.yaml"
+IC_CASS_IO="examples/ics/apple2/apple2_cassette_io.yaml"
 IC_CHAR_ROM="examples/ics/apple2/apple2_char_generator_rom.yaml"
 IC_SLOT_DEC="examples/ics/apple2/apple2_slot_decoder_ttl.yaml"
 IC_MAIN_RAM="examples/ics/apple2/apple2_main_ram.yaml"
@@ -48,6 +49,8 @@ DEVICE_KB="examples/devices/apple2/apple2_keyboard.yaml"
 DEVICE_GP="examples/devices/apple2/apple2_gameport.yaml"
 DEVICE_VIDEO="examples/devices/apple2/apple2_video.yaml"
 DEVICE_SPK="examples/devices/apple2/apple2_speaker.yaml"
+DEVICE_CASS_ADAPTER="examples/devices/apple2/apple2_cassette_adapter.yaml"
+DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
 HOST_INTERACTIVE="examples/hosts/apple2/apple2_host_hal_interactive.yaml"
 
 case "${PROFILE}" in
@@ -80,6 +83,7 @@ if [[ "${PROFILE}" == "interactive" ]]; then
     --ic "${IC_GAMEIO}" \
     --ic "${IC_VIDEO_SW}" \
     --ic "${IC_SPK_SW}" \
+    --ic "${IC_CASS_IO}" \
     --ic "${IC_CHAR_ROM}" \
     --ic "${IC_SLOT_DEC}" \
     --ic "${IC_MAIN_RAM}" \
@@ -87,6 +91,8 @@ if [[ "${PROFILE}" == "interactive" ]]; then
     --device "${DEVICE_GP}" \
     --device "${DEVICE_VIDEO}" \
     --device "${DEVICE_SPK}" \
+    --device "${DEVICE_CASS_ADAPTER}" \
+    --device "${DEVICE_CASS}" \
     --host "${HOST_INTERACTIVE}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
     --output "${OUTPUT_DIR}"

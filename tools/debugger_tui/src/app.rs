@@ -410,6 +410,10 @@ impl App {
                     "Overlay: OFF".to_string()
                 });
             }
+            Action::FocusEmulator => {
+                self.backend.focus_emulator_window()?;
+                self.last_message = Some("Requested emulator window focus".to_string());
+            }
             Action::ToggleBreakpoint => {
                 let addr = self
                     .selected_disasm_address()

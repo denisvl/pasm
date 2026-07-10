@@ -22,6 +22,8 @@ set -euo pipefail
 #   BOOT_CARTRIDGE=0|1                          (default 1: boot cartridge ROM when cartridge mode is enabled)
 #   CARTRIDGE_DIR=/abs/path/to/atari800xl/roms   (enable runtime cartridge picker list)
 #   PASM_EMU_CART_PICKER_RAW_KEYS=0|1            (default 1; raw picker hotkey F12)
+#   BOOT_CASSETTE=/abs/path/to/tape.wav|.cas     (auto insert cassette, pulse START, auto play)
+#   AUTO_START=0|1                               (default 0; forced to 1 by BOOT_CASSETTE)
 #   OS_ROM=../../roms/atari800xl/ATARIXL.ROM
 #   BASIC_ROM=../../roms/atari800xl/BASIC_C.ROM
 #   SELFTEST_ROM=../../roms/atari800xl/ATARIXL_SELFTEST.ROM
@@ -53,6 +55,8 @@ SELFTEST_ROM="${SELFTEST_ROM:-../../roms/atari800xl/ATARIXL_SELFTEST.ROM}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/atari800xl/host_keyboard_atari800xl.yaml}"
 CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/atari800xl/host_controller_atari800xl.yaml}"
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
+BOOT_CASSETTE="${BOOT_CASSETTE:-}"
+AUTO_START="${AUTO_START:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -106,6 +110,9 @@ IC_MAIN_RAM="examples/ics/atari800xl/atari800xl_main_ram.yaml"
 DEVICE_KB="examples/devices/atari800xl/atari800xl_keyboard.yaml"
 DEVICE_CTRL="examples/devices/atari800xl/atari800xl_controller.yaml"
 DEVICE_VIDEO="examples/devices/atari800xl/atari800xl_video.yaml"
+DEVICE_SPK="examples/devices/atari800xl/atari800xl_speaker.yaml"
+DEVICE_CASS_ADAPTER="examples/devices/atari800xl/atari800xl_cassette_adapter.yaml"
+DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
 DEVICE_TV="examples/devices/common/tv_crt_mono.yaml"
 case "${PROFILE}" in
   default)
@@ -193,6 +200,12 @@ if [[ "${USE_CARTRIDGE}" != "0" && "${BOOT_CARTRIDGE}" != "0" && ! -f "${ROM_RUN
   echo "Warning: cartridge ROM not found (${ROM_RUNTIME})." >&2
 fi
 
+AUTO_CASSETTE_RUNTIME=""
+if [[ -n "${BOOT_CASSETTE}" ]]; then
+  AUTO_CASSETTE_RUNTIME="$(resolve_path_for_gen "${BOOT_CASSETTE}")"
+  AUTO_START="1"
+fi
+
 # Materialize ROM path overrides into a temp system YAML for codegen
 # (do not mutate repository files in-place).
 TMP_SYSTEM="${SYSTEM_DIR_ABS}/.tmp_atari800xl_system_${$}_$RANDOM.yaml"
@@ -238,6 +251,9 @@ uv run python -m src.main generate \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \
+  --device "${DEVICE_SPK}" \
+  --device "${DEVICE_CASS_ADAPTER}" \
+  --device "${DEVICE_CASS}" \
   --device "${DEVICE_TV}" \
   --host "${HOST}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
@@ -252,6 +268,10 @@ echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC:-<reset-vector>} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
 echo "    os_rom=${OS_ROM} basic_rom=${BASIC_ROM}"
 echo "    use_cartridge=${USE_CARTRIDGE}"
+if [[ -n "${AUTO_CASSETTE_RUNTIME}" ]]; then
+  echo "    boot_cassette=${AUTO_CASSETTE_RUNTIME}"
+  echo "    auto_start=${AUTO_START}"
+fi
 if [[ "${USE_CARTRIDGE}" != "0" ]]; then
   echo "    cartridge_map=${CARTRIDGE_MAP}"
   echo "    cartridge_rom_gen=${GEN_CARTRIDGE_ROM}"
@@ -282,6 +302,10 @@ PASM_TRACE_FILE="${PASM_TRACE_FILE}" \
 PASM_ATARI800XL_KEY_TRACE="${PASM_ATARI800XL_KEY_TRACE}" \
 PASM_ATARI800XL_KB_EVENTS="${PASM_ATARI800XL_KB_EVENTS}" \
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS}" \
+PASM_ATARI800XL_AUTO_START="${AUTO_START}" \
+PASM_ATARI800XL_AUTO_CASSETTE_BOOT="$([[ -n "${AUTO_CASSETTE_RUNTIME}" ]] && printf 1 || printf 0)" \
+PASM_EMU_CASSETTE_AUTO_PATH="${AUTO_CASSETTE_RUNTIME}" \
+PASM_EMU_CASSETTE_AUTO_PLAY="0" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \

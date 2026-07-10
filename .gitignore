@@ -9,6 +9,7 @@ tools/debugger_tui/target/
 pasm.egg-info/
 
 examples/roms/
+examples/cassettes/
 
 # Transients
 generated/

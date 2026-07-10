@@ -29,37 +29,95 @@ interfaces:
 maps:
   memory:
     ranges:
-      - name: gameio_softswitch
+      - name: gameio_softswitch_low
         start: 0xC061
-        size: 0x0010
+        size: 0x0007
+        access: [read, write]
+      - name: gameio_softswitch_high
+        start: 0xC069
+        size: 0x0007
+        access: [read, write]
+      - name: gameio_strobe
+        start: 0xC070
+        size: 0x0001
         access: [read, write]
 
 behavior:
   snippets:
     mem_read_pre: |
+      uint16_t soft_addr = (uint16_t)(addr & 0xFFF7u);
+      uint8_t floating_bus = 0u;
+      {
+          uint16_t floating_addr = 0x0000u;
+          uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 60u) : 17050u;
+          uint64_t cycle_in_frame;
+          uint32_t h_clock;
+          uint32_t v_clock;
+          uint8_t text_mode;
+          uint8_t mixed_mode;
+          uint8_t hires_mode;
+          uint16_t text_base;
+          uint16_t hires_base;
+
+          if (frame_period == 0u) frame_period = 17050u;
+          cycle_in_frame = cpu->total_cycles % frame_period;
+          h_clock = (uint32_t)(cycle_in_frame % 65u);
+          h_clock += 25u;
+          if (h_clock >= 65u) h_clock -= 65u;
+          v_clock = (uint32_t)(cycle_in_frame / 65u);
+          if (h_clock < 25u) v_clock += 1u;
+          v_clock %= 262u;
+
+          text_mode = (uint8_t)(cpu->comp_apple2_video_softswitches.text_mode != 0u);
+          mixed_mode = (uint8_t)(cpu->comp_apple2_video_softswitches.mixed_mode != 0u);
+          hires_mode = (uint8_t)(cpu->comp_apple2_video_softswitches.hires != 0u);
+          text_base = (cpu->comp_apple2_video_softswitches.page2 != 0u) ? 0x0800u : 0x0400u;
+          hires_base = (cpu->comp_apple2_video_softswitches.page2 != 0u) ? 0x4000u : 0x2000u;
+
+          if (v_clock < 192u) {
+              uint32_t row = v_clock >> 3u;
+              uint32_t col = (h_clock < 40u) ? h_clock : 39u;
+              #define A2_TEXT_ADDR(base,row,col) ((uint16_t)((base) + ((((uint16_t)(row)) & 0x0007u) << 7u) + ((((uint16_t)(row)) >> 3u) * 40u) + (uint16_t)(col)))
+              #define A2_HIRES_ADDR(base,y,xb) ((uint16_t)((base) + ((((uint16_t)(y)) & 0x0007u) << 10u) + (((((uint16_t)(y)) >> 3u) & 0x0007u) << 7u) + ((((uint16_t)(y)) >> 6u) * 40u) + (uint16_t)(xb)))
+              if (text_mode == 0u && hires_mode != 0u && (mixed_mode == 0u || row < 20u)) {
+                  uint32_t xb = (h_clock < 40u) ? h_clock : 39u;
+                  floating_addr = A2_HIRES_ADDR(hires_base, v_clock, xb);
+              } else {
+                  floating_addr = A2_TEXT_ADDR(text_base, row, col);
+              }
+              #undef A2_TEXT_ADDR
+              #undef A2_HIRES_ADDR
+          } else {
+              floating_addr = (uint16_t)(text_base + (uint16_t)(cycle_in_frame % 0x0400u));
+          }
+
+          if ((uint64_t)floating_addr < cpu->memory_size) {
+              floating_bus = (uint8_t)(cpu->memory[floating_addr] & 0x7Fu);
+          }
+      }
       if (addr == 0xC070u) {
           comp->paddle_strobe_cycle = cpu->total_cycles;
-          return 0u;
+          return floating_bus;
       }
-      if (addr == 0xC061u || addr == 0xC062u) {
+      if (soft_addr == 0xC061u || soft_addr == 0xC062u) {
           uint8_t pressed = 0u;
-          if (addr == 0xC061u) {
+          if (soft_addr == 0xC061u) {
               pressed = (uint8_t)(cpu_component_call(cpu, "apple2_gameio", "read_button0", NULL, 0) & 0xFFu);
           } else {
               pressed = (uint8_t)(cpu_component_call(cpu, "apple2_gameio", "read_button1", NULL, 0) & 0xFFu);
           }
-          return (pressed != 0u) ? 0x80u : 0x00u;
+          return (uint8_t)(((pressed != 0u) ? 0x80u : 0x00u) | floating_bus);
       }
-      if (addr == 0xC064u || addr == 0xC065u) {
+      if (soft_addr == 0xC064u || soft_addr == 0xC065u) {
           uint8_t val = 128u;
-          if (addr == 0xC064u) {
+          if (soft_addr == 0xC064u) {
               val = (uint8_t)(cpu_component_call(cpu, "apple2_gameio", "read_paddle0", NULL, 0) & 0xFFu);
           } else {
               val = (uint8_t)(cpu_component_call(cpu, "apple2_gameio", "read_paddle1", NULL, 0) & 0xFFu);
           }
           uint64_t threshold = (uint64_t)val * 11u;
           uint64_t elapsed = cpu->total_cycles - comp->paddle_strobe_cycle;
-          return (elapsed >= threshold) ? 0x80u : 0x00u;
+          return (uint8_t)(((elapsed >= threshold) ? 0x80u : 0x00u) | floating_bus);
       }
     mem_write_pre: |
       if (addr == 0xC070u) {

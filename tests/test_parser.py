@@ -766,6 +766,87 @@ def test_runtime_keyboard_map_schema_rejects_empty_mapper_key_id():
     assert any("non-empty" in msg or "is too short" in msg for msg in errors)
 
 
+def test_cassette_schema_accepts_wav_media_definition():
+    if yaml_loader.Draft7Validator is None:
+        pytest.skip("jsonschema not available")
+    schema = yaml_loader.load_schema("cassette")
+    validator = yaml_loader.Draft7Validator(schema)
+
+    cassette = {
+        "metadata": {
+            "id": "pitfall_tape_a",
+            "type": "cassette_media",
+            "model": "wav_sidecar",
+            "title": "Pitfall Tape A",
+        },
+        "transport": {
+            "format": "wav",
+            "mode": "duplex",
+            "controls": {
+                "volume_percent": 100,
+                "bass_percent": 50,
+                "treble_percent": 50,
+            },
+        },
+        "media": {
+            "file": "pitfall_side_a.wav",
+            "sample_rate": 44100,
+            "channels": 1,
+            "bits_per_sample": 16,
+            "signed_samples": True,
+            "little_endian": True,
+        },
+        "system_format": {
+            "target_system": "zx_spectrum48k",
+            "loader": "zx48_tape",
+        },
+    }
+
+    assert list(validator.iter_errors(cassette)) == []
+
+
+def test_system_schema_accepts_cassette_contract_block():
+    if yaml_loader.Draft7Validator is None:
+        pytest.skip("jsonschema not available")
+    schema = yaml_loader.load_schema("system")
+    validator = yaml_loader.Draft7Validator(schema)
+
+    system_data = {
+        "metadata": {"name": "CassetteEnabledSystem"},
+        "clock_hz": 1000000,
+        "memory": {"default_size": 65536},
+        "components": {
+            "ics": [],
+            "devices": [],
+            "hosts": [],
+            "cassette": "cassette_transport",
+        },
+        "cassette": {
+            "component": "cassette_transport",
+            "directory": "../../media/test/tapes",
+            "default_media": "../../media/test/tapes/demo.yaml",
+            "allowed_extensions": ["yaml", "wav"],
+            "controls": {
+                "picker_action_id": "EMU_CASSETTE_PICKER",
+                "play_action_id": "EMU_CASSETTE_PLAY",
+                "play_sets_motor": True,
+                "pause_action_id": "EMU_CASSETTE_PAUSE",
+                "stop_action_id": "EMU_CASSETTE_STOP",
+                "record_action_id": "EMU_CASSETTE_RECORD",
+                "volume_up_action_id": "EMU_CASSETTE_VOL_UP",
+                "volume_down_action_id": "EMU_CASSETTE_VOL_DOWN",
+                "bass_up_action_id": "EMU_CASSETTE_BASS_UP",
+                "bass_down_action_id": "EMU_CASSETTE_BASS_DOWN",
+                "treble_up_action_id": "EMU_CASSETTE_TREBLE_UP",
+                "treble_down_action_id": "EMU_CASSETTE_TREBLE_DOWN",
+            },
+        },
+        "connections": [],
+    }
+
+    assert list(validator.iter_errors(system_data)) == []
+
+
 def test_host_backend_allows_omitted_target():
     loader = yaml_loader.ProcessorSystemLoader()
     host_data = _base_host_with_keyboard_input()

@@ -8,6 +8,9 @@ state:
   - name: current_level
     type: uint8_t
     initial: "0"
+  - name: tape_level
+    type: uint8_t
+    initial: "128"
   - name: next_sample_cycle
     type: uint64_t
     initial: "0"
@@ -17,6 +20,8 @@ interfaces:
   handlers:
     - name: on_beeper_level
       args: [u8]
+    - name: on_tape_playback_sample
+      args: [u8, u64]
   signals:
     - name: pcm_sample
       args: [u8, u64]
@@ -28,7 +33,12 @@ behavior:
           uint64_t period = CPU_SYSTEM_CLOCK_HZ / CPU_AUDIO_SAMPLE_RATE;
           if (period == 0u) period = 1u;
           while (cpu->total_cycles >= comp->next_sample_cycle) {
-              uint64_t sig_args[2] = { (uint64_t)comp->current_level, comp->next_sample_cycle };
+              int32_t mixed = (int32_t)comp->tape_level;
+              if (comp->current_level != 0u) {
+                  mixed += 48;
+              }
+              if (mixed > 255) mixed = 255;
+              uint64_t sig_args[2] = { (uint64_t)(uint8_t)mixed, comp->next_sample_cycle };
               cpu_component_emit_signal(cpu, "beeper", "pcm_sample", sig_args, 2);
               comp->next_sample_cycle += period;
           }
@@ -37,6 +47,8 @@ behavior:
   handler_bodies:
     on_beeper_level: |
       comp->current_level = (uint8_t)(args[0] & 0xFFu);
+    on_tape_playback_sample: |
+      comp->tape_level = (uint8_t)(args[0] & 0xFFu);
 
 coding:
   headers: []

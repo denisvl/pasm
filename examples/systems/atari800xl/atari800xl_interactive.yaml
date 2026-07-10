@@ -78,9 +78,29 @@ components:
   - keyboard_atari800xl
   - controller_atari800xl
   - video_atari800xl
+  - speaker
+  - atari800xl_cassette_adapter
+  - cassette_transport
   - tv
   hosts:
   - host_atari800xl
+  cassette: atari800xl_cassette_adapter
+cassette:
+  component: atari800xl_cassette_adapter
+  directory: examples/cassettes/atari800xl
+  allowed_extensions: [yaml, wav]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
 connections:
 - from:
     component: atari800xl_antic
@@ -231,9 +251,17 @@ connections:
     kind: signal
     name: audio_level
   to:
-    component: tv
+    component: speaker
     kind: handler
     name: on_audio_level
+- from:
+    component: cassette_transport
+    kind: signal
+    name: transport_state
+  to:
+    component: speaker
+    kind: handler
+    name: on_transport_state
 - from:
     component: atari800xl_antic
     kind: callback
@@ -291,7 +319,7 @@ connections:
     kind: handler
     name: video_frame
 - from:
-    component: tv
+    component: speaker
     kind: signal
     name: pcm_sample
   to:

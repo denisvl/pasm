@@ -64,7 +64,7 @@ interfaces:
   signals: []
 
 behavior:
-  snippets: {}
+  snippets:
   callback_handlers:
     keyboard_matrix: |
       (void)args;

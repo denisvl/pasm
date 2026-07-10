@@ -205,6 +205,9 @@ state:
   - name: pokey_serout
     type: uint8_t
     initial: "0"
+  - name: pokey_serin
+    type: uint8_t
+    initial: "0xFF"
   - name: pokey_irqen
     type: uint8_t
     initial: "0"
@@ -231,6 +234,18 @@ state:
     initial: "0"
   - name: pokey_serout_need_fired
     type: uint8_t
+    initial: "0"
+  - name: cassette_line_state
+    type: uint8_t
+    initial: "1"
+  - name: cassette_serin_pending
+    type: uint8_t
+    initial: "0"
+  - name: cassette_serin_pending_byte
+    type: uint8_t
+    initial: "0xFF"
+  - name: cassette_scanline_cycle
+    type: uint64_t
     initial: "0"
   - name: speaker_level
     type: uint8_t
@@ -472,6 +487,7 @@ behavior:
       comp->pokey_out3 = 0u;
       comp->pokey_out4 = 0u;
       comp->pokey_serout = 0u;
+      comp->pokey_serin = 0xFFu;
       comp->pokey_irqen = 0u;
       comp->pokey_irqst = 0xF7u;
       comp->pokey_skctl = 0u;
@@ -481,8 +497,13 @@ behavior:
       comp->pokey_serout_done_latch = 0u;
       comp->pokey_serout_need_cycle = 0u;
       comp->pokey_serout_need_fired = 0u;
+      comp->cassette_line_state = 1u;
+      comp->cassette_serin_pending = 0u;
+      comp->cassette_serin_pending_byte = 0xFFu;
+      comp->cassette_scanline_cycle = cpu->total_cycles;
       comp->speaker_level = 128u;
       comp->pokey_audio_tick_cycle = 0u;
+      (void)cpu_component_dispatch_callback(cpu, "atari800xl_cassette_adapter", "set_motor", (uint64_t[]){ 0u }, 1);
       if (comp->ram_under_basic != NULL) {
           for (uint16_t i = 0u; i < 0x2000u; ++i) {
               uint16_t a = (uint16_t)(0xA000u + i);
@@ -642,6 +663,33 @@ behavior:
           }
       }
       if (addr >= 0xA000u && addr < 0xC000u) {
+      {
+          static int trace_init = -1;
+          static FILE *trace_fp = NULL;
+          static uint32_t trace_count = 0u;
+          if (trace_init < 0) {
+              const char *env = getenv("PASM_ATARI800XL_BOOT_TRACE");
+              trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (trace_init != 0) {
+                  const char *path = getenv("PASM_ATARI800XL_BOOT_TRACE_FILE");
+                  if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                  if (trace_fp == NULL) trace_fp = stderr;
+              }
+          }
+          if (trace_init != 0 && trace_count < 48u) {
+              fprintf(
+                  trace_fp,
+                  "boot_trace a000 frame=%u cycle=%llu addr=%04X portb=%02X basic_mapped=%u\n",
+                  (unsigned)comp->frame_counter,
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)addr,
+                  (unsigned)comp->portb,
+                  (unsigned)(((comp->portb & 0x02u) == 0u) ? 1u : 0u)
+              );
+              fflush(trace_fp);
+              trace_count += 1u;
+          }
+      }
       #if CPU_CARTRIDGE_COUNT > 0
           uint8_t cart_present = (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "cart_present", NULL, 0) & 0x01u);
           if (cart_present != 0u) {
@@ -717,11 +765,66 @@ behavior:
           }
           if (addr == 0xD20Fu) {
               /* POKEY SKSTAT */
-              return comp->pokey_skstat;
+              {
+                  uint8_t value = (uint8_t)((comp->pokey_skstat & (uint8_t)~0x10u) | (uint8_t)((comp->cassette_line_state != 0u) ? 0x10u : 0x00u));
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  static uint32_t trace_count = 0u;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0 && trace_count < 400u) {
+                      fprintf(
+                          trace_fp,
+                          "atari_read SKSTAT cycle=%llu value=%02X line=%u raw=%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)value,
+                          (unsigned)comp->cassette_line_state,
+                          (unsigned)comp->pokey_skstat
+                      );
+                      fflush(trace_fp);
+                      trace_count += 1u;
+                  }
+                  return value;
+              }
           }
           if (addr == 0xD20Du) {
-              /* POKEY SERIN (no external SIO device yet). */
-              return 0xFFu;
+              /* POKEY SERIN */
+              {
+                  uint8_t value = comp->pokey_serin;
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  static uint32_t trace_count = 0u;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0 && trace_count < 400u) {
+                      fprintf(
+                          trace_fp,
+                          "atari_read SERIN cycle=%llu value=%02X irqen=%02X irqst=%02X skctl=%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)value,
+                          (unsigned)comp->pokey_irqen,
+                          (unsigned)comp->pokey_irqst,
+                          (unsigned)comp->pokey_skctl
+                      );
+                      fflush(trace_fp);
+                      trace_count += 1u;
+                  }
+                  return value;
+              }
           }
           if (addr == 0xD20Eu) {
               /* POKEY IRQST (active-low status bits) */
@@ -961,6 +1064,12 @@ behavior:
           }
           if (addr == 0xD302u) {
               comp->pia_cra = value;
+              {
+                  uint8_t ca2_mode = (uint8_t)((value >> 3u) & 0x07u);
+                  uint8_t motor_on = (uint8_t)(ca2_mode == 0x06u);
+                  uint64_t motor_args[1] = { (uint64_t)motor_on };
+                  (void)cpu_component_dispatch_callback(cpu, "atari800xl_cassette_adapter", "set_motor", motor_args, 1);
+              }
               { uint64_t wa[2] = { 0xD302u, (uint64_t)value }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
               return;
           }
@@ -972,39 +1081,192 @@ behavior:
 
           if (addr == 0xD200u) {
               comp->pokey_audf1 = value;
+              {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(trace_fp, "pokey_audio AUDF1 cycle=%llu value=%02X\n", (unsigned long long)cpu->total_cycles, (unsigned)value);
+                      fflush(trace_fp);
+                  }
+              }
               return;
           }
           if (addr == 0xD201u) {
               comp->pokey_audc1 = value;
+              {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(trace_fp, "pokey_audio AUDC1 cycle=%llu value=%02X\n", (unsigned long long)cpu->total_cycles, (unsigned)value);
+                      fflush(trace_fp);
+                  }
+              }
               /* Channel control updates are consumed by the audio proxy in step_post. */
               return;
           }
           if (addr == 0xD202u) {
               comp->pokey_audf2 = value;
+              {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(trace_fp, "pokey_audio AUDF2 cycle=%llu value=%02X\n", (unsigned long long)cpu->total_cycles, (unsigned)value);
+                      fflush(trace_fp);
+                  }
+              }
               return;
           }
           if (addr == 0xD203u) {
               comp->pokey_audc2 = value;
+              {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(trace_fp, "pokey_audio AUDC2 cycle=%llu value=%02X\n", (unsigned long long)cpu->total_cycles, (unsigned)value);
+                      fflush(trace_fp);
+                  }
+              }
               return;
           }
           if (addr == 0xD204u) {
               comp->pokey_audf3 = value;
+              {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(trace_fp, "pokey_audio AUDF3 cycle=%llu value=%02X\n", (unsigned long long)cpu->total_cycles, (unsigned)value);
+                      fflush(trace_fp);
+                  }
+              }
               return;
           }
           if (addr == 0xD205u) {
               comp->pokey_audc3 = value;
+              {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(trace_fp, "pokey_audio AUDC3 cycle=%llu value=%02X\n", (unsigned long long)cpu->total_cycles, (unsigned)value);
+                      fflush(trace_fp);
+                  }
+              }
               return;
           }
           if (addr == 0xD206u) {
               comp->pokey_audf4 = value;
+              {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(trace_fp, "pokey_audio AUDF4 cycle=%llu value=%02X\n", (unsigned long long)cpu->total_cycles, (unsigned)value);
+                      fflush(trace_fp);
+                  }
+              }
               return;
           }
           if (addr == 0xD207u) {
               comp->pokey_audc4 = value;
+              {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(trace_fp, "pokey_audio AUDC4 cycle=%llu value=%02X\n", (unsigned long long)cpu->total_cycles, (unsigned)value);
+                      fflush(trace_fp);
+                  }
+              }
               return;
           }
           if (addr == 0xD208u) {
               comp->pokey_audctl = value;
+              {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_POKEY_AUDIO_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(trace_fp, "pokey_audio AUDCTL cycle=%llu value=%02X\n", (unsigned long long)cpu->total_cycles, (unsigned)value);
+                      fflush(trace_fp);
+                  }
+              }
               return;
           }
           if (addr == 0xD209u) {
@@ -1036,6 +1298,30 @@ behavior:
           if (addr == 0xD20Eu) {
               /* POKEY IRQEN */
               comp->pokey_irqen = value;
+              {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(
+                          trace_fp,
+                          "atari_pokey IRQEN write cycle=%llu value=%02X irqst=%02X skctl=%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)value,
+                          (unsigned)comp->pokey_irqst,
+                          (unsigned)comp->pokey_skctl
+                      );
+                      fflush(trace_fp);
+                  }
+              }
               /* Altirra behavior: disabled IRQ bits go inactive, except bit 3. */
               comp->pokey_irqst = (uint8_t)(comp->pokey_irqst | (uint8_t)(~value & 0xF7u));
               if ((((uint8_t)(~comp->pokey_irqst)) & comp->pokey_irqen) != 0u) {
@@ -1045,6 +1331,30 @@ behavior:
           }
           if (addr == 0xD20Fu) {
               /* POKEY SKCTL */
+              {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(
+                          trace_fp,
+                          "atari_pokey SKCTL write cycle=%llu old=%02X new=%02X irqen=%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)comp->pokey_skctl,
+                          (unsigned)value,
+                          (unsigned)comp->pokey_irqen
+                      );
+                      fflush(trace_fp);
+                  }
+              }
               if ((value & 0x03u) == 0u && (comp->pokey_skctl & 0x03u) != 0u) {
                   /* Entering init mode resets serial state and asserts SERDONE. */
                   comp->pokey_serout_busy = 0u;
@@ -1052,6 +1362,9 @@ behavior:
                   comp->pokey_serout_done_latch = 1u;
                   comp->pokey_serout_need_cycle = 0u;
                   comp->pokey_serout_done_cycle = 0u;
+                  comp->pokey_serin = 0xFFu;
+                  comp->cassette_serin_pending = 0u;
+                  comp->cassette_serin_pending_byte = 0xFFu;
                   comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x08u);
               }
               comp->pokey_skctl = value;
@@ -1108,6 +1421,60 @@ behavior:
     step_post: |
       static uint32_t framebuf[320u * 192u];
       #define ATARI_BUS_READ8(_addr) ((uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", (uint64_t[]){ (uint64_t)(_addr) }, 1) & 0xFFu))
+      {
+          const uint64_t scanline_cycles = 114u;
+          if (comp->cassette_scanline_cycle == 0u) {
+              comp->cassette_scanline_cycle = cpu->total_cycles;
+          }
+          while ((cpu->total_cycles - comp->cassette_scanline_cycle) >= scanline_cycles) {
+              uint64_t cassette_state;
+              comp->cassette_scanline_cycle += scanline_cycles;
+              if (comp->cassette_serin_pending != 0u) {
+                  comp->pokey_serin = comp->cassette_serin_pending_byte;
+                  comp->cassette_serin_pending = 0u;
+                  comp->cassette_serin_pending_byte = 0xFFu;
+                  if ((comp->pokey_irqen & 0x20u) != 0u) {
+                      if ((comp->pokey_irqst & 0x20u) != 0u) {
+                          comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x20u);
+                      } else {
+                          comp->pokey_skstat = (uint8_t)(comp->pokey_skstat & (uint8_t)~0x20u);
+                      }
+                      cpu_component_call(cpu, "atari800xl_antic", "request_irq", NULL, 0);
+                  }
+                  {
+                      static int trace_init = -1;
+                      static FILE *trace_fp = NULL;
+                      if (trace_init < 0) {
+                          const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+                          trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                          if (trace_init != 0) {
+                              const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                              if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                              if (trace_fp == NULL) trace_fp = stderr;
+                          }
+                      }
+                      if (trace_init != 0) {
+                          fprintf(
+                              trace_fp,
+                              "atari_serin deliver cycle=%llu byte=%02X irqen=%02X irqst=%02X skstat=%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)comp->pokey_serin,
+                              (unsigned)comp->pokey_irqen,
+                              (unsigned)comp->pokey_irqst,
+                              (unsigned)comp->pokey_skstat
+                          );
+                          fflush(trace_fp);
+                      }
+                  }
+              }
+              cassette_state = cpu_component_dispatch_callback(cpu, "atari800xl_cassette_adapter", "sample_input", NULL, 0);
+              comp->cassette_line_state = (uint8_t)((cassette_state >> 16u) & 0x01u);
+              if ((cassette_state & 0x01u) != 0u) {
+                  comp->cassette_serin_pending = 1u;
+                  comp->cassette_serin_pending_byte = (uint8_t)((cassette_state >> 8u) & 0xFFu);
+              }
+          }
+      }
       {
           /* POKEY serial timing/IRQ, aligned with Altirra register-level behavior. */
           if (

@@ -40,6 +40,7 @@ components:
   - apple2_gameio
   - apple2_video_softswitches
   - apple2_speaker_toggle
+  - apple2_cassette_io
   - apple2_char_rom
   - apple2_slot_decoder
   - apple2_main_ram
@@ -48,9 +49,28 @@ components:
   - gameport_apple2
   - video_apple2
   - speaker
+  - apple2_cassette_adapter
+  - cassette_transport
   - monitor
   hosts:
   - host_apple2
+  cassette: apple2_cassette_adapter
+cassette:
+  component: apple2_cassette_adapter
+  directory: examples/cassettes/apple2
+  allowed_extensions: [yaml, wav]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
 connections:
 - from:
     component: apple2_keyboard_encoder
@@ -156,6 +176,30 @@ connections:
     component: speaker
     kind: handler
     name: on_audio_level
+- from:
+    component: apple2_cassette_io
+    kind: signal
+    name: cassette_write
+  to:
+    component: apple2_cassette_adapter
+    kind: handler
+    name: on_output_sample
+- from:
+    component: cassette_transport
+    kind: signal
+    name: playback_sample
+  to:
+    component: speaker
+    kind: handler
+    name: on_tape_playback_sample
+- from:
+    component: cassette_transport
+    kind: signal
+    name: transport_state
+  to:
+    component: speaker
+    kind: handler
+    name: on_transport_state
 - from:
     component: speaker
     kind: signal

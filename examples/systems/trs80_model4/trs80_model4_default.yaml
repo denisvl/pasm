@@ -53,9 +53,27 @@ components:
   - keyboard_trs80
   - video_trs80
   - speaker
+  - cassette_transport
   - monitor
   hosts:
   - host_trs80
+  cassette: cassette_transport
+cassette:
+  component: cassette_transport
+  directory: examples/cassettes/trs80_model4
+  allowed_extensions: [yaml, wav]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
 connections:
 - from:
     component: trs80_m4ppi
@@ -113,6 +131,30 @@ connections:
     component: host_trs80
     kind: handler
     name: audio_pcm
+- from:
+    component: trs80_m4cass
+    kind: callback
+    name: transport_sample_in
+  to:
+    component: cassette_transport
+    kind: callback
+    name: sample_input
+- from:
+    component: trs80_m4cass
+    kind: callback
+    name: transport_push_out
+  to:
+    component: cassette_transport
+    kind: callback
+    name: push_output_sample
+- from:
+    component: trs80_m4cass
+    kind: callback
+    name: transport_set_motor
+  to:
+    component: cassette_transport
+    kind: callback
+    name: set_motor
 - from:
     component: monitor
     kind: signal

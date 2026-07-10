@@ -141,6 +141,10 @@ int cpu_component_host_picker_set_dir(const char *path);
 uint8_t cpu_component_host_picker_is_active(void);
 void cpu_component_host_picker_step(CPUState *cpu, uint8_t has_focus);
 void cpu_component_host_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);
+int cpu_component_cassette_picker_apply_pending_load(CPUState *cpu);
+uint8_t cpu_component_cassette_picker_is_active(void);
+void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus);
+void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);
 
 /* ===== Split Contracts (Core/System Glue) ===== */
 {dispatch_contract}

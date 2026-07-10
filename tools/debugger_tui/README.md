@@ -47,6 +47,7 @@ Optional:
 - `F10`: step over
 - `F11`: step into
 - `F12`: step out
+- `Ctrl+E`: request emulator window focus
 - `s`: step into (fallback when function keys are unavailable)
 - `n`: step over (fallback)
 - `o`: step out (fallback)

@@ -25,8 +25,36 @@ behavior:
   callback_handlers:
     read_row: |
       uint64_t cb_args[1] = { (argc > 0) ? (args[0] & 0x07u) : 0u };
+      static int space_trace = -1;
+      static FILE *space_trace_fp = NULL;
+      uint64_t row_value;
       comp->last_row = (uint8_t)(cb_args[0] & 0xFFu);
-      __result = cpu_component_call(cpu, "keyboard_c64", "host_matrix", cb_args, 1);
+      if (space_trace < 0) {
+          const char *env = getenv("PASM_C64_SPACE_TRACE");
+          space_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (space_trace != 0) {
+              const char *path = getenv("PASM_C64_SPACE_TRACE_FILE");
+              if (path == NULL || path[0] == '\0') path = "/tmp/c64_space_trace.log";
+              {
+                  FILE *reset_fp = fopen(path, "w");
+                  if (reset_fp != NULL) fclose(reset_fp);
+              }
+              space_trace_fp = fopen(path, "a");
+              if (space_trace_fp == NULL) space_trace = 0;
+          }
+      }
+      row_value = cpu_component_call(cpu, "keyboard_c64", "host_matrix", cb_args, 1);
+      if (space_trace != 0 && space_trace_fp != NULL &&
+          (comp->last_row == 7u || (row_value & 0xFFu) != 0xFFu)) {
+          fprintf(space_trace_fp,
+                  "row%u cycle=%llu value=%02llX space=%u\n",
+                  (unsigned)comp->last_row,
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned long long)(row_value & 0xFFu),
+                  ((row_value & (1ull << 4u)) == 0u) ? 1u : 0u);
+          fflush(space_trace_fp);
+      }
+      __result = row_value;
       return __result;
   handler_bodies: {}
 

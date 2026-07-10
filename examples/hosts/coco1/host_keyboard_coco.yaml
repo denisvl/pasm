@@ -257,17 +257,17 @@ keyboard:
     presses:
     - row: 5
       bit: 7
-  - host_scancode: KEY_080
-    mapper_key_id: K_LEFT
-    presses:
-    - row: 3
-      bit: 5
   - host_scancode: KEY_076
     mapper_key_id: K_CLEAR
     presses:
     - row: 6
       bit: 1
-  - host_scancode: KEY_042
+  - host_scancode: BACKSPACE
+    mapper_key_id: K_CLEAR
+    presses:
+    - row: 6
+      bit: 1
+  - host_scancode: LEFT
     mapper_key_id: K_LEFT
     presses:
     - row: 3
@@ -279,3 +279,11 @@ keyboard:
       bit: 0
   - host_scancode: F12
     emulator_key_id: EMU_CART_PICKER
+  - host_scancode: F11
+    emulator_key_id: EMU_CASSETTE_PICKER
+  - host_scancode: F10
+    emulator_key_id: EMU_CASSETTE_PLAY
+  - host_scancode: F9
+    emulator_key_id: EMU_CASSETTE_VOL_UP
+  - host_scancode: F8
+    emulator_key_id: EMU_CASSETTE_VOL_DOWN

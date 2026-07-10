@@ -382,7 +382,7 @@ behavior:
       \ == 0u || argc < 1) return;\nuint8_t level_u = (uint8_t)(args[0] & 0xFFu);\nuint64_t cycle = (argc > 1) ? (uint64_t)args[1]\
       \ : cpu->total_cycles;\nuint64_t sample_rate = (comp->audio_rate > 0u) ? (uint64_t)comp->audio_rate : ((CPU_AUDIO_SAMPLE_RATE\
       \ > 0u) ? CPU_AUDIO_SAMPLE_RATE : 44100u);\nuint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? CPU_SYSTEM_CLOCK_HZ : 1u;\n\
-      uint64_t target_sample_index = (cycle * sample_rate) / clock_hz;\nint16_t next_level = (level_u != 0u) ? 9000 : -9000;\n\
+      uint64_t target_sample_index = (cycle * sample_rate) / clock_hz;\nint16_t next_level = 0;\nif (level_u <= 1u) next_level = (level_u != 0u) ? 9000 : -9000;\nelse next_level = (int16_t)(((int32_t)level_u - 128) << 8);\n\
       \nif (comp->audio_last_cycle == 0u && comp->audio_sample_cursor == 0u && comp->audio_samples == 0u) {\n    comp->audio_last_cycle\
       \ = cycle;\n    comp->audio_sample_cursor = target_sample_index;\n    comp->audio_level = next_level;\n    return;\n\
       }\n\nif (target_sample_index < comp->audio_sample_cursor) {\n    comp->audio_sample_cursor = target_sample_index;\n\

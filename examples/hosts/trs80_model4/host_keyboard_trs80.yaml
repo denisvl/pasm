@@ -392,3 +392,11 @@ keyboard:
     presses:
     - row: 6
       bit: 5
+  - host_scancode: F11
+    emulator_key_id: EMU_CASSETTE_PICKER
+  - host_scancode: PAUSE
+    emulator_key_id: EMU_CASSETTE_PLAY
+  - host_scancode: PAGEUP
+    emulator_key_id: EMU_CASSETTE_VOL_UP
+  - host_scancode: END
+    emulator_key_id: EMU_CASSETTE_VOL_DOWN

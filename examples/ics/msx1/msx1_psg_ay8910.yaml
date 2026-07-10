@@ -61,6 +61,12 @@ state:
   - name: reg15
     type: uint8_t
     initial: "0"
+  - name: cassette_cached_level
+    type: uint8_t
+    initial: "0x80"
+  - name: cassette_next_sample_cycle
+    type: uint64_t
+    initial: "0"
   - name: level_a
     type: uint8_t
     initial: "0"
@@ -145,6 +151,9 @@ interfaces:
     - name: joy_read
       args: []
       returns: u8
+    - name: cassette_read
+      args: []
+      returns: u8
   handlers: []
   signals:
     - name: audio_level
@@ -199,6 +208,8 @@ behavior:
       comp->emit_keepalive = 0u;
       comp->last_mix = 128u;
       comp->last_emitted_mix = 255u;
+      comp->cassette_cached_level = 0x80u;
+      comp->cassette_next_sample_cycle = 0u;
     port_read_post: |
       uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
       if (p == 0xA2u) {
@@ -220,7 +231,12 @@ behavior:
               case 13u: value = comp->reg13; break;
               case 14u: {
                   uint64_t joy = cpu_component_call(cpu, "psg0", "joy_read", NULL, 0);
-                  comp->reg14 = (uint8_t)(joy & 0xFFu);
+                  if (cpu->total_cycles >= comp->cassette_next_sample_cycle) {
+                      uint64_t tape_args[2] = { 4u, cpu->total_cycles };
+                      comp->cassette_cached_level = (uint8_t)(cpu_component_call(cpu, "psg0", "cassette_read", tape_args, 2) & 0x80u);
+                      comp->cassette_next_sample_cycle = cpu->total_cycles + 32u;
+                  }
+                  comp->reg14 = (uint8_t)((joy & 0x7Fu) | (comp->cassette_cached_level & 0x80u));
                   value = comp->reg14;
                   break;
               }

@@ -14,6 +14,12 @@ state:
   - name: audio_events
     type: uint32_t
     initial: "0"
+  - name: cassette_input_level
+    type: uint8_t
+    initial: "1"
+  - name: cassette_motor_on
+    type: uint8_t
+    initial: "0"
 
 interfaces:
   callbacks:
@@ -29,9 +35,19 @@ interfaces:
     - name: irq_fire_mask
       args: [u8, u8, u8, u8, u8, u8]
       returns: u8
+    - name: transport_output_sample
+      args: [u8, u64]
+      returns: u8
+    - name: transport_set_motor
+      args: [u8]
+      returns: u8
   handlers:
     - name: on_sam_audio_level
       args: [u8, u64]
+    - name: on_tape_playback_sample
+      args: [u8, u64]
+    - name: on_transport_state
+      args: [u64]
   signals:
     - name: audio_level
       args: [u8, u64]
@@ -46,6 +62,17 @@ behavior:
       comp->last_audio_level = 0u;
       comp->last_audio_cycle = 0u;
       comp->audio_events = 0u;
+      comp->cassette_input_level = 1u;
+      comp->cassette_motor_on = 0u;
+      {
+          const char *env = getenv("PASM_COCO_ROM_TRACE");
+          if (env != NULL && env[0] != '\0' && env[0] != '0') {
+              const char *path = getenv("PASM_COCO_ROM_TRACE_FILE");
+              if (path == NULL || path[0] == '\0') path = "/tmp/coco_rom_trace.log";
+              FILE *fp = fopen(path, "w");
+              if (fp != NULL) fclose(fp);
+          }
+      }
   callback_handlers:
     write_reg: |
       if (argc < 12u) return 0ull;
@@ -64,6 +91,9 @@ behavior:
       (void)pia1_cra_irq1;
       (void)pia1_crb_irq1;
 
+      uint8_t old_ora = pia1_ora;
+      uint8_t old_cra = pia1_cra;
+
       if (reg == 0u) {
           if ((pia1_cra & 0x04u) == 0u) pia1_ddra = value;
           else pia1_ora = value;
@@ -80,6 +110,24 @@ behavior:
           if ((pia1_crb & 0x20u) != 0u) {
               pia1_crb_irq2 = 0u;
           }
+      }
+
+      if (((old_ora ^ pia1_ora) & 0xFCu) != 0u) {
+          uint64_t tape_args[2] = { (uint64_t)(pia1_ora & 0xFCu), cpu->total_cycles };
+          (void)cpu_component_call(cpu, "coco1_pia1_6821", "transport_output_sample", tape_args, 2);
+      }
+      if (((old_cra ^ pia1_cra) & 0x38u) != 0u) {
+          uint8_t motor_on = 0u;
+          if ((pia1_cra & 0x20u) != 0u) {
+              if ((pia1_cra & 0x10u) != 0u) {
+                  motor_on = (uint8_t)((pia1_cra & 0x08u) != 0u);
+              } else {
+                  motor_on = 1u;
+              }
+          }
+          uint64_t motor_args[1] = { (uint64_t)motor_on };
+          comp->cassette_motor_on = motor_on;
+          (void)cpu_component_call(cpu, "coco1_pia1_6821", "transport_set_motor", motor_args, 1);
       }
 
       return
@@ -105,15 +153,74 @@ behavior:
       uint8_t pia1_crb_irq1 = (uint8_t)(args[9] & 0xFFu);
       uint8_t pia1_crb_irq2 = (uint8_t)(args[10] & 0xFFu);
       uint8_t value = 0xFFu;
+      {
+          uint8_t motor_on = 0u;
+          if ((pia1_cra & 0x20u) != 0u) {
+              if ((pia1_cra & 0x10u) != 0u) {
+                  motor_on = (uint8_t)((pia1_cra & 0x08u) != 0u);
+              } else {
+                  motor_on = 1u;
+              }
+          }
+          if (motor_on != comp->cassette_motor_on) {
+              uint64_t motor_args[1] = { (uint64_t)motor_on };
+              comp->cassette_motor_on = motor_on;
+              (void)cpu_component_call(cpu, "coco1_pia1_6821", "transport_set_motor", motor_args, 1);
+              {
+                  const char *env = cpu_host_hal_getenv("PASM_COCO_ROM_TRACE");
+                  if (env != NULL && env[0] != '\0' && env[0] != '0') {
+                      const char *path = cpu_host_hal_getenv("PASM_COCO_ROM_TRACE_FILE");
+                      FILE *fp = NULL;
+                      if (path == NULL || path[0] == '\0') path = "/tmp/coco_rom_trace.log";
+                      fp = fopen(path, "a");
+                      if (fp != NULL) {
+                          fprintf(fp, "motor cycle=%llu cra=%02X motor=%u\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)pia1_cra,
+                                  (unsigned)motor_on);
+                          fflush(fp);
+                          fclose(fp);
+                      }
+                  }
+              }
+          }
+      }
 
       if (reg == 0u) {
           if ((pia1_cra & 0x04u) == 0u) {
               value = pia1_ddra;
           } else {
+              {
+                  uint64_t tape_args[2] = { 4u, cpu->total_cycles };
+                  uint64_t tape_level = cpu_component_dispatch_callback(cpu, "cassette_transport", "sample_input", tape_args, 2);
+                  comp->cassette_input_level = (uint8_t)(((uint8_t)tape_level) >= 128u);
+              }
               uint8_t in_a = 0xFFu;
+              if (comp->cassette_input_level == 0u) in_a &= (uint8_t)~0x01u;
               pia1_cra_irq1 = 0u;
               pia1_cra_irq2 = 0u;
               value = (uint8_t)((pia1_ora & pia1_ddra) | (in_a & (uint8_t)(~pia1_ddra)));
+              {
+                  const char *env = cpu_host_hal_getenv("PASM_COCO_ROM_TRACE");
+                  if (env != NULL && env[0] != '\0' && env[0] != '0') {
+                      const char *path = cpu_host_hal_getenv("PASM_COCO_ROM_TRACE_FILE");
+                      FILE *fp = NULL;
+                      if (path == NULL || path[0] == '\0') path = "/tmp/coco_rom_trace.log";
+                      fp = fopen(path, "a");
+                      if (fp != NULL) {
+                          fprintf(fp, "read_pra cycle=%llu pc=%04X cra=%02X ora=%02X ddra=%02X cass=%u value=%02X\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)cpu->pc,
+                                  (unsigned)pia1_cra,
+                                  (unsigned)pia1_ora,
+                                  (unsigned)pia1_ddra,
+                                  (unsigned)comp->cassette_input_level,
+                                  (unsigned)value);
+                          fflush(fp);
+                          fclose(fp);
+                      }
+                  }
+              }
           }
       } else if (reg == 1u) {
           value = (uint8_t)((pia1_cra & 0x3Fu) | pia1_cra_irq1 | pia1_cra_irq2);
@@ -172,6 +279,36 @@ behavior:
       comp->last_audio_cycle = (uint64_t)args[1];
       comp->audio_events += 1u;
       cpu_component_emit_signal(cpu, "coco1_pia1_6821", "audio_level", args, 2);
+    on_tape_playback_sample: |
+      if (argc < 2u) return;
+      uint8_t sample = (uint8_t)(args[0] & 0xFFu);
+      {
+          uint8_t prev = comp->cassette_input_level;
+          comp->cassette_input_level = (uint8_t)(sample >= 128u);
+          if (comp->cassette_input_level != prev) {
+              const char *env = cpu_host_hal_getenv("PASM_COCO_ROM_TRACE");
+              if (env != NULL && env[0] != '\0' && env[0] != '0') {
+                  const char *path = cpu_host_hal_getenv("PASM_COCO_ROM_TRACE_FILE");
+                  FILE *fp = NULL;
+                  if (path == NULL || path[0] == '\0') path = "/tmp/coco_rom_trace.log";
+                  fp = fopen(path, "a");
+                  if (fp != NULL) {
+                      fprintf(fp, "cassette_level cycle=%llu sample=%u cass=%u\n",
+                              (unsigned long long)args[1],
+                              (unsigned)sample,
+                              (unsigned)comp->cassette_input_level);
+                      fflush(fp);
+                      fclose(fp);
+                  }
+              }
+          }
+      }
+    on_transport_state: |
+      if (argc < 1u) return;
+      uint64_t state = args[0];
+      if ((state & 0xFFu) == 0u) {
+          comp->cassette_input_level = 1u;
+      }
 
 coding:
   headers: []

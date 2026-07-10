@@ -18,6 +18,7 @@ class SplitUnitSpec:
 SYSTEM_UNITS = (
     SplitUnitSpec("runtime", "system"),
     SplitUnitSpec("system_bus", "system"),
+    SplitUnitSpec("picker_glue", "system"),
     SplitUnitSpec("system_glue", "system"),
     SplitUnitSpec("host_glue", "host"),
     SplitUnitSpec("device_glue", "device"),

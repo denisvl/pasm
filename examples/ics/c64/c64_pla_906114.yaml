@@ -61,6 +61,26 @@ behavior:
       cpu->registers[REG_IO_DATA] = (uint8_t)(comp->io_data | 0xC0u);
     reset: |
       comp->io_ddr = 0x2Fu; comp->io_data = 0x37u;
+      {
+          const char *env = getenv("PASM_C64_TAPE_IO_TRACE");
+          if (env != NULL && env[0] != '\0' && env[0] != '0') {
+              const char *path = getenv("PASM_C64_TAPE_IO_TRACE_FILE");
+              FILE *fp;
+              if (path == NULL || path[0] == '\0') path = "/tmp/c64_tape_io_trace.log";
+              fp = fopen(path, "w");
+              if (fp != NULL) fclose(fp);
+          }
+      }
+      {
+          const char *env = getenv("PASM_C64_DATASETTE_TRACE");
+          if (env != NULL && env[0] != '\0' && env[0] != '0') {
+              const char *path = getenv("PASM_C64_DATASETTE_TRACE_FILE");
+              FILE *fp;
+              if (path == NULL || path[0] == '\0') path = "/tmp/c64_datasette_trace.log";
+              fp = fopen(path, "w");
+              if (fp != NULL) fclose(fp);
+          }
+      }
       cpu->comp_c64_cia1.pra = 0xFFu; cpu->comp_c64_cia1.prb = 0xFFu; cpu->comp_c64_cia1.ddra = 0xFFu; cpu->comp_c64_cia1.ddrb = 0x00u;
       cpu->comp_c64_cia1.icr_mask = 0u; cpu->comp_c64_cia1.icr_status = 0u; cpu->comp_c64_cia1.irq_asserted = 0u;
       cpu->comp_c64_cia1.ta_latch = 0xFFFFu; cpu->comp_c64_cia1.tb_latch = 0xFFFFu; cpu->comp_c64_cia1.ta_counter = 0xFFFFu; cpu->comp_c64_cia1.tb_counter = 0xFFFFu;
@@ -94,7 +114,38 @@ behavior:
       if (cpu->comp_c64_cia2.regs != NULL) { free(cpu->comp_c64_cia2.regs); cpu->comp_c64_cia2.regs = NULL; }
     mem_read_pre: |
       if (addr == 0x0000u) return (uint8_t)(comp->io_ddr | 0xC0u);
-      if (addr == 0x0001u) return (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
+      if (addr == 0x0001u) {
+          uint8_t port = (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
+          uint64_t transport_state = cpu_component_dispatch_callback(cpu, "datasette_c64", "query_transport_state", NULL, 0u);
+          static int tape_io_trace = -1;
+          static FILE *tape_io_trace_fp = NULL;
+          if (tape_io_trace < 0) {
+              const char *env = getenv("PASM_C64_TAPE_IO_TRACE");
+              tape_io_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (tape_io_trace != 0) {
+                  const char *path = getenv("PASM_C64_TAPE_IO_TRACE_FILE");
+                  if (path == NULL || path[0] == '\0') path = "/tmp/c64_tape_io_trace.log";
+                  tape_io_trace_fp = fopen(path, "a");
+                  if (tape_io_trace_fp == NULL) tape_io_trace = 0;
+              }
+          }
+          if ((transport_state & 0x01FFu) != 0u) {
+              port = (uint8_t)(port & (uint8_t)~0x10u);
+          } else {
+              port = (uint8_t)(port | 0x10u);
+          }
+          if (tape_io_trace != 0 && tape_io_trace_fp != NULL) {
+              fprintf(tape_io_trace_fp,
+                      "read0001 cycle=%llu port=%02X ddr=%02X data=%02X transport=%03llX\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)port,
+                      (unsigned)comp->io_ddr,
+                      (unsigned)comp->io_data,
+                      (unsigned long long)transport_state);
+              fflush(tape_io_trace_fp);
+          }
+          return port;
+      }
       {
           uint8_t effective = (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
           uint8_t loram = (uint8_t)(effective & 0x01u);
@@ -150,7 +201,34 @@ behavior:
                   if (r == 0x05u) return (uint8_t)((cpu->comp_c64_cia1.ta_counter >> 8u) & 0xFFu);
                   if (r == 0x06u) return (uint8_t)(cpu->comp_c64_cia1.tb_counter & 0xFFu);
                   if (r == 0x07u) return (uint8_t)((cpu->comp_c64_cia1.tb_counter >> 8u) & 0xFFu);
-                  if (r == 0x0Du) { uint8_t st=cpu->comp_c64_cia1.icr_status; cpu->comp_c64_cia1.icr_status=0u; cpu->comp_c64_cia1.irq_asserted=0u; return st; }
+                  if (r == 0x0Du) {
+                      static int tape_io_trace = -1;
+                      static FILE *tape_io_trace_fp = NULL;
+                      uint8_t st=cpu->comp_c64_cia1.icr_status;
+                      if (tape_io_trace < 0) {
+                          const char *env = getenv("PASM_C64_TAPE_IO_TRACE");
+                          tape_io_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                          if (tape_io_trace != 0) {
+                              const char *path = getenv("PASM_C64_TAPE_IO_TRACE_FILE");
+                              if (path == NULL || path[0] == '\0') path = "/tmp/c64_tape_io_trace.log";
+                              tape_io_trace_fp = fopen(path, "a");
+                              if (tape_io_trace_fp == NULL) tape_io_trace = 0;
+                          }
+                      }
+                      if (tape_io_trace != 0 && tape_io_trace_fp != NULL) {
+                          fprintf(tape_io_trace_fp,
+                                  "readDC0D cycle=%llu value=%02X mask=%02X ta=%u tb=%u cra=%02X crb=%02X\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)st,
+                                  (unsigned)cpu->comp_c64_cia1.icr_mask,
+                                  (unsigned)cpu->comp_c64_cia1.ta_counter,
+                                  (unsigned)cpu->comp_c64_cia1.tb_counter,
+                                  (unsigned)cpu->comp_c64_cia1.regs[0x0Eu],
+                                  (unsigned)cpu->comp_c64_cia1.regs[0x0Fu]);
+                          fflush(tape_io_trace_fp);
+                      }
+                      cpu->comp_c64_cia1.icr_status=0u; cpu->comp_c64_cia1.irq_asserted=0u; return st;
+                  }
                   return cpu->comp_c64_cia1.regs[r];
               }
               if (off < 0x0E00u) {
@@ -180,8 +258,36 @@ behavior:
           return;
       }
       if (addr == 0x0001u) {
+          uint8_t new_data = (uint8_t)(value & 0x3Fu);
+          uint8_t effective = (uint8_t)(((new_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
+          uint64_t motor_args[1] = { ((effective & 0x20u) == 0u) ? 1u : 0u };
+          uint64_t tape_out_args[2] = { ((effective & 0x08u) != 0u) ? 255u : 0u, cpu->total_cycles };
+          static int tape_io_trace = -1;
+          static FILE *tape_io_trace_fp = NULL;
+          if (tape_io_trace < 0) {
+              const char *env = getenv("PASM_C64_TAPE_IO_TRACE");
+              tape_io_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (tape_io_trace != 0) {
+                  const char *path = getenv("PASM_C64_TAPE_IO_TRACE_FILE");
+                  if (path == NULL || path[0] == '\0') path = "/tmp/c64_tape_io_trace.log";
+                  tape_io_trace_fp = fopen(path, "a");
+                  if (tape_io_trace_fp == NULL) tape_io_trace = 0;
+              }
+          }
           comp->io_data = (uint8_t)(value & 0x3Fu);
           cpu->registers[REG_IO_DATA] = (uint8_t)(comp->io_data | 0xC0u);
+          if (tape_io_trace != 0 && tape_io_trace_fp != NULL) {
+              fprintf(tape_io_trace_fp,
+                      "write0001 cycle=%llu value=%02X effective=%02X motor=%llu out=%llu\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)new_data,
+                      (unsigned)effective,
+                      (unsigned long long)motor_args[0],
+                      (unsigned long long)tape_out_args[0]);
+              fflush(tape_io_trace_fp);
+          }
+          (void)cpu_component_dispatch_callback(cpu, "datasette_c64", "set_motor", motor_args, 1u);
+          (void)cpu_component_dispatch_callback(cpu, "datasette_c64", "push_output_sample", tape_out_args, 2u);
           return;
       }
       {
@@ -218,12 +324,135 @@ behavior:
                   if (r == 0x00u) { cpu->comp_c64_cia1.pra = value; return; } if (r == 0x01u) { cpu->comp_c64_cia1.prb = value; return; }
                   if (r == 0x02u) { cpu->comp_c64_cia1.ddra = value; return; } if (r == 0x03u) { cpu->comp_c64_cia1.ddrb = value; return; }
                   if (r == 0x04u) { cpu->comp_c64_cia1.ta_latch = (uint16_t)((cpu->comp_c64_cia1.ta_latch & 0xFF00u) | value); return; }
-                  if (r == 0x05u) { cpu->comp_c64_cia1.ta_latch = (uint16_t)((cpu->comp_c64_cia1.ta_latch & 0x00FFu) | ((uint16_t)value << 8u)); if ((cpu->comp_c64_cia1.regs[0x0Eu] & 0x01u) == 0u) cpu->comp_c64_cia1.ta_counter = cpu->comp_c64_cia1.ta_latch; return; }
+                  if (r == 0x05u) {
+                      static int tape_io_trace = -1;
+                      static FILE *tape_io_trace_fp = NULL;
+                      if (tape_io_trace < 0) {
+                          const char *env = getenv("PASM_C64_TAPE_IO_TRACE");
+                          tape_io_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                          if (tape_io_trace != 0) {
+                              const char *path = getenv("PASM_C64_TAPE_IO_TRACE_FILE");
+                              if (path == NULL || path[0] == '\0') path = "/tmp/c64_tape_io_trace.log";
+                              tape_io_trace_fp = fopen(path, "a");
+                              if (tape_io_trace_fp == NULL) tape_io_trace = 0;
+                          }
+                      }
+                      cpu->comp_c64_cia1.ta_latch = (uint16_t)((cpu->comp_c64_cia1.ta_latch & 0x00FFu) | ((uint16_t)value << 8u));
+                      if ((cpu->comp_c64_cia1.regs[0x0Eu] & 0x01u) == 0u) cpu->comp_c64_cia1.ta_counter = cpu->comp_c64_cia1.ta_latch;
+                      if (tape_io_trace != 0 && tape_io_trace_fp != NULL) {
+                          fprintf(tape_io_trace_fp,
+                                  "writeDC05 cycle=%llu value=%02X ta_latch=%u ta=%u cra=%02X\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)value,
+                                  (unsigned)cpu->comp_c64_cia1.ta_latch,
+                                  (unsigned)cpu->comp_c64_cia1.ta_counter,
+                                  (unsigned)cpu->comp_c64_cia1.regs[0x0Eu]);
+                          fflush(tape_io_trace_fp);
+                      }
+                      return;
+                  }
                   if (r == 0x06u) { cpu->comp_c64_cia1.tb_latch = (uint16_t)((cpu->comp_c64_cia1.tb_latch & 0xFF00u) | value); return; }
-                  if (r == 0x07u) { cpu->comp_c64_cia1.tb_latch = (uint16_t)((cpu->comp_c64_cia1.tb_latch & 0x00FFu) | ((uint16_t)value << 8u)); if ((cpu->comp_c64_cia1.regs[0x0Fu] & 0x01u) == 0u) cpu->comp_c64_cia1.tb_counter = cpu->comp_c64_cia1.tb_latch; return; }
-                  if (r == 0x0Du) { if ((value & 0x80u) != 0u) cpu->comp_c64_cia1.icr_mask = (uint8_t)(cpu->comp_c64_cia1.icr_mask | (value & 0x1Fu)); else cpu->comp_c64_cia1.icr_mask = (uint8_t)(cpu->comp_c64_cia1.icr_mask & (uint8_t)~(value & 0x1Fu)); return; }
-                  if (r == 0x0Eu) { cpu->comp_c64_cia1.regs[0x0Eu] = (uint8_t)(value & 0xEFu); if ((value & 0x10u) != 0u) cpu->comp_c64_cia1.ta_counter = cpu->comp_c64_cia1.ta_latch; return; }
-                  if (r == 0x0Fu) { cpu->comp_c64_cia1.regs[0x0Fu] = (uint8_t)(value & 0xEFu); if ((value & 0x10u) != 0u) cpu->comp_c64_cia1.tb_counter = cpu->comp_c64_cia1.tb_latch; return; }
+                  if (r == 0x07u) {
+                      static int tape_io_trace = -1;
+                      static FILE *tape_io_trace_fp = NULL;
+                      if (tape_io_trace < 0) {
+                          const char *env = getenv("PASM_C64_TAPE_IO_TRACE");
+                          tape_io_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                          if (tape_io_trace != 0) {
+                              const char *path = getenv("PASM_C64_TAPE_IO_TRACE_FILE");
+                              if (path == NULL || path[0] == '\0') path = "/tmp/c64_tape_io_trace.log";
+                              tape_io_trace_fp = fopen(path, "a");
+                              if (tape_io_trace_fp == NULL) tape_io_trace = 0;
+                          }
+                      }
+                      cpu->comp_c64_cia1.tb_latch = (uint16_t)((cpu->comp_c64_cia1.tb_latch & 0x00FFu) | ((uint16_t)value << 8u));
+                      if ((cpu->comp_c64_cia1.regs[0x0Fu] & 0x01u) == 0u) cpu->comp_c64_cia1.tb_counter = cpu->comp_c64_cia1.tb_latch;
+                      if (tape_io_trace != 0 && tape_io_trace_fp != NULL) {
+                          fprintf(tape_io_trace_fp,
+                                  "writeDC07 cycle=%llu value=%02X tb_latch=%u tb=%u crb=%02X\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)value,
+                                  (unsigned)cpu->comp_c64_cia1.tb_latch,
+                                  (unsigned)cpu->comp_c64_cia1.tb_counter,
+                                  (unsigned)cpu->comp_c64_cia1.regs[0x0Fu]);
+                          fflush(tape_io_trace_fp);
+                      }
+                      return;
+                  }
+                  if (r == 0x0Du) {
+                      static int tape_io_trace = -1;
+                      static FILE *tape_io_trace_fp = NULL;
+                      if (tape_io_trace < 0) {
+                          const char *env = getenv("PASM_C64_TAPE_IO_TRACE");
+                          tape_io_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                          if (tape_io_trace != 0) {
+                              const char *path = getenv("PASM_C64_TAPE_IO_TRACE_FILE");
+                              if (path == NULL || path[0] == '\0') path = "/tmp/c64_tape_io_trace.log";
+                              tape_io_trace_fp = fopen(path, "a");
+                              if (tape_io_trace_fp == NULL) tape_io_trace = 0;
+                          }
+                      }
+                      if ((value & 0x80u) != 0u) cpu->comp_c64_cia1.icr_mask = (uint8_t)(cpu->comp_c64_cia1.icr_mask | (value & 0x1Fu)); else cpu->comp_c64_cia1.icr_mask = (uint8_t)(cpu->comp_c64_cia1.icr_mask & (uint8_t)~(value & 0x1Fu));
+                      if (tape_io_trace != 0 && tape_io_trace_fp != NULL) {
+                          fprintf(tape_io_trace_fp,
+                                  "writeDC0D cycle=%llu value=%02X mask=%02X\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)value,
+                                  (unsigned)cpu->comp_c64_cia1.icr_mask);
+                          fflush(tape_io_trace_fp);
+                      }
+                      return;
+                  }
+                  if (r == 0x0Eu) {
+                      static int tape_io_trace = -1;
+                      static FILE *tape_io_trace_fp = NULL;
+                      if (tape_io_trace < 0) {
+                          const char *env = getenv("PASM_C64_TAPE_IO_TRACE");
+                          tape_io_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                          if (tape_io_trace != 0) {
+                              const char *path = getenv("PASM_C64_TAPE_IO_TRACE_FILE");
+                              if (path == NULL || path[0] == '\0') path = "/tmp/c64_tape_io_trace.log";
+                              tape_io_trace_fp = fopen(path, "a");
+                              if (tape_io_trace_fp == NULL) tape_io_trace = 0;
+                          }
+                      }
+                      cpu->comp_c64_cia1.regs[0x0Eu] = (uint8_t)(value & 0xEFu); if ((value & 0x10u) != 0u) cpu->comp_c64_cia1.ta_counter = cpu->comp_c64_cia1.ta_latch;
+                      if (tape_io_trace != 0 && tape_io_trace_fp != NULL) {
+                          fprintf(tape_io_trace_fp,
+                                  "writeDC0E cycle=%llu value=%02X ta=%u latch=%u\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)cpu->comp_c64_cia1.regs[0x0Eu],
+                                  (unsigned)cpu->comp_c64_cia1.ta_counter,
+                                  (unsigned)cpu->comp_c64_cia1.ta_latch);
+                          fflush(tape_io_trace_fp);
+                      }
+                      return;
+                  }
+                  if (r == 0x0Fu) {
+                      static int tape_io_trace = -1;
+                      static FILE *tape_io_trace_fp = NULL;
+                      if (tape_io_trace < 0) {
+                          const char *env = getenv("PASM_C64_TAPE_IO_TRACE");
+                          tape_io_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                          if (tape_io_trace != 0) {
+                              const char *path = getenv("PASM_C64_TAPE_IO_TRACE_FILE");
+                              if (path == NULL || path[0] == '\0') path = "/tmp/c64_tape_io_trace.log";
+                              tape_io_trace_fp = fopen(path, "a");
+                              if (tape_io_trace_fp == NULL) tape_io_trace = 0;
+                          }
+                      }
+                      cpu->comp_c64_cia1.regs[0x0Fu] = (uint8_t)(value & 0xEFu); if ((value & 0x10u) != 0u) cpu->comp_c64_cia1.tb_counter = cpu->comp_c64_cia1.tb_latch;
+                      if (tape_io_trace != 0 && tape_io_trace_fp != NULL) {
+                          fprintf(tape_io_trace_fp,
+                                  "writeDC0F cycle=%llu value=%02X tb=%u latch=%u\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)cpu->comp_c64_cia1.regs[0x0Fu],
+                                  (unsigned)cpu->comp_c64_cia1.tb_counter,
+                                  (unsigned)cpu->comp_c64_cia1.tb_latch);
+                          fflush(tape_io_trace_fp);
+                      }
+                      return;
+                  }
                   return;
               }
               if (off < 0x0E00u) {
@@ -334,26 +563,79 @@ behavior:
       }
 
       {
-          uint64_t d = delta_cycles;
-          if ((cpu->comp_c64_cia1.regs[0x0Eu] & 0x01u) != 0u && (cpu->comp_c64_cia1.regs[0x0Eu] & 0x20u) == 0u) {
-              uint16_t rl = (cpu->comp_c64_cia1.ta_latch != 0u) ? cpu->comp_c64_cia1.ta_latch : 0xFFFFu;
-              while (d > 0u) { uint16_t c = (cpu->comp_c64_cia1.ta_counter != 0u) ? cpu->comp_c64_cia1.ta_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia1.ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia1.ta_counter = rl; cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status | 0x01u); if ((cpu->comp_c64_cia1.regs[0x0Eu] & 0x08u) != 0u) { cpu->comp_c64_cia1.regs[0x0Eu] &= (uint8_t)~0x01u; break; } } }
+          static int tape_trace_init = -1;
+          static FILE *tape_trace_fp = NULL;
+          uint64_t step_start_cycle = (cpu->total_cycles >= delta_cycles) ? (cpu->total_cycles - delta_cycles) : 0u;
+          uint64_t tape_args[1] = { cpu->total_cycles };
+          uint64_t pulse_count = cpu_component_dispatch_callback(cpu, "datasette_c64", "c64_poll_pulses", tape_args, 1u);
+          uint64_t pulse_cycle = cpu_component_dispatch_callback(cpu, "datasette_c64", "c64_query_pending_pulse_cycle", NULL, 0u);
+          uint64_t pulse_offset = delta_cycles + 1u;
+          if (tape_trace_init < 0) {
+              const char *env = getenv("PASM_C64_DATASETTE_TRACE");
+              tape_trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (tape_trace_init != 0) {
+                  const char *path = getenv("PASM_C64_DATASETTE_TRACE_FILE");
+                  if (path == NULL || path[0] == '\0') path = "/tmp/c64_datasette_trace.log";
+                  tape_trace_fp = fopen(path, "a");
+                  if (tape_trace_fp == NULL) tape_trace_init = 0;
+              }
           }
-          d = delta_cycles;
-          if ((cpu->comp_c64_cia1.regs[0x0Fu] & 0x01u) != 0u && (cpu->comp_c64_cia1.regs[0x0Fu] & 0x60u) == 0u) {
-              uint16_t rl = (cpu->comp_c64_cia1.tb_latch != 0u) ? cpu->comp_c64_cia1.tb_latch : 0xFFFFu;
-              while (d > 0u) { uint16_t c = (cpu->comp_c64_cia1.tb_counter != 0u) ? cpu->comp_c64_cia1.tb_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia1.tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia1.tb_counter = rl; cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status | 0x02u); if ((cpu->comp_c64_cia1.regs[0x0Fu] & 0x08u) != 0u) { cpu->comp_c64_cia1.regs[0x0Fu] &= (uint8_t)~0x01u; break; } } }
+          #define PASM_ADVANCE_C64_CIAS(step_cycles__) \
+          do { \
+              uint64_t d; \
+              d = (step_cycles__); \
+              if ((cpu->comp_c64_cia1.regs[0x0Eu] & 0x01u) != 0u && (cpu->comp_c64_cia1.regs[0x0Eu] & 0x20u) == 0u) { \
+                  uint16_t rl = (cpu->comp_c64_cia1.ta_latch != 0u) ? cpu->comp_c64_cia1.ta_latch : 0xFFFFu; \
+                  while (d > 0u) { uint16_t c = (cpu->comp_c64_cia1.ta_counter != 0u) ? cpu->comp_c64_cia1.ta_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia1.ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia1.ta_counter = rl; cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status | 0x01u); if ((cpu->comp_c64_cia1.regs[0x0Eu] & 0x08u) != 0u) { cpu->comp_c64_cia1.regs[0x0Eu] &= (uint8_t)~0x01u; break; } } } \
+              } \
+              d = (step_cycles__); \
+              if ((cpu->comp_c64_cia1.regs[0x0Fu] & 0x01u) != 0u && (cpu->comp_c64_cia1.regs[0x0Fu] & 0x60u) == 0u) { \
+                  uint16_t rl = (cpu->comp_c64_cia1.tb_latch != 0u) ? cpu->comp_c64_cia1.tb_latch : 0xFFFFu; \
+                  while (d > 0u) { uint16_t c = (cpu->comp_c64_cia1.tb_counter != 0u) ? cpu->comp_c64_cia1.tb_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia1.tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia1.tb_counter = rl; cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status | 0x02u); if ((cpu->comp_c64_cia1.regs[0x0Fu] & 0x08u) != 0u) { cpu->comp_c64_cia1.regs[0x0Fu] &= (uint8_t)~0x01u; break; } } } \
+              } \
+              d = (step_cycles__); \
+              if ((cpu->comp_c64_cia2.regs[0x0Eu] & 0x01u) != 0u && (cpu->comp_c64_cia2.regs[0x0Eu] & 0x20u) == 0u) { \
+                  uint16_t rl = (cpu->comp_c64_cia2.ta_latch != 0u) ? cpu->comp_c64_cia2.ta_latch : 0xFFFFu; \
+                  while (d > 0u) { uint16_t c = (cpu->comp_c64_cia2.ta_counter != 0u) ? cpu->comp_c64_cia2.ta_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia2.ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia2.ta_counter = rl; cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status | 0x01u); if ((cpu->comp_c64_cia2.regs[0x0Eu] & 0x08u) != 0u) { cpu->comp_c64_cia2.regs[0x0Eu] &= (uint8_t)~0x01u; break; } } } \
+              } \
+              d = (step_cycles__); \
+              if ((cpu->comp_c64_cia2.regs[0x0Fu] & 0x01u) != 0u && (cpu->comp_c64_cia2.regs[0x0Fu] & 0x60u) == 0u) { \
+                  uint16_t rl = (cpu->comp_c64_cia2.tb_latch != 0u) ? cpu->comp_c64_cia2.tb_latch : 0xFFFFu; \
+                  while (d > 0u) { uint16_t c = (cpu->comp_c64_cia2.tb_counter != 0u) ? cpu->comp_c64_cia2.tb_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia2.tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia2.tb_counter = rl; cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status | 0x02u); if ((cpu->comp_c64_cia2.regs[0x0Fu] & 0x08u) != 0u) { cpu->comp_c64_cia2.regs[0x0Fu] &= (uint8_t)~0x01u; break; } } } \
+              } \
+          } while (0)
+          #define PASM_SET_C64_FLAG(event_cycle__) \
+          do { \
+              cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status | 0x10u); \
+              if (tape_trace_init != 0 && tape_trace_fp != NULL) { \
+                  fprintf(tape_trace_fp, \
+                          "cia1 flag cycle=%llu pulse=%llu icr=%02X mask=%02X cra=%02X crb=%02X ta=%u tb=%u\n", \
+                          (unsigned long long)(event_cycle__), \
+                          (unsigned long long)pulse_count, \
+                          (unsigned)cpu->comp_c64_cia1.icr_status, \
+                          (unsigned)cpu->comp_c64_cia1.icr_mask, \
+                          (unsigned)cpu->comp_c64_cia1.regs[0x0Eu], \
+                          (unsigned)cpu->comp_c64_cia1.regs[0x0Fu], \
+                          (unsigned)cpu->comp_c64_cia1.ta_counter, \
+                          (unsigned)cpu->comp_c64_cia1.tb_counter); \
+                  fflush(tape_trace_fp); \
+              } \
+          } while (0)
+          if (pulse_count != 0u && pulse_cycle >= step_start_cycle && pulse_cycle <= cpu->total_cycles) {
+              pulse_offset = pulse_cycle - step_start_cycle;
           }
-          d = delta_cycles;
-          if ((cpu->comp_c64_cia2.regs[0x0Eu] & 0x01u) != 0u && (cpu->comp_c64_cia2.regs[0x0Eu] & 0x20u) == 0u) {
-              uint16_t rl = (cpu->comp_c64_cia2.ta_latch != 0u) ? cpu->comp_c64_cia2.ta_latch : 0xFFFFu;
-              while (d > 0u) { uint16_t c = (cpu->comp_c64_cia2.ta_counter != 0u) ? cpu->comp_c64_cia2.ta_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia2.ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia2.ta_counter = rl; cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status | 0x01u); if ((cpu->comp_c64_cia2.regs[0x0Eu] & 0x08u) != 0u) { cpu->comp_c64_cia2.regs[0x0Eu] &= (uint8_t)~0x01u; break; } } }
+          if (pulse_offset <= delta_cycles) {
+              PASM_ADVANCE_C64_CIAS(pulse_offset);
+              PASM_SET_C64_FLAG(pulse_cycle);
+              PASM_ADVANCE_C64_CIAS(delta_cycles - pulse_offset);
+          } else {
+              PASM_ADVANCE_C64_CIAS(delta_cycles);
+              if (pulse_count != 0u) {
+                  PASM_SET_C64_FLAG(cpu->total_cycles);
+              }
           }
-          d = delta_cycles;
-          if ((cpu->comp_c64_cia2.regs[0x0Fu] & 0x01u) != 0u && (cpu->comp_c64_cia2.regs[0x0Fu] & 0x60u) == 0u) {
-              uint16_t rl = (cpu->comp_c64_cia2.tb_latch != 0u) ? cpu->comp_c64_cia2.tb_latch : 0xFFFFu;
-              while (d > 0u) { uint16_t c = (cpu->comp_c64_cia2.tb_counter != 0u) ? cpu->comp_c64_cia2.tb_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia2.tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia2.tb_counter = rl; cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status | 0x02u); if ((cpu->comp_c64_cia2.regs[0x0Fu] & 0x08u) != 0u) { cpu->comp_c64_cia2.regs[0x0Fu] &= (uint8_t)~0x01u; break; } } }
-          }
+          #undef PASM_SET_C64_FLAG
+          #undef PASM_ADVANCE_C64_CIAS
           if ((cpu->comp_c64_cia1.icr_status & cpu->comp_c64_cia1.icr_mask & 0x1Fu) != 0u) { cpu->comp_c64_cia1.icr_status = (uint8_t)((cpu->comp_c64_cia1.icr_status & 0x1Fu) | 0x80u); if (cpu->comp_c64_cia1.irq_asserted == 0u) { mos6510_interrupt(cpu, 0u); cpu->comp_c64_cia1.irq_asserted = 1u; } } else { cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status & 0x1Fu); cpu->comp_c64_cia1.irq_asserted = 0u; }
           if ((cpu->comp_c64_cia2.icr_status & cpu->comp_c64_cia2.icr_mask & 0x1Fu) != 0u) { cpu->comp_c64_cia2.icr_status = (uint8_t)((cpu->comp_c64_cia2.icr_status & 0x1Fu) | 0x80u); if (cpu->comp_c64_cia2.nmi_asserted == 0u) { mos6510_interrupt(cpu, 0xFFu); cpu->comp_c64_cia2.nmi_asserted = 1u; } } else { cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status & 0x1Fu); cpu->comp_c64_cia2.nmi_asserted = 0u; }
       }

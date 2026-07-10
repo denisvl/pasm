@@ -235,7 +235,27 @@ keyboard:
   - host_scancode: ESCAPE
     mapper_key_id: K_ESC
     ascii: 27
+  - host_scancode: F10
+    emulator_key_id: EMU_CASSETTE_PLAY
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: F9
+    emulator_key_id: EMU_CASSETTE_VOL_UP
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: F8
+    emulator_key_id: EMU_CASSETTE_VOL_DOWN
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
   - host_scancode: F11
+    emulator_key_id: EMU_CASSETTE_PICKER
+    ascii: 0
+    ascii_shift: 0
+    ascii_ctrl: 0
+  - host_scancode: F6
     emulator_key_id: EMU_RESET
     ascii: 0
     ascii_shift: 0

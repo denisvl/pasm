@@ -53,57 +53,70 @@ keyboard:
     - row: 1
       bit: 1
 
-  - host_scancode: MINUS
+  - host_key: MINUS
     mapper_key_id: KEY_MINUS
     presses:
     - row: 1
       bit: 2
-  - host_scancode: EQUALS
+  - host_key: EQUALS
     mapper_key_id: KEY_EQUALS
     presses:
     - row: 1
       bit: 3
-  - host_scancode: BACKSLASH
+  - host_key: BACKSLASH
     mapper_key_id: KEY_BACKSLASH
     presses:
     - row: 1
       bit: 4
-  - host_scancode: LEFTBRACKET
+  - host_key: LEFTBRACKET
     mapper_key_id: KEY_LEFTBRACKET
-    presses:
-    - row: 1
-      bit: 5
-  - host_scancode: RIGHTBRACKET
-    mapper_key_id: KEY_RIGHTBRACKET
-    presses:
-    - row: 1
-      bit: 6
-  - host_scancode: SEMICOLON
-    mapper_key_id: KEY_SEMICOLON
-    presses:
-    - row: 1
-      bit: 7
-  - host_scancode: APOSTROPHE
-    mapper_key_id: KEY_APOSTROPHE
-    presses:
-    - row: 2
-      bit: 0
-  - host_scancode: GRAVE
-    mapper_key_id: KEY_GRAVE
     presses:
     - row: 2
       bit: 1
-  - host_scancode: COMMA
+  - host_key: RIGHTBRACKET
+    mapper_key_id: KEY_RIGHTBRACKET
+    presses:
+    - row: 2
+      bit: 1
+    - row: 6
+      bit: 0
+  - host_key_unshifted: SEMICOLON
+    mapper_key_id: KEY_SEMICOLON
+    presses:
+    - row: 2
+      bit: 2
+    - row: 6
+      bit: 0
+  - host_key_shifted: SEMICOLON
+    mapper_key_id: KEY_COLON
+    presses:
+    - row: 2
+      bit: 3
+    - row: 6
+      bit: 0
+  - host_key: APOSTROPHE
+    mapper_key_id: KEY_APOSTROPHE
+    presses:
+    - row: 1
+      bit: 6
+    - row: 6
+      bit: 0
+  - host_key: GRAVE
+    mapper_key_id: KEY_GRAVE
+    presses:
+    - row: 1
+      bit: 5
+  - host_key: COMMA
     mapper_key_id: KEY_COMMA
     presses:
     - row: 2
       bit: 2
-  - host_scancode: PERIOD
+  - host_key: PERIOD
     mapper_key_id: KEY_PERIOD
     presses:
     - row: 2
       bit: 3
-  - host_scancode: SLASH
+  - host_key: SLASH
     mapper_key_id: KEY_SLASH
     presses:
     - row: 2
@@ -376,3 +389,11 @@ keyboard:
 
   - host_scancode: F12
     emulator_key_id: EMU_CART_PICKER
+  - host_scancode: F11
+    emulator_key_id: EMU_CASSETTE_PICKER
+  - host_scancode: F10
+    emulator_key_id: EMU_CASSETTE_PLAY
+  - host_scancode: F9
+    emulator_key_id: EMU_CASSETTE_VOL_UP
+  - host_scancode: F8
+    emulator_key_id: EMU_CASSETTE_VOL_DOWN

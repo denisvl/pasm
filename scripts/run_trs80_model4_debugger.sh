@@ -41,6 +41,7 @@ IC_CASS="examples/ics/trs80_model4/trs80_model4_cassette.yaml"
 DEVICE_KB="examples/devices/trs80_model4/trs80_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/trs80_model4/trs80_video.yaml"
 DEVICE_SPK="examples/devices/trs80_model4/trs80_speaker.yaml"
+DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
 
 case "${PROFILE}" in
   default)
@@ -82,6 +83,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
+  --device "${DEVICE_CASS}" \
   --host "${HOST}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
   --output "${OUTPUT_DIR}"

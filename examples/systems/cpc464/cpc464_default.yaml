@@ -46,9 +46,27 @@ components:
   - gameport_cpc
   - video_cpc
   - speaker
+  - cassette_transport
   - monitor
   hosts:
   - host_cpc
+  cassette: cassette_transport
+cassette:
+  component: cassette_transport
+  directory: examples/cassettes/cpc464
+  allowed_extensions: [yaml, wav]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
 connections:
 - from:
     component: cpc_ppi
@@ -170,6 +188,22 @@ connections:
     component: host_cpc
     kind: handler
     name: audio_pcm
+- from:
+    component: cassette_transport
+    kind: signal
+    name: playback_sample
+  to:
+    component: speaker
+    kind: handler
+    name: on_tape_playback_sample
+- from:
+    component: cassette_transport
+    kind: signal
+    name: tape_level
+  to:
+    component: cpc_ppi
+    kind: handler
+    name: tape_input
 - from:
     component: monitor
     kind: signal

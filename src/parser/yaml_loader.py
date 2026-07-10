@@ -369,6 +369,8 @@ def get_schema_path(kind: str) -> Path:
         return base / "host_schema.json"
     if kind == "cartridge":
         return base / "cartridge_schema.json"
+    if kind == "cassette":
+        return base / "cassette_schema.json"
     if kind == "runtime_keyboard_map":
         return base / "runtime_keyboard_map_schema.json"
     raise ValueError(f"Unknown schema kind: {kind}")
@@ -636,6 +638,7 @@ class ProcessorSystemLoader:
         self.device_schema = load_schema("device")
         self.host_schema = load_schema("host")
         self.cartridge_schema = load_schema("cartridge")
+        self.cassette_schema = load_schema("cassette")
         if Draft7Validator:
             self.processor_validator = Draft7Validator(self.processor_schema)
             self.system_validator = Draft7Validator(self.system_schema)
@@ -643,6 +646,7 @@ class ProcessorSystemLoader:
             self.device_validator = Draft7Validator(self.device_schema)
             self.host_validator = Draft7Validator(self.host_schema)
             self.cartridge_validator = Draft7Validator(self.cartridge_schema)
+            self.cassette_validator = Draft7Validator(self.cassette_schema)
         else:
             self.processor_validator = None
             self.system_validator = None
@@ -650,6 +654,7 @@ class ProcessorSystemLoader:
             self.device_validator = None
             self.host_validator = None
             self.cartridge_validator = None
+            self.cassette_validator = None
 
     def _resolve_existing_file(self, path: str) -> Path:
         path_obj = Path(path)
@@ -700,6 +705,24 @@ class ProcessorSystemLoader:
                 f"display.default_model '{model}' for component '{component}' "
                 f"must match exactly one common display device"
             )
+        return matches[0][1], str(matches[0][0])
+
+    def _resolve_common_named_device(
+        self,
+        device_id: str,
+        loaded_device_ids: set[str],
+    ) -> tuple[Dict[str, Any] | None, str | None]:
+        if not device_id or device_id in loaded_device_ids:
+            return None, None
+        common_dir = Path(__file__).parent.parent.parent / "examples" / "devices" / "common"
+        matches: list[tuple[Path, Dict[str, Any]]] = []
+        for path in sorted(common_dir.glob("*.yaml")):
+            data = self._load_yaml(str(path), "device")
+            metadata = data.get("metadata", {})
+            if metadata.get("id") == device_id:
+                matches.append((path, data))
+        if len(matches) != 1:
+            return None, None
         return matches[0][1], str(matches[0][0])
 
     def _validate_coding_block(self, coding: Dict[str, Any], context: str) -> None:
@@ -972,6 +995,16 @@ class ProcessorSystemLoader:
         _validate_endpoint_names("Cartridge", cartridge_data)
         self._validate_cartridge_state_contract(cartridge_data)
         return cartridge_data
+
+    def validate_cassette(self, cassette_data: Dict[str, Any]) -> Dict[str, Any]:
+        errors = _iter_errors(self.cassette_validator, cassette_data)
+        if errors:
+            raise ValidationError(_format_schema_errors("Cassette", errors))
+        return cassette_data
+
+    def load_cassette(self, cassette_path: str) -> Dict[str, Any]:
+        cassette_data = self._load_yaml(cassette_path, "cassette")
+        return self.validate_cassette(cassette_data)
 
     def _validate_instruction_display_specs(self, processor_data: Dict[str, Any]) -> None:
         codegen = _processor_codegen(processor_data)
@@ -1586,6 +1619,7 @@ class ProcessorSystemLoader:
             "components": copy.deepcopy(system_data.get("components", {})),
             "connections": copy.deepcopy(system_data.get("connections", [])),
             "audio": copy.deepcopy(system_data.get("audio", {})),
+            "cassette": copy.deepcopy(system_data.get("cassette", {})),
             "system": {
                 "metadata": copy.deepcopy(system_data.get("metadata", {})),
                 "clock_hz": int(system_data.get("clock_hz", 0)),
@@ -1648,6 +1682,15 @@ class ProcessorSystemLoader:
         if display_device_data is not None and display_device_path is not None:
             device_data_list.append(display_device_data)
             resolved_device_paths.append(display_device_path)
+            loaded_device_ids.add(str(display_device_data.get("metadata", {}).get("id", "")))
+        cassette_component_id = str(system_data.get("components", {}).get("cassette", "")).strip()
+        cassette_device_data, cassette_device_path = self._resolve_common_named_device(
+            cassette_component_id,
+            loaded_device_ids,
+        )
+        if cassette_device_data is not None and cassette_device_path is not None:
+            device_data_list.append(cassette_device_data)
+            resolved_device_paths.append(cassette_device_path)
         ic_data_list = [self.validate_ic(ic_data) for ic_data in ic_data_list]
         device_data_list = [self.validate_device(device_data) for device_data in device_data_list]
         host_data_list = [self.validate_host(host_data) for host_data in host_data_list]
@@ -1663,6 +1706,19 @@ class ProcessorSystemLoader:
         system_data.setdefault("memory", {})
         system_data["memory"]["rom_images"] = rom_images_resolved
         system_base_dir = Path(resolved_system_path).resolve().parent
+        cassette_cfg = system_data.get("cassette")
+        if isinstance(cassette_cfg, dict):
+            cassette_dir = str(cassette_cfg.get("directory", "")).strip()
+            if cassette_dir:
+                cassette_dir_path = Path(cassette_dir)
+                if cassette_dir_path.is_absolute():
+                    cassette_cfg["directory"] = str(cassette_dir_path.resolve())
+                elif cassette_dir_path.exists():
+                    cassette_cfg["directory"] = str(cassette_dir_path.resolve())
+                else:
+                    cassette_cfg["directory"] = str(
+                        self._resolve_cli_file(cassette_dir, system_base_dir)
+                    )
         resolved_cartridge_rom_path = ""
         if cartridge_rom_path:
             resolved_cartridge_rom_path = self._validate_readable_file(
