@@ -1,0 +1,163 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PASM Cassette Media Definition",
+  "description": "Schema for cassette media YAML sidecars that describe loadable and recordable cassette assets.",
+  "type": "object",
+  "required": [
+    "metadata",
+    "transport",
+    "media"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "model"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "cassette_media"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        }
+      }
+    },
+    "transport": {
+      "type": "object",
+      "required": [
+        "format",
+        "mode",
+        "controls"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": [
+            "wav"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "playback",
+            "record",
+            "duplex"
+          ]
+        },
+        "controls": {
+          "type": "object",
+          "required": [
+            "volume_percent",
+            "bass_percent",
+            "treble_percent"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "volume_percent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "bass_percent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "treble_percent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        }
+      }
+    },
+    "media": {
+      "type": "object",
+      "required": [
+        "file"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "sample_rate": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "channels": {
+          "type": "integer",
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "bits_per_sample": {
+          "type": "integer",
+          "enum": [
+            8,
+            16
+          ]
+        },
+        "signed_samples": {
+          "type": "boolean"
+        },
+        "little_endian": {
+          "type": "boolean"
+        },
+        "leader_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "trailer_seconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "system_format": {
+      "type": "object",
+      "required": [
+        "target_system"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target_system": {
+          "type": "string"
+        },
+        "loader": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

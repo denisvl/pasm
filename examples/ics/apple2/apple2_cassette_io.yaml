@@ -1,0 +1,208 @@
+metadata:
+  id: apple2_cassette_io
+  type: io_controller
+  model: apple2_cassette_iface
+  version: "1.0"
+
+state:
+  - name: output_level
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals:
+    - name: cassette_write
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges:
+      - name: cassette_output_softswitch
+        start: 0xC020
+        size: 0x0001
+        access: [read, write]
+      - name: cassette_input_softswitch
+        start: 0xC060
+        size: 0x0001
+        access: [read]
+      - name: cassette_input_softswitch_mirror
+        start: 0xC068
+        size: 0x0001
+        access: [read]
+
+behavior:
+  snippets:
+    mem_read_pre: |
+      uint16_t soft_addr = (uint16_t)(addr & 0xFFF7u);
+      if (addr == 0xC020u) {
+          comp->output_level ^= 1u;
+          {
+              uint64_t sig_args[2] = {
+                  (uint64_t)(comp->output_level != 0u ? 255u : 0u),
+                  cpu->total_cycles
+              };
+              cpu_component_emit_signal(cpu, "apple2_cassette_io", "cassette_write", sig_args, 2);
+          }
+          return 0u;
+      }
+      if (soft_addr == 0xC060u) {
+          uint64_t tape_args[2] = { 0x74u, cpu->total_cycles };
+          uint8_t tape_level = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "sample_input", tape_args, 2);
+          uint8_t sense_bit = (tape_level > 128u) ? 0x80u : 0x00u;
+          uint8_t floating_bus = 0u;
+          uint16_t floating_addr = 0x0000u;
+          {
+              uint64_t frame_period = (uint64_t)(65u * 262u);
+              uint64_t cycle_in_frame;
+              uint8_t text_mode;
+              uint8_t mixed_mode;
+              uint8_t hires_mode;
+              uint8_t page2_mode;
+              int nCycles;
+              int nHires;
+              int nPage2;
+              int n80Store;
+              int nHClock;
+              int nHState;
+              int h_0;
+              int h_1;
+              int h_2;
+              int h_3;
+              int h_4;
+              int h_5;
+              int nVLine;
+              int nVState;
+              int v_A;
+              int v_B;
+              int v_C;
+              int v_0;
+              int v_1;
+              int v_2;
+              int v_3;
+              int v_4;
+              int nAddend0;
+              int nAddend1;
+              int nAddend2;
+              int nSum;
+              int nAddress;
+
+              if (frame_period == 0u) frame_period = 17030u;
+              cycle_in_frame = cpu->total_cycles % frame_period;
+              text_mode = (uint8_t)(cpu->comp_apple2_video_softswitches.text_mode != 0u);
+              mixed_mode = (uint8_t)(cpu->comp_apple2_video_softswitches.mixed_mode != 0u);
+              hires_mode = (uint8_t)(cpu->comp_apple2_video_softswitches.hires != 0u);
+              page2_mode = (uint8_t)(cpu->comp_apple2_video_softswitches.page2 != 0u);
+              nCycles = (int)cycle_in_frame;
+              nHires = (hires_mode != 0u && text_mode == 0u) ? 1 : 0;
+              nPage2 = (page2_mode != 0u) ? 1 : 0;
+              n80Store = 0;
+
+              nHClock = (nCycles + 40) % 65;
+              nHState = 0x18 + nHClock;
+              if (nHClock >= 41) {
+                  nHState -= 1;
+              }
+              h_0 = (nHState >> 0) & 1;
+              h_1 = (nHState >> 1) & 1;
+              h_2 = (nHState >> 2) & 1;
+              h_3 = (nHState >> 3) & 1;
+              h_4 = (nHState >> 4) & 1;
+              h_5 = (nHState >> 5) & 1;
+
+              nVLine = nCycles / 65;
+              nVState = 0x100 + nVLine;
+              if (nVLine >= 256) {
+                  nVState -= 262;
+              }
+              v_A = (nVState >> 0) & 1;
+              v_B = (nVState >> 1) & 1;
+              v_C = (nVState >> 2) & 1;
+              v_0 = (nVState >> 3) & 1;
+              v_1 = (nVState >> 4) & 1;
+              v_2 = (nVState >> 5) & 1;
+              v_3 = (nVState >> 6) & 1;
+              v_4 = (nVState >> 7) & 1;
+
+              if (hires_mode != 0u && mixed_mode != 0u && (v_4 & v_2) != 0) {
+                  nHires = 0;
+              }
+
+              nAddend0 = 0x68;
+              nAddend1 = (h_5 << 5) | (h_4 << 4) | (h_3 << 3);
+              nAddend2 = (v_4 << 6) | (v_3 << 5) | (v_4 << 4) | (v_3 << 3);
+              nSum = (nAddend0 + nAddend1 + nAddend2) & (0x0F << 3);
+
+              nAddress = 0;
+              nAddress |= h_0 << 0;
+              nAddress |= h_1 << 1;
+              nAddress |= h_2 << 2;
+              nAddress |= nSum;
+              nAddress |= v_0 << 7;
+              nAddress |= v_1 << 8;
+              nAddress |= v_2 << 9;
+              nAddress |= (nHires ? v_A : (1 ^ (nPage2 & (1 ^ n80Store)))) << 10;
+              nAddress |= (nHires ? v_B : (nPage2 & (1 ^ n80Store))) << 11;
+              if (nHires) {
+                  nAddress |= v_C << 12;
+                  nAddress |= (1 ^ (nPage2 & (1 ^ n80Store))) << 13;
+                  nAddress |= (nPage2 & (1 ^ n80Store)) << 14;
+              } else {
+                  if (nHClock >= 40 && nHClock <= 64) {
+                      nAddress |= 1 << 12;
+                  }
+              }
+              floating_addr = (uint16_t)nAddress;
+
+              if ((uint64_t)floating_addr < cpu->memory_size) {
+                  floating_bus = (uint8_t)(cpu->memory[floating_addr] & 0x7Fu);
+              }
+          }
+          {
+              uint8_t result = (uint8_t)((floating_bus & 0x7Fu) | sense_bit);
+              const char *trace_env = getenv("PASM_APPLE2_TAPE_TRACE");
+              if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+                  const char *trace_path = getenv("PASM_APPLE2_TAPE_TRACE_FILE");
+                  if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/apple2_tape_trace.log";
+                  FILE *trace_fp = fopen(trace_path, "a");
+                  if (trace_fp != NULL) {
+                      fprintf(trace_fp,
+                              "c060 cycle=%llu pc=%04X y=%02X x=%02X a=%02X tape=%u sense=%02X fb=%02X addr=%04X result=%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc,
+                              (unsigned)cpu->registers[REG_Y],
+                              (unsigned)cpu->registers[REG_X],
+                              (unsigned)cpu->registers[REG_A],
+                              (unsigned)tape_level,
+                              (unsigned)sense_bit,
+                              (unsigned)floating_bus,
+                              (unsigned)floating_addr,
+                              (unsigned)result);
+                      fflush(trace_fp);
+                      fclose(trace_fp);
+                  }
+              }
+              return result;
+          }
+      }
+    mem_write_pre: |
+      if (addr == 0xC020u) {
+          comp->output_level ^= 1u;
+          {
+              uint64_t sig_args[2] = {
+                  (uint64_t)(comp->output_level != 0u ? 255u : 0u),
+                  cpu->total_cycles
+              };
+              cpu_component_emit_signal(cpu, "apple2_cassette_io", "cassette_write", sig_args, 2);
+          }
+          return;
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []
