@@ -1,0 +1,302 @@
+metadata:
+  id: bbc_micro_cassette_adapter
+  type: cassette_transport
+  model: bbc_micro_cassette_adapter
+  version: "1.0"
+
+state:
+  - name: event_durations
+    type: uint32_t *
+    initial: "NULL"
+  - name: event_bytes
+    type: uint8_t *
+    initial: "NULL"
+  - name: event_count
+    type: uint32_t
+    initial: "0"
+  - name: event_cap
+    type: uint32_t
+    initial: "0"
+  - name: event_index
+    type: uint32_t
+    initial: "0"
+  - name: event_time_left
+    type: int32_t
+    initial: "0"
+  - name: fsk_line_state
+    type: uint8_t
+    initial: "1"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: set_transport_mode
+      args: [u8]
+      returns: u8
+    - name: set_motor
+      args: [u8]
+      returns: u8
+    - name: set_volume
+      args: [u8]
+      returns: u8
+    - name: set_bass
+      args: [u8]
+      returns: u8
+    - name: set_treble
+      args: [u8]
+      returns: u8
+    - name: sample_input
+      args: [u64, u64]
+      returns: u64
+    - name: query_transport_state
+      args: []
+      returns: u64
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->event_index = 0u;
+      comp->event_time_left = 0;
+      comp->fsk_line_state = 1u;
+    destroy: |
+      if (comp->event_durations != NULL) {
+          free(comp->event_durations);
+          comp->event_durations = NULL;
+      }
+      if (comp->event_bytes != NULL) {
+          free(comp->event_bytes);
+          comp->event_bytes = NULL;
+      }
+      comp->event_count = 0u;
+      comp->event_cap = 0u;
+  callback_handlers:
+    load_media: |
+      uint8_t ok = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "load_media", args, argc);
+      comp->event_index = 0u;
+      comp->event_time_left = 0;
+      comp->fsk_line_state = 1u;
+      comp->event_count = 0u;
+      if (comp->event_durations != NULL) {
+          free(comp->event_durations);
+          comp->event_durations = NULL;
+      }
+      if (comp->event_bytes != NULL) {
+          free(comp->event_bytes);
+          comp->event_bytes = NULL;
+      }
+      comp->event_cap = 0u;
+      if (ok == 0u) return 0u;
+      {
+          uint32_t edge_count = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){0u, 0u}, 2);
+          uint32_t sample_rate = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){1u, 0u}, 2);
+          if (edge_count > 2u && sample_rate != 0u) {
+              uint32_t samples_per_bit = (sample_rate + 600u) / 1200u;
+              uint32_t short_peak = (sample_rate + 1600u) / 3200u;
+              uint32_t long_peak = (sample_rate + 800u) / 1600u;
+              uint32_t bit_units = (samples_per_bit + ((short_peak + long_peak) / 2u)) / ((short_peak + long_peak) / 2u);
+              if (bit_units < 2u) bit_units = 2u;
+              {
+                  uint32_t edge_idx = 1u;
+                  while (edge_idx < edge_count) {
+                      uint32_t start_idx = edge_idx;
+                      uint32_t carrier_run = 0u;
+                      uint8_t byte_value = 0u;
+                      uint8_t valid = 1u;
+                      while (edge_idx < edge_count) {
+                          uint32_t prev_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx - 1u}, 2);
+                          uint32_t curr_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx}, 2);
+                          uint32_t delta_samples = (curr_fp - prev_fp + 128u) >> 8u;
+                          uint32_t units = (delta_samples <= ((short_peak + long_peak) / 2u)) ? 1u : 2u;
+                          if (units == 1u) {
+                              if (carrier_run < 255u) carrier_run += 1u;
+                              edge_idx += 1u;
+                              continue;
+                          }
+                          if (carrier_run >= 16u) {
+                              uint32_t start_units = 2u;
+                              uint32_t probe = edge_idx + 1u;
+                              while (probe < edge_count) {
+                                  uint32_t prev2_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, probe - 1u}, 2);
+                                  uint32_t curr2_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, probe}, 2);
+                                  uint32_t d2 = (curr2_fp - prev2_fp + 128u) >> 8u;
+                                  uint32_t u2 = (d2 <= ((short_peak + long_peak) / 2u)) ? 1u : 2u;
+                                  if (u2 != 2u) break;
+                                  start_units += 2u;
+                                  probe += 1u;
+                                  if (start_units >= bit_units) break;
+                              }
+                              if (start_units >= bit_units) {
+                                  start_idx = edge_idx;
+                                  edge_idx = probe;
+                                  break;
+                              }
+                          }
+                          carrier_run = 0u;
+                          edge_idx += 1u;
+                      }
+                      if (edge_idx >= edge_count) break;
+                      for (uint32_t bit = 0u; bit < 8u && valid != 0u; ++bit) {
+                          uint32_t accum_units = 0u;
+                          uint32_t short_units = 0u;
+                          uint32_t long_units = 0u;
+                          while (edge_idx < edge_count && accum_units < bit_units) {
+                              uint32_t prev_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx - 1u}, 2);
+                              uint32_t curr_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx}, 2);
+                              uint32_t delta_samples = (curr_fp - prev_fp + 128u) >> 8u;
+                              uint32_t units = (delta_samples <= ((short_peak + long_peak) / 2u)) ? 1u : 2u;
+                              accum_units += units;
+                              if (units == 1u) short_units += 1u;
+                              else long_units += 1u;
+                              edge_idx += 1u;
+                          }
+                          if (accum_units < bit_units) {
+                              valid = 0u;
+                              break;
+                          }
+                          if (short_units > long_units) {
+                              byte_value = (uint8_t)(byte_value | (uint8_t)(1u << bit));
+                          }
+                      }
+                      if (valid != 0u) {
+                          uint32_t accum_units = 0u;
+                          uint32_t short_units = 0u;
+                          uint32_t long_units = 0u;
+                          while (edge_idx < edge_count && accum_units < bit_units) {
+                              uint32_t prev_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx - 1u}, 2);
+                              uint32_t curr_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx}, 2);
+                              uint32_t delta_samples = (curr_fp - prev_fp + 128u) >> 8u;
+                              uint32_t units = (delta_samples <= ((short_peak + long_peak) / 2u)) ? 1u : 2u;
+                              accum_units += units;
+                              if (units == 1u) short_units += 1u;
+                              else long_units += 1u;
+                              edge_idx += 1u;
+                          }
+                          if (accum_units < bit_units || short_units < long_units) {
+                              valid = 0u;
+                          }
+                      }
+                      if (valid != 0u) {
+                          if (comp->event_count >= comp->event_cap) {
+                              uint32_t new_cap = (comp->event_cap == 0u) ? 256u : (comp->event_cap * 2u);
+                              uint32_t *new_durations = (uint32_t *)realloc(comp->event_durations, (size_t)new_cap * sizeof(uint32_t));
+                              uint8_t *new_bytes = (uint8_t *)realloc(comp->event_bytes, (size_t)new_cap * sizeof(uint8_t));
+                              if (new_durations == NULL || new_bytes == NULL) {
+                                  free(new_durations);
+                                  free(new_bytes);
+                                  break;
+                              }
+                              comp->event_durations = new_durations;
+                              comp->event_bytes = new_bytes;
+                              comp->event_cap = new_cap;
+                          }
+                          comp->event_durations[comp->event_count] =
+                              (uint32_t)(((9u * (uint64_t)CPU_SYSTEM_CLOCK_HZ) + 600u) / 1200u);
+                          comp->event_bytes[comp->event_count] = byte_value;
+                          comp->event_count += 1u;
+                      } else {
+                          edge_idx = start_idx + 1u;
+                      }
+                  }
+              }
+          }
+      }
+      return ok;
+    unload_media: |
+      comp->event_index = 0u;
+      comp->event_time_left = 0;
+      comp->fsk_line_state = 1u;
+      comp->event_count = 0u;
+      if (comp->event_durations != NULL) {
+          free(comp->event_durations);
+          comp->event_durations = NULL;
+      }
+      if (comp->event_bytes != NULL) {
+          free(comp->event_bytes);
+          comp->event_bytes = NULL;
+      }
+      comp->event_cap = 0u;
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "unload_media", args, argc);
+    set_transport_mode: |
+      if (argc > 0u && (uint8_t)(args[0] & 0xFFu) != 1u) {
+          comp->event_index = 0u;
+          comp->event_time_left = 0;
+          comp->fsk_line_state = 1u;
+      }
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_transport_mode", args, argc);
+    set_motor: |
+      if (argc > 0u && (uint8_t)(args[0] & 0x01u) == 0u) {
+          comp->event_index = 0u;
+          comp->event_time_left = 0;
+          comp->fsk_line_state = 1u;
+      }
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_motor", args, argc);
+    set_volume: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_volume", args, argc);
+    set_bass: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_bass", args, argc);
+    set_treble: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_treble", args, argc);
+    sample_input: |
+      if (argc > 1u) {
+          (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "sample_input", args, argc);
+      } else {
+          (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "sample_input", (uint64_t[]){0u, cpu->total_cycles}, 2);
+      }
+      if ((cpu_component_dispatch_callback(cpu, "cassette_transport", "query_transport_state", NULL, 0) & (1ull << 9u)) == 0u) {
+          comp->fsk_line_state = 1u;
+          comp->event_index = 0u;
+          comp->event_time_left = 0;
+          return (1ull << 16u);
+      }
+      if ((cpu_component_dispatch_callback(cpu, "cassette_transport", "query_transport_state", NULL, 0) & (1ull << 8u)) == 0u) {
+          comp->fsk_line_state = 1u;
+          comp->event_index = 0u;
+          comp->event_time_left = 0;
+          return (1ull << 16u);
+      }
+      comp->fsk_line_state = (comp->event_index < comp->event_count) ? 1u : 0u;
+      if (comp->event_count > 0u) {
+          int loaded = 0;
+          uint8_t loaded_byte = 0xFFu;
+          if (comp->event_index < comp->event_count && comp->event_time_left <= 0) {
+              comp->event_time_left = (int32_t)comp->event_durations[comp->event_index];
+          }
+          comp->event_time_left -= 114;
+          while (comp->event_index < comp->event_count && comp->event_time_left <= 0) {
+              loaded = 1;
+              loaded_byte = comp->event_bytes[comp->event_index];
+              comp->event_index += 1u;
+              if (comp->event_index >= comp->event_count) {
+                  comp->event_time_left = 0;
+                  comp->fsk_line_state = 0u;
+                  break;
+              }
+              comp->event_time_left += (int32_t)comp->event_durations[comp->event_index];
+              comp->fsk_line_state = 1u;
+          }
+          if (loaded != 0) {
+              return 1ull | ((uint64_t)loaded_byte << 8u) | ((uint64_t)(comp->fsk_line_state != 0u) << 16u);
+          }
+      }
+      return ((uint64_t)(comp->fsk_line_state != 0u) << 16u);
+    query_transport_state: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport", "query_transport_state", args, argc);
+  handler_bodies: {}
+
+coding:
+  headers:
+    - stdio.h
+    - stdlib.h
+    - string.h
+  include_paths: []
+  linked_libraries: []
+  library_paths: []
