@@ -1900,6 +1900,63 @@ def _generate_ic_runtime_blocks(
             cassette_exts.append(ext_s)
     if not cassette_exts:
         cassette_exts = ["yaml", "wav"]
+    cassette_sources_cfg = cassette_cfg.get("sources", []) if cassette_cfg else []
+    cassette_sources: List[Dict[str, Any]] = []
+    if isinstance(cassette_sources_cfg, list):
+        for idx, source in enumerate(cassette_sources_cfg):
+            if not isinstance(source, dict):
+                continue
+            source_kind = str(source.get("kind", "")).strip().lower()
+            if source_kind not in {"file", "line_in"}:
+                continue
+            source_component = str(source.get("component", cassette_component_id)).strip() or cassette_component_id
+            source_backend_component = str(source.get("source_component", source_component)).strip() or source_component
+            source_label = str(source.get("label", "")).strip()
+            source_model = str(source.get("source_model", "")).strip()
+            if not source_label:
+                source_label = "Line In" if source_kind == "line_in" else source_component
+            source_exts: List[str] = []
+            if source_kind == "file":
+                raw_exts = source.get("allowed_extensions", [])
+                if isinstance(raw_exts, list):
+                    for item in raw_exts:
+                        ext = str(item).strip().lower()
+                        if ext.startswith("."):
+                            ext = ext[1:]
+                        if ext and ext not in source_exts:
+                            source_exts.append(ext)
+            cassette_sources.append(
+                {
+                    "index": idx,
+                    "kind": source_kind,
+                    "component": source_component,
+                    "source_component": source_backend_component,
+                    "label": source_label,
+                    "model": source_model,
+                    "allowed_extensions": source_exts,
+                }
+            )
+    if not cassette_sources:
+        cassette_sources = [
+            {
+                "index": 0,
+                "kind": "file",
+                "component": cassette_component_id,
+                "source_component": cassette_component_id,
+                "label": "Tape",
+                "model": "",
+                "allowed_extensions": cassette_exts,
+            }
+        ]
+    cassette_file_sources = [source for source in cassette_sources if source["kind"] == "file"]
+    cassette_line_in_sources = [source for source in cassette_sources if source["kind"] == "line_in"]
+    cassette_all_exts: List[str] = []
+    for source in cassette_file_sources:
+        for ext in source["allowed_extensions"]:
+            if ext not in cassette_all_exts:
+                cassette_all_exts.append(ext)
+    if not cassette_all_exts:
+        cassette_all_exts = cassette_exts
     cassette_controls = cassette_cfg.get("controls", {}) or {}
     cassette_picker_action = str(cassette_controls.get("picker_action_id", "EMU_CASSETTE_PICKER"))
     cassette_play_action = str(cassette_controls.get("play_action_id", "EMU_CASSETTE_PLAY"))
@@ -3046,7 +3103,6 @@ def _generate_ic_runtime_blocks(
                 "static uint32_t cpu_host_hal_audio_open(const char *device, int iscapture, const CPUHostAudioSpec *want, CPUHostAudioSpec *have, int allowed_changes) {",
                 "    if (cpu_host_hal_sdl_inited == 0u) return 0u;",
                 "    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;",
-                "    if (iscapture != 0) return 0u;",
                 "    if (!want) return 0u;",
                 "    if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;",
                 "#ifdef __linux__",
@@ -6844,6 +6900,7 @@ def _generate_ic_runtime_blocks(
                 "    uint8_t nav_down_prev;",
                 "    uint8_t nav_enter_prev;",
                 "    uint8_t nav_esc_prev;",
+                "    uint8_t input_blocked;",
                 "    char directory[1024];",
                 "    char status[256];",
                 "    RuntimeCartridgeEntry *entries;",
@@ -6855,7 +6912,7 @@ def _generate_ic_runtime_blocks(
                 "} RuntimeCartridgePicker;",
                 "",
                 "static RuntimeCartridgePicker g_runtime_cartridge_picker = {",
-                "    1u, 0u, 0u, 0u, 0u, 0u, 0u, \"\", \"\", NULL, 0u, 0u, 0u, 0u, \"\"",
+                "    1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, \"\", \"\", NULL, 0u, 0u, 0u, 0u, \"\"",
                 "};",
                 "",
                 "static int cpu_component_cartridge_picker_entry_cmp(const void *a, const void *b) {",
@@ -7017,6 +7074,9 @@ def _generate_ic_runtime_blocks(
                 "uint8_t cpu_component_cartridge_picker_is_active(void) {",
                 "    return g_runtime_cartridge_picker.active;",
                 "}",
+                "uint8_t cpu_component_cartridge_picker_blocks_input(void) {",
+                "    return (uint8_t)(g_runtime_cartridge_picker.active != 0u || g_runtime_cartridge_picker.input_blocked != 0u);",
+                "}",
                 "",
                 "void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {",
                 "    int key_count = 0;",
@@ -7046,9 +7106,20 @@ def _generate_ic_runtime_blocks(
                 "            }",
                 "        } else {",
                 "            g_runtime_cartridge_picker.active = 0u;",
+                "            g_runtime_cartridge_picker.input_blocked = 1u;",
                 "        }",
                 "    }",
                 "    g_runtime_cartridge_picker.action_prev = trig;",
+                "    if (g_runtime_cartridge_picker.input_blocked != 0u) {",
+                "        uint8_t any_nav = 0u;",
+                "        if (trig != 0u) any_nav = 1u;",
+                "        if ((size_t)CPU_HOST_SCANCODE(UP) < (size_t)key_count && ks[CPU_HOST_SCANCODE(UP)] != 0u) any_nav = 1u;",
+                "        if ((size_t)CPU_HOST_SCANCODE(DOWN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(DOWN)] != 0u) any_nav = 1u;",
+                "        if ((size_t)CPU_HOST_SCANCODE(RETURN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(RETURN)] != 0u) any_nav = 1u;",
+                "        if ((size_t)CPU_HOST_SCANCODE(KP_ENTER) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_ENTER)] != 0u) any_nav = 1u;",
+                "        if ((size_t)CPU_HOST_SCANCODE(ESCAPE) < (size_t)key_count && ks[CPU_HOST_SCANCODE(ESCAPE)] != 0u) any_nav = 1u;",
+                "        if (any_nav == 0u) g_runtime_cartridge_picker.input_blocked = 0u;",
+                "    }",
                 "    if (g_runtime_cartridge_picker.active == 0u) return;",
                 "    if (!ks || key_count <= 0) return;",
                 "    up = ((size_t)CPU_HOST_SCANCODE(UP) < (size_t)key_count && ks[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;",
@@ -7068,6 +7139,7 @@ def _generate_ic_runtime_blocks(
                 "    }",
                 "    if (esc != 0u && g_runtime_cartridge_picker.nav_esc_prev == 0u) {",
                 "        g_runtime_cartridge_picker.active = 0u;",
+                "        g_runtime_cartridge_picker.input_blocked = 1u;",
                 "    }",
                 "    if (enter != 0u && g_runtime_cartridge_picker.nav_enter_prev == 0u) {",
                 "        if (g_runtime_cartridge_picker.entry_count > 0u) {",
@@ -7083,6 +7155,7 @@ def _generate_ic_runtime_blocks(
                 "            snprintf(g_runtime_cartridge_picker.status, sizeof(g_runtime_cartridge_picker.status), \"queued: %s\", sel->file_name);",
                 "        }",
                 "        g_runtime_cartridge_picker.active = 0u;",
+                "        g_runtime_cartridge_picker.input_blocked = 1u;",
                 "    }",
                 "    g_runtime_cartridge_picker.nav_up_prev = up;",
                 "    g_runtime_cartridge_picker.nav_down_prev = down;",
@@ -7302,6 +7375,7 @@ def _generate_ic_runtime_blocks(
                 "    return 0;",
                 "}",
                 "uint8_t cpu_component_cartridge_picker_is_active(void) { return 0u; }",
+                "uint8_t cpu_component_cartridge_picker_blocks_input(void) { return 0u; }",
                 "void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus) {",
                 "    (void)cpu;",
                 "    (void)has_focus;",
@@ -7320,8 +7394,14 @@ def _generate_ic_runtime_blocks(
         helper_lines.extend(
             [
                 "typedef struct {",
+                "    uint8_t source_kind;",
+                "    uint8_t source_index;",
                 "    char media_path[1024];",
                 "    char file_name[256];",
+                "    char component_id[64];",
+                "    char source_component_id[64];",
+                "    char source_model[64];",
+                "    char source_label[64];",
                 "} RuntimeCassetteEntry;",
                 "",
                 "typedef struct {",
@@ -7331,6 +7411,7 @@ def _generate_ic_runtime_blocks(
                 "    uint8_t nav_down_prev;",
                 "    uint8_t nav_enter_prev;",
                 "    uint8_t nav_esc_prev;",
+                "    uint8_t input_blocked;",
                 "    uint8_t play_prev;",
                 "    uint8_t pause_prev;",
                 "    uint8_t stop_prev;",
@@ -7342,8 +7423,16 @@ def _generate_ic_runtime_blocks(
                 "    size_t entry_count;",
                 "    size_t entry_cap;",
                 "    size_t selected;",
+                "    uint8_t active_source_kind;",
+                "    uint8_t active_source_index;",
                 "    uint8_t pending_load;",
+                "    uint8_t pending_source_index;",
+                "    uint8_t pending_source_kind;",
                 "    char pending_path[1024];",
+                "    char active_component_id[64];",
+                "    char active_source_component_id[64];",
+                "    char active_source_model[64];",
+                "    char active_source_label[64];",
                 "    char loaded_name[256];",
                 "    uint8_t media_loaded;",
                 "    uint8_t transport_mode;",
@@ -7356,11 +7445,12 @@ def _generate_ic_runtime_blocks(
                 "} RuntimeCassettePicker;",
                 "",
                 "static RuntimeCassettePicker g_runtime_cassette_picker = {",
-                f"    0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, \"{_escape_c_string(str(cassette_cfg.get('directory', '')))}\", NULL, 0u, 0u, 0u, 0u, \"\", \"\", 0u, 0u, 0u, 0u, 100u, 0u, 0u",
+                f"    0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, \"{_escape_c_string(str(cassette_cfg.get('directory', '')))}\", NULL, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, \"\", \"{_escape_c_string(cassette_component_id)}\", \"{_escape_c_string(cassette_component_id)}\", \"\", \"\", \"\", 0u, 0u, 0u, 0u, 100u, 0u, 0u",
                 "};",
                 "static int cpu_component_cassette_entry_cmp(const void *a, const void *b) {",
                 "    const RuntimeCassetteEntry *ea = (const RuntimeCassetteEntry *)a;",
                 "    const RuntimeCassetteEntry *eb = (const RuntimeCassetteEntry *)b;",
+                "    if (ea->source_kind != eb->source_kind) return (ea->source_kind == 1u) ? -1 : 1;",
                 "    return strcmp(ea->file_name, eb->file_name);",
                 "}",
                 "static RuntimeCassetteEntry *cpu_component_cassette_add_entry(void) {",
@@ -7386,9 +7476,89 @@ def _generate_ic_runtime_blocks(
                 "    ext[n] = '\\0';",
                 *[
                     f'    if (strcmp(ext, "{_escape_c_string(ext)}") == 0) return 1u;'
-                    for ext in cassette_exts
+                    for ext in cassette_all_exts
                 ],
                 "    return 0u;",
+                "}",
+                "static const char *cpu_component_cassette_component_for_ext(const char *name, uint8_t *out_source_index) {",
+                "    const char *dot = strrchr(name, '.');",
+                "    char ext[16];",
+                "    size_t n;",
+                "    if (out_source_index != NULL) *out_source_index = 0u;",
+                "    if (!dot || dot[1] == '\\0') return NULL;",
+                "    dot++;",
+                "    n = strlen(dot);",
+                "    if (n >= sizeof(ext)) n = sizeof(ext) - 1u;",
+                "    for (size_t i = 0; i < n; ++i) { char c = dot[i]; if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a'); ext[i] = c; }",
+                "    ext[n] = '\\0';",
+                *[
+                    line
+                    for source in cassette_file_sources
+                    for ext in source["allowed_extensions"]
+                    for line in [
+                        f'    if (strcmp(ext, "{_escape_c_string(ext)}") == 0) {{',
+                        f'        if (out_source_index != NULL) *out_source_index = {int(source["index"])}u;',
+                        f'        return "{_escape_c_string(source["component"])}";',
+                        "    }",
+                    ]
+                ],
+                "    return NULL;",
+                "}",
+                "static const char *cpu_component_cassette_component_for_source_index(uint8_t source_index) {",
+                *[
+                    f'    if (source_index == {int(source["index"])}u) return "{_escape_c_string(source["component"])}";'
+                    for source in cassette_sources
+                ],
+                f'    return "{_escape_c_string(cassette_component_id)}";',
+                "}",
+                "static const char *cpu_component_cassette_source_component_for_source_index(uint8_t source_index) {",
+                *[
+                    f'    if (source_index == {int(source["index"])}u) return "{_escape_c_string(source["source_component"])}";'
+                    for source in cassette_sources
+                ],
+                f'    return "{_escape_c_string(cassette_component_id)}";',
+                "}",
+                "static uint8_t cpu_component_cassette_kind_for_source_index(uint8_t source_index) {",
+                *[
+                    f'    if (source_index == {int(source["index"])}u) return {1 if source["kind"] == "line_in" else 0}u;'
+                    for source in cassette_sources
+                ],
+                "    return 0u;",
+                "}",
+                "static const char *cpu_component_cassette_model_for_source_index(uint8_t source_index) {",
+                *[
+                    f'    if (source_index == {int(source["index"])}u) return "{_escape_c_string(source["model"])}";'
+                    for source in cassette_sources
+                ],
+                '    return "";',
+                "}",
+                "static const char *cpu_component_cassette_model_for_ext(const char *name) {",
+                "    const char *dot = strrchr(name, '.');",
+                "    char ext[16];",
+                "    size_t n;",
+                "    if (!dot || dot[1] == '\\0') return NULL;",
+                "    dot++;",
+                "    n = strlen(dot);",
+                "    if (n >= sizeof(ext)) n = sizeof(ext) - 1u;",
+                "    for (size_t i = 0; i < n; ++i) { char c = dot[i]; if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a'); ext[i] = c; }",
+                "    ext[n] = '\\0';",
+                *[
+                    line
+                    for source in cassette_file_sources
+                    for ext in source["allowed_extensions"]
+                    for line in [
+                        f'    if (strcmp(ext, "{_escape_c_string(ext)}") == 0) return cpu_component_cassette_model_for_source_index({int(source["index"])}u);',
+                    ]
+                ],
+                "    return NULL;",
+                "}",
+                "static const char *cpu_component_cassette_label_for_model(const char *model) {",
+                "    if (model == NULL || model[0] == '\\0') return \"Unknown\";",
+                *[
+                    f'    if (strcmp(model, "{_escape_c_string(source["model"])}") == 0) return "{_escape_c_string(source["label"])}";'
+                    for source in cassette_sources
+                ],
+                "    return \"Unknown\";",
                 "}",
                 "static int cpu_component_cassette_picker_scan_dir(void) {",
                 "#if defined(_WIN32)",
@@ -7404,39 +7574,120 @@ def _generate_ic_runtime_blocks(
                 "    if (d == NULL) return -1;",
                 "    while ((de = readdir(d)) != NULL) {",
                 "        RuntimeCassetteEntry *entry;",
+                "        const char *component_id;",
+                "        const char *source_model;",
+                "        uint8_t source_index = 0u;",
                 "        if (de->d_name[0] == '.') continue;",
                 "        if (cpu_component_cassette_ext_allowed(de->d_name) == 0u) continue;",
+                "        component_id = cpu_component_cassette_component_for_ext(de->d_name, &source_index);",
+                "        source_model = cpu_component_cassette_model_for_source_index(source_index);",
+                "        if (component_id == NULL || component_id[0] == '\\0') continue;",
                 "        entry = cpu_component_cassette_add_entry();",
                 "        if (entry == NULL) { closedir(d); return -1; }",
+                "        entry->source_kind = 0u;",
+                "        entry->source_index = source_index;",
                 "        snprintf(entry->file_name, sizeof(entry->file_name), \"%s\", de->d_name);",
                 "        snprintf(entry->media_path, sizeof(entry->media_path), \"%s/%s\", g_runtime_cassette_picker.directory, de->d_name);",
+                "        snprintf(entry->component_id, sizeof(entry->component_id), \"%s\", component_id);",
+                "        snprintf(entry->source_component_id, sizeof(entry->source_component_id), \"%s\", cpu_component_cassette_source_component_for_source_index(source_index));",
+                "        if (source_model != NULL) snprintf(entry->source_model, sizeof(entry->source_model), \"%s\", source_model); else entry->source_model[0] = '\\0';",
+                "        snprintf(entry->source_label, sizeof(entry->source_label), \"%s\", cpu_component_cassette_label_for_model(entry->source_model));",
                 "    }",
                 "    closedir(d);",
+                *[
+                    line
+                    for source in cassette_line_in_sources
+                    for line in [
+                        "    {",
+                        "        RuntimeCassetteEntry *entry = cpu_component_cassette_add_entry();",
+                        "        if (entry == NULL) return -1;",
+                        "        entry->source_kind = 1u;",
+                        f"        entry->source_index = {int(source['index'])}u;",
+                        "        entry->media_path[0] = '\\0';",
+                        f'        snprintf(entry->file_name, sizeof(entry->file_name), "%s", "{_escape_c_string(source["label"])}");',
+                        f'        snprintf(entry->component_id, sizeof(entry->component_id), "%s", cpu_component_cassette_component_for_source_index({int(source["index"])}u));',
+                        f'        snprintf(entry->source_component_id, sizeof(entry->source_component_id), "%s", cpu_component_cassette_source_component_for_source_index({int(source["index"])}u));',
+                        f'        snprintf(entry->source_model, sizeof(entry->source_model), "%s", cpu_component_cassette_model_for_source_index({int(source["index"])}u));',
+                        f'        snprintf(entry->source_label, sizeof(entry->source_label), "%s", "{_escape_c_string(source["label"])}");',
+                        "    }",
+                    ]
+                ],
                 "    if (g_runtime_cassette_picker.entry_count == 0u) return -1;",
                 "    qsort(g_runtime_cassette_picker.entries, g_runtime_cassette_picker.entry_count, sizeof(RuntimeCassetteEntry), cpu_component_cassette_entry_cmp);",
                 "    return 0;",
                 "#endif",
                 "}",
                 "uint8_t cpu_component_cassette_picker_is_active(void) { return g_runtime_cassette_picker.active; }",
+                "uint8_t cpu_component_cassette_picker_blocks_input(void) { return (uint8_t)(g_runtime_cassette_picker.active != 0u || g_runtime_cassette_picker.input_blocked != 0u); }",
                 "uint8_t cpu_component_cassette_picker_overlay_visible(void) {",
                 "    uint32_t now_ms = cpu_host_hal_ticks_ms();",
                 "    uint8_t effective_mode = g_runtime_cassette_picker.transport_mode;",
-                "    if (effective_mode == 1u && g_runtime_cassette_picker.motor_on == 0u) effective_mode = 0u;",
+                "    uint8_t has_source = (uint8_t)(g_runtime_cassette_picker.active_source_model[0] != '\\0');",
+                (
+                    "    if (effective_mode == 1u && g_runtime_cassette_picker.motor_on == 0u) effective_mode = 0u;"
+                    if cassette_play_sets_motor
+                    else ""
+                ),
                 "    if (g_runtime_cassette_picker.active != 0u) return 1u;",
-                "    if (g_runtime_cassette_picker.media_loaded != 0u &&",
+                "    if ((g_runtime_cassette_picker.media_loaded != 0u || has_source != 0u) &&",
                 "        (effective_mode != 0u || now_ms < g_runtime_cassette_picker.status_until_ms)) return 1u;",
                 "    return 0u;",
                 "}",
                 "int cpu_component_cassette_picker_apply_pending_load(CPUState *cpu) {",
                 "    if (g_runtime_cassette_picker.pending_load == 0u) return 0;",
+                "    if (g_runtime_cassette_picker.active_component_id[0] == '\\0') {",
+                f'        snprintf(g_runtime_cassette_picker.active_component_id, sizeof(g_runtime_cassette_picker.active_component_id), "%s", "{_escape_c_string(cassette_component_id)}");',
+                "    }",
+                "    g_runtime_cassette_picker.active_source_kind = g_runtime_cassette_picker.pending_source_kind;",
+                "    g_runtime_cassette_picker.active_source_index = g_runtime_cassette_picker.pending_source_index;",
                 "    {",
-                "        uint64_t args[1] = { (uint64_t)(uintptr_t)g_runtime_cassette_picker.pending_path };",
-                f'        if (cpu_component_dispatch_callback(cpu, "{_escape_c_string(cassette_component_id)}", "load_media", args, 1) == 0u) {{',
+                "        uint64_t select_args[4] = {",
+                "            (uint64_t)g_runtime_cassette_picker.pending_source_kind,",
+                "            (uint64_t)g_runtime_cassette_picker.pending_source_index,",
+                "            (uint64_t)(uintptr_t)g_runtime_cassette_picker.active_source_model,",
+                "            (uint64_t)(uintptr_t)g_runtime_cassette_picker.active_source_component_id",
+                "        };",
+                '        if (cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "select_source", select_args, 4) == 0u) {',
                 "            g_runtime_cassette_picker.pending_load = 0u;",
+                "            g_runtime_cassette_picker.pending_source_index = 0u;",
+                "            g_runtime_cassette_picker.pending_source_kind = 0u;",
                 "            g_runtime_cassette_picker.pending_path[0] = '\\0';",
                 "            return -1;",
                 "        }",
-                "        { uint64_t stop_args[1] = { 0u }; (void)cpu_component_dispatch_callback(cpu, \"" + _escape_c_string(cassette_component_id) + "\", \"set_transport_mode\", stop_args, 1); }",
+                "    }",
+                "    if (g_runtime_cassette_picker.pending_source_kind == 1u) {",
+                '        uint64_t args[1] = { (uint64_t)(uintptr_t)"" };',
+                '        if (cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "load_media", args, 1) == 0u) {',
+                "            g_runtime_cassette_picker.pending_load = 0u;",
+                "            g_runtime_cassette_picker.pending_source_index = 0u;",
+                "            g_runtime_cassette_picker.pending_source_kind = 0u;",
+                "            return -1;",
+                "        }",
+                "        g_runtime_cassette_picker.pending_load = 0u;",
+                "        g_runtime_cassette_picker.pending_source_index = 0u;",
+                "        g_runtime_cassette_picker.pending_source_kind = 0u;",
+                "        g_runtime_cassette_picker.pending_path[0] = '\\0';",
+                "        g_runtime_cassette_picker.media_loaded = 1u;",
+                "        g_runtime_cassette_picker.transport_mode = 0u;",
+                "        g_runtime_cassette_picker.motor_on = 0u;",
+                "        g_runtime_cassette_picker.current_seconds = 0u;",
+                "        g_runtime_cassette_picker.total_seconds = 0u;",
+                "        g_runtime_cassette_picker.status_until_ms = cpu_host_hal_ticks_ms() + 10000u;",
+                "        if (g_runtime_cassette_picker.active_source_label[0] != '\\0') {",
+                "            snprintf(g_runtime_cassette_picker.loaded_name, sizeof(g_runtime_cassette_picker.loaded_name), \"%s\", g_runtime_cassette_picker.active_source_label);",
+                "        }",
+                "        return 1;",
+                "    }",
+                "    {",
+                "        uint64_t args[1] = { (uint64_t)(uintptr_t)g_runtime_cassette_picker.pending_path };",
+                '        if (cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "load_media", args, 1) == 0u) {',
+                "            g_runtime_cassette_picker.pending_load = 0u;",
+                "            g_runtime_cassette_picker.pending_source_index = 0u;",
+                "            g_runtime_cassette_picker.pending_source_kind = 0u;",
+                "            g_runtime_cassette_picker.pending_path[0] = '\\0';",
+                "            return -1;",
+                "        }",
+                '        { uint64_t stop_args[1] = { 0u }; (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_transport_mode", stop_args, 1); }',
                 "    }",
                 "    {",
                 "        const char *slash = strrchr(g_runtime_cassette_picker.pending_path, '/');",
@@ -7451,10 +7702,10 @@ def _generate_ic_runtime_blocks(
                 "            const char *auto_play = cpu_host_hal_getenv(\"PASM_EMU_CASSETTE_AUTO_PLAY\");",
                 "            if (auto_play != NULL && auto_play[0] != '\\0' && auto_play[0] != '0') {",
                 "                uint64_t play_args[1] = { 1u };",
-                "                (void)cpu_component_dispatch_callback(cpu, \"" + _escape_c_string(cassette_component_id) + "\", \"set_transport_mode\", play_args, 1);",
+                '                (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_transport_mode", play_args, 1);',
                 *(
                     [
-                        "                (void)cpu_component_dispatch_callback(cpu, \"" + _escape_c_string(cassette_component_id) + "\", \"set_motor\", play_args, 1);",
+                        '                (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_motor", play_args, 1);',
                         "                g_runtime_cassette_picker.motor_on = 1u;",
                     ]
                     if cassette_play_sets_motor
@@ -7471,20 +7722,34 @@ def _generate_ic_runtime_blocks(
                 "        g_runtime_cassette_picker.motor_on = 0u;",
                 "    }",
                 "    g_runtime_cassette_picker.pending_load = 0u;",
+                "    g_runtime_cassette_picker.pending_source_index = 0u;",
+                "    g_runtime_cassette_picker.pending_source_kind = 0u;",
                 "    g_runtime_cassette_picker.pending_path[0] = '\\0';",
                 "    return 1;",
                 "}",
                 "static void cpu_component_cassette_picker_sync_state(CPUState *cpu) {",
                 "    uint64_t state;",
+                "    uint64_t model_ptr;",
+                "    const char *selected_model;",
+                "    uint8_t had_source;",
                 "    if (!cpu) return;",
-                f'    state = cpu_component_dispatch_callback(cpu, "{_escape_c_string(cassette_component_id)}", "query_transport_state", NULL, 0);',
+                "    if (g_runtime_cassette_picker.active_component_id[0] == '\\0') return;",
+                "    had_source = (uint8_t)(g_runtime_cassette_picker.active_source_model[0] != '\\0');",
+                '    state = cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "query_transport_state", NULL, 0);',
+                "    if (g_runtime_cassette_picker.pending_load == 0u) {",
+                '        model_ptr = cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "query_selected_source_model", NULL, 0);',
+                "        selected_model = (const char *)(uintptr_t)model_ptr;",
+                "        if (selected_model != NULL && selected_model[0] != '\\0') {",
+                "            snprintf(g_runtime_cassette_picker.active_source_model, sizeof(g_runtime_cassette_picker.active_source_model), \"%s\", selected_model);",
+                "        }",
+                "    }",
                 "    g_runtime_cassette_picker.media_loaded = (uint8_t)(((state >> 9u) & 0x01u) != 0u);",
                 "    g_runtime_cassette_picker.transport_mode = (uint8_t)(state & 0xFFu);",
                 "    g_runtime_cassette_picker.motor_on = (uint8_t)(((state >> 8u) & 0x01u) != 0u);",
                 "    g_runtime_cassette_picker.current_seconds = (uint16_t)((state >> 16u) & 0xFFFFu);",
                 "    g_runtime_cassette_picker.total_seconds = (uint16_t)((state >> 32u) & 0xFFFFu);",
                 "    g_runtime_cassette_picker.volume_percent = (uint8_t)((state >> 48u) & 0xFFu);",
-                "    if (g_runtime_cassette_picker.media_loaded == 0u) {",
+                "    if (g_runtime_cassette_picker.media_loaded == 0u && g_runtime_cassette_picker.pending_load == 0u && had_source == 0u && g_runtime_cassette_picker.active_source_model[0] == '\\0') {",
                 "        g_runtime_cassette_picker.loaded_name[0] = '\\0';",
                 "        g_runtime_cassette_picker.status_until_ms = 0u;",
                 "    }",
@@ -7567,13 +7832,28 @@ def _generate_ic_runtime_blocks(
                 "    if (!cpu) return;",
                 "    cpu_component_cassette_picker_sync_state(cpu);",
                 "    effective_mode = g_runtime_cassette_picker.transport_mode;",
-                "    if (effective_mode == 1u && g_runtime_cassette_picker.motor_on == 0u) effective_mode = 0u;",
+                (
+                    "    if (effective_mode == 1u && g_runtime_cassette_picker.motor_on == 0u) effective_mode = 0u;"
+                    if cassette_play_sets_motor
+                    else ""
+                ),
                 "    if (auto_media_checked == 0) {",
                 "        const char *auto_path = cpu_host_hal_getenv(\"PASM_EMU_CASSETTE_AUTO_PATH\");",
                 "        auto_media_checked = 1;",
                 "        if (auto_path != NULL && auto_path[0] != '\\0' && g_runtime_cassette_picker.media_loaded == 0u && g_runtime_cassette_picker.pending_load == 0u) {",
-                "            snprintf(g_runtime_cassette_picker.pending_path, sizeof(g_runtime_cassette_picker.pending_path), \"%s\", auto_path);",
-                "            g_runtime_cassette_picker.pending_load = 1u;",
+                "            uint8_t auto_source_index = 0u;",
+                "            const char *auto_component_id = cpu_component_cassette_component_for_ext(auto_path, &auto_source_index);",
+                "            const char *auto_source_model = cpu_component_cassette_model_for_source_index(auto_source_index);",
+                "            if (auto_component_id != NULL && auto_component_id[0] != '\\0') {",
+                "                snprintf(g_runtime_cassette_picker.active_component_id, sizeof(g_runtime_cassette_picker.active_component_id), \"%s\", auto_component_id);",
+                "                snprintf(g_runtime_cassette_picker.active_source_component_id, sizeof(g_runtime_cassette_picker.active_source_component_id), \"%s\", cpu_component_cassette_source_component_for_source_index(auto_source_index));",
+                "                if (auto_source_model != NULL) snprintf(g_runtime_cassette_picker.active_source_model, sizeof(g_runtime_cassette_picker.active_source_model), \"%s\", auto_source_model); else g_runtime_cassette_picker.active_source_model[0] = '\\0';",
+                "                g_runtime_cassette_picker.active_source_kind = cpu_component_cassette_kind_for_source_index(auto_source_index);",
+                "                g_runtime_cassette_picker.pending_source_index = auto_source_index;",
+                "                g_runtime_cassette_picker.pending_source_kind = cpu_component_cassette_kind_for_source_index(auto_source_index);",
+                "                snprintf(g_runtime_cassette_picker.pending_path, sizeof(g_runtime_cassette_picker.pending_path), \"%s\", auto_path);",
+                "                g_runtime_cassette_picker.pending_load = 1u;",
+                "            }",
                 "        }",
                 "    }",
                 "    if (!ks || key_count <= 0) return;",
@@ -7624,9 +7904,19 @@ def _generate_ic_runtime_blocks(
                 "            if (trace_enabled != 0) { fprintf(trace_fp, \"cassette_trace scan_rc=%d dir=%s entries=%u\\n\", scan_rc, g_runtime_cassette_picker.directory, (unsigned)g_runtime_cassette_picker.entry_count); fflush(trace_fp); }",
                 "            if (scan_rc == 0) g_runtime_cassette_picker.active = 1u;",
                 "        }",
-                "        else g_runtime_cassette_picker.active = 0u;",
+                "        else { g_runtime_cassette_picker.active = 0u; g_runtime_cassette_picker.input_blocked = 1u; }",
                 "    }",
                 "    g_runtime_cassette_picker.action_prev = trig;",
+                "    if (g_runtime_cassette_picker.input_blocked != 0u) {",
+                "        uint8_t any_nav = 0u;",
+                "        if (trig != 0u) any_nav = 1u;",
+                "        if ((size_t)CPU_HOST_SCANCODE(UP) < (size_t)key_count && ks[CPU_HOST_SCANCODE(UP)] != 0u) any_nav = 1u;",
+                "        if ((size_t)CPU_HOST_SCANCODE(DOWN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(DOWN)] != 0u) any_nav = 1u;",
+                "        if ((size_t)CPU_HOST_SCANCODE(RETURN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(RETURN)] != 0u) any_nav = 1u;",
+                "        if ((size_t)CPU_HOST_SCANCODE(KP_ENTER) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_ENTER)] != 0u) any_nav = 1u;",
+                "        if ((size_t)CPU_HOST_SCANCODE(ESCAPE) < (size_t)key_count && ks[CPU_HOST_SCANCODE(ESCAPE)] != 0u) any_nav = 1u;",
+                "        if (any_nav == 0u) g_runtime_cassette_picker.input_blocked = 0u;",
+                "    }",
                 f'    play = cpu_component_keyboard_emulator_action_pressed("{_escape_c_string(cassette_play_action)}", ks, (size_t)key_count, has_focus);',
                 "    if (raw_transport_keys_enabled != 0 && ks != NULL && key_count > 0) {",
                 "        if ((size_t)CPU_HOST_SCANCODE(F10) < (size_t)key_count && ks[CPU_HOST_SCANCODE(F10)] != 0u) raw_play = 1u;",
@@ -7643,24 +7933,24 @@ def _generate_ic_runtime_blocks(
                 "    if (raw_vol_up != 0u) vol_up = 1u;",
                 "    if (raw_vol_down != 0u) vol_down = 1u;",
                 (
-                    "    if (play != 0u && g_runtime_cassette_picker.play_prev == 0u) { uint64_t args[1] = { 1u }; (void)cpu_component_dispatch_callback(cpu, \""
-                    + _escape_c_string(cassette_component_id)
-                    + "\", \"set_transport_mode\", args, 1); "
+                    '    if (play != 0u && g_runtime_cassette_picker.play_prev == 0u) { uint64_t args[1] = { 1u }; (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_transport_mode", args, 1); '
                     + (
-                        "(void)cpu_component_dispatch_callback(cpu, \""
-                        + _escape_c_string(cassette_component_id)
-                        + "\", \"set_motor\", args, 1); g_runtime_cassette_picker.transport_mode = 1u; g_runtime_cassette_picker.motor_on = 1u; }"
+                        '(void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_motor", args, 1); g_runtime_cassette_picker.transport_mode = 1u; g_runtime_cassette_picker.motor_on = 1u; }'
                         if cassette_play_sets_motor
                         else "g_runtime_cassette_picker.transport_mode = 1u; g_runtime_cassette_picker.motor_on = 0u; }"
                     )
                 ),
-                "    if (pausev != 0u && g_runtime_cassette_picker.pause_prev == 0u) { uint64_t args[1] = { 2u }; (void)cpu_component_dispatch_callback(cpu, \"" + _escape_c_string(cassette_component_id) + "\", \"set_transport_mode\", args, 1); g_runtime_cassette_picker.transport_mode = 2u; }",
-                "    if (stopv != 0u && g_runtime_cassette_picker.stop_prev == 0u) { uint64_t args[1] = { 0u }; (void)cpu_component_dispatch_callback(cpu, \"" + _escape_c_string(cassette_component_id) + "\", \"set_transport_mode\", args, 1); (void)cpu_component_dispatch_callback(cpu, \"" + _escape_c_string(cassette_component_id) + "\", \"set_motor\", args, 1); g_runtime_cassette_picker.transport_mode = 0u; g_runtime_cassette_picker.motor_on = 0u; g_runtime_cassette_picker.status_until_ms = cpu_host_hal_ticks_ms() + 10000u; }",
-                "    if (recordv != 0u && g_runtime_cassette_picker.record_prev == 0u) { uint64_t args[1] = { 3u }; (void)cpu_component_dispatch_callback(cpu, \"" + _escape_c_string(cassette_component_id) + "\", \"set_transport_mode\", args, 1); args[0] = 1u; (void)cpu_component_dispatch_callback(cpu, \"" + _escape_c_string(cassette_component_id) + "\", \"set_motor\", args, 1); g_runtime_cassette_picker.transport_mode = 3u; g_runtime_cassette_picker.motor_on = 1u; }",
-                "    if (vol_up != 0u && g_runtime_cassette_picker.vol_up_prev == 0u) { if (g_runtime_cassette_picker.volume_percent < 100u) g_runtime_cassette_picker.volume_percent = (uint8_t)((g_runtime_cassette_picker.volume_percent + 5u > 100u) ? 100u : g_runtime_cassette_picker.volume_percent + 5u); { uint64_t args[1] = { g_runtime_cassette_picker.volume_percent }; (void)cpu_component_dispatch_callback(cpu, \"" + _escape_c_string(cassette_component_id) + "\", \"set_volume\", args, 1); } }",
-                "    if (vol_down != 0u && g_runtime_cassette_picker.vol_down_prev == 0u) { g_runtime_cassette_picker.volume_percent = (uint8_t)((g_runtime_cassette_picker.volume_percent >= 5u) ? (g_runtime_cassette_picker.volume_percent - 5u) : 0u); { uint64_t args[1] = { g_runtime_cassette_picker.volume_percent }; (void)cpu_component_dispatch_callback(cpu, \"" + _escape_c_string(cassette_component_id) + "\", \"set_volume\", args, 1); } }",
+                '    if (pausev != 0u && g_runtime_cassette_picker.pause_prev == 0u) { uint64_t args[1] = { 2u }; (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_transport_mode", args, 1); g_runtime_cassette_picker.transport_mode = 2u; }',
+                '    if (stopv != 0u && g_runtime_cassette_picker.stop_prev == 0u) { uint64_t args[1] = { 0u }; (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_transport_mode", args, 1); (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_motor", args, 1); g_runtime_cassette_picker.transport_mode = 0u; g_runtime_cassette_picker.motor_on = 0u; g_runtime_cassette_picker.status_until_ms = cpu_host_hal_ticks_ms() + 10000u; }',
+                '    if (recordv != 0u && g_runtime_cassette_picker.record_prev == 0u) { uint64_t args[1] = { 3u }; (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_transport_mode", args, 1); args[0] = 1u; (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_motor", args, 1); g_runtime_cassette_picker.transport_mode = 3u; g_runtime_cassette_picker.motor_on = 1u; }',
+                '    if (vol_up != 0u && g_runtime_cassette_picker.vol_up_prev == 0u) { if (g_runtime_cassette_picker.volume_percent < 100u) g_runtime_cassette_picker.volume_percent = (uint8_t)((g_runtime_cassette_picker.volume_percent + 5u > 100u) ? 100u : g_runtime_cassette_picker.volume_percent + 5u); { uint64_t args[1] = { g_runtime_cassette_picker.volume_percent }; (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_volume", args, 1); } }',
+                '    if (vol_down != 0u && g_runtime_cassette_picker.vol_down_prev == 0u) { g_runtime_cassette_picker.volume_percent = (uint8_t)((g_runtime_cassette_picker.volume_percent >= 5u) ? (g_runtime_cassette_picker.volume_percent - 5u) : 0u); { uint64_t args[1] = { g_runtime_cassette_picker.volume_percent }; (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "set_volume", args, 1); } }',
                 "    effective_mode = g_runtime_cassette_picker.transport_mode;",
-                "    if (effective_mode == 1u && g_runtime_cassette_picker.motor_on == 0u) effective_mode = 0u;",
+                (
+                    "    if (effective_mode == 1u && g_runtime_cassette_picker.motor_on == 0u) effective_mode = 0u;"
+                    if cassette_play_sets_motor
+                    else ""
+                ),
                 "    if ((g_runtime_cassette_picker.last_transport_mode != 0u && effective_mode == 0u) ||",
                 "        (g_runtime_cassette_picker.last_transport_mode == 0u && effective_mode != 0u)) {",
                 "        g_runtime_cassette_picker.status_until_ms = cpu_host_hal_ticks_ms() + 10000u;",
@@ -7685,14 +7975,26 @@ def _generate_ic_runtime_blocks(
                 "    }",
                 "    if (esc != 0u && g_runtime_cassette_picker.nav_esc_prev == 0u) {",
                 "        g_runtime_cassette_picker.active = 0u;",
+                "        g_runtime_cassette_picker.input_blocked = 1u;",
                 "        g_runtime_cassette_picker.entry_count = 0u;",
                 "        g_runtime_cassette_picker.selected = 0u;",
                 "    }",
                 "    if (enter != 0u && g_runtime_cassette_picker.nav_enter_prev == 0u && g_runtime_cassette_picker.entry_count > 0u) {",
                 "        const RuntimeCassetteEntry *sel = &g_runtime_cassette_picker.entries[g_runtime_cassette_picker.selected];",
+                "        snprintf(g_runtime_cassette_picker.active_component_id, sizeof(g_runtime_cassette_picker.active_component_id), \"%s\", sel->component_id);",
+                "        snprintf(g_runtime_cassette_picker.active_source_component_id, sizeof(g_runtime_cassette_picker.active_source_component_id), \"%s\", sel->source_component_id);",
+                "        g_runtime_cassette_picker.active_source_kind = sel->source_kind;",
+                "        g_runtime_cassette_picker.active_source_index = sel->source_index;",
+                "        snprintf(g_runtime_cassette_picker.active_source_model, sizeof(g_runtime_cassette_picker.active_source_model), \"%s\", sel->source_model);",
+                "        snprintf(g_runtime_cassette_picker.active_source_label, sizeof(g_runtime_cassette_picker.active_source_label), \"%s\", sel->source_label);",
+                "        g_runtime_cassette_picker.pending_source_index = sel->source_index;",
+                "        g_runtime_cassette_picker.pending_source_kind = sel->source_kind;",
                 "        snprintf(g_runtime_cassette_picker.pending_path, sizeof(g_runtime_cassette_picker.pending_path), \"%s\", sel->media_path);",
+                "        snprintf(g_runtime_cassette_picker.loaded_name, sizeof(g_runtime_cassette_picker.loaded_name), \"%s\", (sel->source_kind == 1u) ? sel->source_label : sel->file_name);",
+                "        g_runtime_cassette_picker.status_until_ms = cpu_host_hal_ticks_ms() + 10000u;",
                 "        g_runtime_cassette_picker.pending_load = 1u;",
                 "        g_runtime_cassette_picker.active = 0u;",
+                "        g_runtime_cassette_picker.input_blocked = 1u;",
                 "        g_runtime_cassette_picker.entry_count = 0u;",
                 "        g_runtime_cassette_picker.selected = 0u;",
                 "    }",
@@ -7706,6 +8008,7 @@ def _generate_ic_runtime_blocks(
                 "    char current_time[16];",
                 "    char total_time[16];",
                 "    char name_line[256];",
+                "    const char *mode_label;",
                 "    int picker_text_w;",
                 "    int line1_y;",
                 "    int line2_y;",
@@ -7719,16 +8022,22 @@ def _generate_ic_runtime_blocks(
                 "    now_ms = cpu_host_hal_ticks_ms();",
                 "    cpu_component_cassette_picker_format_time(current_time, sizeof(current_time), g_runtime_cassette_picker.current_seconds);",
                 "    cpu_component_cassette_picker_format_time(total_time, sizeof(total_time), g_runtime_cassette_picker.total_seconds);",
-                "    snprintf(status_line, sizeof(status_line), \"VOL:%u%%  %s / %s\",",
-                "        (unsigned)g_runtime_cassette_picker.volume_percent,",
+                "    mode_label = cpu_component_cassette_label_for_model(g_runtime_cassette_picker.active_source_model);",
+                "    snprintf(status_line, sizeof(status_line), \"MODE:%s  %s / %s  VOL:%u%%\",",
+                "        mode_label,",
                 "        current_time,",
-                "        total_time);",
+                "        total_time,",
+                "        (unsigned)g_runtime_cassette_picker.volume_percent);",
                 "    snprintf(name_line, sizeof(name_line), \"%s\",",
-                "        (g_runtime_cassette_picker.loaded_name[0] != '\\0') ? g_runtime_cassette_picker.loaded_name : \"<none>\");",
+                "        (g_runtime_cassette_picker.loaded_name[0] != '\\0') ? g_runtime_cassette_picker.loaded_name : ((g_runtime_cassette_picker.active_source_label[0] != '\\0') ? g_runtime_cassette_picker.active_source_label : \"<none>\"));",
                 "    {",
                 "        uint8_t effective_mode = g_runtime_cassette_picker.transport_mode;",
-                "        if (effective_mode == 1u && g_runtime_cassette_picker.motor_on == 0u) effective_mode = 0u;",
-                "    if (g_runtime_cassette_picker.media_loaded != 0u &&",
+                (
+                    "        if (effective_mode == 1u && g_runtime_cassette_picker.motor_on == 0u) effective_mode = 0u;"
+                    if cassette_play_sets_motor
+                    else ""
+                ),
+                "    if ((g_runtime_cassette_picker.media_loaded != 0u || g_runtime_cassette_picker.active_source_model[0] != '\\0') &&",
                 "        (effective_mode != 0u || now_ms < g_runtime_cassette_picker.status_until_ms)) {",
                 "        panel_x = 8;",
                 "        panel_y = (int)h - 38;",

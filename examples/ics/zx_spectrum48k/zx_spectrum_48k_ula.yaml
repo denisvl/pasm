@@ -31,6 +31,9 @@ state:
   - name: mic_level
     type: uint8_t
     initial: "0"
+  - name: ear_readback_default
+    type: uint8_t
+    initial: "0x40"
   - name: render_dirty
     type: uint8_t
     initial: "1"
@@ -135,10 +138,10 @@ behavior:
       if ((((uint16_t)port) & 0x0001u) == 0u) {
           uint8_t row_mask = (uint8_t)(((uint16_t)port >> 8) & 0xFFu);
           uint8_t ear_bit;
-          {
-              uint8_t sample = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "sample_input", NULL, 0);
-              comp->mic_level = sample;
-          }
+          uint64_t sample_args[2] = { 0x44u, cpu->total_cycles };
+          uint8_t sampled_mic = (uint8_t)cpu_component_dispatch_callback(
+              cpu, "cassette_transport_nomotor", "sample_input", sample_args, 2
+          );
           if (row_mask == 0u) {
               /* Some decoder paths expose ED in hook_opcode with hook_prefix=0x00. */
               if (cpu->hook_prefix == 0xEDu || cpu->hook_opcode == 0xEDu) {
@@ -149,8 +152,57 @@ behavior:
           }
           uint64_t call_args[1] = { (uint64_t)row_mask };
           value = (uint8_t)cpu_component_call(cpu, "ula0", "keyboard_read", call_args, 1);
-          ear_bit = (comp->mic_level >= 128u) ? 0x40u : 0x00u;
+          comp->mic_level = sampled_mic;
+          ear_bit = comp->ear_readback_default;
+          if (sampled_mic > 128u) ear_bit ^= 0x40u;
           value = (uint8_t)((value & (uint8_t)~0x40u) | ear_bit);
+          {
+              static int zx_tape_trace = -1;
+              static FILE *zx_tape_trace_fp = NULL;
+              static uint8_t prev_mic = 0xFFu;
+              static uint8_t prev_ear = 0xFFu;
+              static uint32_t trace_count = 0u;
+              if (zx_tape_trace < 0) {
+                  const char *env = getenv("PASM_ZX_TAPE_TRACE");
+                  zx_tape_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                  if (zx_tape_trace != 0) {
+                      const char *path = getenv("PASM_ZX_TAPE_TRACE_FILE");
+                      if (path == NULL || path[0] == '\0') path = "/tmp/zx_tape_trace.log";
+                      {
+                          FILE *reset_fp = fopen(path, "w");
+                          if (reset_fp != NULL) fclose(reset_fp);
+                      }
+                      zx_tape_trace_fp = fopen(path, "a");
+                      if (zx_tape_trace_fp == NULL) zx_tape_trace = 0;
+                  }
+              }
+              if (
+                  zx_tape_trace != 0 &&
+                  zx_tape_trace_fp != NULL &&
+                  (trace_count < 2048u || prev_mic != comp->mic_level || prev_ear != ear_bit)
+              ) {
+                  fprintf(
+                      zx_tape_trace_fp,
+                      "fe_read cycle=%llu pc=%04X port=%04X row=%02X mic=%u ear=%02X value=%02X a=%02X b=%02X edge_count=%llu playhead=%llu rate=%llu\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)(cpu->pc & 0xFFFFu),
+                      (unsigned)((uint16_t)port),
+                      (unsigned)row_mask,
+                      (unsigned)comp->mic_level,
+                      (unsigned)ear_bit,
+                      (unsigned)value,
+                      (unsigned)cpu->registers[REG_A],
+                      (unsigned)cpu->registers[REG_B],
+                      (unsigned long long)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_count", NULL, 0),
+                      (unsigned long long)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_playhead_samples", NULL, 0),
+                      (unsigned long long)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_sample_rate", NULL, 0)
+                  );
+                  fflush(zx_tape_trace_fp);
+                  prev_mic = comp->mic_level;
+                  prev_ear = ear_bit;
+                  trace_count += 1u;
+              }
+          }
       } else if ((((uint16_t)port) & 0x00FFu) == 0x1Fu) {
           value = (uint8_t)cpu_component_call(cpu, "ula0", "kempston_read", NULL, 0);
       }
@@ -170,6 +222,7 @@ behavior:
           }
           {
               uint8_t mic = (uint8_t)(((value >> 3u) & 0x01u) != 0u);
+              comp->ear_readback_default = (uint8_t)(((value & 0x10u) != 0u) ? 0x40u : 0x00u);
               uint64_t sig_args[2] = { (uint64_t)(mic != 0u ? 255u : 0u), cpu->total_cycles };
               cpu_component_emit_signal(cpu, "ula0", "tape_out", sig_args, 2);
           }

@@ -50,7 +50,7 @@ DEVICE_GP="examples/devices/apple2/apple2_gameport.yaml"
 DEVICE_VIDEO="examples/devices/apple2/apple2_video.yaml"
 DEVICE_SPK="examples/devices/apple2/apple2_speaker.yaml"
 DEVICE_CASS_ADAPTER="examples/devices/apple2/apple2_cassette_adapter.yaml"
-DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
+DEVICE_CASS="examples/devices/common/cassette_transport_nomotor.yaml"
 HOST_INTERACTIVE="examples/hosts/apple2/apple2_host_hal_interactive.yaml"
 
 case "${PROFILE}" in

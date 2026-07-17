@@ -1,0 +1,1337 @@
+metadata:
+  id: cassette_wav_source
+  type: cassette_source_backend
+  model: common_cassette_wav_source
+  version: "1.0"
+
+state:
+  - name: selected_source_kind
+    type: uint8_t
+    initial: "0"
+  - name: selected_source_model
+    type: char *
+    initial: "NULL"
+  - name: selected_source_component
+    type: char *
+    initial: "NULL"
+  - name: media_loaded
+    type: uint8_t
+    initial: "0"
+  - name: transport_mode
+    type: uint8_t
+    initial: "0"
+  - name: motor_on
+    type: uint8_t
+    initial: "0"
+  - name: volume_percent
+    type: uint8_t
+    initial: "100"
+  - name: bass_percent
+    type: uint8_t
+    initial: "50"
+  - name: treble_percent
+    type: uint8_t
+    initial: "50"
+  - name: input_level
+    type: uint8_t
+    initial: "128"
+  - name: input_raw_level
+    type: uint8_t
+    initial: "128"
+  - name: input_bias_q8
+    type: uint32_t
+    initial: "32768"
+  - name: last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: next_sample_cycle
+    type: uint64_t
+    initial: "0"
+  - name: media_path
+    type: char *
+    initial: "NULL"
+  - name: resolved_wav_path
+    type: char *
+    initial: "NULL"
+  - name: wav_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: wav_data_offset
+    type: uint32_t
+    initial: "0"
+  - name: wav_data_length
+    type: uint32_t
+    initial: "0"
+  - name: wav_sample_rate
+    type: uint32_t
+    initial: "0"
+  - name: wav_channels
+    type: uint16_t
+    initial: "0"
+  - name: wav_bits_per_sample
+    type: uint16_t
+    initial: "0"
+  - name: wav_filtered_mono
+    type: int16_t *
+    initial: "NULL"
+  - name: wav_filtered_sample_count
+    type: uint32_t
+    initial: "0"
+  - name: direct_edge_positions
+    type: uint32_t *
+    initial: "NULL"
+  - name: direct_edge_count
+    type: uint32_t
+    initial: "0"
+  - name: direct_edge_cap
+    type: uint32_t
+    initial: "0"
+  - name: direct_edge_index
+    type: uint32_t
+    initial: "0"
+  - name: direct_edge_initial_level
+    type: uint8_t
+    initial: "0"
+  - name: direct_edge_leader_start_sample
+    type: uint32_t
+    initial: "0"
+  - name: direct_edge_leader_start_index
+    type: uint32_t
+    initial: "0"
+  - name: direct_edge_leader_end_sample
+    type: uint32_t
+    initial: "0"
+  - name: direct_edge_leader_end_index
+    type: uint32_t
+    initial: "0"
+  - name: playhead_samples
+    type: uint64_t
+    initial: "0"
+  - name: playhead_cycle_residue
+    type: uint64_t
+    initial: "0"
+  - name: direct_timebase_cycle
+    type: uint64_t
+    initial: "0"
+  - name: direct_timebase_samples
+    type: uint64_t
+    initial: "0"
+  - name: direct_cached_until_cycle
+    type: uint64_t
+    initial: "0"
+  - name: edge_positions
+    type: uint32_t *
+    initial: "NULL"
+  - name: edge_count
+    type: uint32_t
+    initial: "0"
+  - name: edge_cap
+    type: uint32_t
+    initial: "0"
+  - name: edge_index
+    type: uint32_t
+    initial: "0"
+  - name: edge_initial_level
+    type: uint8_t
+    initial: "0"
+  - name: playback_level
+    type: uint8_t
+    initial: "128"
+
+interfaces:
+  callbacks:
+    - name: select_source
+      args: [u8, u8, ptr, ptr]
+      returns: u8
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: set_transport_mode
+      args: [u8]
+      returns: u8
+    - name: set_motor
+      args: [u8]
+      returns: u8
+    - name: set_volume
+      args: [u8]
+      returns: u8
+    - name: set_bass
+      args: [u8]
+      returns: u8
+    - name: set_treble
+      args: [u8]
+      returns: u8
+    - name: sample_input
+      args: []
+      returns: u8
+    - name: query_transport_state
+      args: []
+      returns: u64
+    - name: query_edge_count
+      args: []
+      returns: u64
+    - name: query_edge_initial_level
+      args: []
+      returns: u64
+    - name: query_edge_fp
+      args: [u32]
+      returns: u64
+    - name: query_sample_rate
+      args: []
+      returns: u64
+    - name: query_playhead_samples
+      args: []
+      returns: u64
+    - name: query_leader_start_sample
+      args: []
+      returns: u64
+    - name: query_leader_start_index
+      args: []
+      returns: u64
+    - name: query_leader_end_sample
+      args: []
+      returns: u64
+    - name: query_leader_end_index
+      args: []
+      returns: u64
+    - name: query_playback_level
+      args: []
+      returns: u64
+    - name: query_volume_percent
+      args: []
+      returns: u64
+    - name: set_playhead_fp
+      args: [u64, u32]
+      returns: u8
+    - name: push_output_sample
+      args: [u8, u64]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->selected_source_kind = 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      comp->media_loaded = 0u;
+      comp->transport_mode = 0u;
+      comp->motor_on = 0u;
+      comp->volume_percent = 100u;
+      comp->bass_percent = 50u;
+      comp->treble_percent = 50u;
+      comp->input_level = 128u;
+      comp->input_raw_level = 128u;
+      comp->input_bias_q8 = (uint32_t)(128u << 8u);
+      comp->playback_level = 128u;
+      comp->playhead_samples = 0u;
+      comp->playhead_cycle_residue = 0u;
+      comp->direct_timebase_cycle = cpu->total_cycles;
+      comp->direct_timebase_samples = 0u;
+      comp->direct_cached_until_cycle = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->next_sample_cycle = cpu->total_cycles;
+      comp->direct_edge_index = 0u;
+      comp->direct_edge_initial_level = 0u;
+      comp->direct_edge_leader_start_sample = 0u;
+      comp->direct_edge_leader_start_index = 0u;
+      comp->direct_edge_leader_end_sample = 0u;
+      comp->direct_edge_leader_end_index = 0u;
+      comp->edge_index = 0u;
+      comp->edge_initial_level = 0u;
+    destroy: |
+      if (comp->wav_data != NULL) {
+          free(comp->wav_data);
+          comp->wav_data = NULL;
+      }
+      if (comp->wav_filtered_mono != NULL) {
+          free(comp->wav_filtered_mono);
+          comp->wav_filtered_mono = NULL;
+      }
+      if (comp->direct_edge_positions != NULL) {
+          free(comp->direct_edge_positions);
+          comp->direct_edge_positions = NULL;
+      }
+      if (comp->edge_positions != NULL) {
+          free(comp->edge_positions);
+          comp->edge_positions = NULL;
+      }
+      if (comp->media_path != NULL) {
+          free(comp->media_path);
+          comp->media_path = NULL;
+      }
+      if (comp->resolved_wav_path != NULL) {
+          free(comp->resolved_wav_path);
+          comp->resolved_wav_path = NULL;
+      }
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      (void)cpu;
+  callback_handlers:
+    select_source: |
+      const char *model = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : NULL;
+      const char *source_component = (argc > 3u && args[3] != 0u) ? (const char *)(uintptr_t)args[3] : NULL;
+      comp->selected_source_kind = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      if (model != NULL && model[0] != '\0') {
+          comp->selected_source_model = strdup(model);
+          if (comp->selected_source_model == NULL) return 0u;
+      }
+      if (source_component != NULL && source_component[0] != '\0') {
+          comp->selected_source_component = strdup(source_component);
+          if (comp->selected_source_component == NULL) return 0u;
+      }
+      return 1u;
+    load_media: |
+      if (argc < 1u || args[0] == 0u) return 0u;
+      {
+          const char *path = (const char *)(uintptr_t)args[0];
+          const char *source_model = (comp->selected_source_model != NULL) ? comp->selected_source_model : "";
+          uint8_t is_zx_wav = (uint8_t)(strcmp(source_model, "common_zx_wav_file_source") == 0 ? 1u : 0u);
+          char wav_path[1024];
+          const char *open_path = path;
+          FILE *fp = NULL;
+          uint8_t *buf = NULL;
+          long file_size = 0;
+          uint32_t data_offset = 0u;
+          uint32_t data_length = 0u;
+          uint32_t sample_rate = 0u;
+          uint16_t channels = 0u;
+          uint16_t bits_per_sample = 0u;
+          const char *dot = strrchr(path, '.');
+          if (comp->selected_source_kind != 0u) return 0u;
+          if (source_model[0] != '\0' && strcmp(source_model, "common_wav_file_source") != 0 && is_zx_wav == 0u) return 0u;
+          if (comp->wav_data != NULL) {
+              free(comp->wav_data);
+              comp->wav_data = NULL;
+          }
+          if (comp->wav_filtered_mono != NULL) {
+              free(comp->wav_filtered_mono);
+              comp->wav_filtered_mono = NULL;
+          }
+          if (comp->direct_edge_positions != NULL) {
+              free(comp->direct_edge_positions);
+              comp->direct_edge_positions = NULL;
+          }
+          if (comp->edge_positions != NULL) {
+              free(comp->edge_positions);
+              comp->edge_positions = NULL;
+          }
+          comp->edge_count = 0u;
+          comp->edge_cap = 0u;
+          comp->edge_index = 0u;
+          comp->edge_initial_level = 0u;
+          if (comp->media_path != NULL) {
+              free(comp->media_path);
+              comp->media_path = NULL;
+          }
+          if (comp->resolved_wav_path != NULL) {
+              free(comp->resolved_wav_path);
+              comp->resolved_wav_path = NULL;
+          }
+          if (dot != NULL && strcmp(dot, ".yaml") == 0) {
+              FILE *yf = fopen(path, "r");
+              if (yf == NULL) return 0u;
+              wav_path[0] = '\0';
+              while (fgets(wav_path, sizeof(wav_path), yf) != NULL) {
+                  char *s = wav_path;
+                  while (*s == ' ' || *s == '\t') s++;
+                  if (strncmp(s, "file:", 5) == 0) {
+                      char *v = s + 5;
+                      while (*v == ' ' || *v == '\t') v++;
+                      size_t len = strlen(v);
+                      while (len > 0u && (v[len - 1u] == '\n' || v[len - 1u] == '\r' || v[len - 1u] == ' ' || v[len - 1u] == '\t')) {
+                          v[--len] = '\0';
+                      }
+                      if (len > 1u && ((v[0] == '"' && v[len - 1u] == '"') || (v[0] == '\'' && v[len - 1u] == '\''))) {
+                          v[len - 1u] = '\0';
+                          v++;
+                      }
+                      {
+                          const char *slash = strrchr(path, '/');
+                          if (slash != NULL && v[0] != '/') {
+                              size_t base_len = (size_t)(slash - path);
+                              if (base_len + 1u + strlen(v) + 1u >= sizeof(wav_path)) {
+                                  fclose(yf);
+                                  return 0u;
+                              }
+                              memcpy(wav_path, path, base_len);
+                              wav_path[base_len] = '/';
+                              snprintf(wav_path + base_len + 1u, sizeof(wav_path) - base_len - 1u, "%s", v);
+                          } else {
+                              snprintf(wav_path, sizeof(wav_path), "%s", v);
+                          }
+                      }
+                      break;
+                  }
+              }
+              fclose(yf);
+              if (wav_path[0] == '\0') return 0u;
+              open_path = wav_path;
+          }
+          fp = fopen(open_path, "rb");
+          if (fp == NULL) return 0u;
+          if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return 0u; }
+          file_size = ftell(fp);
+          if (file_size <= 44) { fclose(fp); return 0u; }
+          if (fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); return 0u; }
+          buf = (uint8_t *)malloc((size_t)file_size);
+          if (buf == NULL) { fclose(fp); return 0u; }
+          if (fread(buf, 1, (size_t)file_size, fp) != (size_t)file_size) {
+              free(buf);
+              fclose(fp);
+              return 0u;
+          }
+          fclose(fp);
+          if (memcmp(buf, "RIFF", 4) != 0 || memcmp(buf + 8, "WAVE", 4) != 0) {
+              free(buf);
+              return 0u;
+          }
+          {
+              uint32_t off = 12u;
+              while (off + 8u <= (uint32_t)file_size) {
+                  uint32_t chunk_size = (uint32_t)buf[off + 4u] | ((uint32_t)buf[off + 5u] << 8u) | ((uint32_t)buf[off + 6u] << 16u) | ((uint32_t)buf[off + 7u] << 24u);
+                  if (off + 8u + chunk_size > (uint32_t)file_size) break;
+                  if (memcmp(buf + off, "fmt ", 4) == 0 && chunk_size >= 16u) {
+                      uint16_t audio_format = (uint16_t)buf[off + 8u] | (uint16_t)((uint16_t)buf[off + 9u] << 8u);
+                      channels = (uint16_t)buf[off + 10u] | (uint16_t)((uint16_t)buf[off + 11u] << 8u);
+                      sample_rate = (uint32_t)buf[off + 12u] | ((uint32_t)buf[off + 13u] << 8u) | ((uint32_t)buf[off + 14u] << 16u) | ((uint32_t)buf[off + 15u] << 24u);
+                      bits_per_sample = (uint16_t)buf[off + 22u] | (uint16_t)((uint16_t)buf[off + 23u] << 8u);
+                      if (audio_format != 1u) { free(buf); return 0u; }
+                  } else if (memcmp(buf + off, "data", 4) == 0) {
+                      data_offset = off + 8u;
+                      data_length = chunk_size;
+                  }
+                  off += 8u + chunk_size + (chunk_size & 1u);
+              }
+          }
+          if (data_offset == 0u || data_length == 0u || sample_rate == 0u || channels == 0u || (bits_per_sample != 8u && bits_per_sample != 16u)) {
+              free(buf);
+              return 0u;
+          }
+          comp->wav_data = buf;
+          comp->wav_data_offset = data_offset;
+          comp->wav_data_length = data_length;
+          comp->wav_sample_rate = sample_rate;
+          comp->wav_channels = channels;
+          comp->wav_bits_per_sample = bits_per_sample;
+          comp->wav_filtered_sample_count = 0u;
+          comp->direct_edge_count = 0u;
+          comp->direct_edge_cap = 0u;
+          comp->direct_edge_index = 0u;
+          comp->direct_edge_initial_level = 0u;
+          comp->direct_edge_leader_start_sample = 0u;
+          comp->direct_edge_leader_start_index = 0u;
+          comp->direct_edge_leader_end_sample = 0u;
+          comp->direct_edge_leader_end_index = 0u;
+          {
+              uint32_t bytes_per_sample_local = (uint32_t)((bits_per_sample / 8u) * channels);
+              uint64_t total_samples_local = (bytes_per_sample_local != 0u) ? ((uint64_t)data_length / (uint64_t)bytes_per_sample_local) : 0u;
+              if (total_samples_local > 0u && total_samples_local <= 0xFFFFFFFFull) {
+                  int16_t *filtered = (int16_t *)malloc((size_t)total_samples_local * sizeof(int16_t));
+                  if (filtered == NULL) {
+                      free(buf);
+                      comp->wav_data = NULL;
+                      return 0u;
+                  }
+                  {
+                      double t0 = 0.0;
+                      double r = 0.0;
+                      uint16_t data_ch = 0u;
+                      if (sample_rate > 0u) {
+                          r = 1.0 - (6.28318530717958647692 * 800.0 / (double)sample_rate);
+                          if (r < 0.0) r = 0.0;
+                          if (r > 0.9999) r = 0.9999;
+                      }
+                      for (uint64_t sample_index = 0u; sample_index < total_samples_local; ++sample_index) {
+                          uint64_t byte_index = (uint64_t)data_offset + sample_index * (uint64_t)bytes_per_sample_local;
+                          int32_t sample_value = 0;
+                          double t1;
+                          int32_t y;
+                          if (bits_per_sample == 8u) {
+                              sample_value = ((int32_t)buf[byte_index + data_ch] - 128) << 8;
+                          } else {
+                              uint64_t ch_off = byte_index + ((uint64_t)data_ch * 2u);
+                              sample_value = (int32_t)(int16_t)((uint16_t)buf[ch_off] | ((uint16_t)buf[ch_off + 1u] << 8u));
+                          }
+                          t1 = r * t0 + (double)sample_value;
+                          y = (int32_t)(t1 - t0);
+                          t0 = t1;
+                          if (y < -32768) y = -32768;
+                          if (y > 32767) y = 32767;
+                          filtered[sample_index] = (int16_t)y;
+                      }
+                  }
+                  comp->wav_filtered_mono = filtered;
+                  comp->wav_filtered_sample_count = (uint32_t)total_samples_local;
+                  if (total_samples_local > 0u) {
+                      uint16_t data_ch = 0u;
+                      int32_t prev_sample_raw = 0;
+                      uint8_t prev_level;
+                      {
+                          uint64_t byte_index0 = (uint64_t)data_offset;
+                          if (bits_per_sample == 8u) {
+                              prev_sample_raw = ((int32_t)buf[byte_index0 + data_ch] - 128) << 8;
+                          } else {
+                              uint64_t ch_off0 = byte_index0 + ((uint64_t)data_ch * 2u);
+                              prev_sample_raw = (int32_t)(int16_t)((uint16_t)buf[ch_off0] | ((uint16_t)buf[ch_off0 + 1u] << 8u));
+                          }
+                      }
+                      prev_level = (uint8_t)(prev_sample_raw >= 0 ? 255u : 0u);
+                      comp->direct_edge_initial_level = prev_level;
+                      for (uint64_t sample_index = 1u; sample_index < total_samples_local; ++sample_index) {
+                          uint64_t byte_index = (uint64_t)data_offset + sample_index * (uint64_t)bytes_per_sample_local;
+                          int32_t curr_sample_raw = 0;
+                          uint8_t next_level;
+                          if (bits_per_sample == 8u) {
+                              curr_sample_raw = ((int32_t)buf[byte_index + data_ch] - 128) << 8;
+                          } else {
+                              uint64_t ch_off = byte_index + ((uint64_t)data_ch * 2u);
+                              curr_sample_raw = (int32_t)(int16_t)((uint16_t)buf[ch_off] | ((uint16_t)buf[ch_off + 1u] << 8u));
+                          }
+                          next_level = (uint8_t)(curr_sample_raw >= 0 ? 255u : 0u);
+                          if (next_level != prev_level) {
+                              uint32_t edge_fp = (uint32_t)(sample_index << 8u);
+                              int32_t denom = curr_sample_raw - prev_sample_raw;
+                              if (denom != 0) {
+                                  int32_t frac = (int32_t)((-(int64_t)prev_sample_raw * 256ll) / (int64_t)denom);
+                                  if (frac < 0) frac = 0;
+                                  if (frac > 255) frac = 255;
+                                  edge_fp = (uint32_t)(((uint32_t)(sample_index - 1u) << 8u) + (uint32_t)frac);
+                              }
+                              if (comp->direct_edge_count >= comp->direct_edge_cap) {
+                                  uint32_t new_cap = (comp->direct_edge_cap == 0u) ? 1024u : (comp->direct_edge_cap * 2u);
+                                  uint32_t *new_edges = (uint32_t *)realloc(comp->direct_edge_positions, (size_t)new_cap * sizeof(uint32_t));
+                                  if (new_edges == NULL) {
+                                      free(buf);
+                                      free(filtered);
+                                      comp->wav_data = NULL;
+                                      comp->wav_filtered_mono = NULL;
+                                      return 0u;
+                                  }
+                                  comp->direct_edge_positions = new_edges;
+                                  comp->direct_edge_cap = new_cap;
+                              }
+                              comp->direct_edge_positions[comp->direct_edge_count++] = edge_fp;
+                              prev_level = next_level;
+                          }
+                          prev_sample_raw = curr_sample_raw;
+                      }
+                      if (channels == 1u && comp->direct_edge_count > 256u) {
+                          uint32_t header_run = 0u;
+                          uint32_t header_start = 0u;
+                          for (uint32_t i = 1u; i < comp->direct_edge_count; ++i) {
+                              uint32_t delta_fp = comp->direct_edge_positions[i] - comp->direct_edge_positions[i - 1u];
+                              uint32_t delta_samples = (delta_fp + 128u) >> 8u;
+                              if (delta_samples >= 25u && delta_samples <= 32u) {
+                                  if (header_run == 0u) header_start = i - 1u;
+                                  header_run += 1u;
+                              } else {
+                                  if (header_run > 1000u) {
+                                      comp->direct_edge_leader_start_index = header_start;
+                                      comp->direct_edge_leader_start_sample = comp->direct_edge_positions[header_start] >> 8u;
+                                      comp->direct_edge_leader_end_index = i - 1u;
+                                      comp->direct_edge_leader_end_sample = comp->direct_edge_positions[i - 1u] >> 8u;
+                                      break;
+                                  }
+                                  header_run = 0u;
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+          if (is_zx_wav != 0u && comp->direct_edge_count > 4096u) {
+              uint64_t pos_fp = 0u;
+              uint64_t pos_residue = 0u;
+              uint32_t block_start_interval = 1u;
+              uint8_t canonical_ok = 0u;
+              #define ZXWAV_INTERVAL_SAMPLES(idx) ((uint32_t)(((comp->direct_edge_positions[(idx)] - comp->direct_edge_positions[(idx) - 1u]) + 128u) >> 8u))
+              #define ZXWAV_APPEND_EDGE(edge_fp_value) \
+                  do { \
+                      if (comp->edge_count >= comp->edge_cap) { \
+                          uint32_t new_cap = (comp->edge_cap == 0u) ? 4096u : (comp->edge_cap * 2u); \
+                          uint32_t *new_edges = (uint32_t *)realloc(comp->edge_positions, (size_t)new_cap * sizeof(uint32_t)); \
+                          if (new_edges == NULL) { \
+                              if (comp->edge_positions != NULL) { free(comp->edge_positions); comp->edge_positions = NULL; } \
+                              comp->edge_count = 0u; \
+                              comp->edge_cap = 0u; \
+                              goto zxwav_done; \
+                          } \
+                          comp->edge_positions = new_edges; \
+                          comp->edge_cap = new_cap; \
+                      } \
+                      comp->edge_positions[comp->edge_count++] = (uint32_t)(edge_fp_value); \
+                  } while (0)
+              #define ZXWAV_EMIT_TICKS(pulse_ticks) \
+                  do { \
+                      uint64_t __num = ((uint64_t)(pulse_ticks) * (uint64_t)sample_rate * 256u) + pos_residue; \
+                      uint64_t __delta_fp = __num / 3500000u; \
+                      pos_residue = __num % 3500000u; \
+                      pos_fp += __delta_fp; \
+                      ZXWAV_APPEND_EDGE(pos_fp); \
+                  } while (0)
+              #define ZXWAV_EMIT_BIT(bit_val) \
+                  do { \
+                      uint16_t __pulse_ticks = ((bit_val) != 0u) ? 1710u : 855u; \
+                      ZXWAV_EMIT_TICKS(__pulse_ticks); \
+                      ZXWAV_EMIT_TICKS(__pulse_ticks); \
+                  } while (0)
+              while (block_start_interval + 32u < comp->direct_edge_count) {
+                  uint32_t pilot_start = 0u;
+                  uint32_t pilot_run = 0u;
+                  uint32_t scan = block_start_interval;
+                  uint8_t found_pilot = 0u;
+                  for (; scan < comp->direct_edge_count; ++scan) {
+                      uint32_t delta_samples = ZXWAV_INTERVAL_SAMPLES(scan);
+                      if (delta_samples >= 24u && delta_samples <= 32u) {
+                          if (pilot_run == 0u) pilot_start = scan;
+                          pilot_run += 1u;
+                      } else {
+                          if (pilot_run >= 256u) {
+                              found_pilot = 1u;
+                              break;
+                          }
+                          pilot_run = 0u;
+                      }
+                  }
+                  if (found_pilot == 0u && pilot_run >= 256u) found_pilot = 1u;
+                  if (found_pilot == 0u) break;
+                  {
+                      uint32_t data_interval = pilot_start + pilot_run + 2u;
+                      uint32_t pulse_index = data_interval;
+                      uint8_t *block_bytes = NULL;
+                      uint32_t block_len = 0u;
+                      uint32_t block_cap = 0u;
+                      uint8_t current_byte = 0u;
+                      uint8_t bit_in_byte = 0u;
+                      uint8_t xor_value = 0u;
+                      uint8_t block_valid = 0u;
+                      if (pilot_start + pilot_run + 1u >= comp->direct_edge_count) break;
+                      {
+                          uint32_t sync1 = ZXWAV_INTERVAL_SAMPLES(pilot_start + pilot_run);
+                          uint32_t sync2 = ZXWAV_INTERVAL_SAMPLES(pilot_start + pilot_run + 1u);
+                          if (sync1 < 7u || sync1 > 13u || sync2 < 7u || sync2 > 13u) {
+                              block_start_interval = pilot_start + pilot_run;
+                              continue;
+                          }
+                      }
+                      while (pulse_index + 1u < comp->direct_edge_count) {
+                          uint32_t p0 = ZXWAV_INTERVAL_SAMPLES(pulse_index);
+                          uint32_t p1 = ZXWAV_INTERVAL_SAMPLES(pulse_index + 1u);
+                          uint32_t avg = (p0 + p1 + 1u) / 2u;
+                          int32_t diff = (int32_t)p0 - (int32_t)p1;
+                          uint8_t bit_value;
+                          if (diff < 0) diff = -diff;
+                          if (avg >= 9u && avg <= 15u && diff <= 4) bit_value = 0u;
+                          else if (avg >= 18u && avg <= 25u && diff <= 6) bit_value = 1u;
+                          else break;
+                          current_byte = (uint8_t)((current_byte << 1u) | bit_value);
+                          bit_in_byte += 1u;
+                          pulse_index += 2u;
+                          if (bit_in_byte == 8u) {
+                              if (block_len >= block_cap) {
+                                  uint32_t new_cap = (block_cap == 0u) ? 256u : (block_cap * 2u);
+                                  uint8_t *new_block = (uint8_t *)realloc(block_bytes, (size_t)new_cap);
+                                  if (new_block == NULL) {
+                                      if (block_bytes != NULL) free(block_bytes);
+                                      block_bytes = NULL;
+                                      block_len = 0u;
+                                      block_cap = 0u;
+                                      break;
+                                  }
+                                  block_bytes = new_block;
+                                  block_cap = new_cap;
+                              }
+                              block_bytes[block_len++] = current_byte;
+                              xor_value ^= current_byte;
+                              current_byte = 0u;
+                              bit_in_byte = 0u;
+                          }
+                      }
+                      if (block_bytes != NULL && bit_in_byte == 0u && block_len >= 2u && xor_value == 0u) {
+                          canonical_ok = 1u;
+                          block_valid = 1u;
+                          if (comp->edge_count == 0u) comp->edge_initial_level = 0u;
+                          {
+                              uint32_t pilot_count = (block_bytes[0] < 0x80u) ? 8063u : 3223u;
+                              for (uint32_t i = 0u; i < pilot_count; ++i) ZXWAV_EMIT_TICKS(2168u);
+                              ZXWAV_EMIT_TICKS(667u);
+                              ZXWAV_EMIT_TICKS(735u);
+                              for (uint32_t i = 0u; i < block_len; ++i) {
+                                  uint8_t value = block_bytes[i];
+                                  for (uint8_t bit = 0u; bit < 8u; ++bit) {
+                                      ZXWAV_EMIT_BIT((uint8_t)((value >> (7u - bit)) & 0x01u));
+                                  }
+                              }
+                              {
+                                  uint64_t pause_fp = (uint64_t)sample_rate * 256u;
+                                  pos_fp += pause_fp;
+                              }
+                          }
+                      }
+                      if (block_bytes != NULL) free(block_bytes);
+                      if (block_valid == 0u) {
+                          if (pulse_index > pilot_start + pilot_run + 2u) block_start_interval = pulse_index;
+                          else block_start_interval = pilot_start + pilot_run;
+                      } else {
+                          block_start_interval = pulse_index;
+                      }
+                  }
+              }
+              zxwav_done:
+              #undef ZXWAV_INTERVAL_SAMPLES
+              #undef ZXWAV_APPEND_EDGE
+              #undef ZXWAV_EMIT_TICKS
+              #undef ZXWAV_EMIT_BIT
+              if (canonical_ok == 0u) {
+                  if (comp->edge_positions != NULL) {
+                      free(comp->edge_positions);
+                      comp->edge_positions = NULL;
+                  }
+                  comp->edge_count = 0u;
+                  comp->edge_cap = 0u;
+                  comp->edge_index = 0u;
+                  comp->edge_initial_level = 0u;
+              }
+          }
+          if (comp->edge_count == 0u) {
+              uint32_t bytes_per_sample_local = (uint32_t)((bits_per_sample / 8u) * channels);
+              uint64_t total_samples_local = (bytes_per_sample_local != 0u) ? ((uint64_t)data_length / (uint64_t)bytes_per_sample_local) : 0u;
+              if (comp->wav_filtered_mono != NULL && comp->wav_filtered_sample_count > 0u) {
+                  if (total_samples_local > (uint64_t)comp->wav_filtered_sample_count) {
+                      total_samples_local = (uint64_t)comp->wav_filtered_sample_count;
+                  }
+              }
+              if (total_samples_local > 0u) {
+                  int32_t prev_centered = 0;
+                  if (comp->wav_filtered_mono != NULL && comp->wav_filtered_sample_count > 0u) {
+                      prev_centered = (int32_t)comp->wav_filtered_mono[0];
+                  } else {
+                      uint16_t data_ch = (channels > 1u) ? 1u : 0u;
+                      if (bits_per_sample == 8u) {
+                          prev_centered = (int32_t)buf[(uint64_t)data_offset + (uint64_t)data_ch] - 128;
+                      } else {
+                          uint64_t ch_off = (uint64_t)data_offset + ((uint64_t)data_ch * 2u);
+                          prev_centered = (int32_t)(int16_t)((uint16_t)buf[ch_off] | ((uint16_t)buf[ch_off + 1u] << 8u));
+                      }
+                  }
+                  comp->edge_initial_level = (uint8_t)(prev_centered >= 0 ? 255u : 0u);
+                  for (uint64_t sample_index = 1u; sample_index < total_samples_local; ++sample_index) {
+                      int32_t centered = 0;
+                      if (comp->wav_filtered_mono != NULL && sample_index < (uint64_t)comp->wav_filtered_sample_count) {
+                          centered = (int32_t)comp->wav_filtered_mono[sample_index];
+                      } else {
+                          uint16_t data_ch = (channels > 1u) ? 1u : 0u;
+                          uint64_t byte_index = (uint64_t)data_offset + sample_index * (uint64_t)bytes_per_sample_local;
+                          if (bits_per_sample == 8u) {
+                              centered = (int32_t)buf[byte_index + data_ch] - 128;
+                          } else {
+                              uint64_t ch_off = byte_index + ((uint64_t)data_ch * 2u);
+                              centered = (int32_t)(int16_t)((uint16_t)buf[ch_off] | ((uint16_t)buf[ch_off + 1u] << 8u));
+                          }
+                      }
+                      if ((prev_centered < 0 && centered >= 0) || (prev_centered >= 0 && centered < 0)) {
+                          uint32_t edge_fp = (uint32_t)(sample_index << 8u);
+                          int32_t denom = centered - prev_centered;
+                          if (denom != 0) {
+                              int32_t frac = (int32_t)((((int64_t)(-prev_centered)) * 256ll) / (int64_t)denom);
+                              if (frac < 0) frac = 0;
+                              if (frac > 255) frac = 255;
+                              edge_fp = (uint32_t)(((uint32_t)(sample_index - 1u) << 8u) + (uint32_t)frac);
+                          }
+                          if (comp->edge_count >= comp->edge_cap) {
+                              uint32_t new_cap = (comp->edge_cap == 0u) ? 1024u : (comp->edge_cap * 2u);
+                              uint32_t *new_edges = (uint32_t *)realloc(comp->edge_positions, (size_t)new_cap * sizeof(uint32_t));
+                              if (new_edges == NULL) {
+                                  free(buf);
+                                  if (comp->wav_filtered_mono != NULL) {
+                                      free(comp->wav_filtered_mono);
+                                      comp->wav_filtered_mono = NULL;
+                                      comp->wav_filtered_sample_count = 0u;
+                                  }
+                                  comp->wav_data = NULL;
+                                  return 0u;
+                              }
+                              comp->edge_positions = new_edges;
+                              comp->edge_cap = new_cap;
+                          }
+                          comp->edge_positions[comp->edge_count++] = edge_fp;
+                      }
+                      prev_centered = centered;
+                  }
+              }
+          }
+          comp->media_path = strdup(path);
+          comp->resolved_wav_path = strdup(open_path);
+          comp->media_loaded = 1u;
+          comp->playhead_samples = 0u;
+          comp->playhead_cycle_residue = 0u;
+          comp->direct_timebase_cycle = cpu->total_cycles;
+          comp->direct_timebase_samples = 0u;
+          comp->direct_cached_until_cycle = 0u;
+          comp->last_cycle = cpu->total_cycles;
+          comp->next_sample_cycle = cpu->total_cycles;
+          comp->edge_index = 0u;
+          comp->input_raw_level = 128u;
+          comp->playback_level = 128u;
+          comp->input_bias_q8 = (uint32_t)(128u << 8u);
+          comp->transport_mode = 0u;
+          comp->motor_on = 0u;
+      }
+      return 1u;
+    unload_media: |
+      comp->media_loaded = 0u;
+      comp->transport_mode = 0u;
+      comp->motor_on = 0u;
+      comp->playhead_samples = 0u;
+      comp->playhead_cycle_residue = 0u;
+      comp->direct_timebase_cycle = cpu->total_cycles;
+      comp->direct_timebase_samples = 0u;
+      comp->direct_cached_until_cycle = 0u;
+      comp->direct_edge_index = 0u;
+      comp->next_sample_cycle = cpu->total_cycles;
+      comp->edge_index = 0u;
+      comp->edge_initial_level = 0u;
+      comp->input_raw_level = 128u;
+      comp->playback_level = 128u;
+      comp->input_bias_q8 = (uint32_t)(128u << 8u);
+      if (comp->wav_data != NULL) { free(comp->wav_data); comp->wav_data = NULL; }
+      if (comp->wav_filtered_mono != NULL) { free(comp->wav_filtered_mono); comp->wav_filtered_mono = NULL; }
+      if (comp->direct_edge_positions != NULL) { free(comp->direct_edge_positions); comp->direct_edge_positions = NULL; }
+      if (comp->edge_positions != NULL) { free(comp->edge_positions); comp->edge_positions = NULL; }
+      if (comp->media_path != NULL) { free(comp->media_path); comp->media_path = NULL; }
+      if (comp->resolved_wav_path != NULL) { free(comp->resolved_wav_path); comp->resolved_wav_path = NULL; }
+      comp->wav_data_offset = 0u;
+      comp->wav_data_length = 0u;
+      comp->wav_sample_rate = 0u;
+      comp->wav_channels = 0u;
+      comp->wav_bits_per_sample = 0u;
+      comp->wav_filtered_sample_count = 0u;
+      comp->direct_edge_count = 0u;
+      comp->direct_edge_cap = 0u;
+      comp->direct_edge_index = 0u;
+      comp->direct_edge_initial_level = 0u;
+      comp->edge_count = 0u;
+      comp->edge_cap = 0u;
+      return 1u;
+    set_transport_mode: |
+      if (argc < 1u) return 0u;
+      comp->transport_mode = (uint8_t)(args[0] & 0xFFu);
+      if (comp->transport_mode == 1u && comp->media_loaded != 0u) comp->motor_on = 1u;
+      else if (comp->transport_mode == 0u) comp->motor_on = 0u;
+      comp->direct_timebase_samples = comp->playhead_samples;
+      comp->direct_timebase_cycle = cpu->total_cycles;
+      comp->direct_cached_until_cycle = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->playhead_cycle_residue = 0u;
+      comp->next_sample_cycle = cpu->total_cycles;
+      return 1u;
+    set_motor: |
+      if (argc < 1u) return 0u;
+      comp->motor_on = (uint8_t)(args[0] & 0x01u);
+      return 1u;
+    set_volume: |
+      if (argc < 1u) return 0u;
+      comp->volume_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      return 1u;
+    set_bass: |
+      if (argc < 1u) return 0u;
+      comp->bass_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      return 1u;
+    set_treble: |
+      if (argc < 1u) return 0u;
+      comp->treble_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      return 1u;
+    sample_input: |
+      uint64_t cycle = (argc > 1u) ? args[1] : cpu->total_cycles;
+      uint64_t flags = (argc > 0u) ? args[0] : 0u;
+      uint8_t want_raw = (uint8_t)((flags & 0x01u) != 0u ? 1u : 0u);
+      uint8_t want_edge_timed = (uint8_t)((flags & 0x02u) != 0u ? 1u : 0u);
+      uint8_t want_direct_comparator = (uint8_t)((flags & 0x04u) != 0u ? 1u : 0u);
+      uint8_t want_raw_zero_cross = (uint8_t)((flags & 0x10u) != 0u ? 1u : 0u);
+      uint8_t want_direct_edge_timed = (uint8_t)((flags & 0x20u) != 0u ? 1u : 0u);
+      uint8_t want_seek_leader = (uint8_t)((flags & 0x40u) != 0u ? 1u : 0u);
+      uint8_t want_exact_analog = (uint8_t)((flags & 0x80u) != 0u ? 1u : 0u);
+      if (comp->media_loaded == 0u || comp->motor_on == 0u || comp->transport_mode != 1u || comp->wav_data == NULL || comp->wav_sample_rate == 0u) {
+          comp->input_raw_level = 128u;
+          comp->playback_level = 128u;
+          comp->input_level = 128u;
+      } else if (
+          want_seek_leader != 0u &&
+          comp->direct_edge_leader_start_sample > 0u &&
+          comp->playhead_samples == 0u
+      ) {
+          uint64_t seek_sample = (uint64_t)comp->direct_edge_leader_start_sample;
+          uint32_t seek_index = comp->direct_edge_leader_start_index;
+          if (
+              comp->direct_edge_leader_end_sample > comp->direct_edge_leader_start_sample &&
+              comp->wav_sample_rate > 0u
+          ) {
+              uint64_t preroll = (uint64_t)comp->wav_sample_rate * 2u;
+              uint64_t leader_end = (uint64_t)comp->direct_edge_leader_end_sample;
+              uint64_t leader_start = (uint64_t)comp->direct_edge_leader_start_sample;
+              if (leader_end > leader_start + preroll) {
+                  seek_sample = leader_end - preroll;
+                  seek_index = comp->direct_edge_leader_start_index;
+                  while (
+                      seek_index < comp->direct_edge_leader_end_index &&
+                      ((uint64_t)comp->direct_edge_positions[seek_index] >> 8u) < seek_sample
+                  ) {
+                      seek_index += 1u;
+                  }
+                  {
+                      uint32_t target_edge_index = seek_index;
+                      uint32_t edge_fp = comp->direct_edge_positions[target_edge_index];
+                      uint32_t prev_edge_fp = 0u;
+                      if (target_edge_index > 0u) prev_edge_fp = comp->direct_edge_positions[target_edge_index - 1u];
+                      if (prev_edge_fp < edge_fp) {
+                          uint32_t mid_fp = prev_edge_fp + ((edge_fp - prev_edge_fp) / 2u);
+                          uint64_t clock_hz_local = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (uint64_t)CPU_SYSTEM_CLOCK_HZ : 1u;
+                          seek_sample = (uint64_t)(mid_fp >> 8u);
+                          comp->playhead_cycle_residue = (((uint64_t)(mid_fp & 0xFFu)) * clock_hz_local) / 256u;
+                      } else if (edge_fp > 0u) {
+                          uint32_t pre_fp = edge_fp - 1u;
+                          uint64_t clock_hz_local = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (uint64_t)CPU_SYSTEM_CLOCK_HZ : 1u;
+                          seek_sample = (uint64_t)(pre_fp >> 8u);
+                          comp->playhead_cycle_residue = (((uint64_t)(pre_fp & 0xFFu)) * clock_hz_local) / 256u;
+                      } else {
+                          seek_sample = 0u;
+                          comp->playhead_cycle_residue = 0u;
+                      }
+                  }
+              }
+          }
+          comp->playhead_samples = seek_sample;
+          comp->direct_timebase_samples = seek_sample;
+          comp->direct_edge_index = seek_index;
+          comp->direct_timebase_cycle = cycle;
+          comp->last_cycle = cycle;
+          comp->next_sample_cycle = cycle;
+          comp->direct_cached_until_cycle = 0u;
+          return component_cassette_wav_source_callback_sample_input(cpu, args, argc);
+      } else if (want_direct_comparator != 0u) {
+          if (want_direct_edge_timed == 0u && cycle < comp->direct_cached_until_cycle) {
+              return want_raw != 0u ? comp->input_raw_level : comp->input_level;
+          }
+          uint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (uint64_t)CPU_SYSTEM_CLOCK_HZ : 1u;
+          uint64_t delta_cycles = (cycle >= comp->direct_timebase_cycle) ? (cycle - comp->direct_timebase_cycle) : 0u;
+          uint64_t numer = delta_cycles * (uint64_t)comp->wav_sample_rate;
+          uint64_t adv = numer / clock_hz;
+          uint64_t frac_num = numer % clock_hz;
+          uint64_t sample_index = comp->direct_timebase_samples + adv;
+          if (comp->wav_filtered_mono == NULL || comp->wav_filtered_sample_count == 0u) {
+              comp->input_raw_level = 128u;
+              comp->playback_level = 128u;
+              comp->input_level = 128u;
+              return want_raw != 0u ? comp->input_raw_level : comp->input_level;
+          }
+          if (sample_index >= (uint64_t)comp->wav_filtered_sample_count) {
+              comp->playhead_samples = (uint64_t)comp->wav_filtered_sample_count;
+              comp->playhead_cycle_residue = 0u;
+              comp->transport_mode = 0u;
+              comp->motor_on = 0u;
+              comp->input_raw_level = 128u;
+              comp->playback_level = 128u;
+              comp->input_level = 128u;
+              return want_raw != 0u ? comp->input_raw_level : comp->input_level;
+          }
+          {
+              double frac = (clock_hz > 0u) ? ((double)frac_num / (double)clock_hz) : 0.0;
+              uint64_t idx0 = (sample_index > 0u) ? (sample_index - 1u) : 0u;
+              uint64_t idx1 = sample_index;
+              uint64_t idx2 = (sample_index + 1u < (uint64_t)comp->wav_filtered_sample_count) ? (sample_index + 1u) : sample_index;
+              uint64_t idx3 = (sample_index + 2u < (uint64_t)comp->wav_filtered_sample_count) ? (sample_index + 2u) : idx2;
+              double p0;
+              double p1;
+              double p2;
+              double p3;
+              double a;
+              double b;
+              double c;
+              double d;
+              int32_t filtered;
+              int32_t hysteresis;
+              if (want_raw_zero_cross != 0u) {
+                  uint32_t bytes_per_sample_local = (uint32_t)((comp->wav_bits_per_sample / 8u) * comp->wav_channels);
+                  uint64_t base0 = (uint64_t)comp->wav_data_offset + idx0 * (uint64_t)bytes_per_sample_local;
+                  uint64_t base1 = (uint64_t)comp->wav_data_offset + idx1 * (uint64_t)bytes_per_sample_local;
+                  uint64_t base2 = (uint64_t)comp->wav_data_offset + idx2 * (uint64_t)bytes_per_sample_local;
+                  uint64_t base3 = (uint64_t)comp->wav_data_offset + idx3 * (uint64_t)bytes_per_sample_local;
+                  if (comp->wav_bits_per_sample == 8u) {
+                      p0 = (double)(((int32_t)comp->wav_data[base0]) - 128);
+                      p1 = (double)(((int32_t)comp->wav_data[base1]) - 128);
+                      p2 = (double)(((int32_t)comp->wav_data[base2]) - 128);
+                      p3 = (double)(((int32_t)comp->wav_data[base3]) - 128);
+                      hysteresis = 2;
+                  } else {
+                      p0 = (double)(int16_t)((uint16_t)comp->wav_data[base0] | ((uint16_t)comp->wav_data[base0 + 1u] << 8u));
+                      p1 = (double)(int16_t)((uint16_t)comp->wav_data[base1] | ((uint16_t)comp->wav_data[base1 + 1u] << 8u));
+                      p2 = (double)(int16_t)((uint16_t)comp->wav_data[base2] | ((uint16_t)comp->wav_data[base2 + 1u] << 8u));
+                      p3 = (double)(int16_t)((uint16_t)comp->wav_data[base3] | ((uint16_t)comp->wav_data[base3 + 1u] << 8u));
+                      hysteresis = 256;
+                  }
+              } else {
+                  p0 = (double)comp->wav_filtered_mono[idx0];
+                  p1 = (double)comp->wav_filtered_mono[idx1];
+                  p2 = (double)comp->wav_filtered_mono[idx2];
+                  p3 = (double)comp->wav_filtered_mono[idx3];
+                  hysteresis = (comp->wav_bits_per_sample == 8u) ? 6 : 384;
+              }
+              a = (-0.5 * p0) + (1.5 * p1) - (1.5 * p2) + (0.5 * p3);
+              b = p0 - (2.5 * p1) + (2.0 * p2) - (0.5 * p3);
+              c = (-0.5 * p0) + (0.5 * p2);
+              d = p1;
+              filtered = (int32_t)((((a * frac) + b) * frac + c) * frac + d);
+              {
+                  int32_t scaled_raw = ((filtered * (int32_t)comp->volume_percent) / 100) + 32768;
+                  if (scaled_raw < 0) scaled_raw = 0;
+                  if (scaled_raw > 65535) scaled_raw = 65535;
+                  comp->input_raw_level = (uint8_t)((uint32_t)scaled_raw >> 8u);
+              }
+              comp->playback_level = 128u;
+              if (filtered >= hysteresis) comp->input_level = 255u;
+              else if (filtered <= -hysteresis) comp->input_level = 0u;
+              comp->playhead_samples = sample_index;
+              comp->playhead_cycle_residue = frac_num;
+              {
+                  uint64_t remain = clock_hz - frac_num;
+                  uint64_t wait_cycles = (remain + (uint64_t)comp->wav_sample_rate - 1u) / (uint64_t)comp->wav_sample_rate;
+                  if (wait_cycles == 0u) wait_cycles = 1u;
+                  comp->direct_cached_until_cycle = cycle + wait_cycles;
+              }
+              if (want_direct_edge_timed != 0u) {
+                  uint64_t current_fp = (sample_index << 8u) + ((clock_hz > 0u) ? ((frac_num * 256u) / clock_hz) : 0u);
+                  while (comp->direct_edge_index < comp->direct_edge_count && (uint64_t)comp->direct_edge_positions[comp->direct_edge_index] <= current_fp) {
+                      comp->direct_edge_index += 1u;
+                  }
+                  {
+                      uint8_t edge_level = comp->direct_edge_initial_level;
+                      if ((comp->direct_edge_index & 0x01u) != 0u) edge_level = (uint8_t)(255u - edge_level);
+                      comp->input_level = edge_level;
+                  }
+              }
+          }
+          if (want_direct_edge_timed != 0u) {
+              uint8_t edge_level = comp->direct_edge_initial_level;
+              if ((comp->direct_edge_index & 0x01u) != 0u) edge_level = (uint8_t)(255u - edge_level);
+              return edge_level;
+          }
+          return want_raw != 0u ? comp->input_raw_level : comp->input_level;
+      } else {
+          if (cycle < comp->next_sample_cycle) {
+              if (want_edge_timed != 0u) {
+                  uint8_t edge_level = comp->edge_initial_level;
+                  if ((comp->edge_index & 0x01u) != 0u) edge_level = (uint8_t)(255u - edge_level);
+                  return edge_level;
+              }
+              return want_raw != 0u ? comp->input_raw_level : comp->input_level;
+          }
+          {
+              uint64_t delta = (cycle >= comp->last_cycle) ? (cycle - comp->last_cycle) : 0u;
+              uint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (uint64_t)CPU_SYSTEM_CLOCK_HZ : 1u;
+              uint64_t numer = comp->playhead_cycle_residue + (delta * (uint64_t)comp->wav_sample_rate);
+              uint64_t adv = numer / clock_hz;
+              uint64_t prev_playhead = comp->playhead_samples;
+              comp->playhead_cycle_residue = numer % clock_hz;
+              if (adv > 0u) {
+                  comp->playhead_samples += adv;
+                  {
+                      uint64_t remain = clock_hz - comp->playhead_cycle_residue;
+                      uint64_t wait_cycles = (remain + (uint64_t)comp->wav_sample_rate - 1u) / (uint64_t)comp->wav_sample_rate;
+                      if (wait_cycles == 0u) wait_cycles = 1u;
+                      comp->next_sample_cycle = cycle + wait_cycles;
+                  }
+              }
+              comp->last_cycle = cycle;
+              if (
+                  want_exact_analog != 0u &&
+                  comp->wav_data != NULL &&
+                  comp->wav_sample_rate != 0u
+              ) {
+                  uint8_t prev_level = comp->input_level;
+                  uint64_t prev_playhead_local = prev_playhead;
+                  uint32_t bytes_per_sample_local = (uint32_t)((comp->wav_bits_per_sample / 8u) * comp->wav_channels);
+                  uint64_t total_samples_local = (bytes_per_sample_local != 0u) ? ((uint64_t)comp->wav_data_length / (uint64_t)bytes_per_sample_local) : 0u;
+                  uint64_t sample_index = comp->playhead_samples;
+                  if (total_samples_local == 0u || sample_index >= total_samples_local) {
+                      comp->playhead_samples = total_samples_local;
+                      comp->playhead_cycle_residue = 0u;
+                      comp->transport_mode = 0u;
+                      comp->motor_on = 0u;
+                      comp->input_raw_level = 128u;
+                      comp->playback_level = 128u;
+                      return want_raw != 0u ? comp->input_raw_level : comp->input_level;
+                  }
+                  if (bytes_per_sample_local != 0u && total_samples_local > 0u) {
+                      uint16_t data_ch = (comp->wav_channels > 1u) ? 1u : 0u;
+                      int32_t filtered;
+                      if (
+                          comp->wav_filtered_mono != NULL &&
+                          sample_index + 1u < (uint64_t)comp->wav_filtered_sample_count
+                      ) {
+                          uint64_t next_index = sample_index + 1u;
+                          int32_t s0 = (int32_t)comp->wav_filtered_mono[sample_index];
+                          int32_t s1 = (int32_t)comp->wav_filtered_mono[next_index];
+                          filtered = (int32_t)((((int64_t)s0 * (int64_t)(clock_hz - comp->playhead_cycle_residue)) + ((int64_t)s1 * (int64_t)comp->playhead_cycle_residue)) / (int64_t)clock_hz);
+                      } else if (clock_hz > 0u && sample_index + 1u < total_samples_local) {
+                          uint64_t next_index = sample_index + 1u;
+                          int32_t s0;
+                          int32_t s1;
+                          if (comp->wav_bits_per_sample == 8u) {
+                              uint64_t base0 = (uint64_t)comp->wav_data_offset + sample_index * (uint64_t)bytes_per_sample_local + (uint64_t)data_ch;
+                              uint64_t base1 = (uint64_t)comp->wav_data_offset + next_index * (uint64_t)bytes_per_sample_local + (uint64_t)data_ch;
+                              s0 = (int32_t)comp->wav_data[base0] - 128;
+                              s1 = (int32_t)comp->wav_data[base1] - 128;
+                          } else {
+                              uint64_t base0 = (uint64_t)comp->wav_data_offset + sample_index * (uint64_t)bytes_per_sample_local + ((uint64_t)data_ch * 2u);
+                              uint64_t base1 = (uint64_t)comp->wav_data_offset + next_index * (uint64_t)bytes_per_sample_local + ((uint64_t)data_ch * 2u);
+                              s0 = (int32_t)(int16_t)((uint16_t)comp->wav_data[base0] | ((uint16_t)comp->wav_data[base0 + 1u] << 8u));
+                              s1 = (int32_t)(int16_t)((uint16_t)comp->wav_data[base1] | ((uint16_t)comp->wav_data[base1 + 1u] << 8u));
+                          }
+                          filtered = (int32_t)((((int64_t)s0 * (int64_t)(clock_hz - comp->playhead_cycle_residue)) + ((int64_t)s1 * (int64_t)comp->playhead_cycle_residue)) / (int64_t)clock_hz);
+                      } else if (comp->wav_bits_per_sample == 8u) {
+                          uint64_t rounded_index = sample_index;
+                          if (clock_hz > 0u && comp->playhead_cycle_residue * 2u >= clock_hz && rounded_index + 1u < total_samples_local) rounded_index++;
+                          if (rounded_index >= total_samples_local) rounded_index = total_samples_local - 1u;
+                          {
+                              uint64_t base = (uint64_t)comp->wav_data_offset + rounded_index * (uint64_t)bytes_per_sample_local + (uint64_t)data_ch;
+                              filtered = (int32_t)comp->wav_data[base] - 128;
+                          }
+                      } else {
+                          uint64_t rounded_index = sample_index;
+                          if (clock_hz > 0u && comp->playhead_cycle_residue * 2u >= clock_hz && rounded_index + 1u < total_samples_local) rounded_index++;
+                          if (rounded_index >= total_samples_local) rounded_index = total_samples_local - 1u;
+                          {
+                              uint64_t base = (uint64_t)comp->wav_data_offset + rounded_index * (uint64_t)bytes_per_sample_local + ((uint64_t)data_ch * 2u);
+                              filtered = (int32_t)(int16_t)((uint16_t)comp->wav_data[base] | ((uint16_t)comp->wav_data[base + 1u] << 8u));
+                          }
+                      }
+                      {
+                          int32_t scaled_raw = ((filtered * (int32_t)comp->volume_percent) / 100) + 32768;
+                          if (scaled_raw < 0) scaled_raw = 0;
+                          if (scaled_raw > 65535) scaled_raw = 65535;
+                          comp->input_raw_level = (uint8_t)((uint32_t)scaled_raw >> 8u);
+                          comp->input_level = (uint8_t)((filtered >= 0) ? 255u : 0u);
+                      }
+                  }
+                  if (comp->playhead_samples != prev_playhead_local || comp->input_level != prev_level) {
+                      comp->playback_level = comp->input_raw_level;
+                  }
+                  return want_raw != 0u ? comp->input_raw_level : comp->input_level;
+              }
+              if (adv == 0u) {
+                  if (want_edge_timed != 0u) {
+                      uint8_t edge_level = comp->edge_initial_level;
+                      if ((comp->edge_index & 0x01u) != 0u) edge_level = (uint8_t)(255u - edge_level);
+                      return edge_level;
+                  }
+                  return want_raw != 0u ? comp->input_raw_level : comp->input_level;
+              }
+              if (adv > 0u) {
+                  uint32_t bytes_per_sample = (uint32_t)((comp->wav_bits_per_sample / 8u) * comp->wav_channels);
+                  uint64_t data_end = (uint64_t)comp->wav_data_offset + (uint64_t)comp->wav_data_length;
+                  if (bytes_per_sample == 0u) {
+                      comp->input_raw_level = 128u;
+                      comp->playback_level = 128u;
+                      comp->input_level = 128u;
+                      comp->playhead_cycle_residue = 0u;
+                      comp->transport_mode = 0u;
+                      comp->motor_on = 0u;
+                  } else {
+                      uint64_t decode_end = comp->playhead_samples;
+                      if (decode_end < prev_playhead) decode_end = prev_playhead;
+                      if (decode_end == prev_playhead) prev_playhead = (decode_end > 0u) ? (decode_end - 1u) : 0u;
+                      if (want_direct_comparator != 0u) {
+                          uint64_t sample_index = decode_end;
+                          double frac = (clock_hz > 0u) ? ((double)comp->playhead_cycle_residue / (double)clock_hz) : 0.0;
+                          if (comp->wav_filtered_mono == NULL || comp->wav_filtered_sample_count == 0u) {
+                              comp->input_raw_level = 128u;
+                              comp->playback_level = 128u;
+                              comp->input_level = 128u;
+                          } else if (sample_index >= (uint64_t)comp->wav_filtered_sample_count) {
+                              comp->input_raw_level = 128u;
+                              comp->playback_level = 128u;
+                              comp->input_level = 128u;
+                              comp->playhead_cycle_residue = 0u;
+                              comp->transport_mode = 0u;
+                              comp->motor_on = 0u;
+                          } else {
+                              uint64_t idx0 = (sample_index > 0u) ? (sample_index - 1u) : 0u;
+                              uint64_t idx1 = sample_index;
+                              uint64_t idx2 = (sample_index + 1u < (uint64_t)comp->wav_filtered_sample_count) ? (sample_index + 1u) : sample_index;
+                              uint64_t idx3 = (sample_index + 2u < (uint64_t)comp->wav_filtered_sample_count) ? (sample_index + 2u) : idx2;
+                              double p0 = (double)comp->wav_filtered_mono[idx0];
+                              double p1 = (double)comp->wav_filtered_mono[idx1];
+                              double p2 = (double)comp->wav_filtered_mono[idx2];
+                              double p3 = (double)comp->wav_filtered_mono[idx3];
+                              double a = (-0.5 * p0) + (1.5 * p1) - (1.5 * p2) + (0.5 * p3);
+                              double b = p0 - (2.5 * p1) + (2.0 * p2) - (0.5 * p3);
+                              double c = (-0.5 * p0) + (0.5 * p2);
+                              double d = p1;
+                              int32_t filtered = (int32_t)((((a * frac) + b) * frac + c) * frac + d);
+                              int32_t scaled_raw = ((filtered * (int32_t)comp->volume_percent) / 100) + 32768;
+                              if (scaled_raw < 0) scaled_raw = 0;
+                              if (scaled_raw > 65535) scaled_raw = 65535;
+                              comp->input_raw_level = (uint8_t)((uint32_t)scaled_raw >> 8u);
+                              comp->playback_level = comp->input_raw_level;
+                              comp->input_level = (uint8_t)((filtered >= 0) ? 255u : 0u);
+                          }
+                      } else {
+                          uint16_t data_ch = (comp->wav_channels > 1u) ? 1u : 0u;
+                          for (uint64_t sample_index = prev_playhead; sample_index <= decode_end; ++sample_index) {
+                              uint64_t byte_index = comp->wav_data_offset + sample_index * (uint64_t)bytes_per_sample;
+                              if (byte_index + bytes_per_sample > data_end) {
+                                  comp->input_raw_level = 128u;
+                                  comp->playback_level = 128u;
+                                  comp->input_level = 128u;
+                                  comp->playhead_cycle_residue = 0u;
+                                  comp->transport_mode = 0u;
+                                  comp->motor_on = 0u;
+                                  break;
+                              }
+                              if (comp->wav_bits_per_sample == 8u) {
+                                  int32_t raw_centered = (int32_t)comp->wav_data[byte_index + data_ch];
+                                  raw_centered = ((raw_centered - 128) * (int32_t)comp->volume_percent) / 100 + 128;
+                                  if (raw_centered < 0) raw_centered = 0;
+                                  if (raw_centered > 255) raw_centered = 255;
+                                  comp->input_raw_level = (uint8_t)raw_centered;
+                                  comp->playback_level = (uint8_t)raw_centered;
+                              } else {
+                                  uint64_t data_off = byte_index + ((uint64_t)data_ch * 2u);
+                                  int32_t raw_centered = (int32_t)(int16_t)((uint16_t)comp->wav_data[data_off] | ((uint16_t)comp->wav_data[data_off + 1u] << 8u));
+                                  int32_t playback_sum = ((raw_centered * (int32_t)comp->volume_percent) / 100) + 32768;
+                                  raw_centered = ((raw_centered * (int32_t)comp->volume_percent) / 100) + 32768;
+                                  if (raw_centered < 0) raw_centered = 0;
+                                  if (raw_centered > 65535) raw_centered = 65535;
+                                  if (playback_sum < 0) playback_sum = 0;
+                                  if (playback_sum > 65535) playback_sum = 65535;
+                                  comp->input_raw_level = (uint8_t)((uint32_t)raw_centered >> 8u);
+                                  comp->playback_level = (uint8_t)((uint32_t)playback_sum >> 8u);
+                              }
+                              {
+                                  int32_t bias = (int32_t)comp->input_bias_q8;
+                                  int32_t sample_q8 = (int32_t)((uint32_t)comp->input_raw_level << 8u);
+                                  uint8_t next_level = comp->input_level;
+                                  bias += (sample_q8 - bias) / 64;
+                                  comp->input_bias_q8 = (uint32_t)((bias < 0) ? 0 : bias);
+                                  if (sample_q8 >= bias + (10 << 8)) next_level = 255u;
+                                  else if (sample_q8 <= bias - (10 << 8)) next_level = 0u;
+                                  comp->input_level = next_level;
+                              }
+                              if (sample_index == UINT64_MAX) break;
+                          }
+                      }
+                  }
+              }
+              while (comp->edge_index < comp->edge_count && (uint64_t)comp->edge_positions[comp->edge_index] <= comp->playhead_samples) {
+                  comp->edge_index += 1u;
+              }
+          }
+      }
+      if (want_edge_timed != 0u) {
+          uint8_t edge_level = comp->edge_initial_level;
+          if ((comp->edge_index & 0x01u) != 0u) edge_level = (uint8_t)(255u - edge_level);
+          return edge_level;
+      }
+      return want_raw != 0u ? comp->input_raw_level : comp->input_level;
+    query_transport_state: |
+      {
+          uint64_t packed = (uint64_t)comp->transport_mode;
+          uint64_t total_samples = 0u;
+          uint64_t current_secs = 0u;
+          uint64_t total_secs = 0u;
+          uint32_t bytes_per_sample = (uint32_t)((comp->wav_bits_per_sample / 8u) * comp->wav_channels);
+          if (comp->motor_on != 0u) packed |= (1ull << 8);
+          if (comp->media_loaded != 0u) packed |= (1ull << 9);
+          if (comp->wav_sample_rate != 0u) {
+              current_secs = comp->playhead_samples / (uint64_t)comp->wav_sample_rate;
+              if (bytes_per_sample != 0u) {
+                  total_samples = (uint64_t)comp->wav_data_length / (uint64_t)bytes_per_sample;
+                  total_secs = total_samples / (uint64_t)comp->wav_sample_rate;
+              }
+          }
+          if (current_secs > 0xFFFFu) current_secs = 0xFFFFu;
+          if (total_secs > 0xFFFFu) total_secs = 0xFFFFu;
+          packed |= (current_secs & 0xFFFFu) << 16u;
+          packed |= (total_secs & 0xFFFFu) << 32u;
+          packed |= ((uint64_t)comp->volume_percent & 0xFFull) << 48u;
+          return packed;
+      }
+    query_edge_count: |
+      return (uint64_t)comp->edge_count;
+    query_edge_initial_level: |
+      return (uint64_t)comp->edge_initial_level;
+    query_edge_fp: |
+      {
+          uint32_t index = (argc > 0u) ? (uint32_t)(args[0] & 0xFFFFFFFFu) : 0u;
+          if (index < comp->edge_count && comp->edge_positions != NULL) return (uint64_t)comp->edge_positions[index];
+          return 0u;
+      }
+    query_sample_rate: |
+      return (uint64_t)comp->wav_sample_rate;
+    query_playhead_samples: |
+      return (uint64_t)comp->playhead_samples;
+    query_leader_start_sample: |
+      return (uint64_t)comp->direct_edge_leader_start_sample;
+    query_leader_start_index: |
+      return (uint64_t)comp->direct_edge_leader_start_index;
+    query_leader_end_sample: |
+      return (uint64_t)comp->direct_edge_leader_end_sample;
+    query_leader_end_index: |
+      return (uint64_t)comp->direct_edge_leader_end_index;
+    query_playback_level: |
+      return (uint64_t)comp->playback_level;
+    query_volume_percent: |
+      return (uint64_t)comp->volume_percent;
+    set_playhead_fp: |
+      if (argc < 1u) return 0u;
+      {
+          uint64_t fp = args[0];
+          uint32_t edge_index = (argc > 1u) ? (uint32_t)(args[1] & 0xFFFFFFFFu) : 0u;
+          uint64_t clock_hz_local = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (uint64_t)CPU_SYSTEM_CLOCK_HZ : 1u;
+          comp->playhead_samples = (fp >> 8u);
+          comp->direct_timebase_samples = (fp >> 8u);
+          comp->playhead_cycle_residue = (((uint64_t)(fp & 0xFFu)) * clock_hz_local) / 256u;
+          comp->direct_timebase_cycle = cpu->total_cycles;
+          comp->last_cycle = cpu->total_cycles;
+          comp->next_sample_cycle = cpu->total_cycles;
+          comp->direct_cached_until_cycle = 0u;
+          comp->direct_edge_index = edge_index;
+          comp->edge_index = edge_index;
+      }
+      return 1u;
+    push_output_sample: |
+      return 1u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

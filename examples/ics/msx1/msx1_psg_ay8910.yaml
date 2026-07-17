@@ -64,7 +64,22 @@ state:
   - name: cassette_cached_level
     type: uint8_t
     initial: "0x80"
+  - name: joy_cached_state
+    type: uint8_t
+    initial: "0x7F"
+  - name: joy_next_poll_cycle
+    type: uint64_t
+    initial: "0"
   - name: cassette_next_sample_cycle
+    type: uint64_t
+    initial: "0"
+  - name: cassette_read_calls
+    type: uint64_t
+    initial: "0"
+  - name: cassette_read_dispatches
+    type: uint64_t
+    initial: "0"
+  - name: cassette_last_log_cycle
     type: uint64_t
     initial: "0"
   - name: level_a
@@ -209,7 +224,12 @@ behavior:
       comp->last_mix = 128u;
       comp->last_emitted_mix = 255u;
       comp->cassette_cached_level = 0x80u;
+      comp->joy_cached_state = 0x7Fu;
+      comp->joy_next_poll_cycle = 0u;
       comp->cassette_next_sample_cycle = 0u;
+      comp->cassette_read_calls = 0u;
+      comp->cassette_read_dispatches = 0u;
+      comp->cassette_last_log_cycle = cpu->total_cycles;
     port_read_post: |
       uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
       if (p == 0xA2u) {
@@ -230,13 +250,92 @@ behavior:
               case 12u: value = comp->reg12; break;
               case 13u: value = comp->reg13; break;
               case 14u: {
-                  uint64_t joy = cpu_component_call(cpu, "psg0", "joy_read", NULL, 0);
-                  if (cpu->total_cycles >= comp->cassette_next_sample_cycle) {
-                      uint64_t tape_args[2] = { 4u, cpu->total_cycles };
-                      comp->cassette_cached_level = (uint8_t)(cpu_component_call(cpu, "psg0", "cassette_read", tape_args, 2) & 0x80u);
-                      comp->cassette_next_sample_cycle = cpu->total_cycles + 32u;
+                  const char *cass_perf = getenv("PASM_MSX_CASS_PERF_TRACE");
+                  ComponentState_cassette_transport *transport = &cpu->comp_cassette_transport;
+                  if (cpu->total_cycles >= comp->joy_next_poll_cycle) {
+                      comp->joy_cached_state = (uint8_t)(cpu_component_call(cpu, "psg0", "joy_read", NULL, 0) & 0x7Fu);
+                      comp->joy_next_poll_cycle = cpu->total_cycles + 256u;
                   }
-                  comp->reg14 = (uint8_t)((joy & 0x7Fu) | (comp->cassette_cached_level & 0x80u));
+                  comp->cassette_read_calls += 1u;
+                  if (cpu->total_cycles >= comp->cassette_next_sample_cycle) {
+                      if (transport->parsed_local_playback != 0u) {
+                          uint64_t now = cpu->total_cycles;
+                          uint8_t current_level = transport->parsed_edge_initial_level;
+                          if (transport->media_loaded == 0u ||
+                              transport->motor_on == 0u ||
+                              transport->transport_mode != 1u) {
+                              transport->parsed_next_sample_cycle = now;
+                              transport->parsed_playhead_cycle_residue = 0u;
+                              transport->input_level = 255u;
+                              transport->input_raw_level = 255u;
+                              transport->playback_level = 255u;
+                          } else {
+                              if (transport->parsed_sample_rate != 0u && CPU_SYSTEM_CLOCK_HZ > 0u) {
+                                  uint64_t period = (uint64_t)CPU_SYSTEM_CLOCK_HZ / (uint64_t)transport->parsed_sample_rate;
+                                  uint64_t rem = (uint64_t)CPU_SYSTEM_CLOCK_HZ % (uint64_t)transport->parsed_sample_rate;
+                                  if (period == 0u) period = 1u;
+                                  while (now >= transport->parsed_next_sample_cycle &&
+                                         transport->parsed_playhead_samples < transport->parsed_total_samples) {
+                                      transport->parsed_playhead_samples += 1u;
+                                      transport->parsed_next_sample_cycle += period;
+                                      transport->parsed_playhead_cycle_residue += rem;
+                                      if (transport->parsed_playhead_cycle_residue >= (uint64_t)transport->parsed_sample_rate) {
+                                          transport->parsed_next_sample_cycle += 1u;
+                                          transport->parsed_playhead_cycle_residue -= (uint64_t)transport->parsed_sample_rate;
+                                      }
+                                  }
+                              }
+                              if (transport->parsed_total_samples != 0u &&
+                                  transport->parsed_playhead_samples >= transport->parsed_total_samples) {
+                                  transport->parsed_playhead_samples = transport->parsed_total_samples;
+                                  transport->transport_mode = 0u;
+                                  transport->motor_on = 0u;
+                                  transport->parsed_edge_index = transport->parsed_edge_count;
+                                  transport->input_level = 255u;
+                                  transport->input_raw_level = 255u;
+                                  transport->playback_level = 255u;
+                              } else {
+                                  while (transport->parsed_edge_index < transport->parsed_edge_count &&
+                                         transport->parsed_edge_positions[transport->parsed_edge_index] <= transport->parsed_playhead_samples) {
+                                      transport->parsed_edge_index += 1u;
+                                  }
+                                  current_level = (uint8_t)(transport->parsed_edge_initial_level ^
+                                      (uint8_t)(transport->parsed_edge_index & 0x01u));
+                                  transport->playback_level = current_level ? 255u : 0u;
+                                  transport->input_raw_level = transport->playback_level;
+                                  transport->input_level = transport->playback_level;
+                              }
+                          }
+                          comp->cassette_cached_level = (uint8_t)(transport->input_level & 0x80u);
+                      } else {
+                          uint64_t tape_args[2] = { 4u, cpu->total_cycles };
+                          comp->cassette_cached_level = (uint8_t)(cpu_component_call(cpu, "psg0", "cassette_read", tape_args, 2) & 0x80u);
+                      }
+                      comp->cassette_read_dispatches += 1u;
+                      comp->cassette_next_sample_cycle = cpu->total_cycles + 64u;
+                  }
+                  if (cass_perf != NULL && cass_perf[0] != '\0' && cass_perf[0] != '0') {
+                      uint64_t log_period = (uint64_t)CPU_SYSTEM_CLOCK_HZ;
+                      if (log_period == 0u) log_period = 3579545u;
+                      if (cpu->total_cycles - comp->cassette_last_log_cycle >= log_period) {
+                          FILE *fp = fopen("/tmp/msx_cass_perf.log", "a");
+                          if (fp != NULL) {
+                              fprintf(fp,
+                                      "cass_perf cycle=%llu calls=%llu dispatches=%llu interval=%llu cached=%u next=%llu\n",
+                                      (unsigned long long)cpu->total_cycles,
+                                      (unsigned long long)comp->cassette_read_calls,
+                                      (unsigned long long)comp->cassette_read_dispatches,
+                                      (unsigned long long)(cpu->total_cycles - comp->cassette_last_log_cycle),
+                                      (unsigned)comp->cassette_cached_level,
+                                      (unsigned long long)comp->cassette_next_sample_cycle);
+                              fclose(fp);
+                          }
+                          comp->cassette_last_log_cycle = cpu->total_cycles;
+                          comp->cassette_read_calls = 0u;
+                          comp->cassette_read_dispatches = 0u;
+                      }
+                  }
+                  comp->reg14 = (uint8_t)(comp->joy_cached_state | (comp->cassette_cached_level & 0x80u));
                   value = comp->reg14;
                   break;
               }
@@ -410,7 +509,9 @@ behavior:
   handler_bodies: {}
 
 coding:
-  headers: []
+  headers:
+    - stdio.h
+    - stdlib.h
   include_paths: []
   linked_libraries: []
   library_paths: []

@@ -62,6 +62,16 @@ cassette:
   component: cassette_transport
   directory: examples/cassettes/trs80_model4
   allowed_extensions: [yaml, wav]
+  sources:
+    - kind: file
+      source_type: ../../cassette_sources/wav_file.yaml
+      component: cassette_transport
+      label: Tape File
+      allowed_extensions: [yaml, wav]
+    - kind: line_in
+      source_type: ../../cassette_sources/line_in.yaml
+      component: cassette_transport
+      label: Line In
   controls:
     picker_action_id: EMU_CASSETTE_PICKER
     play_action_id: EMU_CASSETTE_PLAY

@@ -2,7 +2,7 @@ metadata:
   name: C64DefaultSystem
   version: "1.0"
 
-clock_hz: 1022727
+clock_hz: 985248
 reset_delay_seconds: 0
 
 memory:

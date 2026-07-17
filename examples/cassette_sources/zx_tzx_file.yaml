@@ -1,0 +1,12 @@
+metadata:
+  id: zx_tzx_file
+  type: cassette_source
+  model: common_tzx_file_source
+  version: "1.0"
+  title: ZX TZX Tape File
+
+source:
+  kind: file
+  label: ZX TZX Tape
+  source_component: cassette_cdt_source
+  allowed_extensions: [tzx]

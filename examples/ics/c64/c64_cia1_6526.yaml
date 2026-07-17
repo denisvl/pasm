@@ -12,6 +12,8 @@ state:
   - { name: icr_mask, type: uint8_t, initial: "0u" }
   - { name: icr_status, type: uint8_t, initial: "0u" }
   - { name: irq_asserted, type: uint8_t, initial: "0u" }
+  - { name: flag_pending, type: uint8_t, initial: "0u" }
+  - { name: flag_pending_cycle, type: uint64_t, initial: "0u" }
   - { name: ta_latch, type: uint16_t, initial: "0xFFFFu" }
   - { name: tb_latch, type: uint16_t, initial: "0xFFFFu" }
   - { name: ta_counter, type: uint16_t, initial: "0xFFFFu" }

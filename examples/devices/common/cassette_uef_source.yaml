@@ -1,0 +1,440 @@
+metadata:
+  id: cassette_uef_source
+  type: cassette_source_backend
+  model: common_cassette_uef_source
+  version: "1.0"
+
+state:
+  - name: selected_source_kind
+    type: uint8_t
+    initial: "0"
+  - name: selected_source_index
+    type: uint8_t
+    initial: "0"
+  - name: selected_source_model
+    type: char *
+    initial: "NULL"
+  - name: selected_source_component
+    type: char *
+    initial: "NULL"
+  - name: media_loaded
+    type: uint8_t
+    initial: "0"
+  - name: transport_mode
+    type: uint8_t
+    initial: "0"
+  - name: motor_on
+    type: uint8_t
+    initial: "0"
+  - name: volume_percent
+    type: uint8_t
+    initial: "100"
+  - name: bass_percent
+    type: uint8_t
+    initial: "50"
+  - name: treble_percent
+    type: uint8_t
+    initial: "50"
+  - name: media_path
+    type: char *
+    initial: "NULL"
+  - name: signal_sample_rate
+    type: uint32_t
+    initial: "44100"
+  - name: playhead_samples
+    type: uint64_t
+    initial: "0"
+  - name: playhead_cycle_residue
+    type: uint64_t
+    initial: "0"
+  - name: last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: playback_level
+    type: uint8_t
+    initial: "128"
+  - name: total_samples
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: select_source
+      args: [u8, u8, ptr, ptr]
+      returns: u8
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: set_transport_mode
+      args: [u8]
+      returns: u8
+    - name: set_motor
+      args: [u8]
+      returns: u8
+    - name: set_volume
+      args: [u8]
+      returns: u8
+    - name: set_bass
+      args: [u8]
+      returns: u8
+    - name: set_treble
+      args: [u8]
+      returns: u8
+    - name: sample_input
+      args: []
+      returns: u8
+    - name: query_transport_state
+      args: []
+      returns: u64
+    - name: query_edge_count
+      args: []
+      returns: u64
+    - name: query_edge_initial_level
+      args: []
+      returns: u64
+    - name: query_edge_fp
+      args: [u32]
+      returns: u64
+    - name: query_sample_rate
+      args: []
+      returns: u64
+    - name: query_playhead_samples
+      args: []
+      returns: u64
+    - name: query_leader_start_sample
+      args: []
+      returns: u64
+    - name: query_leader_start_index
+      args: []
+      returns: u64
+    - name: query_leader_end_sample
+      args: []
+      returns: u64
+    - name: query_leader_end_index
+      args: []
+      returns: u64
+    - name: query_playback_level
+      args: []
+      returns: u64
+    - name: query_volume_percent
+      args: []
+      returns: u64
+    - name: set_playhead_fp
+      args: [u64, u32]
+      returns: u8
+    - name: push_output_sample
+      args: [u8, u64]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->selected_source_kind = 0u;
+      comp->selected_source_index = 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      if (comp->media_path != NULL) {
+          free(comp->media_path);
+          comp->media_path = NULL;
+      }
+      comp->media_loaded = 0u;
+      comp->transport_mode = 0u;
+      comp->motor_on = 0u;
+      comp->volume_percent = 100u;
+      comp->bass_percent = 50u;
+      comp->treble_percent = 50u;
+      comp->signal_sample_rate = 44100u;
+      comp->playhead_samples = 0u;
+      comp->playhead_cycle_residue = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->playback_level = 128u;
+      comp->total_samples = 0u;
+    destroy: |
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      if (comp->media_path != NULL) {
+          free(comp->media_path);
+          comp->media_path = NULL;
+      }
+      (void)cpu;
+  callback_handlers:
+    select_source: |
+      const char *model = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : NULL;
+      const char *source_component = (argc > 3u && args[3] != 0u) ? (const char *)(uintptr_t)args[3] : NULL;
+      comp->selected_source_kind = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      comp->selected_source_index = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      if (model != NULL && model[0] != '\0') {
+          comp->selected_source_model = strdup(model);
+          if (comp->selected_source_model == NULL) return 0u;
+      }
+      if (source_component != NULL && source_component[0] != '\0') {
+          comp->selected_source_component = strdup(source_component);
+          if (comp->selected_source_component == NULL) return 0u;
+      }
+      return 1u;
+    load_media: |
+      if (argc < 1u || args[0] == 0u) return 0u;
+      {
+          const char *path = (const char *)(uintptr_t)args[0];
+          const char *source_model = (comp->selected_source_model != NULL) ? comp->selected_source_model : "";
+          const char *dot = strrchr(path, '.');
+          FILE *fp = NULL;
+          uint8_t *file_data = NULL;
+          size_t file_size = 0u;
+          uint64_t total_samples = 0u;
+          if (comp->selected_source_kind != 0u) return 0u;
+          if (source_model[0] != '\0' && strcmp(source_model, "common_uef_file_source") != 0) return 0u;
+          if (dot == NULL || strcmp(dot, ".uef") != 0) return 0u;
+          fp = fopen(path, "rb");
+          if (fp == NULL) return 0u;
+          {
+              int b0 = fgetc(fp);
+              int b1 = fgetc(fp);
+              fclose(fp);
+              fp = NULL;
+              if (b0 == 0x1F && b1 == 0x8B) {
+                  gzFile gz = gzopen(path, "rb");
+                  if (gz == NULL) return 0u;
+                  {
+                      size_t cap = 65536u;
+                      int rd = 0;
+                      file_data = (uint8_t *)malloc(cap);
+                      if (file_data == NULL) {
+                          gzclose(gz);
+                          return 0u;
+                      }
+                      while ((rd = gzread(gz, file_data + file_size, (unsigned int)(cap - file_size))) > 0) {
+                          file_size += (size_t)rd;
+                          if (cap - file_size < 4096u) {
+                              size_t new_cap = cap * 2u;
+                              uint8_t *new_data = (uint8_t *)realloc(file_data, new_cap);
+                              if (new_data == NULL) {
+                                  free(file_data);
+                                  gzclose(gz);
+                                  return 0u;
+                              }
+                              file_data = new_data;
+                              cap = new_cap;
+                          }
+                      }
+                  }
+                  gzclose(gz);
+              } else {
+                  long len;
+                  fp = fopen(path, "rb");
+                  if (fp == NULL) return 0u;
+                  if (fseek(fp, 0L, SEEK_END) != 0) {
+                      fclose(fp);
+                      return 0u;
+                  }
+                  len = ftell(fp);
+                  if (len <= 0) {
+                      fclose(fp);
+                      return 0u;
+                  }
+                  rewind(fp);
+                  file_size = (size_t)len;
+                  file_data = (uint8_t *)malloc(file_size);
+                  if (file_data == NULL) {
+                      fclose(fp);
+                      return 0u;
+                  }
+                  if (fread(file_data, 1, file_size, fp) != file_size) {
+                      free(file_data);
+                      fclose(fp);
+                      return 0u;
+                  }
+                  fclose(fp);
+              }
+          }
+          if (file_size < 12u || memcmp(file_data, "UEF File!\0", 10u) != 0) {
+              free(file_data);
+              return 0u;
+          }
+          {
+              size_t pos = 12u;
+              while (pos + 6u <= file_size) {
+                  uint16_t chunk_id = (uint16_t)file_data[pos] | (uint16_t)((uint16_t)file_data[pos + 1u] << 8u);
+                  uint32_t chunk_len =
+                      (uint32_t)file_data[pos + 2u] |
+                      ((uint32_t)file_data[pos + 3u] << 8u) |
+                      ((uint32_t)file_data[pos + 4u] << 16u) |
+                      ((uint32_t)file_data[pos + 5u] << 24u);
+                  const uint8_t *payload = file_data + pos + 6u;
+                  if (pos + 6u + (size_t)chunk_len > file_size) break;
+                  if (chunk_id == 0x0110u && chunk_len >= 2u) {
+                      uint16_t cycles = (uint16_t)payload[0] | (uint16_t)((uint16_t)payload[1] << 8u);
+                      total_samples += (((uint64_t)cycles * (uint64_t)comp->signal_sample_rate) + 1200u) / 2400u;
+                  } else if (chunk_id == 0x0100u) {
+                      total_samples += ((uint64_t)chunk_len * 10u * (uint64_t)comp->signal_sample_rate + 600u) / 1200u;
+                  } else if (chunk_id == 0x0112u && chunk_len >= 2u) {
+                      uint16_t gap_ms = (uint16_t)payload[0] | (uint16_t)((uint16_t)payload[1] << 8u);
+                      total_samples += (((uint64_t)gap_ms * (uint64_t)comp->signal_sample_rate) + 500u) / 1000u;
+                  }
+                  pos += 6u + (size_t)chunk_len;
+              }
+          }
+          free(file_data);
+          if (comp->media_path != NULL) {
+              free(comp->media_path);
+              comp->media_path = NULL;
+          }
+          comp->media_path = strdup(path);
+          if (comp->media_path == NULL) return 0u;
+          comp->media_loaded = 1u;
+          comp->transport_mode = 0u;
+          comp->motor_on = 0u;
+          comp->playhead_samples = 0u;
+          comp->playhead_cycle_residue = 0u;
+          comp->last_cycle = cpu->total_cycles;
+          comp->playback_level = 128u;
+          comp->total_samples = total_samples;
+      }
+      return 1u;
+    unload_media: |
+      comp->media_loaded = 0u;
+      comp->transport_mode = 0u;
+      comp->motor_on = 0u;
+      comp->playhead_samples = 0u;
+      comp->playhead_cycle_residue = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->playback_level = 128u;
+      comp->total_samples = 0u;
+      if (comp->media_path != NULL) {
+          free(comp->media_path);
+          comp->media_path = NULL;
+      }
+      return 1u;
+    set_transport_mode: |
+      if (argc < 1u) return 0u;
+      comp->transport_mode = (uint8_t)(args[0] & 0xFFu);
+      if (comp->transport_mode == 1u && comp->media_loaded != 0u) comp->motor_on = 1u;
+      else if (comp->transport_mode == 0u) comp->motor_on = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      return 1u;
+    set_motor: |
+      if (argc < 1u) return 0u;
+      comp->motor_on = (uint8_t)(args[0] & 0x01u);
+      return 1u;
+    set_volume: |
+      if (argc < 1u) return 0u;
+      comp->volume_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      return 1u;
+    set_bass: |
+      if (argc < 1u) return 0u;
+      comp->bass_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      return 1u;
+    set_treble: |
+      if (argc < 1u) return 0u;
+      comp->treble_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      return 1u;
+    sample_input: |
+      uint64_t cycle = cpu->total_cycles;
+      if (argc > 1u) cycle = args[1];
+      if (comp->last_cycle == 0u) comp->last_cycle = cycle;
+      if (comp->media_loaded != 0u && comp->transport_mode == 1u && comp->motor_on != 0u && cycle > comp->last_cycle) {
+          uint64_t delta_cycles = cycle - comp->last_cycle;
+          uint64_t sample_residue = comp->playhead_cycle_residue + delta_cycles * (uint64_t)comp->signal_sample_rate;
+          uint64_t advanced = sample_residue / (uint64_t)CPU_SYSTEM_CLOCK_HZ;
+          comp->playhead_cycle_residue = sample_residue % (uint64_t)CPU_SYSTEM_CLOCK_HZ;
+          if (advanced != 0u) {
+              comp->playhead_samples += advanced;
+              if (comp->playhead_samples >= comp->total_samples) {
+                  comp->playhead_samples = comp->total_samples;
+                  comp->transport_mode = 0u;
+                  comp->motor_on = 0u;
+              }
+          }
+      }
+      comp->last_cycle = cycle;
+      comp->playback_level = 128u;
+      return 128u;
+    query_transport_state: |
+      {
+          uint64_t packed = (uint64_t)comp->transport_mode;
+          uint64_t elapsed_sec = (comp->signal_sample_rate != 0u) ? (comp->playhead_samples / (uint64_t)comp->signal_sample_rate) : 0u;
+          uint64_t total_sec = (comp->signal_sample_rate != 0u) ? (comp->total_samples / (uint64_t)comp->signal_sample_rate) : 0u;
+          if (comp->motor_on != 0u) packed |= (1ull << 8u);
+          if (comp->media_loaded != 0u) packed |= (1ull << 9u);
+          packed |= (elapsed_sec & 0xFFFFull) << 16u;
+          packed |= (total_sec & 0xFFFFull) << 32u;
+          packed |= ((uint64_t)comp->volume_percent & 0xFFull) << 48u;
+          return packed;
+      }
+    query_edge_count: |
+      return 0u;
+    query_edge_initial_level: |
+      return 0u;
+    query_edge_fp: |
+      (void)args;
+      (void)argc;
+      return 0u;
+    query_sample_rate: |
+      return (uint64_t)comp->signal_sample_rate;
+    query_playhead_samples: |
+      return comp->playhead_samples;
+    query_leader_start_sample: |
+      return 0u;
+    query_leader_start_index: |
+      return 0u;
+    query_leader_end_sample: |
+      return 0u;
+    query_leader_end_index: |
+      return 0u;
+    query_playback_level: |
+      return (uint64_t)comp->playback_level;
+    query_volume_percent: |
+      return (uint64_t)comp->volume_percent;
+    set_playhead_fp: |
+      if (argc < 1u) return 0u;
+      {
+          uint64_t fp = args[0];
+          comp->playhead_samples = fp >> 8u;
+          if (comp->playhead_samples > comp->total_samples) comp->playhead_samples = comp->total_samples;
+          comp->playhead_cycle_residue = 0u;
+          comp->last_cycle = cpu->total_cycles;
+      }
+      return 1u;
+    push_output_sample: |
+      (void)args;
+      (void)argc;
+      return 1u;
+  handler_bodies: {}
+
+coding:
+  headers:
+    - stdio.h
+    - stdlib.h
+    - string.h
+    - zlib.h
+  include_paths: []
+  linked_libraries:
+    - name: z
+  library_paths: []

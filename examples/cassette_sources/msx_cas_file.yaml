@@ -1,0 +1,12 @@
+metadata:
+  id: msx_cas_file
+  type: cassette_source
+  model: msx1_cas_file_source
+  version: "1.0"
+  title: MSX CAS Tape File
+
+source:
+  kind: file
+  label: MSX CAS Tape
+  source_component: cassette_msx_cas_source
+  allowed_extensions: [cas]

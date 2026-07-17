@@ -1,0 +1,12 @@
+metadata:
+  id: cas_file
+  type: cassette_source
+  model: common_cas_file_source
+  version: "1.0"
+  title: CAS Tape File
+
+source:
+  kind: file
+  label: CAS Tape
+  source_component: cassette_cas_source
+  allowed_extensions: [cas]

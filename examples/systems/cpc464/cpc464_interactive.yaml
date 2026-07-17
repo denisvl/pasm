@@ -54,7 +54,22 @@ components:
 cassette:
   component: cassette_transport
   directory: examples/cassettes/cpc464
-  allowed_extensions: [yaml, wav]
+  allowed_extensions: [yaml, wav, cdt]
+  sources:
+    - kind: file
+      source_type: ../../cassette_sources/wav_file.yaml
+      component: cassette_transport
+      label: Tape File
+      allowed_extensions: [yaml, wav]
+    - kind: file
+      source_type: ../../cassette_sources/cdt_file.yaml
+      component: cassette_transport
+      label: CDT Tape
+      allowed_extensions: [cdt]
+    - kind: line_in
+      source_type: ../../cassette_sources/line_in.yaml
+      component: cassette_transport
+      label: Line In
   controls:
     picker_action_id: EMU_CASSETTE_PICKER
     play_action_id: EMU_CASSETTE_PLAY

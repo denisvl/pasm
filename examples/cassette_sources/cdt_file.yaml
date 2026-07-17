@@ -1,0 +1,12 @@
+metadata:
+  id: cdt_file
+  type: cassette_source
+  model: common_cdt_file_source
+  version: "1.0"
+  title: CDT Tape File
+
+source:
+  kind: file
+  label: CDT Tape
+  source_component: cassette_cdt_source
+  allowed_extensions: [cdt]

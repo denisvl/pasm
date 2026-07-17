@@ -61,15 +61,35 @@ components:
   - video0
   - beeper
   - mic0
-  - cassette_transport
+  - cassette_transport_nomotor
   - tv
   hosts:
   - host0
-  cassette: cassette_transport
+  cassette: cassette_transport_nomotor
 cassette:
-  component: cassette_transport
+  component: cassette_transport_nomotor
   directory: examples/cassettes/zx_spectrum48k
-  allowed_extensions: [yaml, wav]
+  allowed_extensions: [yaml, wav, tap, tzx]
+  sources:
+    - kind: line_in
+      source_type: ../../cassette_sources/line_in.yaml
+      component: cassette_transport_nomotor
+      label: Line In
+    - kind: file
+      source_type: ../../cassette_sources/zx_wav_file.yaml
+      component: cassette_transport_nomotor
+      label: ZX WAV Tape
+      allowed_extensions: [yaml, wav]
+    - kind: file
+      source_type: ../../cassette_sources/zx_tap_file.yaml
+      component: cassette_transport_nomotor
+      label: ZX TAP Tape
+      allowed_extensions: [tap]
+    - kind: file
+      source_type: ../../cassette_sources/zx_tzx_file.yaml
+      component: cassette_transport_nomotor
+      label: ZX TZX Tape
+      allowed_extensions: [tzx]
   controls:
     picker_action_id: EMU_CASSETTE_PICKER
     play_action_id: EMU_CASSETTE_PLAY
@@ -120,7 +140,7 @@ connections:
     kind: callback
     name: sample_input
   to:
-    component: cassette_transport
+    component: cassette_transport_nomotor
     kind: callback
     name: sample_input
 - from:
@@ -160,7 +180,7 @@ connections:
     kind: signal
     name: tape_out
   to:
-    component: cassette_transport
+    component: cassette_transport_nomotor
     kind: handler
     name: on_output_sample
 - from:
@@ -196,7 +216,7 @@ connections:
     kind: handler
     name: on_audio_level
 - from:
-    component: cassette_transport
+    component: cassette_transport_nomotor
     kind: signal
     name: playback_sample
   to:

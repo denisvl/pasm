@@ -59,7 +59,7 @@ components:
   - video_bbc_micro
   - speaker
   - bbc_micro_cassette_adapter
-  - cassette_transport
+  - cassette_transport_nomotor
   - monitor
   hosts:
   - host_bbc_micro
@@ -67,7 +67,22 @@ components:
 cassette:
   component: bbc_micro_cassette_adapter
   directory: examples/cassettes/bbcmicro
-  allowed_extensions: [yaml, wav]
+  allowed_extensions: [yaml, wav, uef]
+  sources:
+    - kind: file
+      source_type: ../../cassette_sources/wav_file.yaml
+      component: bbc_micro_cassette_adapter
+      label: Tape File
+      allowed_extensions: [yaml, wav]
+    - kind: file
+      source_type: ../../cassette_sources/uef_file.yaml
+      component: bbc_micro_cassette_adapter
+      label: UEF Tape
+      allowed_extensions: [uef]
+    - kind: line_in
+      source_type: ../../cassette_sources/line_in.yaml
+      component: bbc_micro_cassette_adapter
+      label: Line In
   controls:
     picker_action_id: EMU_CASSETTE_PICKER
     play_action_id: EMU_CASSETTE_PLAY

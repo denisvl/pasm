@@ -188,6 +188,27 @@ def _iter_all_components(isa_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     return comps
 
 
+def _generate_component_coding_includes(components: List[Dict[str, Any]]) -> str:
+    headers: List[str] = []
+    seen: set[str] = set()
+    for comp in components:
+        coding = comp.get("coding", {})
+        if not isinstance(coding, dict):
+            continue
+        for header in coding.get("headers", []) or []:
+            h = str(header).strip()
+            if not h or h in seen:
+                continue
+            seen.add(h)
+            if h.startswith("<") or h.startswith('"'):
+                headers.append(f"#include {h}")
+            else:
+                headers.append(f"#include <{h}>")
+    if not headers:
+        return ""
+    return "\n".join(headers) + "\n\n"
+
+
 def _rewrite_memory_read_block(block: str) -> str:
     if not block.strip():
         return "    (void)cpu;\n    (void)addr;"
@@ -668,6 +689,8 @@ def generate_host_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
             + host_hal_impl
             + "\n"
             "extern uint8_t cpu_component_cartridge_picker_is_active(void);\n"
+            "extern uint8_t cpu_component_cartridge_picker_blocks_input(void);\n"
+            "extern uint8_t cpu_component_cassette_picker_blocks_input(void);\n"
             "extern void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus);\n"
             "extern void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
             "int cpu_component_host_picker_set_dir(const char *path) {\n"
@@ -675,7 +698,7 @@ def generate_host_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
             "    return 0;\n"
             "}\n\n"
             "uint8_t cpu_component_host_picker_is_active(void) {\n"
-            "    return (uint8_t)(cpu_component_cartridge_picker_is_active() != 0u || cpu_component_cassette_picker_is_active() != 0u);\n"
+            "    return (uint8_t)(cpu_component_cartridge_picker_blocks_input() != 0u || cpu_component_cassette_picker_blocks_input() != 0u);\n"
             "}\n\n"
             "void cpu_component_host_picker_step(CPUState *cpu, uint8_t has_focus) {\n"
             "    cpu_component_cartridge_picker_update(cpu, has_focus);\n"
@@ -819,6 +842,10 @@ def generate_system_interrupt_glue(isa_data: Dict[str, Any], cpu_name: str) -> s
 
 def generate_device_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
     """Generate split device/runtime ownership for non-CPU component glue."""
+    device_owned_components = [
+        comp for comp in _iter_all_components(isa_data)
+        if str((comp.get("metadata") or {}).get("type", "")).strip() != "ic"
+    ]
     component_runtime = generate_component_runtime_dispatch_glue(isa_data)
     component_lifecycle = generate_component_lifecycle_dispatch_glue(isa_data)
     component_dispatch = generate_component_dispatch_glue(isa_data, cpu_name)
@@ -845,10 +872,12 @@ def generate_device_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         )
         else ""
     )
+    component_includes = _generate_component_coding_includes(device_owned_components)
     return (
         "/* Auto-generated split unit: device/runtime ownership. */\n"
         f'#include "{cpu_name}.h"\n\n'
         + overlay_include
+        + component_includes
         + host_hal_support
         + "int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);\n"
         + "uint8_t cpu_component_cartridge_picker_is_active(void);\n"

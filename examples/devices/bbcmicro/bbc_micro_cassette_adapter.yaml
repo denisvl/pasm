@@ -11,6 +11,9 @@ state:
   - name: event_bytes
     type: uint8_t *
     initial: "NULL"
+  - name: event_flags
+    type: uint8_t *
+    initial: "NULL"
   - name: event_count
     type: uint32_t
     initial: "0"
@@ -23,14 +26,26 @@ state:
   - name: event_time_left
     type: int32_t
     initial: "0"
-  - name: fsk_line_state
+  - name: line_state
     type: uint8_t
     initial: "1"
+  - name: selected_source_model
+    type: char *
+    initial: "NULL"
+  - name: last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: carrier_run_bits
+    type: uint32_t
+    initial: "0"
 
 interfaces:
   callbacks:
     - name: load_media
       args: [ptr]
+      returns: u8
+    - name: select_source
+      args: [u8, u8, ptr]
       returns: u8
     - name: unload_media
       args: []
@@ -56,6 +71,12 @@ interfaces:
     - name: query_transport_state
       args: []
       returns: u64
+    - name: query_selected_source_kind
+      args: []
+      returns: u64
+    - name: query_selected_source_model
+      args: []
+      returns: u64
   handlers: []
   signals: []
 
@@ -66,7 +87,13 @@ behavior:
     reset: |
       comp->event_index = 0u;
       comp->event_time_left = 0;
-      comp->fsk_line_state = 1u;
+      comp->line_state = 1u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->carrier_run_bits = 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
     destroy: |
       if (comp->event_durations != NULL) {
           free(comp->event_durations);
@@ -76,14 +103,37 @@ behavior:
           free(comp->event_bytes);
           comp->event_bytes = NULL;
       }
+      if (comp->event_flags != NULL) {
+          free(comp->event_flags);
+          comp->event_flags = NULL;
+      }
       comp->event_count = 0u;
       comp->event_cap = 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
   callback_handlers:
+    select_source: |
+      const char *source_model = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : NULL;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (source_model != NULL && source_model[0] != '\0') {
+          comp->selected_source_model = strdup(source_model);
+          if (comp->selected_source_model == NULL) return 0u;
+      }
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "select_source", args, argc);
     load_media: |
-      uint8_t ok = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "load_media", args, argc);
+      uint8_t ok = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "load_media", args, argc);
+      static int tape_trace = -1;
+      static FILE *tape_trace_fp = NULL;
       comp->event_index = 0u;
       comp->event_time_left = 0;
-      comp->fsk_line_state = 1u;
+      comp->line_state = 1u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->carrier_run_bits = 0u;
       comp->event_count = 0u;
       if (comp->event_durations != NULL) {
           free(comp->event_durations);
@@ -93,11 +143,405 @@ behavior:
           free(comp->event_bytes);
           comp->event_bytes = NULL;
       }
+      if (comp->event_flags != NULL) {
+          free(comp->event_flags);
+          comp->event_flags = NULL;
+      }
       comp->event_cap = 0u;
+      if (tape_trace < 0) {
+          const char *e = getenv("PASM_BBC_TAPE_TRACE");
+          tape_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+          if (tape_trace != 0) {
+              const char *p = getenv("PASM_BBC_TAPE_TRACE_FILE");
+              if (p == NULL || p[0] == '\0') p = "/tmp/bbc_tape_trace.log";
+              tape_trace_fp = fopen(p, "a");
+              if (tape_trace_fp == NULL) tape_trace = 0;
+          }
+      }
       if (ok == 0u) return 0u;
+      if (
+          comp->selected_source_model != NULL &&
+          strcmp(comp->selected_source_model, "common_uef_file_source") == 0
+      ) {
+          const char *path = (argc > 0u && args[0] != 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+          FILE *fp = NULL;
+          uint8_t *file_data = NULL;
+          size_t file_size = 0u;
+          uint32_t bit_duration = (uint32_t)((((uint64_t)CPU_SYSTEM_CLOCK_HZ) + 600u) / 1200u);
+          if (path == NULL) return 0u;
+          fp = fopen(path, "rb");
+          if (fp == NULL) return 0u;
+          {
+              int b0 = fgetc(fp);
+              int b1 = fgetc(fp);
+              fclose(fp);
+              fp = NULL;
+              if (b0 == 0x1F && b1 == 0x8B) {
+                  gzFile gz = gzopen(path, "rb");
+                  if (gz == NULL) return 0u;
+                  {
+                      size_t cap = 65536u;
+                      int rd = 0;
+                      file_data = (uint8_t *)malloc(cap);
+                      if (file_data == NULL) {
+                          gzclose(gz);
+                          return 0u;
+                      }
+                      while ((rd = gzread(gz, file_data + file_size, (unsigned int)(cap - file_size))) > 0) {
+                          file_size += (size_t)rd;
+                          if (cap - file_size < 4096u) {
+                              size_t new_cap = cap * 2u;
+                              uint8_t *new_data = (uint8_t *)realloc(file_data, new_cap);
+                              if (new_data == NULL) {
+                                  free(file_data);
+                                  gzclose(gz);
+                                  return 0u;
+                              }
+                              file_data = new_data;
+                              cap = new_cap;
+                          }
+                      }
+                  }
+                  gzclose(gz);
+              } else {
+                  long len;
+                  fp = fopen(path, "rb");
+                  if (fp == NULL) return 0u;
+                  if (fseek(fp, 0L, SEEK_END) != 0) {
+                      fclose(fp);
+                      return 0u;
+                  }
+                  len = ftell(fp);
+                  if (len <= 0) {
+                      fclose(fp);
+                      return 0u;
+                  }
+                  rewind(fp);
+                  file_size = (size_t)len;
+                  file_data = (uint8_t *)malloc(file_size);
+                  if (file_data == NULL) {
+                      fclose(fp);
+                      return 0u;
+                  }
+                  if (fread(file_data, 1, file_size, fp) != file_size) {
+                      free(file_data);
+                      fclose(fp);
+                      return 0u;
+                  }
+                  fclose(fp);
+              }
+          }
+          if (file_size < 12u || memcmp(file_data, "UEF File!\0", 10u) != 0) {
+              free(file_data);
+              return 0u;
+          }
+          {
+              size_t pos = 12u;
+              while (pos + 6u <= file_size) {
+                  uint16_t chunk_id = (uint16_t)file_data[pos] | (uint16_t)((uint16_t)file_data[pos + 1u] << 8u);
+                  uint32_t chunk_len =
+                      (uint32_t)file_data[pos + 2u] |
+                      ((uint32_t)file_data[pos + 3u] << 8u) |
+                      ((uint32_t)file_data[pos + 4u] << 16u) |
+                      ((uint32_t)file_data[pos + 5u] << 24u);
+                  const uint8_t *payload = file_data + pos + 6u;
+                  if (pos + 6u + (size_t)chunk_len > file_size) break;
+                  if (chunk_id == 0x0110u && chunk_len >= 2u) {
+                      uint16_t cycles = (uint16_t)payload[0] | (uint16_t)((uint16_t)payload[1] << 8u);
+                      uint32_t bit_count = (uint32_t)(cycles >> 1u);
+                      if (bit_count > 0u) {
+                          uint32_t needed = comp->event_count + bit_count;
+                          if (needed > comp->event_cap) {
+                              uint32_t new_cap = (comp->event_cap == 0u) ? 256u : comp->event_cap;
+                              while (new_cap < needed) new_cap *= 2u;
+                              {
+                                  uint32_t *new_durations = (uint32_t *)realloc(comp->event_durations, (size_t)new_cap * sizeof(uint32_t));
+                                  uint8_t *new_bytes = (uint8_t *)realloc(comp->event_bytes, (size_t)new_cap * sizeof(uint8_t));
+                                  uint8_t *new_flags = (uint8_t *)realloc(comp->event_flags, (size_t)new_cap * sizeof(uint8_t));
+                                  if (new_durations == NULL || new_bytes == NULL || new_flags == NULL) {
+                                      free(new_durations);
+                                      free(new_bytes);
+                                      free(new_flags);
+                                      free(file_data);
+                                      return 0u;
+                                  }
+                                  comp->event_durations = new_durations;
+                                  comp->event_bytes = new_bytes;
+                                  comp->event_flags = new_flags;
+                                  comp->event_cap = new_cap;
+                              }
+                          }
+                          for (uint32_t i = 0u; i < bit_count; ++i) {
+                              comp->event_durations[comp->event_count] = bit_duration;
+                              comp->event_bytes[comp->event_count] = 1u;
+                              comp->event_flags[comp->event_count] = 0x04u;
+                              comp->event_count += 1u;
+                          }
+                      }
+                  } else if (chunk_id == 0x0111u && chunk_len >= 4u) {
+                      uint16_t cycles1 = (uint16_t)payload[0] | (uint16_t)((uint16_t)payload[1] << 8u);
+                      uint16_t cycles2 = (uint16_t)payload[2] | (uint16_t)((uint16_t)payload[3] << 8u);
+                      uint32_t bit_count1 = (uint32_t)(cycles1 >> 1u);
+                      uint32_t bit_count2 = (uint32_t)(cycles2 >> 1u);
+                      uint32_t needed = comp->event_count + bit_count1 + 10u + bit_count2;
+                      if (needed > comp->event_cap) {
+                          uint32_t new_cap = (comp->event_cap == 0u) ? 256u : comp->event_cap;
+                          while (new_cap < needed) new_cap *= 2u;
+                          {
+                              uint32_t *new_durations = (uint32_t *)realloc(comp->event_durations, (size_t)new_cap * sizeof(uint32_t));
+                              uint8_t *new_bytes = (uint8_t *)realloc(comp->event_bytes, (size_t)new_cap * sizeof(uint8_t));
+                              uint8_t *new_flags = (uint8_t *)realloc(comp->event_flags, (size_t)new_cap * sizeof(uint8_t));
+                              if (new_durations == NULL || new_bytes == NULL || new_flags == NULL) {
+                                  free(new_durations);
+                                  free(new_bytes);
+                                  free(new_flags);
+                                  free(file_data);
+                                  return 0u;
+                              }
+                              comp->event_durations = new_durations;
+                              comp->event_bytes = new_bytes;
+                              comp->event_flags = new_flags;
+                              comp->event_cap = new_cap;
+                          }
+                      }
+                      for (uint32_t i = 0u; i < bit_count1; ++i) {
+                          comp->event_durations[comp->event_count] = bit_duration;
+                          comp->event_bytes[comp->event_count] = 1u;
+                          comp->event_flags[comp->event_count] = 0x04u;
+                          comp->event_count += 1u;
+                      }
+                      comp->event_durations[comp->event_count] = bit_duration;
+                      comp->event_bytes[comp->event_count] = 0u;
+                      comp->event_flags[comp->event_count] = 0x04u;
+                      comp->event_count += 1u;
+                      for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                          comp->event_durations[comp->event_count] = bit_duration;
+                          comp->event_bytes[comp->event_count] = (uint8_t)((0xAAu >> bit) & 0x01u);
+                          comp->event_flags[comp->event_count] = 0x04u;
+                          comp->event_count += 1u;
+                      }
+                      comp->event_durations[comp->event_count] = bit_duration;
+                      comp->event_bytes[comp->event_count] = 1u;
+                      comp->event_flags[comp->event_count] = 0x04u;
+                      comp->event_count += 1u;
+                      for (uint32_t i = 0u; i < bit_count2; ++i) {
+                          comp->event_durations[comp->event_count] = bit_duration;
+                          comp->event_bytes[comp->event_count] = 1u;
+                          comp->event_flags[comp->event_count] = 0x04u;
+                          comp->event_count += 1u;
+                      }
+                  } else if (chunk_id == 0x0112u && chunk_len >= 2u) {
+                      uint16_t gap_units = (uint16_t)payload[0] | (uint16_t)((uint16_t)payload[1] << 8u);
+                      uint32_t bit_count = (uint32_t)(gap_units >> 1u);
+                      if (bit_count > 0u) {
+                          uint32_t needed = comp->event_count + bit_count;
+                          if (needed > comp->event_cap) {
+                              uint32_t new_cap = (comp->event_cap == 0u) ? 256u : comp->event_cap;
+                              while (new_cap < needed) new_cap *= 2u;
+                              {
+                                  uint32_t *new_durations = (uint32_t *)realloc(comp->event_durations, (size_t)new_cap * sizeof(uint32_t));
+                                  uint8_t *new_bytes = (uint8_t *)realloc(comp->event_bytes, (size_t)new_cap * sizeof(uint8_t));
+                                  uint8_t *new_flags = (uint8_t *)realloc(comp->event_flags, (size_t)new_cap * sizeof(uint8_t));
+                                  if (new_durations == NULL || new_bytes == NULL || new_flags == NULL) {
+                                      free(new_durations);
+                                      free(new_bytes);
+                                      free(new_flags);
+                                      free(file_data);
+                                      return 0u;
+                                  }
+                                  comp->event_durations = new_durations;
+                                  comp->event_bytes = new_bytes;
+                                  comp->event_flags = new_flags;
+                                  comp->event_cap = new_cap;
+                              }
+                          }
+                          for (uint32_t i = 0u; i < bit_count; ++i) {
+                              comp->event_durations[comp->event_count] = bit_duration;
+                              comp->event_bytes[comp->event_count] = 2u;
+                              comp->event_flags[comp->event_count] = 0x04u;
+                              comp->event_count += 1u;
+                          }
+                      }
+                  } else if (chunk_id == 0x0100u && chunk_len > 0u) {
+                      uint32_t needed = comp->event_count + (chunk_len * 10u);
+                      if (needed > comp->event_cap) {
+                          uint32_t new_cap = (comp->event_cap == 0u) ? 256u : comp->event_cap;
+                          while (new_cap < needed) new_cap *= 2u;
+                          {
+                              uint32_t *new_durations = (uint32_t *)realloc(comp->event_durations, (size_t)new_cap * sizeof(uint32_t));
+                              uint8_t *new_bytes = (uint8_t *)realloc(comp->event_bytes, (size_t)new_cap * sizeof(uint8_t));
+                              uint8_t *new_flags = (uint8_t *)realloc(comp->event_flags, (size_t)new_cap * sizeof(uint8_t));
+                              if (new_durations == NULL || new_bytes == NULL || new_flags == NULL) {
+                                  free(new_durations);
+                                  free(new_bytes);
+                                  free(new_flags);
+                                  free(file_data);
+                                  return 0u;
+                              }
+                              comp->event_durations = new_durations;
+                              comp->event_bytes = new_bytes;
+                              comp->event_flags = new_flags;
+                              comp->event_cap = new_cap;
+                          }
+                      }
+                      for (uint32_t i = 0u; i < chunk_len; ++i) {
+                          uint8_t byte = payload[i];
+                          comp->event_durations[comp->event_count] = bit_duration;
+                          comp->event_bytes[comp->event_count] = 0u;
+                          comp->event_flags[comp->event_count] = 0x04u;
+                          comp->event_count += 1u;
+                          for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                              comp->event_durations[comp->event_count] = bit_duration;
+                              comp->event_bytes[comp->event_count] = (uint8_t)((byte >> bit) & 0x01u);
+                              comp->event_flags[comp->event_count] = 0x04u;
+                              comp->event_count += 1u;
+                          }
+                          comp->event_durations[comp->event_count] = bit_duration;
+                          comp->event_bytes[comp->event_count] = 1u;
+                          comp->event_flags[comp->event_count] = 0x04u;
+                          comp->event_count += 1u;
+                      }
+                  } else if (chunk_id == 0x0104u && chunk_len >= 3u) {
+                      uint32_t data_bits = (uint32_t)payload[0];
+                      uint8_t parity_mode = payload[1];
+                      uint32_t stop_bits = (uint32_t)payload[2];
+                      uint8_t invert_parity = 1u;
+                      if (data_bits != 7u && data_bits != 8u) {
+                          pos += 6u + (size_t)chunk_len;
+                          continue;
+                      }
+                      if (stop_bits != 1u && stop_bits != 2u) {
+                          pos += 6u + (size_t)chunk_len;
+                          continue;
+                      }
+                      {
+                          uint32_t parity_bits = ((parity_mode == (uint8_t)'E') || (parity_mode == (uint8_t)'O')) ? 1u : 0u;
+                          uint32_t frame_bits = 1u + data_bits + parity_bits + stop_bits;
+                          uint32_t byte_count = chunk_len - 3u;
+                          uint32_t needed = comp->event_count + (byte_count * frame_bits);
+                          if (needed > comp->event_cap) {
+                              uint32_t new_cap = (comp->event_cap == 0u) ? 256u : comp->event_cap;
+                              while (new_cap < needed) new_cap *= 2u;
+                              {
+                                  uint32_t *new_durations = (uint32_t *)realloc(comp->event_durations, (size_t)new_cap * sizeof(uint32_t));
+                                  uint8_t *new_bytes = (uint8_t *)realloc(comp->event_bytes, (size_t)new_cap * sizeof(uint8_t));
+                                  uint8_t *new_flags = (uint8_t *)realloc(comp->event_flags, (size_t)new_cap * sizeof(uint8_t));
+                                  if (new_durations == NULL || new_bytes == NULL || new_flags == NULL) {
+                                      free(new_durations);
+                                      free(new_bytes);
+                                      free(new_flags);
+                                      free(file_data);
+                                      return 0u;
+                                  }
+                                  comp->event_durations = new_durations;
+                                  comp->event_bytes = new_bytes;
+                                  comp->event_flags = new_flags;
+                                  comp->event_cap = new_cap;
+                              }
+                          }
+                          for (uint32_t i = 3u; i < chunk_len; ++i) {
+                              uint8_t byte = payload[i];
+                              uint8_t parity = 0u;
+                              comp->event_durations[comp->event_count] = bit_duration;
+                              comp->event_bytes[comp->event_count] = 0u;
+                              comp->event_flags[comp->event_count] = 0x04u;
+                              comp->event_count += 1u;
+                              for (uint32_t bit = 0u; bit < data_bits; ++bit) {
+                                  uint8_t out = (uint8_t)((byte >> bit) & 0x01u);
+                                  comp->event_durations[comp->event_count] = bit_duration;
+                                  comp->event_bytes[comp->event_count] = out;
+                                  comp->event_flags[comp->event_count] = 0x04u;
+                                  comp->event_count += 1u;
+                                  if (out != 0u) parity ^= 1u;
+                              }
+                              if (parity_mode == (uint8_t)'E' || parity_mode == (uint8_t)'O') {
+                                  uint8_t parity_out = parity;
+                                  if (parity_mode == (uint8_t)'O') parity_out ^= 1u;
+                                  if (invert_parity != 0u) parity_out ^= 1u;
+                                  comp->event_durations[comp->event_count] = bit_duration;
+                                  comp->event_bytes[comp->event_count] = parity_out;
+                                  comp->event_flags[comp->event_count] = 0x04u;
+                                  comp->event_count += 1u;
+                              }
+                              for (uint32_t bit = 0u; bit < stop_bits; ++bit) {
+                                  comp->event_durations[comp->event_count] = bit_duration;
+                                  comp->event_bytes[comp->event_count] = 1u;
+                                  comp->event_flags[comp->event_count] = 0x04u;
+                                  comp->event_count += 1u;
+                              }
+                          }
+                      }
+                  }
+                  pos += 6u + (size_t)chunk_len;
+              }
+          }
+          {
+              /* Give the BBC loader a little breathing room after the last
+               * parsed block. Some tapes expect a small amount of trailing
+               * carrier / silence before the transport fully runs dry.
+               */
+              uint32_t post_carrier_bits = 32u;
+              uint32_t post_silence_bits = 128u;
+              uint32_t needed = comp->event_count + post_carrier_bits + post_silence_bits;
+              if (needed > comp->event_cap) {
+                  uint32_t new_cap = (comp->event_cap == 0u) ? 256u : comp->event_cap;
+                  while (new_cap < needed) new_cap *= 2u;
+                  {
+                      uint32_t *new_durations = (uint32_t *)realloc(comp->event_durations, (size_t)new_cap * sizeof(uint32_t));
+                      uint8_t *new_bytes = (uint8_t *)realloc(comp->event_bytes, (size_t)new_cap * sizeof(uint8_t));
+                      uint8_t *new_flags = (uint8_t *)realloc(comp->event_flags, (size_t)new_cap * sizeof(uint8_t));
+                      if (new_durations == NULL || new_bytes == NULL || new_flags == NULL) {
+                          free(new_durations);
+                          free(new_bytes);
+                          free(new_flags);
+                          free(file_data);
+                          return 0u;
+                      }
+                      comp->event_durations = new_durations;
+                      comp->event_bytes = new_bytes;
+                      comp->event_flags = new_flags;
+                      comp->event_cap = new_cap;
+                  }
+              }
+              for (uint32_t i = 0u; i < post_carrier_bits; ++i) {
+                  comp->event_durations[comp->event_count] = bit_duration;
+                  comp->event_bytes[comp->event_count] = 1u;
+                  comp->event_flags[comp->event_count] = 0x04u;
+                  comp->event_count += 1u;
+              }
+              for (uint32_t i = 0u; i < post_silence_bits; ++i) {
+                  comp->event_durations[comp->event_count] = bit_duration;
+                  comp->event_bytes[comp->event_count] = 2u;
+                  comp->event_flags[comp->event_count] = 0x04u;
+                  comp->event_count += 1u;
+              }
+          }
+          if (tape_trace != 0 && tape_trace_fp != NULL) {
+              uint32_t byte_events = 0u;
+              uint32_t carrier_events = 0u;
+              uint32_t gap_events = 0u;
+              for (uint32_t i = 0u; i < comp->event_count; ++i) {
+                  if ((comp->event_flags[i] & 0x04u) != 0u) {
+                      if (comp->event_bytes[i] == 1u) carrier_events += 1u;
+                      else if (comp->event_bytes[i] == 2u) gap_events += 1u;
+                      else byte_events += 1u;
+                  } else if ((comp->event_flags[i] & 0x02u) != 0u) carrier_events += 1u;
+                  else gap_events += 1u;
+              }
+              fprintf(tape_trace_fp, "adapter_load_uef,%llu,%u,%u,%u,%u\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)comp->event_count,
+                      (unsigned)byte_events,
+                      (unsigned)carrier_events,
+                      (unsigned)gap_events);
+              fflush(tape_trace_fp);
+          }
+          free(file_data);
+          return 1u;
+      }
       {
-          uint32_t edge_count = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){0u, 0u}, 2);
-          uint32_t sample_rate = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){1u, 0u}, 2);
+          uint32_t edge_count = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_count", NULL, 0);
+          uint32_t sample_rate = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_sample_rate", NULL, 0);
           if (edge_count > 2u && sample_rate != 0u) {
               uint32_t samples_per_bit = (sample_rate + 600u) / 1200u;
               uint32_t short_peak = (sample_rate + 1600u) / 3200u;
@@ -112,8 +556,8 @@ behavior:
                       uint8_t byte_value = 0u;
                       uint8_t valid = 1u;
                       while (edge_idx < edge_count) {
-                          uint32_t prev_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx - 1u}, 2);
-                          uint32_t curr_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx}, 2);
+                          uint32_t prev_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ edge_idx - 1u }, 1);
+                          uint32_t curr_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ edge_idx }, 1);
                           uint32_t delta_samples = (curr_fp - prev_fp + 128u) >> 8u;
                           uint32_t units = (delta_samples <= ((short_peak + long_peak) / 2u)) ? 1u : 2u;
                           if (units == 1u) {
@@ -125,8 +569,8 @@ behavior:
                               uint32_t start_units = 2u;
                               uint32_t probe = edge_idx + 1u;
                               while (probe < edge_count) {
-                                  uint32_t prev2_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, probe - 1u}, 2);
-                                  uint32_t curr2_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, probe}, 2);
+                                  uint32_t prev2_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ probe - 1u }, 1);
+                                  uint32_t curr2_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ probe }, 1);
                                   uint32_t d2 = (curr2_fp - prev2_fp + 128u) >> 8u;
                                   uint32_t u2 = (d2 <= ((short_peak + long_peak) / 2u)) ? 1u : 2u;
                                   if (u2 != 2u) break;
@@ -149,8 +593,8 @@ behavior:
                           uint32_t short_units = 0u;
                           uint32_t long_units = 0u;
                           while (edge_idx < edge_count && accum_units < bit_units) {
-                              uint32_t prev_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx - 1u}, 2);
-                              uint32_t curr_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx}, 2);
+                              uint32_t prev_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ edge_idx - 1u }, 1);
+                              uint32_t curr_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ edge_idx }, 1);
                               uint32_t delta_samples = (curr_fp - prev_fp + 128u) >> 8u;
                               uint32_t units = (delta_samples <= ((short_peak + long_peak) / 2u)) ? 1u : 2u;
                               accum_units += units;
@@ -171,8 +615,8 @@ behavior:
                           uint32_t short_units = 0u;
                           uint32_t long_units = 0u;
                           while (edge_idx < edge_count && accum_units < bit_units) {
-                              uint32_t prev_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx - 1u}, 2);
-                              uint32_t curr_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, edge_idx}, 2);
+                              uint32_t prev_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ edge_idx - 1u }, 1);
+                              uint32_t curr_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ edge_idx }, 1);
                               uint32_t delta_samples = (curr_fp - prev_fp + 128u) >> 8u;
                               uint32_t units = (delta_samples <= ((short_peak + long_peak) / 2u)) ? 1u : 2u;
                               accum_units += units;
@@ -189,18 +633,22 @@ behavior:
                               uint32_t new_cap = (comp->event_cap == 0u) ? 256u : (comp->event_cap * 2u);
                               uint32_t *new_durations = (uint32_t *)realloc(comp->event_durations, (size_t)new_cap * sizeof(uint32_t));
                               uint8_t *new_bytes = (uint8_t *)realloc(comp->event_bytes, (size_t)new_cap * sizeof(uint8_t));
-                              if (new_durations == NULL || new_bytes == NULL) {
+                              uint8_t *new_flags = (uint8_t *)realloc(comp->event_flags, (size_t)new_cap * sizeof(uint8_t));
+                              if (new_durations == NULL || new_bytes == NULL || new_flags == NULL) {
                                   free(new_durations);
                                   free(new_bytes);
+                                  free(new_flags);
                                   break;
                               }
                               comp->event_durations = new_durations;
                               comp->event_bytes = new_bytes;
+                              comp->event_flags = new_flags;
                               comp->event_cap = new_cap;
                           }
                           comp->event_durations[comp->event_count] =
                               (uint32_t)(((9u * (uint64_t)CPU_SYSTEM_CLOCK_HZ) + 600u) / 1200u);
                           comp->event_bytes[comp->event_count] = byte_value;
+                          comp->event_flags[comp->event_count] = 0x03u;
                           comp->event_count += 1u;
                       } else {
                           edge_idx = start_idx + 1u;
@@ -209,11 +657,30 @@ behavior:
               }
           }
       }
+      if (tape_trace != 0 && tape_trace_fp != NULL) {
+          uint32_t byte_events = 0u;
+          uint32_t carrier_events = 0u;
+          uint32_t gap_events = 0u;
+          for (uint32_t i = 0u; i < comp->event_count; ++i) {
+              if ((comp->event_flags[i] & 0x01u) != 0u) byte_events += 1u;
+              else if ((comp->event_flags[i] & 0x02u) != 0u) carrier_events += 1u;
+              else gap_events += 1u;
+          }
+          fprintf(tape_trace_fp, "adapter_load_wav,%llu,%u,%u,%u,%u\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)comp->event_count,
+                  (unsigned)byte_events,
+                  (unsigned)carrier_events,
+                  (unsigned)gap_events);
+          fflush(tape_trace_fp);
+      }
       return ok;
     unload_media: |
       comp->event_index = 0u;
       comp->event_time_left = 0;
-      comp->fsk_line_state = 1u;
+      comp->line_state = 1u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->carrier_run_bits = 0u;
       comp->event_count = 0u;
       if (comp->event_durations != NULL) {
           free(comp->event_durations);
@@ -223,73 +690,206 @@ behavior:
           free(comp->event_bytes);
           comp->event_bytes = NULL;
       }
+      if (comp->event_flags != NULL) {
+          free(comp->event_flags);
+          comp->event_flags = NULL;
+      }
       comp->event_cap = 0u;
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "unload_media", args, argc);
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "unload_media", args, argc);
     set_transport_mode: |
-      if (argc > 0u && (uint8_t)(args[0] & 0xFFu) != 1u) {
-          comp->event_index = 0u;
-          comp->event_time_left = 0;
-          comp->fsk_line_state = 1u;
+      {
+          static int tape_trace = -1;
+          static FILE *tape_trace_fp = NULL;
+          static uint32_t tape_trace_count = 0u;
+          if (tape_trace < 0) {
+              const char *e = getenv("PASM_BBC_TAPE_TRACE");
+              tape_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+              if (tape_trace != 0) {
+                  const char *p = getenv("PASM_BBC_TAPE_TRACE_FILE");
+                  if (p == NULL || p[0] == '\0') p = "/tmp/bbc_tape_trace.log";
+                  tape_trace_fp = fopen(p, "a");
+                  if (tape_trace_fp == NULL) tape_trace = 0;
+              }
+          }
+          if (tape_trace != 0 && tape_trace_fp != NULL) {
+              fprintf(tape_trace_fp, "adapter_set_transport,%llu,%u\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)((argc > 0u) ? (args[0] & 0xFFu) : 0u));
+              fflush(tape_trace_fp);
+              tape_trace_count += 1u;
+          }
       }
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_transport_mode", args, argc);
+      comp->last_cycle = cpu->total_cycles;
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_transport_mode", args, argc);
     set_motor: |
-      if (argc > 0u && (uint8_t)(args[0] & 0x01u) == 0u) {
-          comp->event_index = 0u;
-          comp->event_time_left = 0;
-          comp->fsk_line_state = 1u;
-      }
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_motor", args, argc);
+      comp->last_cycle = cpu->total_cycles;
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_motor", args, argc);
     set_volume: |
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_volume", args, argc);
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_volume", args, argc);
     set_bass: |
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_bass", args, argc);
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_bass", args, argc);
     set_treble: |
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_treble", args, argc);
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_treble", args, argc);
     sample_input: |
+      uint64_t cycle = (argc > 1u) ? args[1] : cpu->total_cycles;
+      uint64_t delta_cycles = (cycle > comp->last_cycle) ? (cycle - comp->last_cycle) : 0u;
+      uint8_t dcd_pulse = 0u;
+      static int tape_trace = -1;
+      static FILE *tape_trace_fp = NULL;
+      static uint32_t tape_trace_count = 0u;
+      if (tape_trace < 0) {
+          const char *e = getenv("PASM_BBC_TAPE_TRACE");
+          tape_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+          if (tape_trace != 0) {
+              const char *p = getenv("PASM_BBC_TAPE_TRACE_FILE");
+              if (p == NULL || p[0] == '\0') p = "/tmp/bbc_tape_trace.log";
+              tape_trace_fp = fopen(p, "a");
+              if (tape_trace_fp != NULL) {
+                  fprintf(tape_trace_fp, "# bbc adapter trace\n");
+                  fflush(tape_trace_fp);
+              } else {
+                  tape_trace = 0;
+              }
+          }
+      }
+      comp->last_cycle = cycle;
       if (argc > 1u) {
-          (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "sample_input", args, argc);
+          (void)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "sample_input", args, argc);
       } else {
-          (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "sample_input", (uint64_t[]){0u, cpu->total_cycles}, 2);
+          (void)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "sample_input", (uint64_t[]){0u, cpu->total_cycles}, 2);
       }
-      if ((cpu_component_dispatch_callback(cpu, "cassette_transport", "query_transport_state", NULL, 0) & (1ull << 9u)) == 0u) {
-          comp->fsk_line_state = 1u;
-          comp->event_index = 0u;
-          comp->event_time_left = 0;
-          return (1ull << 16u);
+      {
+          uint64_t ts = cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_transport_state", NULL, 0);
+          if ((ts & (1ull << 9u)) == 0u) {
+              if (tape_trace != 0 && tape_trace_fp != NULL && comp->event_count > 0u) {
+                  fprintf(tape_trace_fp, "adapter_idle,%llu,%u,%u,%d,%llu\n",
+                          (unsigned long long)cycle,
+                          (unsigned)comp->event_index,
+                          (unsigned)comp->event_count,
+                          (int)comp->event_time_left,
+                          (unsigned long long)ts);
+                  fflush(tape_trace_fp);
+                  tape_trace_count += 1u;
+              }
+              comp->line_state = 2u;
+              return 0u;
+          }
+          if ((ts & (1ull << 8u)) == 0u) {
+              if (tape_trace != 0 && tape_trace_fp != NULL && comp->event_count > 0u) {
+                  fprintf(tape_trace_fp, "adapter_stop,%llu,%u,%u,%d,%llu\n",
+                          (unsigned long long)cycle,
+                          (unsigned)comp->event_index,
+                          (unsigned)comp->event_count,
+                          (int)comp->event_time_left,
+                          (unsigned long long)ts);
+                  fflush(tape_trace_fp);
+                  tape_trace_count += 1u;
+              }
+              comp->line_state = 2u;
+              return 0u;
+          }
       }
-      if ((cpu_component_dispatch_callback(cpu, "cassette_transport", "query_transport_state", NULL, 0) & (1ull << 8u)) == 0u) {
-          comp->fsk_line_state = 1u;
-          comp->event_index = 0u;
-          comp->event_time_left = 0;
-          return (1ull << 16u);
-      }
-      comp->fsk_line_state = (comp->event_index < comp->event_count) ? 1u : 0u;
+      comp->line_state = (comp->event_index < comp->event_count)
+          ? comp->event_bytes[comp->event_index]
+          : 2u;
       if (comp->event_count > 0u) {
           int loaded = 0;
-          uint8_t loaded_byte = 0xFFu;
+          uint8_t loaded_bit = 2u;
           if (comp->event_index < comp->event_count && comp->event_time_left <= 0) {
               comp->event_time_left = (int32_t)comp->event_durations[comp->event_index];
           }
-          comp->event_time_left -= 114;
+          if (comp->event_index < comp->event_count) {
+              comp->line_state = comp->event_bytes[comp->event_index];
+          }
+          if (delta_cycles > 0x7FFFFFFFu) delta_cycles = 0x7FFFFFFFu;
+          comp->event_time_left -= (int32_t)delta_cycles;
           while (comp->event_index < comp->event_count && comp->event_time_left <= 0) {
-              loaded = 1;
-              loaded_byte = comp->event_bytes[comp->event_index];
+              int32_t overshoot = comp->event_time_left;
+              uint32_t old_index = comp->event_index;
+              uint8_t old_flags = comp->event_flags[comp->event_index];
+              uint8_t old_value = comp->event_bytes[comp->event_index];
+              if ((old_flags & 0x04u) != 0u) {
+                  loaded = 1;
+                  loaded_bit = old_value;
+                  if (old_value == 1u) {
+                      comp->carrier_run_bits += 1u;
+                      if (comp->carrier_run_bits == 240u) dcd_pulse = 1u;
+                  } else {
+                      comp->carrier_run_bits = 0u;
+                  }
+              }
               comp->event_index += 1u;
+              if (tape_trace != 0 && tape_trace_fp != NULL) {
+                  fprintf(tape_trace_fp, "adapter_event,%llu,%u,%02X,%02X,%d,%d,%u\n",
+                          (unsigned long long)cycle,
+                          (unsigned)old_index,
+                          (unsigned)old_flags,
+                          (unsigned)old_value,
+                          (int)overshoot,
+                          (int)delta_cycles,
+                          (unsigned)comp->event_index);
+                  fflush(tape_trace_fp);
+                  tape_trace_count += 1u;
+              }
               if (comp->event_index >= comp->event_count) {
                   comp->event_time_left = 0;
-                  comp->fsk_line_state = 0u;
+                  comp->line_state = 2u;
+                  if (tape_trace != 0 && tape_trace_fp != NULL) {
+                      fprintf(tape_trace_fp, "adapter_eof,%llu,%u,%u\n",
+                              (unsigned long long)cycle,
+                              (unsigned)old_index,
+                              (unsigned)comp->event_count);
+                      fflush(tape_trace_fp);
+                      tape_trace_count += 1u;
+                  }
                   break;
               }
-              comp->event_time_left += (int32_t)comp->event_durations[comp->event_index];
-              comp->fsk_line_state = 1u;
+              comp->event_time_left = (int32_t)comp->event_durations[comp->event_index] + overshoot;
+              comp->line_state = comp->event_bytes[comp->event_index];
+              if (loaded != 0) break;
           }
           if (loaded != 0) {
-              return 1ull | ((uint64_t)loaded_byte << 8u) | ((uint64_t)(comp->fsk_line_state != 0u) << 16u);
+              if (tape_trace != 0 && tape_trace_fp != NULL && comp->event_index < comp->event_count) {
+                  if (comp->event_time_left > 200000u) {
+                      uint32_t limit = comp->event_index + 6u;
+                      if (limit > comp->event_count) limit = comp->event_count;
+                      fprintf(tape_trace_fp, "adapter_long_wait,%llu,%u,%d\n",
+                              (unsigned long long)cycle,
+                              (unsigned)comp->event_index,
+                              (int)comp->event_time_left);
+                      for (uint32_t i = comp->event_index; i < limit; ++i) {
+                          fprintf(tape_trace_fp, "adapter_peek,%u,%02X,%02X,%u\n",
+                                  (unsigned)i,
+                                  (unsigned)comp->event_flags[i],
+                                  (unsigned)comp->event_bytes[i],
+                                  (unsigned)comp->event_durations[i]);
+                      }
+                      fflush(tape_trace_fp);
+                  }
+              }
+              if (tape_trace != 0 && tape_trace_fp != NULL) {
+                  fprintf(tape_trace_fp, "adapter_bit,%llu,%02X,%u,%d,%u\n",
+                          (unsigned long long)cycle,
+                          (unsigned)loaded_bit,
+                          (unsigned)comp->event_index,
+                          (int)comp->event_time_left,
+                          (unsigned)comp->line_state);
+                  fflush(tape_trace_fp);
+                  tape_trace_count += 1u;
+              }
+              return (((uint64_t)(loaded_bit != 2u ? 1u : 0u)) << 0u) |
+                     ((uint64_t)(loaded_bit & 0xFFu) << 8u) |
+                     ((uint64_t)(comp->line_state == 1u) << 16u) |
+                     ((uint64_t)dcd_pulse << 17u);
           }
       }
-      return ((uint64_t)(comp->fsk_line_state != 0u) << 16u);
+      return ((uint64_t)(comp->line_state == 1u) << 16u) | ((uint64_t)dcd_pulse << 17u);
     query_transport_state: |
-      return cpu_component_dispatch_callback(cpu, "cassette_transport", "query_transport_state", args, argc);
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_transport_state", args, argc);
+    query_selected_source_kind: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_selected_source_kind", args, argc);
+    query_selected_source_model: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_selected_source_model", args, argc);
   handler_bodies: {}
 
 coding:
@@ -297,6 +897,8 @@ coding:
     - stdio.h
     - stdlib.h
     - string.h
+    - zlib.h
   include_paths: []
-  linked_libraries: []
+  linked_libraries:
+    - name: z
   library_paths: []

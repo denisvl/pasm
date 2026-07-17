@@ -826,6 +826,21 @@ def test_system_schema_accepts_cassette_contract_block():
             "directory": "../../media/test/tapes",
             "default_media": "../../media/test/tapes/demo.yaml",
             "allowed_extensions": ["yaml", "wav"],
+            "sources": [
+                {
+                    "source_type": "examples/cassette_sources/wav_file.yaml",
+                    "kind": "file",
+                    "component": "cassette_transport",
+                    "label": "WAV Tape",
+                    "allowed_extensions": ["yaml", "wav"],
+                },
+                {
+                    "source_type": "examples/cassette_sources/line_in.yaml",
+                    "kind": "line_in",
+                    "component": "cassette_transport",
+                    "label": "Line In",
+                },
+            ],
             "controls": {
                 "picker_action_id": "EMU_CASSETTE_PICKER",
                 "play_action_id": "EMU_CASSETTE_PLAY",
@@ -845,6 +860,336 @@ def test_system_schema_accepts_cassette_contract_block():
     }
 
     assert list(validator.iter_errors(system_data)) == []
+
+
+def test_cassette_source_schema_accepts_wav_cas_cdt_uef_and_line_in():
+    if yaml_loader.Draft7Validator is None:
+        pytest.skip("jsonschema not available")
+    schema = yaml_loader.load_schema("cassette_source")
+    validator = yaml_loader.Draft7Validator(schema)
+
+    wav_source = {
+        "metadata": {
+            "id": "wav_file",
+            "type": "cassette_source",
+            "model": "common_wav_file_source",
+        },
+        "source": {
+            "kind": "file",
+            "label": "Tape File",
+            "source_component": "cassette_wav_source",
+            "allowed_extensions": ["yaml", "wav"],
+        },
+    }
+    cdt_source = {
+        "metadata": {
+            "id": "cdt_file",
+            "type": "cassette_source",
+            "model": "common_cdt_file_source",
+        },
+        "source": {
+            "kind": "file",
+            "label": "CDT Tape",
+            "source_component": "cassette_cdt_source",
+            "allowed_extensions": ["cdt"],
+        },
+    }
+    cas_source = {
+        "metadata": {
+            "id": "cas_file",
+            "type": "cassette_source",
+            "model": "common_cas_file_source",
+        },
+        "source": {
+            "kind": "file",
+            "label": "CAS Tape",
+            "source_component": "cassette_cas_source",
+            "allowed_extensions": ["cas"],
+        },
+    }
+    uef_source = {
+        "metadata": {
+            "id": "uef_file",
+            "type": "cassette_source",
+            "model": "common_uef_file_source",
+        },
+        "source": {
+            "kind": "file",
+            "label": "UEF Tape",
+            "source_component": "cassette_uef_source",
+            "allowed_extensions": ["uef"],
+        },
+    }
+    line_in_source = {
+        "metadata": {
+            "id": "line_in",
+            "type": "cassette_source",
+            "model": "common_line_in_source",
+        },
+        "source": {
+            "kind": "line_in",
+            "label": "Line In",
+            "source_component": "cassette_line_in_source",
+        },
+    }
+
+    assert list(validator.iter_errors(wav_source)) == []
+    assert list(validator.iter_errors(cas_source)) == []
+    assert list(validator.iter_errors(cdt_source)) == []
+    assert list(validator.iter_errors(uef_source)) == []
+    assert list(validator.iter_errors(line_in_source)) == []
+
+
+def test_example_cassette_source_files_validate_against_schema():
+    if yaml_loader.Draft7Validator is None:
+        pytest.skip("jsonschema not available")
+    schema = yaml_loader.load_schema("cassette_source")
+    validator = yaml_loader.Draft7Validator(schema)
+    wav_source = yaml.safe_load(
+        (BASE_DIR / "examples" / "cassette_sources" / "wav_file.yaml").read_text(encoding="utf-8")
+    )
+    cas_source = yaml.safe_load(
+        (BASE_DIR / "examples" / "cassette_sources" / "cas_file.yaml").read_text(encoding="utf-8")
+    )
+    cdt_source = yaml.safe_load(
+        (BASE_DIR / "examples" / "cassette_sources" / "cdt_file.yaml").read_text(encoding="utf-8")
+    )
+    msx_cas_source = yaml.safe_load(
+        (BASE_DIR / "examples" / "cassette_sources" / "msx_cas_file.yaml").read_text(encoding="utf-8")
+    )
+    msx_tsx_source = yaml.safe_load(
+        (BASE_DIR / "examples" / "cassette_sources" / "msx_tsx_file.yaml").read_text(encoding="utf-8")
+    )
+    uef_source = yaml.safe_load(
+        (BASE_DIR / "examples" / "cassette_sources" / "uef_file.yaml").read_text(encoding="utf-8")
+    )
+    line_in_source = yaml.safe_load(
+        (BASE_DIR / "examples" / "cassette_sources" / "line_in.yaml").read_text(encoding="utf-8")
+    )
+    coco_cas_source = yaml.safe_load(
+        (BASE_DIR / "examples" / "cassette_sources" / "coco_cas_file.yaml").read_text(encoding="utf-8")
+    )
+
+    assert list(validator.iter_errors(wav_source)) == []
+    assert list(validator.iter_errors(cas_source)) == []
+    assert list(validator.iter_errors(cdt_source)) == []
+    assert list(validator.iter_errors(msx_cas_source)) == []
+    assert list(validator.iter_errors(msx_tsx_source)) == []
+    assert list(validator.iter_errors(uef_source)) == []
+    assert list(validator.iter_errors(line_in_source)) == []
+    assert list(validator.iter_errors(coco_cas_source)) == []
+
+
+def test_example_cassette_backend_device_files_validate():
+    loader = yaml_loader.ProcessorSystemLoader()
+    wav_backend = yaml.safe_load(
+        (BASE_DIR / "examples" / "devices" / "common" / "cassette_wav_source.yaml").read_text(encoding="utf-8")
+    )
+    cas_backend = yaml.safe_load(
+        (BASE_DIR / "examples" / "devices" / "common" / "cassette_cas_source.yaml").read_text(encoding="utf-8")
+    )
+    cdt_backend = yaml.safe_load(
+        (BASE_DIR / "examples" / "devices" / "common" / "cassette_cdt_source.yaml").read_text(encoding="utf-8")
+    )
+    msx_cas_backend = yaml.safe_load(
+        (BASE_DIR / "examples" / "devices" / "common" / "cassette_msx_cas_source.yaml").read_text(encoding="utf-8")
+    )
+    msx_tsx_backend = yaml.safe_load(
+        (BASE_DIR / "examples" / "devices" / "common" / "cassette_msx_tsx_source.yaml").read_text(encoding="utf-8")
+    )
+    uef_backend = yaml.safe_load(
+        (BASE_DIR / "examples" / "devices" / "common" / "cassette_uef_source.yaml").read_text(encoding="utf-8")
+    )
+    line_in_backend = yaml.safe_load(
+        (BASE_DIR / "examples" / "devices" / "common" / "cassette_line_in_source.yaml").read_text(encoding="utf-8")
+    )
+    coco_cas_backend = yaml.safe_load(
+        (BASE_DIR / "examples" / "devices" / "common" / "cassette_coco_cas_source.yaml").read_text(encoding="utf-8")
+    )
+
+    assert loader.validate_device(wav_backend)["metadata"]["id"] == "cassette_wav_source"
+    assert loader.validate_device(cas_backend)["metadata"]["id"] == "cassette_cas_source"
+    assert loader.validate_device(cdt_backend)["metadata"]["id"] == "cassette_cdt_source"
+    assert loader.validate_device(msx_cas_backend)["metadata"]["id"] == "cassette_msx_cas_source"
+    assert loader.validate_device(msx_tsx_backend)["metadata"]["id"] == "cassette_msx_tsx_source"
+    assert loader.validate_device(uef_backend)["metadata"]["id"] == "cassette_uef_source"
+    assert loader.validate_device(line_in_backend)["metadata"]["id"] == "cassette_line_in_source"
+    assert loader.validate_device(coco_cas_backend)["metadata"]["id"] == "cassette_coco_cas_source"
+
+
+def test_system_loader_resolves_cassette_source_type_relative_to_system_yaml(tmp_path):
+    processor_path, _ = example_pair("z80")
+
+    cassette_sources_dir = tmp_path / "cassette_sources"
+    cassette_sources_dir.mkdir()
+    (cassette_sources_dir / "wav_file.yaml").write_text(
+        (
+            "metadata:\n"
+            "  id: wav_file\n"
+            "  type: cassette_source\n"
+            "  model: common_wav_file_source\n"
+            "source:\n"
+            "  kind: file\n"
+            "  label: Tape File\n"
+            "  source_component: cassette_wav_source\n"
+            "  allowed_extensions: [yaml, wav]\n"
+        ),
+        encoding="utf-8",
+    )
+    (cassette_sources_dir / "cas_file.yaml").write_text(
+        (
+            "metadata:\n"
+            "  id: cas_file\n"
+            "  type: cassette_source\n"
+            "  model: common_cas_file_source\n"
+            "source:\n"
+            "  kind: file\n"
+            "  label: CAS Tape\n"
+            "  source_component: cassette_cas_source\n"
+            "  allowed_extensions: [cas]\n"
+        ),
+        encoding="utf-8",
+    )
+    (cassette_sources_dir / "cdt_file.yaml").write_text(
+        (
+            "metadata:\n"
+            "  id: cdt_file\n"
+            "  type: cassette_source\n"
+            "  model: common_cdt_file_source\n"
+            "source:\n"
+            "  kind: file\n"
+            "  label: CDT Tape\n"
+            "  source_component: cassette_cdt_source\n"
+            "  allowed_extensions: [cdt]\n"
+        ),
+        encoding="utf-8",
+    )
+    (cassette_sources_dir / "uef_file.yaml").write_text(
+        (
+            "metadata:\n"
+            "  id: uef_file\n"
+            "  type: cassette_source\n"
+            "  model: common_uef_file_source\n"
+            "source:\n"
+            "  kind: file\n"
+            "  label: UEF Tape\n"
+            "  source_component: cassette_uef_source\n"
+            "  allowed_extensions: [uef]\n"
+        ),
+        encoding="utf-8",
+    )
+    (cassette_sources_dir / "line_in.yaml").write_text(
+        (
+            "metadata:\n"
+            "  id: line_in\n"
+            "  type: cassette_source\n"
+            "  model: common_line_in_source\n"
+            "source:\n"
+            "  kind: line_in\n"
+            "  label: Line In\n"
+            "  source_component: cassette_line_in_source\n"
+        ),
+        encoding="utf-8",
+    )
+
+    system_dir = tmp_path / "systems" / "demo"
+    system_dir.mkdir(parents=True)
+    system_path = system_dir / "demo_system.yaml"
+    system_path.write_text(
+        (
+            "metadata:\n"
+            "  name: CassetteSourceResolve\n"
+            "clock_hz: 1000000\n"
+            "memory:\n"
+            "  default_size: 65536\n"
+            "components:\n"
+            "  ics: []\n"
+            "  devices: [cassette_transport]\n"
+            "  hosts: []\n"
+            "  cassette: cassette_transport\n"
+            "cassette:\n"
+            "  component: cassette_transport\n"
+            "  directory: ../../media/tapes\n"
+            "  allowed_extensions: [yaml, wav, cas, cdt, uef]\n"
+            "  sources:\n"
+            "    - source_type: ../../cassette_sources/wav_file.yaml\n"
+            "      kind: file\n"
+            "      component: cassette_transport\n"
+            "      allowed_extensions: [yaml, wav]\n"
+            "    - source_type: ../../cassette_sources/cas_file.yaml\n"
+            "      kind: file\n"
+            "      component: cassette_transport\n"
+            "      allowed_extensions: [cas]\n"
+            "    - source_type: ../../cassette_sources/cdt_file.yaml\n"
+            "      kind: file\n"
+            "      component: cassette_transport\n"
+            "      allowed_extensions: [cdt]\n"
+            "    - source_type: ../../cassette_sources/uef_file.yaml\n"
+            "      kind: file\n"
+            "      component: cassette_transport\n"
+            "      allowed_extensions: [uef]\n"
+            "    - source_type: ../../cassette_sources/line_in.yaml\n"
+            "      kind: line_in\n"
+            "      component: cassette_transport\n"
+            "  controls:\n"
+            "    picker_action_id: EMU_CASSETTE_PICKER\n"
+            "    play_action_id: EMU_CASSETTE_PLAY\n"
+            "    pause_action_id: EMU_CASSETTE_PAUSE\n"
+            "    stop_action_id: EMU_CASSETTE_STOP\n"
+            "    record_action_id: EMU_CASSETTE_RECORD\n"
+            "    volume_up_action_id: EMU_CASSETTE_VOL_UP\n"
+            "    volume_down_action_id: EMU_CASSETTE_VOL_DOWN\n"
+            "    bass_up_action_id: EMU_CASSETTE_BASS_UP\n"
+            "    bass_down_action_id: EMU_CASSETTE_BASS_DOWN\n"
+            "    treble_up_action_id: EMU_CASSETTE_TREBLE_UP\n"
+            "    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN\n"
+            "connections: []\n"
+        ),
+        encoding="utf-8",
+    )
+
+    data = yaml_loader.load_processor_system(str(processor_path), str(system_path))
+    cassette = data["cassette"]
+    sources = cassette["sources"]
+
+    assert pathlib.Path(cassette["directory"]).is_absolute()
+    assert pathlib.Path(sources[0]["source_type"]) == (cassette_sources_dir / "wav_file.yaml").resolve()
+    assert pathlib.Path(sources[1]["source_type"]) == (cassette_sources_dir / "cas_file.yaml").resolve()
+    assert pathlib.Path(sources[2]["source_type"]) == (cassette_sources_dir / "cdt_file.yaml").resolve()
+    assert pathlib.Path(sources[3]["source_type"]) == (cassette_sources_dir / "uef_file.yaml").resolve()
+    assert pathlib.Path(sources[4]["source_type"]) == (cassette_sources_dir / "line_in.yaml").resolve()
+    assert sources[0]["kind"] == "file"
+    assert sources[0]["label"] == "Tape File"
+    assert sources[0]["allowed_extensions"] == ["yaml", "wav"]
+    assert sources[0]["source_component"] == "cassette_wav_source"
+    assert sources[1]["kind"] == "file"
+    assert sources[1]["label"] == "CAS Tape"
+    assert sources[1]["allowed_extensions"] == ["cas"]
+    assert sources[1]["source_component"] == "cassette_cas_source"
+    assert sources[2]["kind"] == "file"
+    assert sources[2]["label"] == "CDT Tape"
+    assert sources[2]["allowed_extensions"] == ["cdt"]
+    assert sources[2]["source_component"] == "cassette_cdt_source"
+    assert sources[3]["kind"] == "file"
+    assert sources[3]["label"] == "UEF Tape"
+    assert sources[3]["allowed_extensions"] == ["uef"]
+    assert sources[3]["source_component"] == "cassette_uef_source"
+    assert sources[4]["kind"] == "line_in"
+    assert sources[4]["label"] == "Line In"
+    assert sources[4]["source_component"] == "cassette_line_in_source"
+    loaded_device_ids = {
+        str(device.get("metadata", {}).get("id", "")) for device in data.get("devices", [])
+    }
+    assert "cassette_wav_source" in loaded_device_ids
+    assert "cassette_cas_source" in loaded_device_ids
+    assert "cassette_cdt_source" in loaded_device_ids
+    assert "cassette_uef_source" in loaded_device_ids
+    assert "cassette_line_in_source" in loaded_device_ids
+    assert "cassette_wav_source" in data["components"]["devices"]
+    assert "cassette_cas_source" in data["components"]["devices"]
+    assert "cassette_cdt_source" in data["components"]["devices"]
+    assert "cassette_uef_source" in data["components"]["devices"]
+    assert "cassette_line_in_source" in data["components"]["devices"]
 
 
 def test_host_backend_allows_omitted_target():

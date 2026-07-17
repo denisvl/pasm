@@ -73,6 +73,11 @@ def test_coco1_interactive_stack_validates():
     assert video["metadata"]["model"] == "motorola_mc6847_vdg"
     speaker = next(d for d in data["devices"] if d["metadata"]["id"] == "speaker")
     assert speaker["metadata"]["model"] == "coco1_dac6_pcm_bridge"
+    coco_cas = next(d for d in data["devices"] if d["metadata"]["id"] == "cassette_coco_cas_source")
+    assert coco_cas["metadata"]["model"] == "coco1_cassette_cas_source"
+    cassette_sources = data["cassette"]["sources"]
+    assert any(src.get("source_model") == "coco1_cas_file_source" for src in cassette_sources)
+    assert any("cas" in src.get("allowed_extensions", []) for src in cassette_sources if src.get("kind") == "file")
 
 
 def test_coco1_keyboard_wiring_and_bindings():

@@ -265,6 +265,67 @@
         "default_media": {
           "type": "string"
         },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "component"
+            ],
+            "properties": {
+              "source_type": {
+                "type": "string"
+              },
+              "source_model": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "line_in"
+                ]
+              },
+              "component": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              "source_component": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              "label": {
+                "type": "string"
+              },
+              "allowed_extensions": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^\\.?[A-Za-z0-9_+\\-]{1,15}$"
+                }
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "file"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "allowed_extensions"
+                  ]
+                }
+              }
+            ]
+          }
+        },
         "allowed_extensions": {
           "type": "array",
           "minItems": 1,

@@ -1,0 +1,350 @@
+metadata:
+  id: cassette_line_in_source
+  type: cassette_source_backend
+  model: common_cassette_line_in_source
+  version: "1.0"
+
+state:
+  - name: selected_source_kind
+    type: uint8_t
+    initial: "0"
+  - name: selected_source_index
+    type: uint8_t
+    initial: "0"
+  - name: selected_source_model
+    type: char *
+    initial: "NULL"
+  - name: selected_source_component
+    type: char *
+    initial: "NULL"
+  - name: media_loaded
+    type: uint8_t
+    initial: "0"
+  - name: transport_mode
+    type: uint8_t
+    initial: "0"
+  - name: motor_on
+    type: uint8_t
+    initial: "0"
+  - name: volume_percent
+    type: uint8_t
+    initial: "100"
+  - name: bass_percent
+    type: uint8_t
+    initial: "50"
+  - name: treble_percent
+    type: uint8_t
+    initial: "50"
+  - name: audio_in_dev
+    type: uint32_t
+    initial: "0"
+  - name: audio_in_ready
+    type: uint8_t
+    initial: "0"
+  - name: audio_in_sample_rate
+    type: uint32_t
+    initial: "0"
+  - name: input_level
+    type: uint8_t
+    initial: "128"
+  - name: input_raw_level
+    type: uint8_t
+    initial: "128"
+  - name: input_bias_q8
+    type: uint32_t
+    initial: "32768"
+  - name: playhead_samples
+    type: uint64_t
+    initial: "0"
+  - name: playback_level
+    type: uint8_t
+    initial: "128"
+
+interfaces:
+  callbacks:
+    - name: select_source
+      args: [u8, u8, ptr, ptr]
+      returns: u8
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: set_transport_mode
+      args: [u8]
+      returns: u8
+    - name: set_motor
+      args: [u8]
+      returns: u8
+    - name: set_volume
+      args: [u8]
+      returns: u8
+    - name: set_bass
+      args: [u8]
+      returns: u8
+    - name: set_treble
+      args: [u8]
+      returns: u8
+    - name: sample_input
+      args: []
+      returns: u8
+    - name: query_transport_state
+      args: []
+      returns: u64
+    - name: query_sample_rate
+      args: []
+      returns: u64
+    - name: query_playhead_samples
+      args: []
+      returns: u64
+    - name: query_playback_level
+      args: []
+      returns: u64
+    - name: query_volume_percent
+      args: []
+      returns: u64
+    - name: push_output_sample
+      args: [u8, u64]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->selected_source_kind = 0u;
+      comp->selected_source_index = 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      comp->media_loaded = 0u;
+      comp->transport_mode = 0u;
+      comp->motor_on = 0u;
+      comp->volume_percent = 100u;
+      comp->bass_percent = 50u;
+      comp->treble_percent = 50u;
+      comp->input_level = 128u;
+      comp->input_raw_level = 128u;
+      comp->input_bias_q8 = (uint32_t)(128u << 8u);
+      comp->playhead_samples = 0u;
+      comp->playback_level = 128u;
+      if (comp->audio_in_dev != 0u) {
+          cpu_host_hal_audio_pause(comp->audio_in_dev, 1);
+          cpu_host_hal_audio_close(comp->audio_in_dev);
+          comp->audio_in_dev = 0u;
+      }
+      comp->audio_in_ready = 0u;
+      comp->audio_in_sample_rate = 0u;
+    destroy: |
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      if (comp->audio_in_dev != 0u) {
+          cpu_host_hal_audio_pause(comp->audio_in_dev, 1);
+          cpu_host_hal_audio_close(comp->audio_in_dev);
+          comp->audio_in_dev = 0u;
+      }
+      comp->audio_in_ready = 0u;
+      comp->audio_in_sample_rate = 0u;
+      (void)cpu;
+  callback_handlers:
+    select_source: |
+      const char *model = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : NULL;
+      const char *source_component = (argc > 3u && args[3] != 0u) ? (const char *)(uintptr_t)args[3] : NULL;
+      comp->selected_source_kind = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      comp->selected_source_index = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      if (model != NULL && model[0] != '\0') {
+          comp->selected_source_model = strdup(model);
+          if (comp->selected_source_model == NULL) return 0u;
+      }
+      if (source_component != NULL && source_component[0] != '\0') {
+          comp->selected_source_component = strdup(source_component);
+          if (comp->selected_source_component == NULL) return 0u;
+      }
+      return 1u;
+    load_media: |
+      if ((argc < 1u || args[0] == 0u) && comp->selected_source_kind != 1u) return 0u;
+      if (comp->selected_source_kind != 1u) return 0u;
+      if (
+          comp->selected_source_model != NULL &&
+          comp->selected_source_model[0] != '\0' &&
+          strcmp(comp->selected_source_model, "common_line_in_source") != 0
+      ) return 0u;
+      {
+          CPUHostAudioSpec want_in;
+          CPUHostAudioSpec have_in;
+          if (comp->audio_in_dev != 0u) {
+              cpu_host_hal_audio_pause(comp->audio_in_dev, 1);
+              cpu_host_hal_audio_close(comp->audio_in_dev);
+              comp->audio_in_dev = 0u;
+          }
+          cpu_host_audio_spec_zero(&want_in);
+          cpu_host_audio_spec_zero(&have_in);
+          want_in.freq = 44100;
+          want_in.format = CPU_HOST_AUDIO_FORMAT_S16;
+          want_in.channels = 1u;
+          want_in.samples = 512u;
+          want_in.callback = NULL;
+          comp->audio_in_ready = 0u;
+          comp->audio_in_sample_rate = 0u;
+          comp->media_loaded = 0u;
+          comp->transport_mode = 0u;
+          comp->motor_on = 0u;
+          comp->playhead_samples = 0u;
+          comp->input_raw_level = 128u;
+          comp->playback_level = 128u;
+          comp->input_level = 128u;
+          comp->input_bias_q8 = (uint32_t)(128u << 8u);
+          comp->audio_in_dev = cpu_host_hal_audio_open(NULL, 1, &want_in, &have_in, CPU_HOST_AUDIO_ALLOW_FREQUENCY_CHANGE);
+          if (comp->audio_in_dev == 0u) return 0u;
+          if (have_in.format != CPU_HOST_AUDIO_FORMAT_S16 || have_in.channels != 1u) {
+              cpu_host_hal_audio_close(comp->audio_in_dev);
+              comp->audio_in_dev = 0u;
+              return 0u;
+          }
+          comp->audio_in_ready = 1u;
+          comp->audio_in_sample_rate = (have_in.freq > 0) ? (uint32_t)have_in.freq : 44100u;
+          comp->media_loaded = 1u;
+          cpu_host_hal_audio_pause(comp->audio_in_dev, 0);
+      }
+      return 1u;
+    unload_media: |
+      comp->media_loaded = 0u;
+      comp->transport_mode = 0u;
+      comp->motor_on = 0u;
+      comp->playhead_samples = 0u;
+      comp->input_raw_level = 128u;
+      comp->playback_level = 128u;
+      comp->input_level = 128u;
+      comp->input_bias_q8 = (uint32_t)(128u << 8u);
+      if (comp->audio_in_dev != 0u) {
+          cpu_host_hal_audio_pause(comp->audio_in_dev, 1);
+          cpu_host_hal_audio_close(comp->audio_in_dev);
+          comp->audio_in_dev = 0u;
+      }
+      comp->audio_in_ready = 0u;
+      comp->audio_in_sample_rate = 0u;
+      return 1u;
+    set_transport_mode: |
+      if (argc < 1u) return 0u;
+      comp->transport_mode = (uint8_t)(args[0] & 0xFFu);
+      if (comp->transport_mode == 1u && comp->media_loaded != 0u) {
+          comp->motor_on = 1u;
+      } else if (comp->transport_mode == 0u) {
+          comp->motor_on = 0u;
+      }
+      return 1u;
+    set_motor: |
+      if (argc < 1u) return 0u;
+      comp->motor_on = (uint8_t)(args[0] & 0x01u);
+      if (comp->motor_on == 0u) {
+          comp->input_raw_level = 128u;
+          comp->playback_level = 128u;
+          comp->input_level = 128u;
+          comp->input_bias_q8 = (uint32_t)(128u << 8u);
+      }
+      return 1u;
+    set_volume: |
+      if (argc < 1u) return 0u;
+      comp->volume_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      return 1u;
+    set_bass: |
+      if (argc < 1u) return 0u;
+      comp->bass_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      return 1u;
+    set_treble: |
+      if (argc < 1u) return 0u;
+      comp->treble_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      return 1u;
+    sample_input: |
+      {
+          uint64_t cycle = (argc > 1u) ? args[1] : cpu->total_cycles;
+          uint64_t flags = (argc > 0u) ? args[0] : 0u;
+          uint8_t want_raw = (uint8_t)((flags & 0x01u) != 0u ? 1u : 0u);
+          int16_t sample = 0;
+          if (
+              comp->media_loaded == 0u ||
+              comp->motor_on == 0u ||
+              comp->transport_mode != 1u ||
+              comp->audio_in_dev == 0u ||
+              comp->audio_in_ready == 0u
+          ) {
+              comp->input_raw_level = 128u;
+              comp->playback_level = 128u;
+              comp->input_level = 128u;
+          } else {
+              if (cpu_host_hal_audio_dequeue(comp->audio_in_dev, &sample, (uint32_t)sizeof(sample)) != (uint32_t)sizeof(sample)) {
+                  sample = 0;
+              }
+              {
+                  uint32_t raw_u8 = (uint32_t)(((int32_t)sample + 32768) >> 8u);
+                  int32_t sample_q8;
+                  int32_t filtered;
+                  if (raw_u8 > 255u) raw_u8 = 255u;
+                  comp->input_raw_level = (uint8_t)raw_u8;
+                  comp->playback_level = comp->input_raw_level;
+                  sample_q8 = (int32_t)(raw_u8 << 8u);
+                  comp->input_bias_q8 = (uint32_t)(((uint64_t)comp->input_bias_q8 * 255u + (uint64_t)(uint32_t)sample_q8) >> 8u);
+                  filtered = sample_q8 - (int32_t)comp->input_bias_q8;
+                  if (filtered >= 384) comp->input_level = 255u;
+                  else if (filtered <= -384) comp->input_level = 0u;
+              }
+              comp->playhead_samples += 1u;
+          }
+          (void)cycle;
+          return want_raw != 0u ? comp->input_raw_level : comp->input_level;
+      }
+    query_transport_state: |
+      {
+          uint64_t packed = (uint64_t)comp->transport_mode;
+          uint64_t current_secs = 0u;
+          uint64_t total_secs = 0u;
+          if (comp->motor_on != 0u) packed |= (1ull << 8);
+          if (comp->media_loaded != 0u) packed |= (1ull << 9);
+          if (comp->audio_in_sample_rate != 0u) {
+              current_secs = comp->playhead_samples / (uint64_t)comp->audio_in_sample_rate;
+          }
+          if (current_secs > 0xFFFFu) current_secs = 0xFFFFu;
+          packed |= (current_secs & 0xFFFFu) << 16u;
+          packed |= (total_secs & 0xFFFFu) << 32u;
+          packed |= ((uint64_t)comp->volume_percent & 0xFFull) << 48u;
+          return packed;
+      }
+    query_sample_rate: |
+      return (uint64_t)comp->audio_in_sample_rate;
+    query_playhead_samples: |
+      return (uint64_t)comp->playhead_samples;
+    query_playback_level: |
+      return (uint64_t)comp->playback_level;
+    query_volume_percent: |
+      return (uint64_t)comp->volume_percent;
+    push_output_sample: |
+      return 1u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

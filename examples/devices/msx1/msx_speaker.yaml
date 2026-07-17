@@ -29,6 +29,12 @@ state:
   - name: sample_period_residue
     type: uint64_t
     initial: "0"
+  - name: last_emitted_level
+    type: uint8_t
+    initial: "255"
+  - name: emit_keepalive
+    type: uint16_t
+    initial: "0"
 
 interfaces:
   callbacks: []
@@ -54,6 +60,8 @@ behavior:
       comp->last_cycle = cpu->total_cycles;
       comp->next_sample_cycle = cpu->total_cycles;
       comp->sample_period_residue = 0u;
+      comp->last_emitted_level = 255u;
+      comp->emit_keepalive = 0u;
     step_post: |
       if (CPU_AUDIO_SAMPLE_RATE > 0u && CPU_SYSTEM_CLOCK_HZ > 0u) {
           uint64_t period = CPU_SYSTEM_CLOCK_HZ / CPU_AUDIO_SAMPLE_RATE;
@@ -68,9 +76,13 @@ behavior:
               if (mixed < 0) mixed = 0;
               if (mixed > 255) mixed = 255;
               comp->level = (uint8_t)mixed;
-              {
+              if (comp->level != comp->last_emitted_level || comp->emit_keepalive >= 255u) {
                   uint64_t sig_args[2] = { (uint64_t)comp->level, comp->next_sample_cycle };
                   cpu_component_emit_signal(cpu, "speaker", "pcm_sample", sig_args, 2);
+                  comp->last_emitted_level = comp->level;
+                  comp->emit_keepalive = 0u;
+              } else {
+                  comp->emit_keepalive = (uint16_t)(comp->emit_keepalive + 1u);
               }
               comp->next_sample_cycle += period;
               comp->sample_period_residue += rem;

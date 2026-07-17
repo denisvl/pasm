@@ -16,6 +16,7 @@ if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN=../../roms/c64/basic.901
 if not defined CARTRIDGE_ROM_RUNTIME set "CARTRIDGE_ROM_RUNTIME="
 if not defined CARTRIDGE_DIR set "CARTRIDGE_DIR="
 if not defined BOOT_CARTRIDGE set "BOOT_CARTRIDGE=0"
+if not defined USE_CARTRIDGE_SYSTEM set "USE_CARTRIDGE_SYSTEM=0"
 if not defined PASM_EMU_CART_PICKER_RAW_KEYS set "PASM_EMU_CART_PICKER_RAW_KEYS=1"
 if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 
@@ -38,19 +39,28 @@ set "IC_MAIN_RAM=examples/ics/c64/c64_main_ram.yaml"
 set "DEVICE_KB=examples/devices/c64/c64_keyboard.yaml"
 set "DEVICE_JOY=examples/devices/c64/c64_joystick.yaml"
 set "DEVICE_VIDEO=examples/devices/c64/c64_video.yaml"
+set "DEVICE_DATASETTE=examples/devices/c64/c64_datasette.yaml"
 set "DEVICE_TV=examples/devices/common/tv_crt_mono.yaml"
 set "HOST_INTERACTIVE=examples/hosts/c64/c64_host_hal_interactive.yaml"
 
 if /I "%PROFILE%"=="default" (
-  set "SYSTEM=examples/systems/c64/c64_cartridge_default.yaml"
+  set "SYSTEM=examples/systems/c64/c64_default.yaml"
   set "DEFAULT_OUTPUT=generated/c64"
 ) else if /I "%PROFILE%"=="interactive" (
-  set "SYSTEM=examples/systems/c64/c64_cartridge_interactive.yaml"
+  set "SYSTEM=examples/systems/c64/c64_interactive.yaml"
   set "DEFAULT_OUTPUT=generated/c64_interactive"
 ) else (
   >&2 echo Unsupported profile: %PROFILE%
   >&2 echo Use: default ^| interactive
   exit /b 2
+)
+
+if not "%USE_CARTRIDGE_SYSTEM%"=="0" (
+  if /I "%PROFILE%"=="default" (
+    set "SYSTEM=examples/systems/c64/c64_cartridge_default.yaml"
+  ) else if /I "%PROFILE%"=="interactive" (
+    set "SYSTEM=examples/systems/c64/c64_cartridge_interactive.yaml"
+  )
 )
 
 for %%I in ("%SYSTEM%") do set "SYSTEM_DIR=%%~dpI"
@@ -90,6 +100,7 @@ uv run python -m src.main generate ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_JOY%" ^
   --device "%DEVICE_VIDEO%" ^
+  --device "%DEVICE_DATASETTE%" ^
   --device "%DEVICE_TV%" ^
   --host "%HOST_INTERACTIVE%" ^
   --host-backend "%HOST_BACKEND%" ^
