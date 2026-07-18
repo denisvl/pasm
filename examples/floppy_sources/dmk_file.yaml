@@ -1,0 +1,11 @@
+metadata:
+  id: dmk_file
+  type: floppy_source
+  model: trs80_dmk_file_source
+  version: "1.0"
+  title: DMK Disk Image
+
+source:
+  kind: file
+  label: DMK Disk Image
+  allowed_extensions: [dmk]

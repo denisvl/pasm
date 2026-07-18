@@ -1,0 +1,11 @@
+metadata:
+  id: adl_file
+  type: floppy_source
+  model: common_adl_file_source
+  version: "1.0"
+  title: ADL Disk Image
+
+source:
+  kind: file
+  label: ADL Disk Image
+  allowed_extensions: [adl]

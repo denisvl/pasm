@@ -393,7 +393,7 @@ keyboard:
     - row: 6
       bit: 5
   - host_scancode: F11
-    emulator_key_id: EMU_CASSETTE_PICKER
+    emulator_key_id: EMU_MEDIA_PICKER
   - host_scancode: PAUSE
     emulator_key_id: EMU_CASSETTE_PLAY
   - host_scancode: PAGEUP

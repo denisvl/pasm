@@ -58,6 +58,9 @@ components:
   hosts:
   - host_trs80
   cassette: cassette_transport
+  floppy: trs80_m4fdc
+media_picker:
+  open_action_id: EMU_MEDIA_PICKER
 cassette:
   component: cassette_transport
   directory: examples/cassettes/trs80_model4
@@ -73,7 +76,7 @@ cassette:
       component: cassette_transport
       label: Line In
   controls:
-    picker_action_id: EMU_CASSETTE_PICKER
+    picker_action_id: EMU_MEDIA_PICKER
     play_action_id: EMU_CASSETTE_PLAY
     pause_action_id: EMU_CASSETTE_PAUSE
     stop_action_id: EMU_CASSETTE_STOP
@@ -84,6 +87,32 @@ cassette:
     bass_down_action_id: EMU_CASSETTE_BASS_DOWN
     treble_up_action_id: EMU_CASSETTE_TREBLE_UP
     treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+floppy:
+  directory: examples/floppies/trs80_model4
+  sources:
+    - kind: file
+      source_type: ../../floppy_sources/dsk_file.yaml
+      label: TRS-80 DSK Disk
+      allowed_extensions: [dsk]
+    - kind: file
+      source_type: ../../floppy_sources/dmk_file.yaml
+      label: TRS-80 DMK Disk
+      allowed_extensions: [dmk]
+    - kind: file
+      source_type: ../../floppy_sources/jv3_file.yaml
+      label: TRS-80 JV3 Disk
+      allowed_extensions: [jv3]
+    - kind: file
+      source_type: ../../floppy_sources/jv1_file.yaml
+      label: TRS-80 JV1 Disk
+      allowed_extensions: [jv1]
+  drives:
+    - slot: 0
+      label: Drive 0
+      drive_type: ../../floppy_drives/trs80_model4_internal.yaml
+      component: trs80_m4fdc
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
 connections:
 - from:
     component: trs80_m4ppi

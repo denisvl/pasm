@@ -373,6 +373,10 @@ def get_schema_path(kind: str) -> Path:
         return base / "cassette_schema.json"
     if kind == "cassette_source":
         return base / "cassette_source_schema.json"
+    if kind == "floppy_drive":
+        return base / "floppy_drive_schema.json"
+    if kind == "floppy_source":
+        return base / "floppy_source_schema.json"
     if kind == "runtime_keyboard_map":
         return base / "runtime_keyboard_map_schema.json"
     raise ValueError(f"Unknown schema kind: {kind}")
@@ -642,6 +646,8 @@ class ProcessorSystemLoader:
         self.cartridge_schema = load_schema("cartridge")
         self.cassette_schema = load_schema("cassette")
         self.cassette_source_schema = load_schema("cassette_source")
+        self.floppy_drive_schema = load_schema("floppy_drive")
+        self.floppy_source_schema = load_schema("floppy_source")
         if Draft7Validator:
             self.processor_validator = Draft7Validator(self.processor_schema)
             self.system_validator = Draft7Validator(self.system_schema)
@@ -651,6 +657,8 @@ class ProcessorSystemLoader:
             self.cartridge_validator = Draft7Validator(self.cartridge_schema)
             self.cassette_validator = Draft7Validator(self.cassette_schema)
             self.cassette_source_validator = Draft7Validator(self.cassette_source_schema)
+            self.floppy_drive_validator = Draft7Validator(self.floppy_drive_schema)
+            self.floppy_source_validator = Draft7Validator(self.floppy_source_schema)
         else:
             self.processor_validator = None
             self.system_validator = None
@@ -660,6 +668,8 @@ class ProcessorSystemLoader:
             self.cartridge_validator = None
             self.cassette_validator = None
             self.cassette_source_validator = None
+            self.floppy_drive_validator = None
+            self.floppy_source_validator = None
 
     def _resolve_existing_file(self, path: str) -> Path:
         path_obj = Path(path)
@@ -1020,6 +1030,26 @@ class ProcessorSystemLoader:
     def load_cassette_source(self, cassette_source_path: str) -> Dict[str, Any]:
         cassette_source_data = self._load_yaml(cassette_source_path, "cassette_source")
         return self.validate_cassette_source(cassette_source_data)
+
+    def validate_floppy_drive(self, floppy_drive_data: Dict[str, Any]) -> Dict[str, Any]:
+        errors = _iter_errors(self.floppy_drive_validator, floppy_drive_data)
+        if errors:
+            raise ValidationError(_format_schema_errors("Floppy drive", errors))
+        return floppy_drive_data
+
+    def load_floppy_drive(self, floppy_drive_path: str) -> Dict[str, Any]:
+        floppy_drive_data = self._load_yaml(floppy_drive_path, "floppy_drive")
+        return self.validate_floppy_drive(floppy_drive_data)
+
+    def validate_floppy_source(self, floppy_source_data: Dict[str, Any]) -> Dict[str, Any]:
+        errors = _iter_errors(self.floppy_source_validator, floppy_source_data)
+        if errors:
+            raise ValidationError(_format_schema_errors("Floppy source", errors))
+        return floppy_source_data
+
+    def load_floppy_source(self, floppy_source_path: str) -> Dict[str, Any]:
+        floppy_source_data = self._load_yaml(floppy_source_path, "floppy_source")
+        return self.validate_floppy_source(floppy_source_data)
 
     def _validate_instruction_display_specs(self, processor_data: Dict[str, Any]) -> None:
         codegen = _processor_codegen(processor_data)
@@ -1635,6 +1665,8 @@ class ProcessorSystemLoader:
             "connections": copy.deepcopy(system_data.get("connections", [])),
             "audio": copy.deepcopy(system_data.get("audio", {})),
             "cassette": copy.deepcopy(system_data.get("cassette", {})),
+            "floppy": copy.deepcopy(system_data.get("floppy", {})),
+            "media_picker": copy.deepcopy(system_data.get("media_picker", {})),
             "system": {
                 "metadata": copy.deepcopy(system_data.get("metadata", {})),
                 "clock_hz": int(system_data.get("clock_hz", 0)),
@@ -1803,6 +1835,79 @@ class ProcessorSystemLoader:
                         if source_device_id not in configured_devices:
                             configured_devices.append(source_device_id)
                     components_cfg["devices"] = configured_devices
+        floppy_cfg = system_data.get("floppy")
+        if isinstance(floppy_cfg, dict):
+            floppy_dir = str(floppy_cfg.get("directory", "")).strip()
+            if floppy_dir:
+                floppy_dir_path = Path(floppy_dir)
+                if floppy_dir_path.is_absolute():
+                    floppy_cfg["directory"] = str(floppy_dir_path.resolve())
+                elif floppy_dir_path.exists():
+                    floppy_cfg["directory"] = str(floppy_dir_path.resolve())
+                else:
+                    floppy_cfg["directory"] = str(
+                        self._resolve_cli_file(floppy_dir, system_base_dir)
+                    )
+            floppy_sources = floppy_cfg.get("sources")
+            if isinstance(floppy_sources, list):
+                normalized_sources: List[Dict[str, Any]] = []
+                for source in floppy_sources:
+                    if not isinstance(source, dict):
+                        normalized_sources.append(source)
+                        continue
+                    source_copy = copy.deepcopy(source)
+                    source_type_path = str(source_copy.get("source_type", "")).strip()
+                    if source_type_path:
+                        resolved_source_type_path = self._resolve_cli_file(
+                            source_type_path, system_base_dir
+                        )
+                        source_type_data = self.load_floppy_source(str(resolved_source_type_path))
+                        source_defaults = copy.deepcopy(source_type_data.get("source", {}))
+                        source_defaults.update(source_copy)
+                        source_copy = source_defaults
+                        source_copy["source_type"] = str(resolved_source_type_path)
+                        source_model = str(
+                            source_type_data.get("metadata", {}).get("model", "")
+                        ).strip()
+                        if source_model:
+                            source_copy["source_model"] = source_model
+                    raw_exts = source_copy.get("allowed_extensions", [])
+                    if isinstance(raw_exts, list):
+                        normalized_exts: List[str] = []
+                        for item in raw_exts:
+                            ext = str(item).strip().lower()
+                            if ext.startswith("."):
+                                ext = ext[1:]
+                            if ext and ext not in normalized_exts:
+                                normalized_exts.append(ext)
+                        source_copy["allowed_extensions"] = normalized_exts
+                    normalized_sources.append(source_copy)
+                floppy_cfg["sources"] = normalized_sources
+            floppy_drives = floppy_cfg.get("drives")
+            if isinstance(floppy_drives, list):
+                normalized_drives: List[Dict[str, Any]] = []
+                for drive in floppy_drives:
+                    if not isinstance(drive, dict):
+                        normalized_drives.append(drive)
+                        continue
+                    drive_copy = copy.deepcopy(drive)
+                    drive_type_path = str(drive_copy.get("drive_type", "")).strip()
+                    if drive_type_path:
+                        resolved_drive_type_path = self._resolve_cli_file(
+                            drive_type_path, system_base_dir
+                        )
+                        drive_type_data = self.load_floppy_drive(str(resolved_drive_type_path))
+                        drive_copy["drive_type"] = str(resolved_drive_type_path)
+                        drive_model = str(
+                            drive_type_data.get("metadata", {}).get("model", "")
+                        ).strip()
+                        if drive_model:
+                            drive_copy["drive_model"] = drive_model
+                        drive_copy["drive_profile"] = copy.deepcopy(
+                            drive_type_data.get("drive", {})
+                        )
+                    normalized_drives.append(drive_copy)
+                floppy_cfg["drives"] = normalized_drives
         resolved_cartridge_rom_path = ""
         if cartridge_rom_path:
             resolved_cartridge_rom_path = self._validate_readable_file(

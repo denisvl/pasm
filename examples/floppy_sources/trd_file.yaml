@@ -1,0 +1,11 @@
+metadata:
+  id: trd_file
+  type: floppy_source
+  model: plusd_trd_file_source
+  version: "1.0"
+  title: TRD Disk Image
+
+source:
+  kind: file
+  label: TRD Disk Image
+  allowed_extensions: [trd]

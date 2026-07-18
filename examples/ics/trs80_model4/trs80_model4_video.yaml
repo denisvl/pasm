@@ -33,6 +33,11 @@ behavior:
       static uint32_t framebuf[640u * 240u];
       static uint8_t video_shadow[0x0780u];
       static uint8_t video_shadow_init = 0u;
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      static uint8_t trs80_model4_charset_cg8[256][12];
+      static uint8_t trs80_model4_charset_init = 0u;
+      static const char *trs80_model4_charset_cg8_hex = "00241824427E42420000000000243C424242423C00000000002442424242423C000000000010083C427E023C00000000000038443C44443C020000000010083C4242423C00000000001824040E04443E00000000007C023C423C403E000000000024001C203C225C000000000024003C4242423C00000000002400424242625C000000000008101C203C225C000000000008103C427E023C00000000000810424242625C000000000000182418000000000000000024003C427E023C000000000024001810101038000000000008141C203C225C000000000010283C427E023C000000000010281810101038000000000010283C4242423C00000000001028424242625C000000000000003C4202423C08000000000000000000FE82FE00000000001C2020140C1C000000000000423C24243C4200000000000303030303030303000000000103070F1F3F7FFF000000000000FFFF0000FFFF000000000000103838280000000000003048083E080806000000000024000000000000000000000000000000000000000000000010101010100010000000000024242400000000000000000024247E247E2424000000000010781438503C1000000000000046261008646200000000000C12120C52225C00000000002010080000000000000000002010080808102000000000000408101010080400000000001054387C38541000000000000010107C10100000000000000000000000101008000000000000007E00000000000000000000000000001000000000000040201008040200000000003C42625A46423C00000000001018141010107C00000000003C4240300C027E00000000003C42403840423C0000000000203028247E202000000000007E021E2040221C00000000003804023E42423C00000000007E42201008080800000000003C42423C42423C00000000003C42427C40201C00000000000000100000100000000000000000100000101008000000006030180C183060000000000000007E007E00000000000000060C1830180C0600000000003C42403008000800000000003844526A32047800000000001824427E42424200000000003E44443C44443E00000000003844020202443800000000001E24444444241E00000000007E02021E02027E00000000007E02021E02020200000000003844027242443800000000004242427E42424200000000003810101010103800000000007020202020221C00000000004222120E12224200000000000202020202027E000000000042665A5A424242000000000042464A5262424200000000003C42424242423C00000000003E42423E02020200000000003C42424252225C00000000003E42423E12224200000000003C42023C40423C00000000007C10101010101000000000004242424242423C00000000004242422424181800000000004242425A5A664200000000004242241824424200000000004444443810101000000000007E40201804027E00000000003C04040404043C00000000000002040810204000000000003C20202020203C000000000010284400000000000000000000000000000000FF0000000008102000000000000000000000001C203C225C000000000002023A4642463A000000000000003C4202423C000000000040405C6242625C000000000000003C427E023C00000000003048083E080808000000000000005C62625C403C0000000002023A464242420000000000100018101010380000000000200030202020221C00000000020222120A1622000000000018101010101038000000000000006E92929292000000000000003A46424242000000000000003C4242423C000000000000003A46463A02020000000000005C62625C40400000000000003A46020202000000000000007C023C403E000000000008083E0808483000000000000000424242625C00000000000000424242241800000000000000829292926C000000000000004224182442000000000000004242625C403C0000000000007E2018047E00000000003008080408083000000000001010100010101000000000000C10102010100C00000000000C926000000000000000000010107C1010007C000000000010387CFEFE7C101000000000006CFEFE7C3810000000000010387CFE7C38100000000000383810D6FED61038000000003C42A581A599423C000000003C42A58199A5423C00000000201008040810203C00000000040810201008043C0000000000009C62629C0000000000003C443C44443C04020000000086482818080C0C00000000003048083050483000000000006010087C0810600000000000686010083840300000000000344A484840404000000000001028447C442810000000000000040404444438000000000002120A060A52220000000000040808081824420000000000242424245C0404000000000000004C48281808000000000010380418043840300000000000182442422418000000000000007C2A2828280000000000001824241C0404000000000000007C12120C00000000000000007C121010101000000000004026242424180000000000103854545438100000000000000046281028C400000000009254543810101000000000000000448292926C000000000038448282C644C60000000000780808080A0C0800000000000010007C00100000000000007E04083008047E0000000000004C32004C320000000000000000102844FE0000000000002010080810100804000000008040FE10FE040200000000000810207C0810200000000000FC4A241048A442000000000038448282FE4444C60000000000006C92926C000000000000004020120A060200000000007804384438403C000000000044AA542854AA4400000000003C42B98585B9423C000000004224182418244200000000007C52525C50505050000000001038541454381000000000003C5EA5A59D95663C00000000FA06C64626DE06FA00000000FF20C03F403F201F000000003F403F0000000000000000001E22221E5222D200000000008641211668949261000000007060500E0909060000000000384444443810381000000000701010700000000000000000FFC7BBCFEFFFEFFF000000001028103854102844000000001028103854287C28000000001028444444546C440000000010080000000000000000000008101C203C225C000000000000003C4202423C08000000001824040E04443E00000000000810000000000000000000000000444444645C0200000000001824180000000000000000001C1408000000000000000000081C0808000000000000007C023C423C403E00000000003C429DA59DA5423C000000003C42B98585B9423C00000000044424140854724000000000064426140E547240000000000444241468442260000000007C52525C50505000000000004428107C107C100000000000241824427E42420000000000243C424242423C00000000002442424242423C00000000001038541454381000000000004C320000000000000000000024001C203C225C000000000024003C4242423C00000000002400424242625C00000000000038443C44443C0200000000000752AAAA8A8A000000000010083C427E023C00000000000810424242625C000000000008103C427E023C00000000002400000000000000000000003048083E080806000000000008141C203C225C000000000010283C427E023C000000000010281810101038000000000010283C4242423C00000000001028424242625C000000000010280000000000000000000024003C427E023C000000000024001810101038000000000010081C203C225C000000000010081810101038000000000010083C4242423C00000000001008424242625C00000000000800080808080800000000004C32003A46424200000000004C321C203C225C00000000004C32003C42423C0000000000781412721E1272000000000000002E507C127C0000000000181824427E4242000000000008001C203C225C00000000003C42625A46423C000000000000003C625A463C00000000004C32464A526242000000000010087E021E027E0000000000100818247E4242000000000020103810101038000000000010083C4242423C00000000001008424242423C00000000000800080402221C00000000000810424242423C000000000008107E021E027E0000000000081018247E424200000000";
       uint32_t frame_counter = (uint32_t)(args[0] & 0xFFFFFFFFu);
       uint64_t ga_cols_args[1] = { 0u };
       uint32_t cols = ((uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "get_video_cols", ga_cols_args, 0) == 80u) ? 80u : 64u;
@@ -40,16 +45,40 @@ behavior:
       uint32_t cells = cols * rows;
       uint64_t ga_map_args[1] = { 0u };
       uint8_t map = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "get_memory_map", ga_map_args, 0);
-      uint8_t video_enabled = 0u;
-      uint8_t map_high = 0u;
-      uint32_t video_base;
-      uint32_t video_window;
-      uint32_t page_offset = 0u;
-      uint32_t video_limit;
-      uint32_t fb_w = cols * 6u;
+      uint8_t video_enabled = 1u;
+      uint8_t video_ctrl = 0u;
+      uint8_t global_inverse = 0u;
+      uint8_t expanded = 0u;
+      uint8_t alternate = 0u;
+      uint32_t fb_w = 640u;
       uint32_t fb_h = rows * 8u;
+      uint32_t cell_w = 8u;
+      uint32_t cell_h = 8u;
+      uint32_t left_margin = (fb_w > cols * cell_w) ? ((fb_w - cols * cell_w) / 2u) : 0u;
+      uint32_t top_margin = (fb_h > rows * cell_h) ? ((fb_h - rows * cell_h) / 2u) : 0u;
       uint32_t fg = 0xFFE8E8E8u;
       uint32_t bg = 0xFF101010u;
+      if (trace_enabled < 0) {
+          const char *env = cpu_host_hal_getenv("PASM_TRS80_M4_VIDEO_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = cpu_host_hal_getenv("PASM_TRS80_M4_VIDEO_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/trs80_model4_video_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
+      }
+
+      if (trs80_model4_charset_init == 0u) {
+          for (uint32_t i = 0u; i < 256u * 12u; ++i) {
+              char hi = trs80_model4_charset_cg8_hex[i * 2u];
+              char lo = trs80_model4_charset_cg8_hex[i * 2u + 1u];
+              uint8_t hv = (uint8_t)((hi >= 'A') ? (10 + hi - 'A') : (hi - '0'));
+              uint8_t lv = (uint8_t)((lo >= 'A') ? (10 + lo - 'A') : (lo - '0'));
+              trs80_model4_charset_cg8[i / 12u][i % 12u] = (uint8_t)((hv << 4u) | lv);
+          }
+          trs80_model4_charset_init = 1u;
+      }
 
       if (video_shadow_init == 0u) {
           for (uint32_t i = 0u; i < 0x0780u; ++i) {
@@ -58,35 +87,45 @@ behavior:
           video_shadow_init = 1u;
       }
 
-      if (map == 0u || map == 1u) {
-          video_enabled = 1u;
-          map_high = 0u;
-      } else if (map == 2u || map == 3u) {
-          video_enabled = 1u;
-          map_high = 1u;
-      }
-
-      video_base = map_high ? 0xF800u : 0x3C00u;
-      video_window = map_high ? 0x0800u : 0x0400u;
-
       if (cells > 0x0780u) cells = 0x0780u;
       {
           uint64_t ga_vc_args[1] = { 0u };
-          uint8_t video_ctrl = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "get_video_ctrl", ga_vc_args, 0);
-          if (cols == 64u && (video_ctrl & 0x80u) != 0u) {
-              page_offset = 0x0400u;
-          }
+          video_ctrl = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "get_video_ctrl", ga_vc_args, 0);
+          uint64_t io_mode_args[1] = { 0u };
+          expanded = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4io", "get_screen_expanded", io_mode_args, 0);
+          alternate = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4io", "get_screen_alternate", io_mode_args, 0);
+          global_inverse = (uint8_t)(((video_ctrl & 0x08u) != 0u) ? 1u : 0u);
       }
       if (video_enabled != 0u) {
-          video_limit = (page_offset < video_window) ? (video_window - page_offset) : 0u;
-          if (video_limit > cells) video_limit = cells;
-          for (uint32_t i = 0u; i < video_limit; ++i) {
-              uint32_t addr = video_base + page_offset + i;
-              video_shadow[i] = (addr < cpu->memory_size) ? cpu->memory[addr] : 0x20u;
+          for (uint32_t i = 0u; i < cells; ++i) {
+              uint64_t cell_args[1] = { (uint64_t)i };
+              video_shadow[i] = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "get_video_cell", cell_args, 1);
           }
-          for (uint32_t i = video_limit; i < cells; ++i) {
+          for (uint32_t i = cells; i < 0x0780u; ++i) {
               video_shadow[i] = 0x20u;
           }
+      }
+      if (trace_enabled != 0 && ((frame_counter % 30u) == 0u || frame_counter < 8u)) {
+          uint32_t sample_cols = (cols < 16u) ? cols : 16u;
+          fprintf(trace_fp,
+                  "video frame=%u cycle=%llu map=%u cols=%u rows=%u page=%u expanded=%u alternate=%u inverse=%u r0=",
+                  (unsigned)frame_counter,
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)map,
+                  (unsigned)cols,
+                  (unsigned)rows,
+                  (unsigned)((video_ctrl & 0x80u) != 0u ? 1u : 0u),
+                  (unsigned)expanded,
+                  (unsigned)alternate,
+                  (unsigned)global_inverse);
+          for (uint32_t i = 0u; i < sample_cols; ++i) fprintf(trace_fp, "%02X", (unsigned)video_shadow[i]);
+          fprintf(trace_fp, " r8=");
+          if (rows > 8u) {
+              uint32_t base = 8u * cols;
+              for (uint32_t i = 0u; i < sample_cols; ++i) fprintf(trace_fp, "%02X", (unsigned)video_shadow[base + i]);
+          }
+          fprintf(trace_fp, "\n");
+          fflush(trace_fp);
       }
 
       uint32_t cursor_idx = 0xFFFFFFFFu;
@@ -106,9 +145,6 @@ behavior:
       }
       uint8_t cursor_blink_on = (uint8_t)(((frame_counter / 30u) & 1u) == 0u);
 
-      if (fb_w > 640u) fb_w = 640u;
-      if (fb_h > 240u) fb_h = 240u;
-
       for (uint32_t py = 0u; py < fb_h; ++py) {
           for (uint32_t px = 0u; px < fb_w; ++px) {
               framebuf[py * fb_w + px] = bg;
@@ -119,31 +155,75 @@ behavior:
           for (uint32_t x = 0u; x < cols; ++x) {
               uint32_t idx = y * cols + x;
               uint8_t raw = (idx < cells) ? video_shadow[idx] : 0x20u;
-              uint8_t ch_raw = (uint8_t)(raw & 0x7Fu);
-              uint8_t inv = ((raw & 0x80u) != 0u) ? 1u : 0u;
+              uint8_t char_index = raw;
+              uint8_t ch_raw;
+              uint8_t inv = 0u;
               uint8_t is_cursor = (idx == cursor_idx) ? 1u : 0u;
+              uint32_t glyph_index;
+              uint32_t cell_x = left_margin + x * cell_w;
+              uint32_t cell_y = top_margin + y * cell_h;
+              uint8_t draw_twice = 0u;
+
+              if (expanded != 0u) {
+                  if ((x & 1u) != 0u) {
+                      continue;
+                  }
+                  draw_twice = 1u;
+              }
+
+              if (char_index >= 0x80u && char_index <= 0xBFu && global_inverse == 0u) {
+                  uint8_t box = (uint8_t)(char_index - 0x80u);
+                  uint32_t step_x = (draw_twice != 0u) ? 2u : 1u;
+                  uint32_t col0_w = 4u * step_x;
+                  uint32_t col1_w = 4u * step_x;
+                  uint32_t row0_h = cell_h / 3u;
+                  uint32_t row1_h = (cell_h + 1u) / 3u;
+                  uint32_t row2_h = cell_h - row0_h - row1_h;
+                  pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, (int)(cell_w * step_x), (int)cell_h, bg);
+                  if ((box & 0x01u) != 0u) pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, (int)col0_w, (int)row0_h, fg);
+                  if ((box & 0x02u) != 0u) pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)(cell_x + col0_w), (int)cell_y, (int)col1_w, (int)row0_h, fg);
+                  if ((box & 0x04u) != 0u) pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)(cell_y + row0_h), (int)col0_w, (int)row1_h, fg);
+                  if ((box & 0x08u) != 0u) pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)(cell_x + col0_w), (int)(cell_y + row0_h), (int)col1_w, (int)row1_h, fg);
+                  if ((box & 0x10u) != 0u) pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)(cell_y + row0_h + row1_h), (int)col0_w, (int)row2_h, fg);
+                  if ((box & 0x20u) != 0u) pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)(cell_x + col0_w), (int)(cell_y + row0_h + row1_h), (int)col1_w, (int)row2_h, fg);
+                  if (is_cursor != 0u && cursor_blink_on != 0u) {
+                      pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)(cell_y + cell_h - 1u), (int)(cell_w * step_x), 1, fg);
+                  }
+                  continue;
+              }
+
+              if (char_index >= 0xC0u && global_inverse == 0u && alternate == 0u) {
+                  char_index = (uint8_t)(char_index - 0x40u);
+              }
+
+              if (global_inverse != 0u && (char_index & 0x80u) != 0u) {
+                  inv = 1u;
+                  ch_raw = (uint8_t)(char_index & 0x7Fu);
+              } else {
+                  ch_raw = char_index;
+              }
               if (is_cursor != 0u) {
                   inv = 0u;
               }
-              char ch;
-              uint32_t cell_x = x * 6u;
-              uint32_t cell_y = y * 8u;
-              if (ch_raw < 0x20u || ch_raw > 0x7Eu) {
-                  ch = ' ';
-              } else {
-                  ch = (char)ch_raw;
-              }
-              if (is_cursor != 0u) {
-                  ch = ' ';
-              }
+              glyph_index = (is_cursor != 0u) ? 0x20u : ch_raw;
               uint32_t ch_fg = (inv != 0u) ? bg : fg;
               uint32_t ch_bg = (inv != 0u) ? fg : bg;
-              if (inv != 0u) {
-                  pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, 6, 8, ch_bg);
+              {
+                  uint32_t step_x = (draw_twice != 0u) ? 2u : 1u;
+                  for (uint32_t dy = 0u; dy < cell_h; ++dy) {
+                      uint32_t src_y = (dy * 12u) / cell_h;
+                      uint8_t bits = trs80_model4_charset_cg8[glyph_index & 0xFFu][src_y];
+                      for (uint32_t dx = 0u; dx < 8u; ++dx) {
+                          uint32_t color = ((bits & (uint8_t)(1u << dx)) != 0u) ? ch_fg : ch_bg;
+                          uint32_t px = cell_x + dx * step_x;
+                          uint32_t py = cell_y + dy;
+                          if (px < fb_w && py < fb_h) framebuf[py * fb_w + px] = color;
+                          if (step_x == 2u && (px + 1u) < fb_w && py < fb_h) framebuf[py * fb_w + px + 1u] = color;
+                      }
+                  }
               }
-              pasm_overlay_draw_char(framebuf, fb_w, fb_h, (int)cell_x, (int)cell_y, ch, 1, ch_fg);
               if (is_cursor != 0u && cursor_blink_on != 0u) {
-                  pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)(cell_y + 7u), 6, 1, fg);
+                  pasm_overlay_fill_rect(framebuf, fb_w, fb_h, (int)cell_x, (int)(cell_y + cell_h - 1u), draw_twice != 0u ? 16 : 8, 1, fg);
               }
           }
       }

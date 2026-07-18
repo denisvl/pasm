@@ -1,0 +1,20 @@
+metadata:
+  id: c64_1541
+  type: floppy_drive
+  model: commodore_1541
+  version: "1.0"
+  title: Commodore 1541
+
+drive:
+  type: floppy_drive
+  size:
+    form_factor: "5.25"
+    sides: 1
+    tracks: 35
+    sectors_per_track: 21
+    formatted_capacity_kb: 170
+  speed:
+    transfer_bytes_per_sec: 400
+  controller_class: intelligent_serial_drive
+  bus: iec_serial
+  media_extensions: [d64]

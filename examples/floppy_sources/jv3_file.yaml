@@ -1,0 +1,11 @@
+metadata:
+  id: jv3_file
+  type: floppy_source
+  model: trs80_jv3_file_source
+  version: "1.0"
+  title: JV3 Disk Image
+
+source:
+  kind: file
+  label: JV3 Disk Image
+  allowed_extensions: [jv3]

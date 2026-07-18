@@ -1,0 +1,11 @@
+metadata:
+  id: po_file
+  type: floppy_source
+  model: common_po_file_source
+  version: "1.0"
+  title: PO Disk Image
+
+source:
+  kind: file
+  label: PO Disk Image
+  allowed_extensions: [po]

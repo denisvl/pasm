@@ -1,0 +1,20 @@
+metadata:
+  id: coco_fd501
+  type: floppy_drive
+  model: tandy_fd501
+  version: "1.0"
+  title: Tandy FD-501
+
+drive:
+  type: floppy_drive
+  size:
+    form_factor: "5.25"
+    sides: 1
+    tracks: 40
+    sectors_per_track: 18
+    formatted_capacity_kb: 156
+  speed:
+    transfer_bytes_per_sec: 10000
+  controller_class: wd17xx_cartridge
+  bus: cartridge_bus
+  media_extensions: [dsk]

@@ -1,0 +1,11 @@
+metadata:
+  id: do_file
+  type: floppy_source
+  model: common_do_file_source
+  version: "1.0"
+  title: DO Disk Image
+
+source:
+  kind: file
+  label: DO Disk Image
+  allowed_extensions: [do]

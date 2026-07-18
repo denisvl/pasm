@@ -285,7 +285,15 @@ def _ic_lifecycle_reset_block(component: Dict[str, Any]) -> str:
         field_name = _to_ident(str(field.get("name", "field")))
         field_type = str(field.get("type", "")).strip()
         initial = str(field.get("initial", "0")).strip() or "0"
-        preserve_reset_field = field_name in {"rom_data", "rom_size"}
+        preserve_reset_field = field_name in {
+            "rom_data",
+            "rom_size",
+            "fdc_image_data",
+            "fdc_image_size",
+            "fdc_image_format",
+            "fdc_sectors_per_track",
+            "fdc_track_count",
+        }
         if ("*" not in field_type) and (not preserve_reset_field):
             lines.append(f"    comp->{field_name} = {initial};")
     snippet = _component_snippet_block(component, "reset")
@@ -680,7 +688,11 @@ def generate_host_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         + "#define CPU_HOST_HAT_LEFT 0x08u\n"
         + "\n"
     )
-    has_picker = bool(isa_data.get("cartridge")) or bool(isa_data.get("cassette"))
+    has_picker = (
+        bool(isa_data.get("cartridge"))
+        or bool(isa_data.get("cassette"))
+        or bool(isa_data.get("floppy"))
+    )
     if has_picker:
         return (
             "/* Auto-generated split unit: host-side glue ownership. */\n"
@@ -691,22 +703,29 @@ def generate_host_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
             "extern uint8_t cpu_component_cartridge_picker_is_active(void);\n"
             "extern uint8_t cpu_component_cartridge_picker_blocks_input(void);\n"
             "extern uint8_t cpu_component_cassette_picker_blocks_input(void);\n"
+            "extern uint8_t cpu_component_floppy_picker_blocks_input(void);\n"
             "extern void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus);\n"
+            "extern void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus);\n"
+            "extern void cpu_component_floppy_picker_update(CPUState *cpu, uint8_t has_focus);\n"
             "extern void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
+            "extern void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
+            "extern void cpu_component_floppy_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
             "int cpu_component_host_picker_set_dir(const char *path) {\n"
             "    (void)path;\n"
             "    return 0;\n"
             "}\n\n"
             "uint8_t cpu_component_host_picker_is_active(void) {\n"
-            "    return (uint8_t)(cpu_component_cartridge_picker_blocks_input() != 0u || cpu_component_cassette_picker_blocks_input() != 0u);\n"
+            "    return (uint8_t)(cpu_component_cartridge_picker_blocks_input() != 0u || cpu_component_cassette_picker_blocks_input() != 0u || cpu_component_floppy_picker_blocks_input() != 0u);\n"
             "}\n\n"
             "void cpu_component_host_picker_step(CPUState *cpu, uint8_t has_focus) {\n"
             "    cpu_component_cartridge_picker_update(cpu, has_focus);\n"
             "    cpu_component_cassette_picker_update(cpu, has_focus);\n"
+            "    cpu_component_floppy_picker_update(cpu, has_focus);\n"
             "}\n\n"
             "void cpu_component_host_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {\n"
             "    cpu_component_cartridge_picker_draw_overlay(cpu, pixels, w, h);\n"
             "    cpu_component_cassette_picker_draw_overlay(cpu, pixels, w, h);\n"
+            "    cpu_component_floppy_picker_draw_overlay(cpu, pixels, w, h);\n"
             "}\n"
         )
     return (
@@ -887,6 +906,10 @@ def generate_device_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         + "uint8_t cpu_component_cassette_picker_overlay_visible(void);\n"
         + "void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus);\n"
         + "void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
+        + "uint8_t cpu_component_floppy_picker_is_active(void);\n"
+        + "uint8_t cpu_component_floppy_picker_overlay_visible(void);\n"
+        + "void cpu_component_floppy_picker_update(CPUState *cpu, uint8_t has_focus);\n"
+        + "void cpu_component_floppy_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
         + input_runtime_impl
         + component_connections
         + component_dispatch
@@ -1035,6 +1058,7 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
     ]
     has_runtime_cartridge = bool(isa_data.get("cartridge"))
     has_runtime_cassette = bool(isa_data.get("cassette"))
+    has_runtime_floppy = bool(isa_data.get("floppy"))
     lines: List[str] = []
     for _, ident in pre_hook_ics:
         lines.append(f"void cpu_component_ic_{ident}_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);")
@@ -1044,6 +1068,7 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
         [
             "",
             "int cpu_components_runtime_pre_step(CPUState *cpu) {",
+            "    int runtime_rc = 0;",
             "    if (cpu != NULL && cpu->reset_delay_pending) {",
             "        cpu->reset_delay_pending = false;",
             "    }",
@@ -1052,7 +1077,8 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
     if has_runtime_cartridge:
         lines.extend(
             [
-                "    if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {",
+                "    runtime_rc = cpu_component_cartridge_picker_apply_pending_swap(cpu);",
+                "    if (runtime_rc < 0) {",
                 "        return -1;",
                 "    }",
             ]
@@ -1060,7 +1086,17 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
     if has_runtime_cassette:
         lines.extend(
             [
-                "    if (cpu_component_cassette_picker_apply_pending_load(cpu) != 0) {",
+                "    runtime_rc = cpu_component_cassette_picker_apply_pending_load(cpu);",
+                "    if (runtime_rc < 0) {",
+                "        return -1;",
+                "    }",
+            ]
+        )
+    if has_runtime_floppy:
+        lines.extend(
+            [
+                "    runtime_rc = cpu_component_floppy_picker_apply_pending_load(cpu);",
+                "    if (runtime_rc < 0) {",
                 "        return -1;",
                 "    }",
             ]

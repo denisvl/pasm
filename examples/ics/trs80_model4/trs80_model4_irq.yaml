@@ -30,9 +30,21 @@ behavior:
       (void)cpu;
   callback_handlers:
     pulse_irq: |
-      (void)args;
-      (void)argc;
-      z80_interrupt(cpu, 0xFFu);
+      uint8_t irq_kind = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 1u;
+      if (irq_kind == 2u) {
+          cpu->halted = false;
+          cpu->interrupt_pending = false;
+          cpu->interrupts_enabled = false;
+          cpu->sp--;
+          z80_write_byte(cpu, cpu->sp, (uint8_t)((cpu->pc >> 8) & 0xFFu));
+          cpu->sp--;
+          z80_write_byte(cpu, cpu->sp, (uint8_t)(cpu->pc & 0xFFu));
+          cpu->pc = 0x0066u;
+          cpu->pc_modified = true;
+          cpu->total_cycles += 11u;
+      } else {
+          z80_interrupt(cpu, 0xFFu);
+      }
       {
           uint64_t irq_up[1] = { 1u };
           uint64_t irq_down[1] = { 0u };

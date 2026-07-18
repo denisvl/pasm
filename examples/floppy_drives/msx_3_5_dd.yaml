@@ -1,0 +1,20 @@
+metadata:
+  id: msx_3_5_dd
+  type: floppy_drive
+  model: msx_3_5_dd
+  version: "1.0"
+  title: MSX 3.5 DD Drive
+
+drive:
+  type: floppy_drive
+  size:
+    form_factor: "3.5"
+    sides: 1
+    tracks: 80
+    sectors_per_track: 9
+    formatted_capacity_kb: 360
+  speed:
+    transfer_bytes_per_sec: 15000
+  controller_class: msx_fdc
+  bus: cartridge_bus
+  media_extensions: [dsk]

@@ -1,0 +1,11 @@
+metadata:
+  id: jv1_file
+  type: floppy_source
+  model: trs80_jv1_file_source
+  version: "1.0"
+  title: JV1 Disk Image
+
+source:
+  kind: file
+  label: JV1 Disk Image
+  allowed_extensions: [jv1]

@@ -1,0 +1,11 @@
+metadata:
+  id: atr_file
+  type: floppy_source
+  model: common_atr_file_source
+  version: "1.0"
+  title: ATR Disk Image
+
+source:
+  kind: file
+  label: ATR Disk Image
+  allowed_extensions: [atr]

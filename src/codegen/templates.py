@@ -135,6 +135,7 @@ int {cpu_prefix}_load_rom(CPUState *cpu, const char *filename, uint16_t address)
 int {cpu_prefix}_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int {cpu_prefix}_load_cartridge_rom(CPUState *cpu, const char *path);
 int {cpu_prefix}_set_cartridge_dir(CPUState *cpu, const char *path);
+int {cpu_prefix}_load_floppy_media(CPUState *cpu, const char *path);
 int {cpu_prefix}_load_keyboard_map(CPUState *cpu, const char *path);
 int {cpu_prefix}_load_controller_map(CPUState *cpu, const char *path);
 int cpu_component_host_picker_set_dir(const char *path);
@@ -145,6 +146,13 @@ int cpu_component_cassette_picker_apply_pending_load(CPUState *cpu);
 uint8_t cpu_component_cassette_picker_is_active(void);
 void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus);
 void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);
+int cpu_component_floppy_picker_apply_pending_load(CPUState *cpu);
+int cpu_component_floppy_picker_load_path(CPUState *cpu, const char *path);
+uint8_t cpu_component_floppy_picker_is_active(void);
+uint8_t cpu_component_floppy_picker_overlay_visible(void);
+uint8_t cpu_component_floppy_picker_blocks_input(void);
+void cpu_component_floppy_picker_update(CPUState *cpu, uint8_t has_focus);
+void cpu_component_floppy_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);
 
 /* ===== Split Contracts (Core/System Glue) ===== */
 {dispatch_contract}
@@ -308,6 +316,7 @@ int {cpu_prefix}_load_rom(CPUState *cpu, const char *filename, uint16_t address)
 }}
 {system_rom_loader}
 {cartridge_rom_loader}
+{floppy_media_loader}
 
 /* ===== Memory Access ===== */
 uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
@@ -596,6 +605,7 @@ void print_usage(const char *prog) {{
     printf("  --addr <addr>   Load address (default: 0x0000)\\n");
     printf("  --keyboard-map <file>  Load runtime keyboard map YAML\\n");
     printf("  --controller-map <file>  Load runtime controller map YAML\\n");
+    printf("  --floppy <file>  Start with floppy image inserted\\n");
     printf("  --run           Run emulator\\n");
     printf("  --step          Run one instruction\\n");
     printf("  --cycles <n>    Run for n cycles\\n");
@@ -616,6 +626,7 @@ int main(int argc, char *argv[]) {{
     const char *rom_file = NULL;
     const char *keyboard_map_file = NULL;
     const char *controller_map_file = NULL;
+    const char *floppy_file = NULL;
     uint16_t load_addr = 0;
     const char *test_name = NULL;
     
@@ -628,6 +639,8 @@ int main(int argc, char *argv[]) {{
             keyboard_map_file = argv[++i];
         }} else if (strcmp(argv[i], "--controller-map") == 0 && i + 1 < argc) {{
             controller_map_file = argv[++i];
+        }} else if (strcmp(argv[i], "--floppy") == 0 && i + 1 < argc) {{
+            floppy_file = argv[++i];
         }} else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {{
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
         }} else if (strcmp(argv[i], "--run") == 0) {{
@@ -665,6 +678,21 @@ int main(int argc, char *argv[]) {{
             return 1;
         }}
         printf("Loaded controller map: %s\\n", controller_map_file);
+    }}
+
+    if (floppy_file && floppy_file[0]) {{
+#if defined(_WIN32)
+        if (_putenv_s("PASM_EMU_FLOPPY_AUTO_PATH", floppy_file) != 0) {{
+            fprintf(stderr, "Failed to set startup floppy path: %s\\n", floppy_file);
+            return 1;
+        }}
+#else
+        if (setenv("PASM_EMU_FLOPPY_AUTO_PATH", floppy_file, 1) != 0) {{
+            fprintf(stderr, "Failed to set startup floppy path: %s\\n", floppy_file);
+            return 1;
+        }}
+#endif
+        printf("Startup floppy: %s\\n", floppy_file);
     }}
     
     if (rom_file) {{

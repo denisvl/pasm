@@ -17,9 +17,21 @@ state:
   - name: audio_level
     type: uint8_t
     initial: "0"
+  - name: mode_image
+    type: uint8_t
+    initial: "0x08"
 
 interfaces:
-  callbacks: []
+  callbacks:
+    - name: get_mode_image
+      args: []
+      returns: u8
+    - name: get_screen_expanded
+      args: []
+      returns: u8
+    - name: get_screen_alternate
+      args: []
+      returns: u8
   handlers: []
   signals:
     - name: audio_level
@@ -46,6 +58,9 @@ maps:
       - name: fdc_data
         mask: 0x00FF
         value: 0x00F3
+      - name: fdc_nmi_status
+        mask: 0x00FF
+        value: 0x00E4
       - name: sio_data
         mask: 0x00FC
         value: 0x00E8
@@ -68,6 +83,9 @@ maps:
       - name: fdc_drive_select
         mask: 0x00FC
         value: 0x00F4
+      - name: fdc_nmi_control
+        mask: 0x00FF
+        value: 0x00E4
       - name: sio_write
         mask: 0x00FC
         value: 0x00E8
@@ -90,56 +108,24 @@ behavior:
       comp->last_cycle = cpu->total_cycles;
       comp->tstate_accum = 0u;
       comp->audio_level = 0u;
+      comp->mode_image = 0x08u;
     destroy: |
       (void)cpu;
     mem_read_pre: |
-      if (addr < 0x3800u) {
+      {
           uint64_t ga_args[1] = { (uint64_t)addr };
           return (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "map_mem_read", ga_args, 1);
       }
-
-      {
-          uint64_t map_args[1] = { 0u };
-          uint8_t map = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "get_memory_map", map_args, 0);
-          uint16_t kb_base = 0u;
-          uint8_t kb_enabled = 0u;
-          if (map == 0u || map == 1u) {
-              kb_enabled = 1u;
-              kb_base = 0x3800u;
-          } else if (map == 2u || map == 3u) {
-              kb_enabled = 1u;
-              kb_base = 0xF400u;
-          }
-          if (kb_enabled != 0u && addr >= kb_base && addr < (uint16_t)(kb_base + 0x0400u)) {
-              uint8_t row_lines = (uint8_t)(addr & 0xFFu);
-              uint64_t ppi_args[1] = { (uint64_t)row_lines };
-              uint8_t v = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ppi", "ppi_read_columns", ppi_args, 1);
-              return v;
-          }
-      }
-
-      {
-          uint64_t rb_args[1] = { (uint64_t)addr };
-          return (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ram", "ram_read", rb_args, 1);
-      }
     mem_write_pre: |
-      if (addr < 0x3800u) {
-          uint64_t ga_args[2] = { (uint64_t)addr, (uint64_t)value };
-          uint8_t ga_handled = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "map_mem_write", ga_args, 2);
-          if (ga_handled != 0u) {
-              return;
-          }
-      }
-
       {
-          uint64_t wb_args[2] = { (uint64_t)addr, (uint64_t)value };
-          (void)cpu_component_dispatch_callback(cpu, "trs80_m4ram", "ram_write", wb_args, 2);
+          uint64_t ga_args[2] = { (uint64_t)addr, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "trs80_m4ga", "map_mem_write", ga_args, 2);
       }
       return;
     port_read_post: |
       uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
       value = 0xFFu;
-      if (p >= 0xF0u && p <= 0xF3u) {
+      if (p == 0xE4u || (p >= 0xF0u && p <= 0xF3u)) {
           uint64_t fdc_args[1] = { (uint64_t)p };
           value = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4fdc", "fdc_port_read", fdc_args, 1);
       } else if ((p & 0xFCu) == 0xE8u) {
@@ -148,10 +134,24 @@ behavior:
       } else if ((p & 0xFCu) == 0xFCu) {
           uint64_t cass_args[1] = { (uint64_t)p };
           value = (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4cass", "cass_port_read", cass_args, 1);
+      } else if ((p & 0xFCu) == 0xECu) {
+          value = comp->mode_image;
       }
     port_write_pre: |
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      if (trace_enabled < 0) {
+          const char *env = getenv("PASM_TRS80_M4_IO_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = getenv("PASM_TRS80_M4_IO_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/trs80_model4_io_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
+      }
       uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
-      if ((p >= 0xF0u && p <= 0xF3u) || ((p & 0xFCu) == 0xF4u)) {
+      if (p == 0xE4u || (p >= 0xF0u && p <= 0xF3u) || ((p & 0xFCu) == 0xF4u)) {
           uint64_t fdc_args[2] = { (uint64_t)p, (uint64_t)value };
           (void)cpu_component_dispatch_callback(cpu, "trs80_m4fdc", "fdc_port_write", fdc_args, 2);
       } else if ((p & 0xFCu) == 0xE8u) {
@@ -168,6 +168,17 @@ behavior:
                   uint64_t sig_args[2] = { (uint64_t)level, cpu->total_cycles };
                   cpu_component_emit_signal(cpu, "trs80_m4io", "audio_level", sig_args, 2);
               }
+          }
+      } else if ((p & 0xFCu) == 0xECu) {
+          comp->mode_image = value;
+          if (trace_enabled != 0) {
+              fprintf(trace_fp,
+                      "io_portEC cycle=%llu value=%02X expanded=%u alternate=%u\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)value,
+                      (unsigned)(((comp->mode_image & 0x04u) != 0u) ? 1u : 0u),
+                      (unsigned)(((comp->mode_image & 0x08u) == 0u) ? 1u : 0u));
+              fflush(trace_fp);
           }
       } else if ((p & 0xFCu) == 0xFCu) {
           uint64_t cass_args[2] = { (uint64_t)p, (uint64_t)value };
@@ -210,7 +221,19 @@ behavior:
               (void)cpu_component_dispatch_callback(cpu, "trs80_m4irq", "pulse_irq", irq_args, 1);
           }
       }
-  callback_handlers: {}
+  callback_handlers:
+    get_mode_image: |
+      (void)argc;
+      (void)args;
+      return comp->mode_image;
+    get_screen_expanded: |
+      (void)argc;
+      (void)args;
+      return (uint8_t)(((comp->mode_image & 0x04u) != 0u) ? 1u : 0u);
+    get_screen_alternate: |
+      (void)argc;
+      (void)args;
+      return (uint8_t)(((comp->mode_image & 0x08u) == 0u) ? 1u : 0u);
   handler_bodies: {}
 
 coding:

@@ -47,6 +47,27 @@ state:
   - name: fdc_sector_buffer
     type: uint8_t *
     initial: "NULL"
+  - name: fdc_image_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: fdc_image_size
+    type: uint32_t
+    initial: "0"
+  - name: fdc_image_format
+    type: uint8_t
+    initial: "0"
+  - name: fdc_sectors_per_track
+    type: uint8_t
+    initial: "10"
+  - name: fdc_track_count
+    type: uint16_t
+    initial: "0"
+  - name: fdc_activity_flags
+    type: uint8_t
+    initial: "0"
+  - name: fdc_nmi_mask
+    type: uint8_t
+    initial: "0"
 
 interfaces:
   callbacks:
@@ -58,6 +79,15 @@ interfaces:
       returns: u8
     - name: fdc_step_tick
       args: [u64]
+      returns: u8
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
       returns: u8
   handlers: []
   signals: []
@@ -72,6 +102,11 @@ behavior:
       if (comp->fdc_sector_buffer == NULL) {
           comp->fdc_sector_buffer = (uint8_t *)calloc(256u, sizeof(uint8_t));
       }
+      comp->fdc_image_data = NULL;
+      comp->fdc_image_size = 0u;
+      comp->fdc_image_format = 0u;
+      comp->fdc_sectors_per_track = 10u;
+      comp->fdc_track_count = 0u;
     reset: |
       comp->fdc_status = 0x04u;
       comp->fdc_track = 0u;
@@ -86,6 +121,8 @@ behavior:
       comp->fdc_irq_pending = 0u;
       comp->fdc_data_index = 0u;
       comp->fdc_data_count = 0u;
+      comp->fdc_activity_flags = 0u;
+      comp->fdc_nmi_mask = 0u;
       if (comp->fdc_sector_buffer != NULL) {
           memset(comp->fdc_sector_buffer, 0, 256u);
       }
@@ -94,16 +131,217 @@ behavior:
           free(comp->fdc_sector_buffer);
           comp->fdc_sector_buffer = NULL;
       }
+      if (comp->fdc_image_data != NULL) {
+          free(comp->fdc_image_data);
+          comp->fdc_image_data = NULL;
+      }
+      comp->fdc_image_size = 0u;
+      comp->fdc_image_format = 0u;
+      comp->fdc_track_count = 0u;
   callback_handlers:
+    load_media: |
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+      FILE *fp;
+      uint8_t *image = NULL;
+      long file_size_long;
+      size_t file_size;
+      uint8_t fmt = 0u;
+      uint8_t sectors_per_track = 10u;
+      uint16_t track_count = 0u;
+      uint8_t looks_like_jv3 = 0u;
+      const char *dot;
+      char ext[16];
+      size_t ext_len = 0u;
+      if (trace_enabled < 0) {
+          const char *env = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/trs80_fdc_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
+      }
+      if (path == NULL || path[0] == '\0') return 0u;
+      fp = fopen(path, "rb");
+      if (fp == NULL) return 0u;
+      if (fseek(fp, 0L, SEEK_END) != 0) { fclose(fp); return 0u; }
+      file_size_long = ftell(fp);
+      if (file_size_long <= 0L) { fclose(fp); return 0u; }
+      if (fseek(fp, 0L, SEEK_SET) != 0) { fclose(fp); return 0u; }
+      file_size = (size_t)file_size_long;
+      image = (uint8_t *)malloc(file_size);
+      if (image == NULL) { fclose(fp); return 0u; }
+      if (fread(image, 1u, file_size, fp) != file_size) {
+          fclose(fp);
+          free(image);
+          return 0u;
+      }
+      fclose(fp);
+      dot = strrchr(path, '.');
+      if (dot != NULL && dot[1] != '\0') {
+          dot++;
+          while (dot[ext_len] != '\0' && ext_len + 1u < sizeof(ext)) {
+              char c = dot[ext_len];
+              if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+              ext[ext_len++] = c;
+          }
+      }
+      ext[ext_len] = '\0';
+      if (file_size >= 8704u) {
+          size_t active_entries = 0u;
+          size_t ff_run = 0u;
+          size_t scan_limit = (8704u / 3u) * 3u;
+          for (size_t off = 0u; off + 2u < scan_limit; off += 3u) {
+              uint8_t b0 = image[off + 0u];
+              uint8_t b1 = image[off + 1u];
+              uint8_t b2 = image[off + 2u];
+              if (b0 == 0xFFu && b1 == 0xFFu && b2 == 0xFFu) {
+                  ff_run += 1u;
+                  continue;
+              }
+              if ((b2 & 0x80u) == 0u) {
+                  active_entries = 0u;
+                  ff_run = 0u;
+                  break;
+              }
+              active_entries += 1u;
+          }
+          if (active_entries >= 18u && ff_run >= 16u && ((file_size - 8704u) % 256u) == 0u) {
+              looks_like_jv3 = 1u;
+          }
+      }
+      if (strcmp(ext, "jv3") == 0 || (strcmp(ext, "dsk") == 0 && looks_like_jv3 != 0u)) {
+          size_t active_entries = 0u;
+          uint8_t max_track = 0u;
+          for (size_t off = 0u; off + 2u < 8704u; off += 3u) {
+              uint8_t b0 = image[off + 0u];
+              uint8_t b1 = image[off + 1u];
+              uint8_t b2 = image[off + 2u];
+              (void)b1;
+              if (b0 == 0xFFu && image[off + 1u] == 0xFFu && b2 == 0xFFu) continue;
+              if ((b2 & 0x80u) == 0u) break;
+              active_entries += 1u;
+              if (b0 > max_track) max_track = b0;
+          }
+          if (active_entries > 0u && (8704u + (active_entries * 256u)) <= file_size) {
+              fmt = 2u;
+              sectors_per_track = 18u;
+              track_count = (uint16_t)(max_track + 1u);
+          }
+      }
+      if (strcmp(ext, "jv1") == 0 || strcmp(ext, "dsk") == 0) {
+          if ((file_size % 256u) == 0u) {
+              size_t sector_count = file_size / 256u;
+              if ((sector_count % 10u) == 0u) {
+                  fmt = 1u;
+                  sectors_per_track = 10u;
+                  track_count = (uint16_t)(sector_count / 10u);
+              }
+          }
+      }
+      if (fmt == 0u) {
+          if (trace_enabled != 0) {
+              fprintf(trace_fp, "fdc_load reject path=%s size=%zu ext=%s looks_like_jv3=%u\n", path, file_size, ext, (unsigned)looks_like_jv3);
+              fflush(trace_fp);
+          }
+          free(image);
+          return 0u;
+      }
+      if (comp->fdc_image_data != NULL) {
+          free(comp->fdc_image_data);
+          comp->fdc_image_data = NULL;
+      }
+      comp->fdc_image_data = image;
+      comp->fdc_image_size = (uint32_t)file_size;
+      comp->fdc_image_format = fmt;
+      comp->fdc_sectors_per_track = sectors_per_track;
+      comp->fdc_track_count = track_count;
+      comp->fdc_track = 0u;
+      comp->fdc_sector = 1u;
+      comp->fdc_status = 0x04u;
+      comp->fdc_activity_flags = 0u;
+      comp->fdc_nmi_mask = 0u;
+      if (trace_enabled != 0) {
+          fprintf(trace_fp, "fdc_load ok path=%s size=%zu fmt=%u spt=%u tracks=%u\n", path, file_size, (unsigned)fmt, (unsigned)sectors_per_track, (unsigned)track_count);
+          fflush(trace_fp);
+      }
+      return 1u;
+    unload_media: |
+      if (comp->fdc_image_data != NULL) {
+          free(comp->fdc_image_data);
+          comp->fdc_image_data = NULL;
+      }
+      comp->fdc_image_size = 0u;
+      comp->fdc_image_format = 0u;
+      comp->fdc_track_count = 0u;
+      comp->fdc_track = 0u;
+      comp->fdc_sector = 1u;
+      comp->fdc_activity_flags = 0u;
+      comp->fdc_nmi_mask = 0u;
+      if (comp->fdc_sector_buffer != NULL) {
+          memset(comp->fdc_sector_buffer, 0, 256u);
+      }
+      return 1u;
+    query_drive_activity: |
+      uint8_t flags = comp->fdc_activity_flags;
+      comp->fdc_activity_flags = 0u;
+      return (uint64_t)flags;
     fdc_port_read: |
       if (argc < 1u) return 0xFFu;
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
       uint8_t p = (uint8_t)(args[0] & 0xFFu);
       uint8_t value = 0xFFu;
-      if (p == 0xF0u) {
+      if (trace_enabled < 0) {
+          const char *env = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/trs80_fdc_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
+      }
+      if (p == 0xE4u) {
+          value = 0x3Fu;
+          if (comp->fdc_drq == 0u) value |= 0x40u;
+          if (comp->fdc_irq_pending == 0u) value |= 0x80u;
+      } else if (p == 0xF0u) {
+          if (comp->fdc_cmd_pending != 0u &&
+              (comp->fdc_drive_select & 0x40u) != 0u &&
+              cpu->total_cycles < comp->fdc_deadline) {
+              uint64_t step_args[1] = { cpu->total_cycles };
+              comp->fdc_deadline = cpu->total_cycles;
+              (void)cpu_component_dispatch_callback(cpu, "trs80_m4fdc", "fdc_step_tick", step_args, 1);
+          }
           uint8_t status = (uint8_t)(comp->fdc_status & 0x7Cu);
+          uint8_t cmd_class = (uint8_t)(comp->fdc_last_cmd & 0xF0u);
+          uint8_t type1_status = ((comp->fdc_last_cmd & 0x80u) == 0u && cmd_class != 0xD0u) ? 1u : 0u;
+          uint8_t drive_selected = ((comp->fdc_drive_select & 0x0Fu) != 0u) ? 1u : 0u;
+          uint8_t media_ready = (drive_selected != 0u && comp->fdc_image_data != NULL && comp->fdc_image_size != 0u) ? 1u : 0u;
           if (comp->fdc_busy != 0u) status |= 0x01u;
+          if (type1_status != 0u && media_ready != 0u) {
+              status |= 0x20u;
+              uint64_t rev_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 5u) : 800000u;
+              uint64_t pulse_width = rev_period / 40u;
+              if (rev_period == 0u) rev_period = 800000u;
+              if (pulse_width == 0u) pulse_width = 1u;
+              if ((cpu->total_cycles % rev_period) < pulse_width) status |= 0x02u;
+          }
+          if (type1_status != 0u && comp->fdc_track == 0u) status |= 0x04u;
           if (comp->fdc_drq != 0u) status |= 0x02u;
-          if (comp->fdc_irq_pending != 0u) status |= 0x80u;
+          if (media_ready == 0u) status |= 0x80u;
+          if (trace_enabled != 0) {
+              fprintf(trace_fp, "fdc_rd cycle=%llu pc=%04X port=%02X val=%02X status=%02X sel=%02X ready=%u busy=%u drq=%u irq=%u track=%u sector=%u\n",
+                      (unsigned long long)cpu->total_cycles, (unsigned)cpu->pc, (unsigned)p, (unsigned)status, (unsigned)comp->fdc_status,
+                      (unsigned)comp->fdc_drive_select, (unsigned)media_ready, (unsigned)comp->fdc_busy,
+                      (unsigned)comp->fdc_drq, (unsigned)comp->fdc_irq_pending, (unsigned)comp->fdc_track,
+                      (unsigned)comp->fdc_sector);
+              fflush(trace_fp);
+          }
           value = status;
           comp->fdc_irq_pending = 0u;
       } else if (p == 0xF1u) {
@@ -115,15 +353,21 @@ behavior:
               uint16_t idx = comp->fdc_data_index;
               value = comp->fdc_sector_buffer[(idx < 256u) ? idx : 255u];
               comp->fdc_data = value;
+              comp->fdc_activity_flags |= 0x01u;
               comp->fdc_data_index = (uint16_t)(comp->fdc_data_index + 1u);
               comp->fdc_data_count = (uint16_t)(comp->fdc_data_count - 1u);
               if (comp->fdc_data_count == 0u) {
                   comp->fdc_drq = 0u;
-                  comp->fdc_irq_pending = 1u;
-                  {
-                      uint64_t irq_args[1] = { 2u };
-                      (void)cpu_component_dispatch_callback(cpu, "trs80_m4irq", "pulse_irq", irq_args, 1);
-                  }
+                  comp->fdc_cmd_pending = 2u;
+                  comp->fdc_deadline = cpu->total_cycles + 64u;
+              }
+              if (trace_enabled != 0) {
+                  fprintf(trace_fp, "fdc_rd cycle=%llu pc=%04X port=F3 val=%02X idx=%u remain=%u busy=%u drq=%u track=%u sector=%u\n",
+                          (unsigned long long)cpu->total_cycles, (unsigned)cpu->pc, (unsigned)value,
+                          (unsigned)comp->fdc_data_index, (unsigned)comp->fdc_data_count,
+                          (unsigned)comp->fdc_busy, (unsigned)comp->fdc_drq,
+                          (unsigned)comp->fdc_track, (unsigned)comp->fdc_sector);
+                  fflush(trace_fp);
               }
           } else {
               value = comp->fdc_data;
@@ -131,20 +375,48 @@ behavior:
       }
       return value;
     fdc_port_write: |
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      if (trace_enabled < 0) {
+          const char *env = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/trs80_fdc_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
+      }
       if (argc < 2u) return 0u;
       uint8_t p = (uint8_t)(args[0] & 0xFFu);
       uint8_t value = (uint8_t)(args[1] & 0xFFu);
-      if (p == 0xF0u) {
+      if (trace_enabled != 0 && (p == 0xE4u || (p >= 0xF0u && p <= 0xF4u) || (p & 0xFCu) == 0xF4u)) {
+          fprintf(trace_fp, "fdc_wr cycle=%llu pc=%04X port=%02X val=%02X track=%u sector=%u status=%02X\n",
+                  (unsigned long long)cpu->total_cycles, (unsigned)cpu->pc, (unsigned)p, (unsigned)value,
+                  (unsigned)comp->fdc_track, (unsigned)comp->fdc_sector, (unsigned)comp->fdc_status);
+          fflush(trace_fp);
+      }
+      if (p == 0xE4u) {
+          comp->fdc_nmi_mask = value;
+      } else if (p == 0xF0u) {
           uint8_t cmd = (uint8_t)(value & 0xF0u);
           comp->fdc_last_cmd = value;
           comp->fdc_irq_pending = 0u;
-          if (cmd == 0x80u) {
-              uint64_t cmd_cycles = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 150u) : 26667u;
-              if (cmd_cycles < 4000u) cmd_cycles = 4000u;
-              comp->fdc_busy = 1u;
-              comp->fdc_drq = 0u;
-              comp->fdc_data_index = 0u;
-              comp->fdc_data_count = 0u;
+          if ((value & 0x80u) == 0u) {
+          uint64_t cmd_cycles = 2000u;
+          comp->fdc_busy = 1u;
+          comp->fdc_drq = 0u;
+          comp->fdc_data_index = 0u;
+          comp->fdc_data_count = 0u;
+          comp->fdc_cmd_pending = 1u;
+          comp->fdc_deadline = cpu->total_cycles + cmd_cycles;
+          comp->fdc_status = (comp->fdc_track == 0u) ? 0x04u : 0x00u;
+        } else if (cmd == 0x80u) {
+          uint64_t cmd_cycles = 64u;
+          comp->fdc_busy = 1u;
+          comp->fdc_drq = 0u;
+          comp->fdc_data_index = 0u;
+          comp->fdc_data_count = 0u;
               comp->fdc_cmd_pending = 1u;
               comp->fdc_deadline = cpu->total_cycles + cmd_cycles;
               comp->fdc_status = 0x04u;
@@ -155,7 +427,7 @@ behavior:
               comp->fdc_data_index = 0u;
               comp->fdc_data_count = 0u;
               comp->fdc_irq_pending = 1u;
-              {
+              if ((comp->fdc_nmi_mask & 0x80u) != 0u) {
                   uint64_t irq_args[1] = { 2u };
                   (void)cpu_component_dispatch_callback(cpu, "trs80_m4irq", "pulse_irq", irq_args, 1);
               }
@@ -173,32 +445,226 @@ behavior:
           comp->fdc_sector = value;
       } else if (p == 0xF3u) {
           comp->fdc_data = value;
+          comp->fdc_activity_flags |= 0x02u;
       } else if ((p & 0xFCu) == 0xF4u) {
           comp->fdc_drive_select = value;
       }
       return 0u;
     fdc_step_tick: |
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      if (trace_enabled < 0) {
+          const char *env = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/trs80_fdc_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
+      }
       uint64_t now = (argc > 0u) ? (uint64_t)args[0] : cpu->total_cycles;
       if (comp->fdc_cmd_pending != 0u && now >= comp->fdc_deadline) {
+          if (comp->fdc_cmd_pending == 2u) {
+              comp->fdc_cmd_pending = 0u;
+              comp->fdc_busy = 0u;
+              comp->fdc_irq_pending = 1u;
+              if ((comp->fdc_nmi_mask & 0x80u) != 0u) {
+                  uint64_t irq_args[1] = { 2u };
+                  (void)cpu_component_dispatch_callback(cpu, "trs80_m4irq", "pulse_irq", irq_args, 1);
+              }
+              return 0u;
+          }
+          uint8_t read_ok = 0u;
           comp->fdc_cmd_pending = 0u;
-          comp->fdc_busy = 0u;
           comp->fdc_drq = 0u;
           comp->fdc_data_index = 0u;
           comp->fdc_data_count = 0u;
-          if ((comp->fdc_last_cmd & 0xF0u) == 0x80u && comp->fdc_sector_buffer != NULL) {
-              for (uint32_t i = 0u; i < 256u; ++i) {
-                  comp->fdc_sector_buffer[i] = (uint8_t)(
-                      (uint8_t)(comp->fdc_track + comp->fdc_sector) ^
-                      (uint8_t)i
-                  );
+          if ((comp->fdc_last_cmd & 0x80u) == 0u) {
+              comp->fdc_busy = 0u;
+              uint8_t cmd = (uint8_t)(comp->fdc_last_cmd & 0xF0u);
+              uint8_t verify_ok = 1u;
+              if (cmd == 0x00u) {
+                  comp->fdc_track = 0u;
+              } else if (cmd == 0x10u) {
+                  uint8_t target = comp->fdc_data;
+                  if (comp->fdc_track_count != 0u && target >= comp->fdc_track_count) {
+                      target = (uint8_t)(comp->fdc_track_count - 1u);
+                  }
+                  comp->fdc_track = target;
+              } else if (cmd == 0x40u || cmd == 0x50u) {
+                  uint8_t next = (uint8_t)(comp->fdc_track + 1u);
+                  if (comp->fdc_track_count == 0u || next < comp->fdc_track_count) {
+                      comp->fdc_track = next;
+                  }
+              } else if (cmd == 0x60u || cmd == 0x70u) {
+                  if (comp->fdc_track > 0u) {
+                      comp->fdc_track = (uint8_t)(comp->fdc_track - 1u);
+                  }
               }
-              comp->fdc_drq = 1u;
-              comp->fdc_data_count = 256u;
-          }
-          comp->fdc_irq_pending = 1u;
-          {
-              uint64_t irq_args[1] = { 2u };
-              (void)cpu_component_dispatch_callback(cpu, "trs80_m4irq", "pulse_irq", irq_args, 1);
+              comp->fdc_status = (comp->fdc_track == 0u) ? 0x04u : 0x00u;
+              if ((comp->fdc_last_cmd & 0x04u) != 0u) {
+                  if (comp->fdc_image_format == 1u) {
+                      if (!(comp->fdc_image_data != NULL &&
+                            comp->fdc_sectors_per_track != 0u &&
+                            comp->fdc_track < comp->fdc_track_count)) {
+                          verify_ok = 0u;
+                      }
+                  } else if (comp->fdc_image_format == 2u) {
+                      uint8_t target_side = (uint8_t)(((comp->fdc_drive_select & 0x10u) != 0u) ? 1u : 0u);
+                      uint8_t target_density = (uint8_t)(((comp->fdc_drive_select & 0x80u) != 0u) ? 1u : 0u);
+                      verify_ok = 0u;
+                      if (comp->fdc_image_data != NULL && comp->fdc_image_size > 8704u) {
+                          size_t data_index = 0u;
+                          for (size_t off = 0u; off + 2u < 8704u; off += 3u) {
+                              uint8_t trk = comp->fdc_image_data[off + 0u];
+                              uint8_t sec = comp->fdc_image_data[off + 1u];
+                              uint8_t flg = comp->fdc_image_data[off + 2u];
+                              uint8_t side = (uint8_t)(((flg & 0x10u) != 0u) ? 1u : 0u);
+                              uint8_t density = (uint8_t)(((flg & 0x80u) != 0u) ? 1u : 0u);
+                              uint32_t offset = (uint32_t)(8704u + (data_index * 256u));
+                              if (trk == 0xFFu && sec == 0xFFu) {
+                                  continue;
+                              }
+                              if (offset + 256u > comp->fdc_image_size) {
+                                  break;
+                              }
+                              if (trk == comp->fdc_track &&
+                                  side == target_side &&
+                                  density == target_density) {
+                                  verify_ok = 1u;
+                                  break;
+                              }
+                              data_index += 1u;
+                          }
+                      }
+                  }
+                  if (verify_ok == 0u) {
+                      comp->fdc_status |= 0x10u;
+                  }
+              }
+              if (trace_enabled != 0) {
+                  fprintf(trace_fp, "fdc_type1 cycle=%llu cmd=%02X track=%u status=%02X\n",
+                          (unsigned long long)now, (unsigned)comp->fdc_last_cmd,
+                          (unsigned)comp->fdc_track, (unsigned)comp->fdc_status);
+                  fflush(trace_fp);
+              }
+              comp->fdc_irq_pending = 1u;
+              if ((comp->fdc_nmi_mask & 0x80u) != 0u) {
+                  uint64_t irq_args[1] = { 2u };
+                  (void)cpu_component_dispatch_callback(cpu, "trs80_m4irq", "pulse_irq", irq_args, 1);
+              }
+          } else if ((comp->fdc_last_cmd & 0xF0u) == 0x80u && comp->fdc_sector_buffer != NULL) {
+              if (comp->fdc_image_format == 1u &&
+                  comp->fdc_image_data != NULL &&
+                  comp->fdc_sectors_per_track != 0u &&
+                  comp->fdc_track < comp->fdc_track_count) {
+                  uint8_t sector_number = comp->fdc_sector;
+                  uint8_t sector_index = (sector_number > 0u) ? (uint8_t)(sector_number - 1u) : sector_number;
+                  if (sector_index < comp->fdc_sectors_per_track) {
+                      uint32_t lba = ((uint32_t)comp->fdc_track * (uint32_t)comp->fdc_sectors_per_track) + (uint32_t)sector_index;
+                      uint32_t offset = lba * 256u;
+                      if (offset + 256u <= comp->fdc_image_size) {
+                          memcpy(comp->fdc_sector_buffer, comp->fdc_image_data + offset, 256u);
+                          read_ok = 1u;
+                      }
+                  }
+              }
+              if (read_ok == 0u &&
+                  comp->fdc_image_format == 2u &&
+                  comp->fdc_image_data != NULL &&
+                  comp->fdc_image_size > 8704u) {
+                  size_t data_index = 0u;
+                  uint8_t target_track = comp->fdc_track;
+                  uint8_t target_sector = comp->fdc_sector;
+                  uint8_t target_side = (uint8_t)(((comp->fdc_drive_select & 0x10u) != 0u) ? 1u : 0u);
+                  uint8_t target_density = (uint8_t)(((comp->fdc_drive_select & 0x80u) != 0u) ? 1u : 0u);
+                  for (size_t off = 0u; off + 2u < 8704u; off += 3u) {
+                      uint8_t trk = comp->fdc_image_data[off + 0u];
+                      uint8_t sec = comp->fdc_image_data[off + 1u];
+                      uint8_t flg = comp->fdc_image_data[off + 2u];
+                      uint8_t side = (uint8_t)(((flg & 0x10u) != 0u) ? 1u : 0u);
+                      uint8_t density = (uint8_t)(((flg & 0x80u) != 0u) ? 1u : 0u);
+                      uint32_t offset;
+                      if (trk == 0xFFu && sec == 0xFFu) {
+                          continue;
+                      }
+                      offset = (uint32_t)(8704u + (data_index * 256u));
+                      if (offset + 256u > comp->fdc_image_size) break;
+                      if (trk == target_track && sec == target_sector &&
+                          side == target_side && density == target_density) {
+                      memcpy(comp->fdc_sector_buffer, comp->fdc_image_data + offset, 256u);
+                      if (target_density == 0u) {
+                          uint8_t dam = (uint8_t)(flg & 0x60u);
+                          if (dam == 0x00u) {
+                              comp->fdc_status = 0x00u;
+                          } else {
+                              comp->fdc_status = 0x20u;
+                          }
+                      } else {
+                          uint8_t dam = (uint8_t)(flg & 0x20u);
+                          if (dam == 0x00u) {
+                              comp->fdc_status = 0x00u;
+                          } else {
+                              comp->fdc_status = 0x20u;
+                          }
+                      }
+                      if ((flg & 0x08u) != 0u) {
+                          comp->fdc_status |= 0x08u;
+                      }
+                      if (trace_enabled != 0) {
+                          fprintf(trace_fp,
+                                  "fdc_copy cycle=%llu fmt=2 track=%u sector=%u side=%u density=%u data_idx=%zu offset=%u bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n",
+                                  (unsigned long long)now,
+                                  (unsigned)target_track,
+                                  (unsigned)target_sector,
+                                  (unsigned)target_side,
+                                  (unsigned)target_density,
+                                  data_index,
+                                  (unsigned)offset,
+                                  (unsigned)comp->fdc_sector_buffer[0],
+                                  (unsigned)comp->fdc_sector_buffer[1],
+                                  (unsigned)comp->fdc_sector_buffer[2],
+                                  (unsigned)comp->fdc_sector_buffer[3],
+                                  (unsigned)comp->fdc_sector_buffer[4],
+                                  (unsigned)comp->fdc_sector_buffer[5],
+                                  (unsigned)comp->fdc_sector_buffer[6],
+                                  (unsigned)comp->fdc_sector_buffer[7]);
+                          fflush(trace_fp);
+                      }
+                      read_ok = 1u;
+                      break;
+                  }
+                      data_index += 1u;
+                  }
+              }
+              if (read_ok == 0u) {
+                  comp->fdc_busy = 0u;
+                  memset(comp->fdc_sector_buffer, 0xE5, 256u);
+                  comp->fdc_status = 0x10u;
+                  comp->fdc_irq_pending = 1u;
+                  if ((comp->fdc_nmi_mask & 0x80u) != 0u) {
+                      uint64_t irq_args[1] = { 2u };
+                      (void)cpu_component_dispatch_callback(cpu, "trs80_m4irq", "pulse_irq", irq_args, 1);
+                  }
+              } else {
+                  comp->fdc_busy = 1u;
+                  if (comp->fdc_image_format != 2u) {
+                      comp->fdc_status = 0x00u;
+                  }
+              }
+              comp->fdc_activity_flags |= 0x01u;
+              if (trace_enabled != 0) {
+                  fprintf(trace_fp, "fdc_read cycle=%llu cmd=%02X fmt=%u track=%u sector=%u ok=%u status=%02X drq=%u count=%u\n",
+                          (unsigned long long)now, (unsigned)comp->fdc_last_cmd, (unsigned)comp->fdc_image_format,
+                          (unsigned)comp->fdc_track, (unsigned)comp->fdc_sector, (unsigned)read_ok,
+                          (unsigned)comp->fdc_status, 1u, 256u);
+                  fflush(trace_fp);
+              }
+              if (read_ok != 0u) {
+                  comp->fdc_drq = 1u;
+                  comp->fdc_data_count = 256u;
+              }
           }
       }
       return 0u;

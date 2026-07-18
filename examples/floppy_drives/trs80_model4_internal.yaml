@@ -1,0 +1,20 @@
+metadata:
+  id: trs80_model4_internal
+  type: floppy_drive
+  model: trs80_model4_internal
+  version: "1.0"
+  title: TRS-80 Model 4 Internal Drive
+
+drive:
+  type: floppy_drive
+  size:
+    form_factor: "5.25"
+    sides: 1
+    tracks: 40
+    sectors_per_track: 18
+    formatted_capacity_kb: 184
+  speed:
+    transfer_bytes_per_sec: 12000
+  controller_class: trs80_internal_fdc
+  bus: motherboard_fdc
+  media_extensions: [dsk]
