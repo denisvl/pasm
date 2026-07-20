@@ -1871,6 +1871,9 @@ class ProcessorSystemLoader:
                         ).strip()
                         if source_model:
                             source_copy["source_model"] = source_model
+                    source_component = str(source_copy.get("source_component", "")).strip()
+                    if source_component:
+                        source_copy["source_component"] = source_component
                     raw_exts = source_copy.get("allowed_extensions", [])
                     if isinstance(raw_exts, list):
                         normalized_exts: List[str] = []
@@ -1883,6 +1886,40 @@ class ProcessorSystemLoader:
                         source_copy["allowed_extensions"] = normalized_exts
                     normalized_sources.append(source_copy)
                 floppy_cfg["sources"] = normalized_sources
+                implicit_source_device_ids: List[str] = []
+                for source in normalized_sources:
+                    if not isinstance(source, dict):
+                        continue
+                    source_component_id = str(source.get("source_component", "")).strip()
+                    if (
+                        source_component_id
+                        and source_component_id not in loaded_device_ids
+                        and source_component_id not in implicit_source_device_ids
+                    ):
+                        implicit_source_device_ids.append(source_component_id)
+                if implicit_source_device_ids:
+                    components_cfg = system_data.setdefault("components", {})
+                    configured_devices = components_cfg.get("devices", [])
+                    if not isinstance(configured_devices, list):
+                        configured_devices = []
+                    else:
+                        configured_devices = list(configured_devices)
+                    for source_device_id in implicit_source_device_ids:
+                        source_device_data, source_device_path = self._resolve_common_named_device(
+                            source_device_id,
+                            loaded_device_ids,
+                        )
+                        if source_device_data is None or source_device_path is None:
+                            raise ValidationError(
+                                "Composition validation failed:\n"
+                                f"floppy source_component '{source_device_id}' does not resolve to a common device"
+                            )
+                        device_data_list.append(self.validate_device(source_device_data))
+                        resolved_device_paths.append(source_device_path)
+                        loaded_device_ids.add(source_device_id)
+                        if source_device_id not in configured_devices:
+                            configured_devices.append(source_device_id)
+                    components_cfg["devices"] = configured_devices
             floppy_drives = floppy_cfg.get("drives")
             if isinstance(floppy_drives, list):
                 normalized_drives: List[Dict[str, Any]] = []

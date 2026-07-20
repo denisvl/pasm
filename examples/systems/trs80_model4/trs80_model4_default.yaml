@@ -43,7 +43,7 @@ components:
   - trs80_m4io
   - trs80_m4ga
   - trs80_m4ram
-  - trs80_m4fdc
+  - wd1793_fdc
   - trs80_m4ppi
   - trs80_m4sio
   - trs80_m4video
@@ -53,12 +53,13 @@ components:
   - keyboard_trs80
   - video_trs80
   - speaker
+  - trs80_floppy_image_backend
   - cassette_transport
   - monitor
   hosts:
   - host_trs80
   cassette: cassette_transport
-  floppy: trs80_m4fdc
+  floppy: wd1793_fdc
 media_picker:
   open_action_id: EMU_MEDIA_PICKER
 cassette:
@@ -92,25 +93,29 @@ floppy:
   sources:
     - kind: file
       source_type: ../../floppy_sources/dsk_file.yaml
+      source_component: trs80_floppy_image_backend
       label: TRS-80 DSK Disk
       allowed_extensions: [dsk]
     - kind: file
       source_type: ../../floppy_sources/dmk_file.yaml
+      source_component: trs80_floppy_image_backend
       label: TRS-80 DMK Disk
       allowed_extensions: [dmk]
     - kind: file
       source_type: ../../floppy_sources/jv3_file.yaml
+      source_component: trs80_floppy_image_backend
       label: TRS-80 JV3 Disk
       allowed_extensions: [jv3]
     - kind: file
       source_type: ../../floppy_sources/jv1_file.yaml
+      source_component: floppy_raw_sector_image_backend
       label: TRS-80 JV1 Disk
       allowed_extensions: [jv1]
   drives:
     - slot: 0
       label: Drive 0
       drive_type: ../../floppy_drives/trs80_model4_internal.yaml
-      component: trs80_m4fdc
+      component: wd1793_fdc
   controls:
     picker_action_id: EMU_MEDIA_PICKER
 connections:

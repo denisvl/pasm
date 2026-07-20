@@ -68,7 +68,7 @@ def test_system_reset_delay_seconds_is_loaded():
             str(trs80_ics / "trs80_model4_peripherals.yaml"),
             str(trs80_ics / "trs80_model4_gate_array.yaml"),
             str(trs80_ics / "trs80_model4_main_ram.yaml"),
-            str(trs80_ics / "trs80_model4_fdc.yaml"),
+            str(BASE_DIR / "examples" / "ics" / "common" / "wd1793.yaml"),
             str(trs80_ics / "trs80_model4_ppi.yaml"),
             str(trs80_ics / "trs80_model4_serial.yaml"),
             str(trs80_ics / "trs80_model4_video.yaml"),
@@ -79,6 +79,7 @@ def test_system_reset_delay_seconds_is_loaded():
             str(BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_keyboard.yaml"),
             str(BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_video.yaml"),
             str(BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_speaker.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "common" / "trs80_floppy_image_backend.yaml"),
         ],
         host_paths=[
             str(
@@ -1257,4 +1258,63 @@ def test_compose_does_not_infer_backend_target_from_host_model_name(tmp_path):
         host_paths=[str(host_model_sdl2)],
     )
     assert loaded["host_backend_target"] == ""
+
+
+def test_floppy_source_component_loads_common_backend_device(tmp_path):
+    processor_path, _ = example_pair("z80")
+    base_dir = pathlib.Path(__file__).resolve().parents[1]
+    floppy_sources_dir = base_dir / "examples" / "floppy_sources"
+    floppy_drives_dir = base_dir / "examples" / "floppy_drives"
+
+    system_path = tmp_path / "floppy_source_component_system.yaml"
+    system_path.write_text(
+        (
+            "metadata:\n"
+            "  name: FloppySourceComponentSystem\n"
+            "clock_hz: 1000000\n"
+            "memory:\n"
+            "  default_size: 65536\n"
+            "components:\n"
+            "  ics: []\n"
+            "  devices: []\n"
+            "  hosts: []\n"
+            "  floppy: wd1793_fdc\n"
+            "floppy:\n"
+            "  directory: ../../media/disks\n"
+            "  sources:\n"
+            f"    - source_type: {str((floppy_sources_dir / 'dsk_file.yaml').resolve())}\n"
+            "      kind: file\n"
+            "      label: DSK Disk\n"
+            "      allowed_extensions: [dsk]\n"
+            "      source_component: trs80_floppy_image_backend\n"
+            "  drives:\n"
+            "    - slot: 0\n"
+            f"      drive_type: {str((floppy_drives_dir / 'trs80_model4_internal.yaml').resolve())}\n"
+            "      component: wd1793_fdc\n"
+            "  controls:\n"
+            "    picker_action_id: EMU_FLOPPY_PICKER\n"
+            "connections: []\n"
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = yaml_loader.load_processor_system(str(processor_path), str(system_path))
+    floppy = loaded["floppy"]
+    sources = floppy["sources"]
+
+    assert pathlib.Path(floppy["directory"]).is_absolute()
+    assert pathlib.Path(sources[0]["source_type"]) == (floppy_sources_dir / "dsk_file.yaml").resolve()
+    assert sources[0]["kind"] == "file"
+    assert sources[0]["label"] == "DSK Disk"
+    assert sources[0]["allowed_extensions"] == ["dsk"]
+    assert sources[0]["source_component"] == "trs80_floppy_image_backend"
+    assert pathlib.Path(floppy["drives"][0]["drive_type"]) == (
+        floppy_drives_dir / "trs80_model4_internal.yaml"
+    ).resolve()
+
+    loaded_device_ids = {
+        str(device.get("metadata", {}).get("id", "")) for device in loaded.get("devices", [])
+    }
+    assert "trs80_floppy_image_backend" in loaded_device_ids
+    assert "trs80_floppy_image_backend" in loaded["components"]["devices"]
 

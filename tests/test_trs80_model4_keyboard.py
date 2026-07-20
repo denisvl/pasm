@@ -19,11 +19,12 @@ def _trs80_interactive_paths():
         BASE_DIR / "examples" / "systems" / "trs80_model4" / "trs80_model4_interactive.yaml"
     )
     trs80_ics = BASE_DIR / "examples" / "ics" / "trs80_model4"
+    common_ics = BASE_DIR / "examples" / "ics" / "common"
     ic_paths = [
         trs80_ics / "trs80_model4_peripherals.yaml",
         trs80_ics / "trs80_model4_gate_array.yaml",
         trs80_ics / "trs80_model4_main_ram.yaml",
-        trs80_ics / "trs80_model4_fdc.yaml",
+        common_ics / "wd1793.yaml",
         trs80_ics / "trs80_model4_ppi.yaml",
         trs80_ics / "trs80_model4_serial.yaml",
         trs80_ics / "trs80_model4_video.yaml",
@@ -34,6 +35,7 @@ def _trs80_interactive_paths():
         BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_keyboard.yaml",
         BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_video.yaml",
         BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_speaker.yaml",
+        BASE_DIR / "examples" / "devices" / "common" / "trs80_floppy_image_backend.yaml",
     ]
     host_paths = [
         BASE_DIR / "examples" / "hosts" / "trs80_model4" / "trs80_host_hal_interactive.yaml",
@@ -119,11 +121,12 @@ def test_trs80_keyboard_matrix_runtime_row_column_behavior(tmp_path):
         BASE_DIR / "examples" / "systems" / "trs80_model4" / "trs80_model4_default.yaml"
     )
     trs80_ics = BASE_DIR / "examples" / "ics" / "trs80_model4"
+    common_ics = BASE_DIR / "examples" / "ics" / "common"
     ic_paths = [
         trs80_ics / "trs80_model4_peripherals.yaml",
         trs80_ics / "trs80_model4_gate_array.yaml",
         trs80_ics / "trs80_model4_main_ram.yaml",
-        trs80_ics / "trs80_model4_fdc.yaml",
+        common_ics / "wd1793.yaml",
         trs80_ics / "trs80_model4_ppi.yaml",
         trs80_ics / "trs80_model4_serial.yaml",
         trs80_ics / "trs80_model4_video.yaml",
@@ -134,6 +137,7 @@ def test_trs80_keyboard_matrix_runtime_row_column_behavior(tmp_path):
         BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_keyboard.yaml",
         BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_video.yaml",
         BASE_DIR / "examples" / "devices" / "trs80_model4" / "trs80_speaker.yaml",
+        BASE_DIR / "examples" / "devices" / "common" / "trs80_floppy_image_backend.yaml",
     ]
 
     host_yaml = tmp_path / "trs80_host_matrix_test.yaml"

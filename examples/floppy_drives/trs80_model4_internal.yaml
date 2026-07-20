@@ -15,6 +15,6 @@ drive:
     formatted_capacity_kb: 184
   speed:
     transfer_bytes_per_sec: 12000
-  controller_class: trs80_internal_fdc
+  controller_class: wd1793
   bus: motherboard_fdc
   media_extensions: [dsk]

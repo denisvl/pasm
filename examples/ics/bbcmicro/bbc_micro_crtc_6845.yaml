@@ -17,6 +17,9 @@ state:
   - name: keyboard_scan_last_cycle
     type: uint64_t
     initial: "0"
+  - name: auto_boot_shift_until_cycle
+    type: uint64_t
+    initial: "0"
   - name: shiftlock_latched
     type: uint8_t
     initial: "0"
@@ -35,6 +38,18 @@ state:
   - name: romsel
     type: uint8_t
     initial: "0x0F"
+  - name: sideways_basic_rom
+    type: uint8_t *
+    initial: "NULL"
+  - name: sideways_basic_size
+    type: uint32_t
+    initial: "0"
+  - name: sideways_dfs_rom
+    type: uint8_t *
+    initial: "NULL"
+  - name: sideways_dfs_size
+    type: uint32_t
+    initial: "0"
   - name: crtc_index
     type: uint8_t
     initial: "0"
@@ -245,6 +260,84 @@ state:
   - name: fdc_data
     type: uint8_t
     initial: "0x00"
+  - name: fdc_media_loaded
+    type: uint8_t
+    initial: "0"
+  - name: fdc_source_component
+    type: char *
+    initial: "NULL"
+  - name: fdc_command
+    type: uint8_t
+    initial: "0"
+  - name: fdc_params0
+    type: uint8_t
+    initial: "0"
+  - name: fdc_params1
+    type: uint8_t
+    initial: "0"
+  - name: fdc_params2
+    type: uint8_t
+    initial: "0"
+  - name: fdc_params3
+    type: uint8_t
+    initial: "0"
+  - name: fdc_params4
+    type: uint8_t
+    initial: "0"
+  - name: fdc_param_count
+    type: uint8_t
+    initial: "0"
+  - name: fdc_param_req
+    type: uint8_t
+    initial: "0"
+  - name: fdc_drive_select
+    type: uint8_t
+    initial: "0"
+  - name: fdc_curtrack0
+    type: uint8_t
+    initial: "0"
+  - name: fdc_curtrack1
+    type: uint8_t
+    initial: "0"
+  - name: fdc_cursector
+    type: uint8_t
+    initial: "0"
+  - name: fdc_sectors_left
+    type: uint8_t
+    initial: "0"
+  - name: fdc_sector_size
+    type: uint16_t
+    initial: "0"
+  - name: fdc_data_count
+    type: uint16_t
+    initial: "0"
+  - name: fdc_data_index
+    type: uint16_t
+    initial: "0"
+  - name: fdc_phase
+    type: uint8_t
+    initial: "0"
+  - name: fdc_last_host_activity_cycle
+    type: uint64_t
+    initial: "0"
+  - name: fdc_deadline_cycle
+    type: uint64_t
+    initial: "0"
+  - name: fdc_step_time
+    type: uint32_t
+    initial: "6000"
+  - name: fdc_settle_time
+    type: uint32_t
+    initial: "6000"
+  - name: fdc_load_time
+    type: uint32_t
+    initial: "6000"
+  - name: fdc_unload_revs
+    type: uint8_t
+    initial: "0"
+  - name: fdc_sector_buffer
+    type: uint8_t *
+    initial: "NULL"
   - name: frame_counter
     type: uint32_t
     initial: "0"
@@ -256,6 +349,15 @@ interfaces:
   callbacks:
     - name: keyboard_read_row
       args: [u8]
+      returns: u8
+    - name: load_media
+      args: [ptr, u8, ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
       returns: u8
   handlers: []
   signals:
@@ -274,49 +376,137 @@ maps:
 
 behavior:
   snippets:
-    mem_read_pre: |
-      static int io_trace = -1;
-      static FILE *io_trace_fp = NULL;
-      static int kb_trace = -1;
-      static FILE *kb_trace_fp = NULL;
-      /* Sideways ROM window 8000-BFFF: only BASIC (slot F) is present in current setup. */
-      if (addr >= 0x8000u && addr < 0xC000u) {
-          if ((comp->romsel & 0x0Fu) != 0x0Fu) {
-              /* Unpopulated sideways ROM socket (open bus approximation). */
-              return 0xFFu;
+    reset: |
+      {
+          const char *candidates[4];
+          size_t candidate_count = 0u;
+          const char *sysdir = getenv("PASM_SYSTEM_DIR");
+          if (sysdir != NULL && sysdir[0] != '\0') {
+              candidates[candidate_count++] = sysdir;
+          }
+          candidates[candidate_count++] = "examples/systems/bbcmicro";
+          candidates[candidate_count++] = ".";
+          if (comp->sideways_basic_rom == NULL || comp->sideways_basic_size == 0u) {
+              for (size_t i = 0u; i < candidate_count; ++i) {
+                  char path[1024];
+                  FILE *fp;
+                  long file_size;
+                  size_t read_len;
+                  int n = snprintf(path, sizeof(path), "%s/../../roms/bbcmicro/BASIC2.ROM", candidates[i]);
+                  if (n <= 0 || (size_t)n >= sizeof(path)) continue;
+                  fp = fopen(path, "rb");
+                  if (fp == NULL) continue;
+                  if (fseek(fp, 0L, SEEK_END) == 0) {
+                      file_size = ftell(fp);
+                      if (file_size > 0 && fseek(fp, 0L, SEEK_SET) == 0) {
+                          size_t alloc_size = (size_t)((file_size < 0x4000L) ? 0x4000L : file_size);
+                          comp->sideways_basic_rom = (uint8_t *)malloc(alloc_size);
+                          if (comp->sideways_basic_rom != NULL) {
+                              memset(comp->sideways_basic_rom, 0xFF, alloc_size);
+                              read_len = fread(comp->sideways_basic_rom, 1u, (size_t)file_size, fp);
+                              if (read_len == (size_t)file_size) {
+                                  comp->sideways_basic_size = (uint32_t)alloc_size;
+                              } else {
+                                  free(comp->sideways_basic_rom);
+                                  comp->sideways_basic_rom = NULL;
+                              }
+                          }
+                      }
+                  }
+                  fclose(fp);
+                  if (comp->sideways_basic_rom != NULL && comp->sideways_basic_size != 0u) break;
+              }
+          }
+          if (comp->sideways_dfs_rom == NULL || comp->sideways_dfs_size == 0u) {
+              for (size_t i = 0u; i < candidate_count; ++i) {
+                  char path[1024];
+                  FILE *fp;
+                  long file_size;
+                  size_t read_len;
+                  int n = snprintf(path, sizeof(path), "%s/../../roms/bbcmicro/DFS-0.9.rom", candidates[i]);
+                  if (n <= 0 || (size_t)n >= sizeof(path)) continue;
+                  fp = fopen(path, "rb");
+                  if (fp == NULL) continue;
+                  if (fseek(fp, 0L, SEEK_END) == 0) {
+                      file_size = ftell(fp);
+                      if (file_size > 0 && fseek(fp, 0L, SEEK_SET) == 0) {
+                          size_t alloc_size = (size_t)((file_size < 0x4000L) ? 0x4000L : file_size);
+                          comp->sideways_dfs_rom = (uint8_t *)malloc(alloc_size);
+                          if (comp->sideways_dfs_rom != NULL) {
+                              memset(comp->sideways_dfs_rom, 0xFF, alloc_size);
+                              read_len = fread(comp->sideways_dfs_rom, 1u, (size_t)file_size, fp);
+                              if (read_len == (size_t)file_size) {
+                                  comp->sideways_dfs_size = (uint32_t)alloc_size;
+                              } else {
+                                  free(comp->sideways_dfs_rom);
+                                  comp->sideways_dfs_rom = NULL;
+                              }
+                          }
+                      }
+                  }
+                  fclose(fp);
+                  if (comp->sideways_dfs_rom != NULL && comp->sideways_dfs_size != 0u) break;
+              }
+          }
+          if (comp->fdc_sector_buffer == NULL) {
+              comp->fdc_sector_buffer = (uint8_t *)calloc(256u, 1u);
+          } else {
+              memset(comp->fdc_sector_buffer, 0, 256u);
+          }
+          comp->fdc_command = 0u;
+          comp->fdc_params0 = 0u;
+          comp->fdc_params1 = 0u;
+          comp->fdc_params2 = 0u;
+          comp->fdc_params3 = 0u;
+          comp->fdc_params4 = 0u;
+          comp->fdc_param_count = 0u;
+          comp->fdc_param_req = 0u;
+          comp->fdc_drive_select = 0u;
+          comp->fdc_curtrack0 = 0u;
+          comp->fdc_curtrack1 = 0u;
+          comp->fdc_cursector = 0u;
+          comp->fdc_sectors_left = 0u;
+          comp->fdc_sector_size = 0u;
+          comp->fdc_data_count = 0u;
+          comp->fdc_data_index = 0u;
+          comp->fdc_phase = 0u;
+          comp->fdc_last_host_activity_cycle = 0u;
+          comp->fdc_deadline_cycle = 0u;
+          comp->fdc_status = 0u;
+          comp->fdc_result = 0u;
+          comp->fdc_data = 0u;
+          {
+              const char *auto_path = getenv("PASM_EMU_FLOPPY_AUTO_PATH");
+              if (auto_path != NULL && auto_path[0] != '\0') {
+                  comp->auto_boot_shift_until_cycle = cpu->total_cycles + (uint64_t)(CPU_SYSTEM_CLOCK_HZ * 1u);
+                  cpu->memory[0x028Cu] = 0x0Fu;
+                  cpu->memory[0x028Du] = 0x02u;
+                  cpu->memory[0x028Eu] = 0x80u;
+                  cpu->memory[0x028Fu] = 0xFFu;
+                  cpu->memory[0x024Au] = 0x0Eu;
+              } else {
+                  comp->auto_boot_shift_until_cycle = 0u;
+              }
           }
       }
-      {
-          if (io_trace < 0) {
-              const char *e = getenv("PASM_BBC_IO_TRACE");
-              io_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
-              if (io_trace != 0) {
-                  const char *p = getenv("PASM_BBC_IO_TRACE_FILE");
-                  if (p == NULL || p[0] == '\0') p = "log/bbc_micro_io_trace.log";
-                  io_trace_fp = fopen(p, "a");
-                  if (io_trace_fp != NULL) {
-                      fprintf(io_trace_fp, "# cycle,pc,op,addr,value,mode,ifr,ier,t1c,t1l,sbase\n");
-                      fflush(io_trace_fp);
-                  } else {
-                      io_trace = 0;
-                  }
+    mem_read_pre: |
+      /* Sideways ROM window 8000-BFFF: BASIC in slot F, DFS in slot E. */
+      if (addr >= 0x8000u && addr < 0xC000u) {
+          uint32_t rom_off = (uint32_t)(addr - 0x8000u);
+          if ((comp->romsel & 0x0Fu) == 0x0Fu) {
+              if (comp->sideways_basic_rom != NULL && rom_off < comp->sideways_basic_size) {
+                  return comp->sideways_basic_rom[rom_off];
               }
+              return 0xFFu;
           }
-          if (kb_trace < 0) {
-              const char *e = getenv("PASM_BBC_KB_TRACE");
-              kb_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
-              if (kb_trace != 0) {
-                  const char *p = getenv("PASM_BBC_KB_TRACE_FILE");
-                  if (p == NULL || p[0] == '\0') p = "log/bbc_micro_kb_trace.log";
-                  kb_trace_fp = fopen(p, "a");
-                  if (kb_trace_fp != NULL) {
-                      fprintf(kb_trace_fp, "# cycle,row,kb,orb,ddra,ora\n");
-                      fflush(kb_trace_fp);
-                  } else {
-                      kb_trace = 0;
-                  }
+          if ((comp->romsel & 0x0Fu) == 0x0Eu) {
+              if (comp->sideways_dfs_rom != NULL && rom_off < comp->sideways_dfs_size) {
+                  return comp->sideways_dfs_rom[rom_off];
               }
+              return 0xFFu;
           }
+          /* Unpopulated sideways ROM socket (open bus approximation). */
+          return 0xFFu;
       }
       if ((addr & 0xFFF0u) == 0xFE40u || (addr & 0xFFF0u) == 0xFE60u) {
           uint8_t is_user_via = (uint8_t)(((addr & 0xFFF0u) == 0xFE60u) ? 1u : 0u);
@@ -331,34 +521,6 @@ behavior:
           uint8_t *ier = is_user_via ? &comp->uvia_ier : &comp->via_ier;
           uint16_t *t1c = is_user_via ? &comp->uvia_t1_counter : &comp->via_t1_counter;
           uint16_t *t1l = is_user_via ? &comp->uvia_t1_latch : &comp->via_t1_latch;
-          uint8_t trace_before = 0xFFu;
-          if (reg == 0x00u) trace_before = (uint8_t)((*orb & *ddrb) | (0xFFu & (uint8_t)~(*ddrb)));
-          else if (reg == 0x01u || reg == 0x0Fu) trace_before = *ora;
-          else if (reg == 0x02u) trace_before = *ddrb;
-          else if (reg == 0x03u) trace_before = *ddra;
-          else if (reg == 0x04u) trace_before = (uint8_t)(*t1c & 0xFFu);
-          else if (reg == 0x05u) trace_before = (uint8_t)((*t1c >> 8u) & 0xFFu);
-          else if (reg == 0x06u) trace_before = (uint8_t)(*t1l & 0xFFu);
-          else if (reg == 0x07u) trace_before = (uint8_t)((*t1l >> 8u) & 0xFFu);
-          else if (reg == 0x0Bu) trace_before = *acr;
-          else if (reg == 0x0Cu) trace_before = *pcr;
-          else if (reg == 0x0Du) trace_before = *ifr;
-          else if (reg == 0x0Eu) trace_before = *ier;
-          if (io_trace != 0 && io_trace_fp != NULL) {
-              fprintf(io_trace_fp,
-                      "%llu,%04X,R,%04X,%02X,%u,%02X,%02X,%04X,%04X,%04X\n",
-                      (unsigned long long)cpu->total_cycles,
-                      (unsigned)cpu->pc,
-                      (unsigned)addr,
-                      (unsigned)trace_before,
-                      (unsigned)comp->video_mode,
-                      (unsigned)comp->via_ifr,
-                      (unsigned)comp->via_ier,
-                      (unsigned)comp->via_t1_counter,
-                      (unsigned)comp->via_t1_latch,
-                      (unsigned)comp->screen_base);
-              fflush(io_trace_fp);
-          }
           if (reg == 0x00u) {
               return (uint8_t)((*orb & *ddrb) | (0xFFu & (uint8_t)~(*ddrb)));
           }
@@ -379,6 +541,9 @@ behavior:
                   if (col <= 10u) {
                       kb_row = (uint8_t)cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", cb_args, 1);
                   }
+                  if (col == 0u && cpu->total_cycles < comp->auto_boot_shift_until_cycle) {
+                      kb_row = (uint8_t)(kb_row & (uint8_t)~0x01u);
+                  }
                   uint8_t key_down = 0u;
                   key_down = (uint8_t)(((kb_row & (uint8_t)(1u << row)) == 0u) ? 1u : 0u);
                   /* BBC SHIFT LOCK (col6,row7) is a latch/toggle key, not momentary. */
@@ -395,24 +560,6 @@ behavior:
                   if ((comp->ic32 & 0x08u) == 0u) {
                       /* Drive keyboard sense on bit7 for MOS scan reads. */
                       if (key_down != 0u) sdb_in = (uint8_t)(sdb_in | 0x80u);
-                  }
-                  if (kb_trace != 0 && kb_trace_fp != NULL) {
-                      fprintf(kb_trace_fp, "%llu,%u,%02X,%02X,%02X,%02X\n",
-                              (unsigned long long)cpu->total_cycles,
-                              (unsigned)row,
-                              (unsigned)kb_row,
-                              (unsigned)(*orb),
-                              (unsigned)(*ddra),
-                              (unsigned)(*ora));
-                      fprintf(kb_trace_fp, "scan,%llu,%u,%u,%02X,%u,%02X,%02X\n",
-                              (unsigned long long)cpu->total_cycles,
-                              (unsigned)row,
-                              (unsigned)col,
-                              (unsigned)kb_row,
-                              (unsigned)key_down,
-                              (unsigned)sdb_out,
-                              (unsigned)sdb_in);
-                      fflush(kb_trace_fp);
                   }
                   /* Return current slow-data-bus value directly for System VIA keyboard path.
                      DDRA masking can hide key-sense bit7 on some ROM init sequences. */
@@ -449,6 +596,9 @@ behavior:
                   if (col <= 10u) {
                       kb_row = (uint8_t)cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", cb_args, 1);
                   }
+                  if (col == 0u && cpu->total_cycles < comp->auto_boot_shift_until_cycle) {
+                      kb_row = (uint8_t)(kb_row & (uint8_t)~0x01u);
+                  }
                   uint8_t key_down = 0u;
                   key_down = (uint8_t)(((kb_row & (uint8_t)(1u << row)) == 0u) ? 1u : 0u);
                   if (col == 6u && row == 7u) {
@@ -463,17 +613,6 @@ behavior:
                       uint8_t sdb_in = (uint8_t)(sdb_out & (uint8_t)~0x80u);
                       if ((comp->ic32 & 0x08u) == 0u) {
                           if (key_down != 0u) sdb_in = (uint8_t)(sdb_in | 0x80u);
-                      }
-                      if (kb_trace != 0 && kb_trace_fp != NULL) {
-                          fprintf(kb_trace_fp, "scan,%llu,%u,%u,%02X,%u,%02X,%02X\n",
-                                  (unsigned long long)cpu->total_cycles,
-                                  (unsigned)row,
-                                  (unsigned)col,
-                                  (unsigned)kb_row,
-                                  (unsigned)key_down,
-                                  (unsigned)sdb_out,
-                                  (unsigned)sdb_in);
-                          fflush(kb_trace_fp);
                       }
                       return sdb_in;
                   }
@@ -507,59 +646,72 @@ behavior:
       if (addr == 0xFE09u) {
           return (uint8_t)cpu_component_dispatch_callback(cpu, "bbc_micro_acia_6850", "read_data", NULL, 0);
       }
-      if (addr == 0xFEC0u) {
-          /* Intel 8271 status (minimal): idle/not busy. */
-          return comp->fdc_status;
-      }
-      if (addr == 0xFEC1u) {
-          return comp->fdc_result;
-      }
-      if (addr == 0xFEC2u) {
-          return comp->fdc_data;
+      if ((addr & 0xFFF8u) == 0xFE80u) {
+          uint8_t reg = (uint8_t)(addr & 0x0007u);
+          comp->fdc_last_host_activity_cycle = cpu->total_cycles;
+          if (reg == 0u) {
+              return comp->fdc_status;
+          }
+          if (reg == 1u) {
+              uint8_t value = comp->fdc_result;
+              comp->fdc_status = (uint8_t)(comp->fdc_status & (uint8_t)~0x18u);
+              return value;
+          }
+          if (reg == 4u) {
+              uint8_t value = comp->fdc_data;
+              comp->fdc_status = (uint8_t)(comp->fdc_status & (uint8_t)~0x0Cu);
+              if (comp->fdc_data_count != 0u && comp->fdc_sector_buffer != NULL) {
+                  comp->fdc_phase = 3u;
+                  comp->fdc_deadline_cycle = cpu->total_cycles + 200u;
+                  comp->fdc_status = 0x80u;
+              } else if (comp->fdc_sectors_left > 1u) {
+                  comp->fdc_phase = 5u;
+                  comp->fdc_deadline_cycle = cpu->total_cycles + 200u;
+                  comp->fdc_status = 0x80u;
+              } else {
+                  comp->fdc_phase = 6u;
+                  comp->fdc_deadline_cycle = cpu->total_cycles + 200u;
+                  comp->fdc_status = 0x80u;
+              }
+              return value;
+          }
+          return 0u;
       }
       if ((addr & 0xFFF0u) == 0xFEE0u) {
           /* Tube ULA not present in this baseline model. */
           return 0x00u;
       }
       if ((addr & 0xFF00u) == 0xFE00u) {
-          {
-              static int io_trace = -1;
-              static FILE *io_trace_fp = NULL;
-              if (io_trace < 0) {
-                  const char *e = getenv("PASM_BBC_IO_TRACE");
-                  io_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
-                  if (io_trace != 0) {
-                      const char *p = getenv("PASM_BBC_IO_TRACE_FILE");
-                      if (p == NULL || p[0] == '\0') p = "log/bbc_micro_io_trace.log";
-                      io_trace_fp = fopen(p, "a");
-                      if (io_trace_fp != NULL) {
-                          fprintf(io_trace_fp, "# cycle,pc,op,addr,value,mode,ifr,ier,t1c,t1l,sbase\n");
-                          fflush(io_trace_fp);
-                      } else {
-                          io_trace = 0;
-                      }
-                  }
-              }
-              if (io_trace != 0 && io_trace_fp != NULL) {
-                  fprintf(
-                      io_trace_fp,
-                      "%llu,%04X,R,%04X,%02X,%u,%02X,%02X,%04X,%04X,%04X\n",
-                      (unsigned long long)cpu->total_cycles,
-                      (unsigned)cpu->pc,
-                      (unsigned)addr,
-                      0xFFu,
-                      (unsigned)comp->video_mode,
-                      (unsigned)comp->via_ifr,
-                      (unsigned)comp->via_ier,
-                      (unsigned)comp->via_t1_counter,
-                      (unsigned)comp->via_t1_latch,
-                      (unsigned)comp->screen_base
-                  );
-                  fflush(io_trace_fp);
-              }
-          }
           return 0x00u;
       }
+    init: |
+      (void)cpu;
+      if (comp->fdc_sector_buffer == NULL) {
+          comp->fdc_sector_buffer = (uint8_t *)calloc(256u, 1u);
+      }
+    destroy: |
+      if (comp->sideways_basic_rom != NULL) {
+          free(comp->sideways_basic_rom);
+          comp->sideways_basic_rom = NULL;
+      }
+      comp->sideways_basic_size = 0u;
+      if (comp->sideways_dfs_rom != NULL) {
+          free(comp->sideways_dfs_rom);
+          comp->sideways_dfs_rom = NULL;
+      }
+      comp->sideways_dfs_size = 0u;
+      if (comp->fdc_source_component != NULL) {
+          if (comp->fdc_media_loaded != 0u) {
+              (void)cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "unload_media", NULL, 0u);
+          }
+          free(comp->fdc_source_component);
+          comp->fdc_source_component = NULL;
+      }
+      if (comp->fdc_sector_buffer != NULL) {
+          free(comp->fdc_sector_buffer);
+          comp->fdc_sector_buffer = NULL;
+      }
+      comp->fdc_media_loaded = 0u;
     mem_write_pre: |
       /* BBC I/O page: consume writes in FE00-FEFF as device space (never ROM writes). */
       if (addr == 0xFE00u) {
@@ -660,20 +812,172 @@ behavior:
           }
           return;
       }
-      if (addr == 0xFEC0u) {
-          /* 8271 command/status write. Keep controller idle in minimal model. */
-          comp->fdc_status = 0x00u;
-          comp->fdc_result = 0x00u;
-          return;
-      }
-      if (addr == 0xFEC1u) {
-          /* 8271 parameter/result latch. */
-          comp->fdc_result = (uint8_t)(value & 0xFFu);
-          return;
-      }
-      if (addr == 0xFEC2u) {
-          /* 8271 data register. */
-          comp->fdc_data = (uint8_t)(value & 0xFFu);
+      if ((addr & 0xFFF8u) == 0xFE80u) {
+          uint8_t reg = (uint8_t)(addr & 0x0007u);
+          comp->fdc_last_host_activity_cycle = cpu->total_cycles;
+          if (reg == 0u) {
+              uint8_t command = (uint8_t)(value & 0x3Fu);
+              if ((comp->fdc_status & 0x80u) != 0u) return;
+              if (command == 0x17u) command = 0x13u;
+              comp->fdc_command = command;
+              comp->fdc_param_count = 0u;
+              comp->fdc_param_req = 0u;
+              comp->fdc_phase = 0u;
+              comp->fdc_data_count = 0u;
+              comp->fdc_data_index = 0u;
+              if (command < 0x2Cu) {
+                  /* Match BBC/B-Em i8271 behavior: command writes only refresh
+                     drive-select bits, preserving side/control state written
+                     through special register 0x23. */
+                  comp->fdc_drive_select =
+                      (uint8_t)((comp->fdc_drive_select & (uint8_t)~0xC0u) | (value & 0xC0u));
+              }
+              comp->fdc_status = 0x80u;
+              comp->fdc_result = 0u;
+              if (command == 0x2Cu) {
+                  uint8_t result = 0x80u;
+                  if ((comp->fdc_drive_select & 0x80u) != 0u) result |= 0x40u;
+                  if ((comp->fdc_drive_select & 0x40u) != 0u) result |= 0x04u;
+                  if ((((comp->fdc_drive_select & 0x80u) != 0u) ? comp->fdc_curtrack1 : comp->fdc_curtrack0) == 0u) {
+                      result |= 0x02u;
+                  }
+                  comp->fdc_result = result;
+                  comp->fdc_status = 0x10u;
+                  return;
+              }
+              switch (command) {
+                  case 0x29u:
+                  case 0x3Du:
+                      comp->fdc_param_req = 1u;
+                      break;
+                  case 0x0Au:
+                  case 0x0Eu:
+                  case 0x12u:
+                  case 0x16u:
+                  case 0x1Eu:
+                  case 0x3Au:
+                      comp->fdc_param_req = 2u;
+                      break;
+                  case 0x23u:
+                      comp->fdc_param_req = 5u;
+                      break;
+                  case 0x13u:
+                  case 0x17u:
+                  case 0x1Fu:
+                  case 0x1Bu:
+                  case 0x0Bu:
+                  case 0x0Fu:
+                      comp->fdc_param_req = 3u;
+                      break;
+                  case 0x35u:
+                      comp->fdc_param_req = 4u;
+                      break;
+                  default:
+                      comp->fdc_result = 0x18u;
+                      comp->fdc_status = (uint8_t)0x18u;
+                      mos6502_interrupt(cpu, 0xFFu);
+                      break;
+              }
+              return;
+          }
+          if (reg == 1u) {
+              uint8_t *dst = NULL;
+              switch (comp->fdc_param_count) {
+                  case 0u: dst = &comp->fdc_params0; break;
+                  case 1u: dst = &comp->fdc_params1; break;
+                  case 2u: dst = &comp->fdc_params2; break;
+                  case 3u: dst = &comp->fdc_params3; break;
+                  case 4u: dst = &comp->fdc_params4; break;
+                  default: break;
+              }
+              if (dst != NULL) *dst = (uint8_t)(value & 0xFFu);
+              if (comp->fdc_param_count < 5u) comp->fdc_param_count = (uint8_t)(comp->fdc_param_count + 1u);
+              if (comp->fdc_param_req != 0u && comp->fdc_param_count >= comp->fdc_param_req) {
+                  switch (comp->fdc_command) {
+                      case 0x35u:
+                          if (comp->fdc_params0 == 0x0Du) {
+                              comp->fdc_step_time = (uint32_t)comp->fdc_params1 * 2000u;
+                              comp->fdc_settle_time = (uint32_t)comp->fdc_params2 * 2000u;
+                              comp->fdc_unload_revs = (uint8_t)(comp->fdc_params3 >> 4u);
+                              comp->fdc_load_time = (uint32_t)(comp->fdc_params3 & 0x0Fu) * 4000u;
+                          }
+                          comp->fdc_status = 0u;
+                          break;
+                      case 0x3Du:
+                          comp->fdc_status = 0x10u;
+                          switch (comp->fdc_params0) {
+                              case 0x12u: comp->fdc_result = comp->fdc_curtrack0; break;
+                              case 0x1Au: comp->fdc_result = comp->fdc_curtrack1; break;
+                              case 0x23u: comp->fdc_result = comp->fdc_drive_select; break;
+                              default: comp->fdc_result = 0u; break;
+                          }
+                          break;
+                      case 0x3Au:
+                          if (comp->fdc_params0 == 0x12u) comp->fdc_curtrack0 = comp->fdc_params1;
+                          else if (comp->fdc_params0 == 0x1Au) comp->fdc_curtrack1 = comp->fdc_params1;
+                          else if (comp->fdc_params0 == 0x23u) comp->fdc_drive_select = comp->fdc_params1;
+                          comp->fdc_status = 0u;
+                          break;
+                      case 0x29u:
+                          comp->fdc_deadline_cycle = cpu->total_cycles + comp->fdc_step_time + comp->fdc_settle_time + comp->fdc_load_time;
+                          break;
+                      case 0x0Au:
+                      case 0x0Eu:
+                      case 0x12u:
+                      case 0x16u:
+                      case 0x1Eu:
+                          comp->fdc_cursector = comp->fdc_params1;
+                          comp->fdc_sectors_left = 1u;
+                          comp->fdc_sector_size = (comp->fdc_command == 0x1Eu) ? 0u : 128u;
+                          comp->fdc_deadline_cycle = cpu->total_cycles + comp->fdc_load_time + 200u;
+                          break;
+                      case 0x13u:
+                      case 0x17u:
+                      case 0x1Fu:
+                      case 0x0Bu:
+                      case 0x0Fu:
+                          comp->fdc_cursector = comp->fdc_params1;
+                          comp->fdc_sectors_left = (uint8_t)(comp->fdc_params2 & 31u);
+                          if (comp->fdc_sectors_left == 0u) comp->fdc_sectors_left = 1u;
+                          comp->fdc_sector_size = (uint16_t)(128u << ((comp->fdc_params2 >> 5u) & 0x07u));
+                          if (comp->fdc_sector_size > 256u) comp->fdc_sector_size = 256u;
+                          if (comp->fdc_command == 0x1Fu) comp->fdc_sector_size = 0u;
+                          comp->fdc_deadline_cycle = cpu->total_cycles + comp->fdc_load_time + 200u;
+                          break;
+                      case 0x1Bu:
+                          comp->fdc_cursector = comp->fdc_params1;
+                          comp->fdc_sectors_left = (uint8_t)(comp->fdc_params2 & 31u);
+                          if (comp->fdc_sectors_left == 0u) comp->fdc_sectors_left = 1u;
+                          comp->fdc_sector_size = 4u;
+                          comp->fdc_deadline_cycle = cpu->total_cycles + comp->fdc_load_time + 200u;
+                          break;
+                      case 0x23u:
+                          comp->fdc_deadline_cycle = cpu->total_cycles + comp->fdc_load_time + 200u;
+                          break;
+                      default:
+                          break;
+                  }
+              }
+              return;
+          }
+          if (reg == 2u) {
+              if ((value & 1u) != 0u) {
+                  comp->fdc_command = 0u;
+                  comp->fdc_param_count = 0u;
+                  comp->fdc_param_req = 0u;
+                  comp->fdc_status = 0u;
+                  comp->fdc_result = 0u;
+                  comp->fdc_data = 0u;
+                  comp->fdc_data_count = 0u;
+                  comp->fdc_data_index = 0u;
+                  comp->fdc_deadline_cycle = 0u;
+              }
+              return;
+          }
+          if (reg == 4u) {
+              comp->fdc_data = (uint8_t)(value & 0xFFu);
+              return;
+          }
           return;
       }
       if ((addr & 0xFFF0u) == 0xFEE0u) {
@@ -694,40 +998,6 @@ behavior:
           uint16_t *t1c = is_user_via ? &comp->uvia_t1_counter : &comp->via_t1_counter;
           uint16_t *t1l = is_user_via ? &comp->uvia_t1_latch : &comp->via_t1_latch;
           uint8_t *t1r = is_user_via ? &comp->uvia_t1_running : &comp->via_t1_running;
-          {
-              static int io_trace = -1;
-              static FILE *io_trace_fp = NULL;
-              if (io_trace < 0) {
-                  const char *e = getenv("PASM_BBC_IO_TRACE");
-                  io_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
-                  if (io_trace != 0) {
-                      const char *p = getenv("PASM_BBC_IO_TRACE_FILE");
-                      if (p == NULL || p[0] == '\0') p = "log/bbc_micro_io_trace.log";
-                      io_trace_fp = fopen(p, "a");
-                      if (io_trace_fp != NULL) {
-                          fprintf(io_trace_fp, "# cycle,pc,op,addr,value,mode,ifr,ier,t1c,t1l,sbase\n");
-                          fflush(io_trace_fp);
-                      } else {
-                          io_trace = 0;
-                      }
-                  }
-              }
-              if (io_trace != 0 && io_trace_fp != NULL) {
-                  fprintf(io_trace_fp,
-                          "%llu,%04X,W,%04X,%02X,%u,%02X,%02X,%04X,%04X,%04X\n",
-                          (unsigned long long)cpu->total_cycles,
-                          (unsigned)cpu->pc,
-                          (unsigned)addr,
-                          (unsigned)value,
-                          (unsigned)comp->video_mode,
-                          (unsigned)comp->via_ifr,
-                          (unsigned)comp->via_ier,
-                          (unsigned)comp->via_t1_counter,
-                          (unsigned)comp->via_t1_latch,
-                          (unsigned)comp->screen_base);
-                  fflush(io_trace_fp);
-              }
-          }
           if (reg == 0x00u) {
               *orb = (uint8_t)(value & 0xFFu);
               if (is_user_via == 0u) {
@@ -771,42 +1041,6 @@ behavior:
           return;
       }
       if ((addr & 0xFF00u) == 0xFE00u) {
-          {
-              static int io_trace = -1;
-              static FILE *io_trace_fp = NULL;
-              if (io_trace < 0) {
-                  const char *e = getenv("PASM_BBC_IO_TRACE");
-                  io_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
-                  if (io_trace != 0) {
-                      const char *p = getenv("PASM_BBC_IO_TRACE_FILE");
-                      if (p == NULL || p[0] == '\0') p = "log/bbc_micro_io_trace.log";
-                      io_trace_fp = fopen(p, "a");
-                      if (io_trace_fp != NULL) {
-                          fprintf(io_trace_fp, "# cycle,pc,op,addr,value,mode,ifr,ier,t1c,t1l,sbase\n");
-                          fflush(io_trace_fp);
-                      } else {
-                          io_trace = 0;
-                      }
-                  }
-              }
-              if (io_trace != 0 && io_trace_fp != NULL) {
-                  fprintf(
-                      io_trace_fp,
-                      "%llu,%04X,W,%04X,%02X,%u,%02X,%02X,%04X,%04X,%04X\n",
-                      (unsigned long long)cpu->total_cycles,
-                      (unsigned)cpu->pc,
-                      (unsigned)addr,
-                      (unsigned)value,
-                      (unsigned)comp->video_mode,
-                      (unsigned)comp->via_ifr,
-                      (unsigned)comp->via_ier,
-                      (unsigned)comp->via_t1_counter,
-                      (unsigned)comp->via_t1_latch,
-                      (unsigned)comp->screen_base
-                  );
-                  fflush(io_trace_fp);
-              }
-          }
           return;
       }
     step_post: |
@@ -828,6 +1062,9 @@ behavior:
                       cb_args[0] = (uint64_t)col;
                       {
                           uint8_t kb = (uint8_t)cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", cb_args, 1);
+                          if (col == 0u && cpu->total_cycles < comp->auto_boot_shift_until_cycle) {
+                              kb = (uint8_t)(kb & (uint8_t)~0x01u);
+                          }
                           for (uint8_t row = 1u; row < 8u; ++row) {
                               if ((kb & (uint8_t)(1u << row)) == 0u) { strobe_level = 1u; any_key_down = 1u; break; }
                           }
@@ -843,6 +1080,9 @@ behavior:
                       cb_args[0] = (uint64_t)col;
                       {
                           uint8_t kb = (uint8_t)cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", cb_args, 1);
+                          if (col == 0u && cpu->total_cycles < comp->auto_boot_shift_until_cycle) {
+                              kb = (uint8_t)(kb & (uint8_t)~0x01u);
+                          }
                           for (uint8_t row = 1u; row < 8u; ++row) {
                               if ((kb & (uint8_t)(1u << row)) == 0u) { strobe_level = 1u; any_key_down = 1u; break; }
                           }
@@ -852,7 +1092,11 @@ behavior:
               if (any_key_down == 0u) {
                   for (uint8_t col = 0u; col < 11u; ++col) {
                       cb_args[0] = (uint64_t)col;
-                      if ((uint8_t)cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", cb_args, 1) != 0xFFu) {
+                      uint8_t kb = (uint8_t)cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", cb_args, 1);
+                      if (col == 0u && cpu->total_cycles < comp->auto_boot_shift_until_cycle) {
+                          kb = (uint8_t)(kb & (uint8_t)~0x01u);
+                      }
+                      if (kb != 0xFFu) {
                           any_key_down = 1u;
                           break;
                       }
@@ -874,37 +1118,6 @@ behavior:
           if (comp->keyboard_any_down != 0u) {
               /* Force keyboard IRQ source while key is down to ensure MOS enters scan loop. */
               comp->via_ifr = (uint8_t)(comp->via_ifr | 0x01u);
-          }
-          {
-              static int kb_step_trace = -1;
-              static FILE *kb_step_fp = NULL;
-              if (kb_step_trace < 0) {
-                  const char *e = getenv("PASM_BBC_KB_TRACE");
-                  kb_step_trace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
-                  if (kb_step_trace != 0) {
-                      const char *p = getenv("PASM_BBC_KB_TRACE_FILE");
-                      if (p == NULL || p[0] == '\0') p = "log/bbc_micro_kb_trace.log";
-                      kb_step_fp = fopen(p, "a");
-                      if (kb_step_fp != NULL) {
-                          fprintf(kb_step_fp, "# step,cycle,strobe,any,ifr,ier,ic32,ora,orb\n");
-                          fflush(kb_step_fp);
-                      } else {
-                          kb_step_trace = 0;
-                      }
-                  }
-              }
-              if (kb_step_trace != 0 && kb_step_fp != NULL && comp->keyboard_any_down != 0u) {
-                  fprintf(kb_step_fp, "step,%llu,%u,%u,%02X,%02X,%02X,%02X,%02X\n",
-                          (unsigned long long)cpu->total_cycles,
-                          (unsigned)comp->keyboard_strobe,
-                          (unsigned)comp->keyboard_any_down,
-                          (unsigned)comp->via_ifr,
-                          (unsigned)comp->via_ier,
-                          (unsigned)comp->ic32,
-                          (unsigned)comp->via_ora,
-                          (unsigned)comp->via_orb);
-                  fflush(kb_step_fp);
-              }
           }
       }
       {
@@ -946,8 +1159,157 @@ behavior:
               }
           }
       }
+      {
+          static int auto_boot_workspace_enabled = -1;
+          if (auto_boot_workspace_enabled < 0) {
+              const char *auto_path = getenv("PASM_EMU_FLOPPY_AUTO_PATH");
+              auto_boot_workspace_enabled = (auto_path != NULL && auto_path[0] != '\0') ? 1 : 0;
+          }
+          if (auto_boot_workspace_enabled > 0 && cpu->memory[0x028Cu] == 0xFFu) {
+              cpu->memory[0x028Cu] = 0x0Fu;
+              cpu->memory[0x028Du] = 0x02u;
+              cpu->memory[0x028Eu] = 0x80u;
+              cpu->memory[0x028Fu] = 0xFFu;
+              cpu->memory[0x024Au] = 0x0Eu;
+          }
+      }
       if (((comp->via_ifr & comp->via_ier & 0x7Fu) != 0u) || ((comp->uvia_ifr & comp->uvia_ier & 0x7Fu) != 0u)) {
           mos6502_interrupt(cpu, 0u);
+      }
+      if ((comp->fdc_status & 0x80u) != 0u &&
+          comp->fdc_deadline_cycle != 0u &&
+          cpu->total_cycles >= comp->fdc_deadline_cycle &&
+          comp->fdc_phase == 3u) {
+          comp->fdc_deadline_cycle = 0u;
+          if (comp->fdc_data_count != 0u && comp->fdc_sector_buffer != NULL) {
+              comp->fdc_data = comp->fdc_sector_buffer[comp->fdc_data_index];
+              comp->fdc_data_index = (uint16_t)(comp->fdc_data_index + 1u);
+              comp->fdc_data_count = (uint16_t)(comp->fdc_data_count - 1u);
+              comp->fdc_status = (uint8_t)(0x80u | 0x08u | 0x04u);
+              mos6502_interrupt(cpu, 0xFFu);
+          } else {
+              comp->fdc_phase = 6u;
+              comp->fdc_deadline_cycle = cpu->total_cycles + 200u;
+              comp->fdc_status = 0x80u;
+          }
+      }
+      if ((comp->fdc_status & 0x80u) != 0u &&
+          comp->fdc_deadline_cycle != 0u &&
+          cpu->total_cycles >= comp->fdc_deadline_cycle &&
+          comp->fdc_phase == 5u) {
+          comp->fdc_phase = 0u;
+          comp->fdc_cursector = (uint8_t)(comp->fdc_cursector + 1u);
+          comp->fdc_sectors_left = (uint8_t)(comp->fdc_sectors_left - 1u);
+      }
+      if ((comp->fdc_status & 0x80u) != 0u &&
+          comp->fdc_deadline_cycle != 0u &&
+          cpu->total_cycles >= comp->fdc_deadline_cycle &&
+          comp->fdc_phase == 6u) {
+          comp->fdc_phase = 0u;
+          comp->fdc_deadline_cycle = 0u;
+          comp->fdc_status = 0x18u;
+          comp->fdc_result = 0u;
+          mos6502_interrupt(cpu, 0xFFu);
+      }
+      if ((comp->fdc_status & 0x80u) != 0u &&
+          comp->fdc_data_count == 0u &&
+          comp->fdc_deadline_cycle != 0u &&
+          cpu->total_cycles >= comp->fdc_deadline_cycle &&
+          comp->fdc_phase == 0u) {
+          uint8_t drive_index = ((comp->fdc_drive_select & 0x80u) != 0u) ? 1u : 0u;
+          uint8_t side_index = ((comp->fdc_drive_select & 0x20u) != 0u) ? 1u : 0u;
+          uint8_t track = (drive_index != 0u) ? comp->fdc_curtrack1 : comp->fdc_curtrack0;
+          comp->fdc_deadline_cycle = 0u;
+          if (comp->fdc_command == 0x29u) {
+              if (drive_index != 0u) comp->fdc_curtrack1 = comp->fdc_params0;
+              else comp->fdc_curtrack0 = comp->fdc_params0;
+              comp->fdc_status = 0x18u;
+              comp->fdc_result = 0u;
+              mos6502_interrupt(cpu, 0xFFu);
+          } else if (comp->fdc_command == 0x0Au || comp->fdc_command == 0x0Bu || comp->fdc_command == 0x0Eu || comp->fdc_command == 0x0Fu) {
+              if (drive_index != 0u) comp->fdc_curtrack1 = comp->fdc_params0;
+              else comp->fdc_curtrack0 = comp->fdc_params0;
+              comp->fdc_status = 0x18u;
+              comp->fdc_result = 0x12u;
+              mos6502_interrupt(cpu, 0xFFu);
+          } else if (comp->fdc_command == 0x12u || comp->fdc_command == 0x13u || comp->fdc_command == 0x16u || comp->fdc_command == 0x17u || comp->fdc_command == 0x1Eu || comp->fdc_command == 0x1Fu) {
+              track = comp->fdc_params0;
+              if (drive_index != 0u) comp->fdc_curtrack1 = track;
+              else comp->fdc_curtrack0 = track;
+              if (comp->fdc_command == 0x1Eu || comp->fdc_command == 0x1Fu) {
+                  uint64_t present_args[3] = { (uint64_t)track, (uint64_t)side_index, 0u };
+                  uint8_t present = (comp->fdc_source_component != NULL && comp->fdc_source_component[0] != '\0') ?
+                      (uint8_t)cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "query_track_present", present_args, 3u) : 0u;
+                  if (present != 0u) {
+                      if (comp->fdc_sectors_left > 1u) {
+                          comp->fdc_cursector = (uint8_t)(comp->fdc_cursector + 1u);
+                          comp->fdc_sectors_left = (uint8_t)(comp->fdc_sectors_left - 1u);
+                          comp->fdc_deadline_cycle = cpu->total_cycles + 200u;
+                      } else {
+                          comp->fdc_status = 0x18u;
+                          comp->fdc_result = 0u;
+                          mos6502_interrupt(cpu, 0xFFu);
+                      }
+                  } else {
+                      comp->fdc_status = 0x18u;
+                      comp->fdc_result = 0x18u;
+                      mos6502_interrupt(cpu, 0xFFu);
+                  }
+              } else {
+                  uint64_t read_args[5] = { (uint64_t)track, (uint64_t)comp->fdc_cursector, (uint64_t)side_index, 0u, (uint64_t)(uintptr_t)comp->fdc_sector_buffer };
+                  uint8_t ok = (comp->fdc_source_component != NULL && comp->fdc_source_component[0] != '\0' && comp->fdc_sector_buffer != NULL) ?
+                      (uint8_t)cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "read_sector", read_args, 5u) : 0u;
+                  comp->fdc_last_host_activity_cycle = cpu->total_cycles;
+                  if (ok != 0u) {
+                      comp->fdc_data_index = 1u;
+                      comp->fdc_data_count = (uint16_t)((comp->fdc_sector_size > 0u) ? (comp->fdc_sector_size - 1u) : 0u);
+                      comp->fdc_data = comp->fdc_sector_buffer[0];
+                      comp->fdc_status = (uint8_t)(0x80u | 0x08u | 0x04u);
+                      mos6502_interrupt(cpu, 0xFFu);
+                  } else {
+                      comp->fdc_status = 0x18u;
+                      comp->fdc_result = 0x18u;
+                      mos6502_interrupt(cpu, 0xFFu);
+                  }
+              }
+          } else if (comp->fdc_command == 0x1Bu) {
+              track = comp->fdc_params0;
+              if (drive_index != 0u) comp->fdc_curtrack1 = track;
+              else comp->fdc_curtrack0 = track;
+              if (comp->fdc_source_component != NULL &&
+                  comp->fdc_source_component[0] != '\0' &&
+                  comp->fdc_sector_buffer != NULL) {
+                  uint64_t addr_args[3] = {
+                      (uint64_t)track,
+                      (uint64_t)side_index,
+                      (uint64_t)(uintptr_t)comp->fdc_sector_buffer
+                  };
+                  uint8_t ok = (uint8_t)cpu_component_dispatch_callback(
+                      cpu, comp->fdc_source_component, "read_address", addr_args, 3u);
+                  if (ok != 0u) {
+                      comp->fdc_data = comp->fdc_sector_buffer[0];
+                      comp->fdc_data_index = 1u;
+                      comp->fdc_data_count = 3u;
+                      comp->fdc_status = (uint8_t)(0x80u | 0x08u | 0x04u);
+                      if (comp->fdc_sectors_left > 0u) {
+                          comp->fdc_sectors_left--;
+                      }
+                      mos6502_interrupt(cpu, 0xFFu);
+                  } else {
+                      comp->fdc_status = 0x18u;
+                      comp->fdc_result = 0x18u;
+                      mos6502_interrupt(cpu, 0xFFu);
+                  }
+              } else {
+                  comp->fdc_status = 0x18u;
+                  comp->fdc_result = 0x18u;
+                  mos6502_interrupt(cpu, 0xFFu);
+              }
+          } else if (comp->fdc_command == 0x23u) {
+              comp->fdc_status = 0x18u;
+              comp->fdc_result = 0u;
+              mos6502_interrupt(cpu, 0xFFu);
+          }
       }
       uint64_t frame_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 50u) : 40000u;
       if (frame_period == 0u) frame_period = 1u;
@@ -982,6 +1344,48 @@ behavior:
           }
       }
   callback_handlers:
+    load_media: |
+      const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+      const char *source_component = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : NULL;
+      if (path == NULL || path[0] == '\0') return 0u;
+      if (source_component == NULL || source_component[0] == '\0') return 0u;
+      if (comp->fdc_source_component != NULL) {
+          if (comp->fdc_media_loaded != 0u) {
+              (void)cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "unload_media", NULL, 0u);
+          }
+          free(comp->fdc_source_component);
+          comp->fdc_source_component = NULL;
+      }
+      comp->fdc_source_component = strdup(source_component);
+      if (comp->fdc_source_component == NULL) return 0u;
+      if (cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "load_media", args, 1u) == 0u) {
+          free(comp->fdc_source_component);
+          comp->fdc_source_component = NULL;
+          return 0u;
+      }
+      comp->fdc_media_loaded = 1u;
+      comp->fdc_status = 0x00u;
+      comp->fdc_result = 0x00u;
+      comp->fdc_data = 0x00u;
+      return 1u;
+    unload_media: |
+      if (comp->fdc_source_component != NULL) {
+          if (comp->fdc_media_loaded != 0u) {
+              (void)cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "unload_media", NULL, 0u);
+          }
+          free(comp->fdc_source_component);
+          comp->fdc_source_component = NULL;
+      }
+      comp->fdc_media_loaded = 0u;
+      comp->fdc_status = 0x00u;
+      comp->fdc_result = 0x00u;
+      comp->fdc_data = 0x00u;
+      return 1u;
+    query_drive_activity: |
+      if (comp->fdc_source_component != NULL && comp->fdc_source_component[0] != '\0') {
+          return cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "query_drive_activity", NULL, 0u);
+      }
+      return 0u;
     keyboard_read_row: |
       __result = cpu_component_call(cpu, "bbc_micro_crtc_6845", "keyboard_read_row", args, argc);
       return __result;

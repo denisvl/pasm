@@ -13,7 +13,7 @@ def test_trs80_model4_systems_include_main_ram_split_ic():
         assert "- trs80_m4io" in s
         assert "- trs80_m4ga" in s
         assert "- trs80_m4ram" in s
-        assert "- trs80_m4fdc" in s
+        assert "- wd1793_fdc" in s
         assert "- trs80_m4ppi" in s
         assert "- trs80_m4sio" in s
         assert "- trs80_m4video" in s
@@ -27,8 +27,10 @@ def test_trs80_model4_runners_load_main_ram_ic():
     assert '--ic "${IC_MAIN_RAM}"' in sh
     assert 'IC_GA="examples/ics/trs80_model4/trs80_model4_gate_array.yaml"' in sh
     assert '--ic "${IC_GA}"' in sh
-    assert 'IC_FDC="examples/ics/trs80_model4/trs80_model4_fdc.yaml"' in sh
+    assert 'IC_FDC="examples/ics/common/wd1793.yaml"' in sh
     assert '--ic "${IC_FDC}"' in sh
+    assert 'DEVICE_FLOPPY_BACKEND="examples/devices/common/trs80_floppy_image_backend.yaml"' in sh
+    assert '--device "${DEVICE_FLOPPY_BACKEND}"' in sh
     assert 'IC_PPI="examples/ics/trs80_model4/trs80_model4_ppi.yaml"' in sh
     assert '--ic "${IC_PPI}"' in sh
     assert 'IC_SIO="examples/ics/trs80_model4/trs80_model4_serial.yaml"' in sh
@@ -45,8 +47,10 @@ def test_trs80_model4_runners_load_main_ram_ic():
     assert '--ic "%IC_MAIN_RAM%"' in bat
     assert 'set "IC_GA=examples/ics/trs80_model4/trs80_model4_gate_array.yaml"' in bat
     assert '--ic "%IC_GA%"' in bat
-    assert 'set "IC_FDC=examples/ics/trs80_model4/trs80_model4_fdc.yaml"' in bat
+    assert 'set "IC_FDC=examples/ics/common/wd1793.yaml"' in bat
     assert '--ic "%IC_FDC%"' in bat
+    assert 'set "DEVICE_FLOPPY_BACKEND=examples/devices/common/trs80_floppy_image_backend.yaml"' in bat
+    assert '--device "%DEVICE_FLOPPY_BACKEND%"' in bat
     assert 'set "IC_PPI=examples/ics/trs80_model4/trs80_model4_ppi.yaml"' in bat
     assert '--ic "%IC_PPI%"' in bat
     assert 'set "IC_SIO=examples/ics/trs80_model4/trs80_model4_serial.yaml"' in bat
@@ -69,7 +73,7 @@ def test_trs80_model4_split_generation_smoke(tmp_path):
         base / "examples" / "ics" / "trs80_model4" / "trs80_model4_peripherals.yaml",
         base / "examples" / "ics" / "trs80_model4" / "trs80_model4_gate_array.yaml",
         base / "examples" / "ics" / "trs80_model4" / "trs80_model4_main_ram.yaml",
-        base / "examples" / "ics" / "trs80_model4" / "trs80_model4_fdc.yaml",
+        base / "examples" / "ics" / "common" / "wd1793.yaml",
         base / "examples" / "ics" / "trs80_model4" / "trs80_model4_ppi.yaml",
         base / "examples" / "ics" / "trs80_model4" / "trs80_model4_serial.yaml",
         base / "examples" / "ics" / "trs80_model4" / "trs80_model4_video.yaml",
@@ -80,6 +84,7 @@ def test_trs80_model4_split_generation_smoke(tmp_path):
         base / "examples" / "devices" / "trs80_model4" / "trs80_keyboard.yaml",
         base / "examples" / "devices" / "trs80_model4" / "trs80_video.yaml",
         base / "examples" / "devices" / "trs80_model4" / "trs80_speaker.yaml",
+        base / "examples" / "devices" / "common" / "trs80_floppy_image_backend.yaml",
     ]
     host_paths = [base / "examples" / "hosts" / "trs80_model4" / "trs80_host_stub.yaml"]
 
@@ -97,7 +102,7 @@ def test_trs80_model4_split_generation_smoke(tmp_path):
 
 def test_trs80_model4_irq_boundary_invariants():
     io_ic = Path("examples/ics/trs80_model4/trs80_model4_peripherals.yaml").read_text(encoding="utf-8")
-    fdc_ic = Path("examples/ics/trs80_model4/trs80_model4_fdc.yaml").read_text(encoding="utf-8")
+    fdc_ic = Path("examples/ics/common/wd1793.yaml").read_text(encoding="utf-8")
     irq_ic = Path("examples/ics/trs80_model4/trs80_model4_irq.yaml").read_text(encoding="utf-8")
 
     # Split invariant: IO/FDC no longer perform CPU IRQ side effects directly.
@@ -107,7 +112,7 @@ def test_trs80_model4_irq_boundary_invariants():
     # Split invariant: IO/FDC should no longer expose/emit legacy irq_edge signals.
     assert 'id: trs80_m4io' in io_ic
     assert "name: irq_edge" not in io_ic
-    assert 'id: trs80_m4fdc' in fdc_ic
+    assert 'id: wd1793_fdc' in fdc_ic
     assert "name: irq_edge" not in fdc_ic
 
     # Split invariant: centralized IRQ bridge remains the single interrupt source.
@@ -132,7 +137,7 @@ def test_trs80_model4_system_wiring_invariants():
         assert "component: trs80_m4irq" in s
         assert "name: irq_edge" in s
         assert "component: trs80_m4io\n      kind: signal\n      name: irq_edge" not in s
-        assert "component: trs80_m4fdc\n      kind: signal\n      name: irq_edge" not in s
+        assert "component: wd1793_fdc\n      kind: signal\n      name: irq_edge" not in s
 
 
 def test_trs80_model4_io_delegation_invariants():

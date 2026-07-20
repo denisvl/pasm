@@ -293,6 +293,11 @@ def _ic_lifecycle_reset_block(component: Dict[str, Any]) -> str:
             "fdc_image_format",
             "fdc_sectors_per_track",
             "fdc_track_count",
+            "image_size",
+            "sectors_per_track",
+            "side_count",
+            "track_count",
+            "sector_number_base",
         }
         if ("*" not in field_type) and (not preserve_reset_field):
             lines.append(f"    comp->{field_name} = {initial};")
@@ -1006,7 +1011,15 @@ def generate_component_lifecycle_dispatch_glue(isa_data: Dict[str, Any]) -> str:
                 field_name = _to_ident(str(field.get("name", "field")))
                 field_type = str(field.get("type", "")).strip()
                 initial = str(field.get("initial", "0")).strip() or "0"
-                preserve_reset_field = field_name in {"rom_data", "rom_size"}
+                preserve_reset_field = field_name in {
+                    "rom_data",
+                    "rom_size",
+                    "image_size",
+                    "sectors_per_track",
+                    "side_count",
+                    "track_count",
+                    "sector_number_base",
+                }
                 if ("*" not in field_type) and (not preserve_reset_field):
                     lines.append(f"      comp->{field_name} = {initial};")
         reset_snippet = _component_snippet_block(comp, "reset")

@@ -60,10 +60,14 @@ components:
   - speaker
   - bbc_micro_cassette_adapter
   - cassette_transport_nomotor
+  - floppy_raw_sector_image_backend
   - monitor
   hosts:
   - host_bbc_micro
   cassette: bbc_micro_cassette_adapter
+  floppy: bbc_micro_crtc_6845
+media_picker:
+  open_action_id: EMU_MEDIA_PICKER
 cassette:
   component: bbc_micro_cassette_adapter
   directory: examples/cassettes/bbcmicro
@@ -84,7 +88,7 @@ cassette:
       component: bbc_micro_cassette_adapter
       label: Line In
   controls:
-    picker_action_id: EMU_CASSETTE_PICKER
+    picker_action_id: EMU_MEDIA_PICKER
     play_action_id: EMU_CASSETTE_PLAY
     pause_action_id: EMU_CASSETTE_PAUSE
     stop_action_id: EMU_CASSETTE_STOP
@@ -95,6 +99,31 @@ cassette:
     bass_down_action_id: EMU_CASSETTE_BASS_DOWN
     treble_up_action_id: EMU_CASSETTE_TREBLE_UP
     treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+floppy:
+  directory: examples/floppies/bbcmicro
+  sources:
+    - kind: file
+      source_type: ../../floppy_sources/ssd_file.yaml
+      source_component: floppy_raw_sector_image_backend
+      label: BBC DFS SSD
+      allowed_extensions: [ssd]
+    - kind: file
+      source_type: ../../floppy_sources/dsd_file.yaml
+      source_component: floppy_raw_sector_image_backend
+      label: BBC DFS DSD
+      allowed_extensions: [dsd]
+    - kind: file
+      source_type: ../../floppy_sources/adl_file.yaml
+      source_component: floppy_raw_sector_image_backend
+      label: BBC ADFS ADL
+      allowed_extensions: [adl]
+  drives:
+    - slot: 0
+      label: Drive 0
+      drive_type: ../../floppy_drives/bbc_5_25_dfs.yaml
+      component: bbc_micro_crtc_6845
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
 connections:
 - from:
     component: bbc_micro_crtc_6845

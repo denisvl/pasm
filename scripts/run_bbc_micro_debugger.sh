@@ -20,15 +20,12 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/bbcmicro/host_keyboard_bbc_micro.yaml}"
+FLOPPY="${FLOPPY:-}"
 UV_CACHE_DIR="${UV_CACHE_DIR:-.uv-cache}"
 RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
 PASM_TRACE="0"
 PASM_TRACE_FILE=""
-PASM_BBC_IO_TRACE="0"
-PASM_BBC_IO_TRACE_FILE=""
-PASM_BBC_KB_TRACE="0"
-PASM_BBC_KB_TRACE_FILE=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -53,6 +50,7 @@ DEVICE_VIDEO="examples/devices/bbcmicro/bbc_micro_video.yaml"
 DEVICE_SPK="examples/devices/bbcmicro/bbc_micro_speaker.yaml"
 DEVICE_CASS_ADAPTER="examples/devices/bbcmicro/bbc_micro_cassette_adapter.yaml"
 DEVICE_CASS="examples/devices/common/cassette_transport_nomotor.yaml"
+DEVICE_FLOPPY_BACKEND="examples/devices/common/floppy_raw_sector_image_backend.yaml"
 HOST_INTERACTIVE="examples/hosts/bbcmicro/bbc_micro_host_hal_interactive.yaml"
 HOST_STUB="examples/hosts/bbcmicro/bbc_micro_host_stub.yaml"
 HOST_FILE="${HOST_FILE:-}"
@@ -103,6 +101,7 @@ UV_CACHE_DIR="${UV_CACHE_DIR}" uv run python -m src.main generate \
   --device "${DEVICE_SPK}" \
   --device "${DEVICE_CASS_ADAPTER}" \
   --device "${DEVICE_CASS}" \
+  --device "${DEVICE_FLOPPY_BACKEND}" \
   --host "${HOST_FILE}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
   --output "${OUTPUT_DIR}"
@@ -114,6 +113,7 @@ cmake --build "${BUILD_DIR}"
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED}"
 echo "    keyboard_map=${KEYBOARD_MAP}"
+echo "    floppy=${FLOPPY}"
 echo "    host_file=${HOST_FILE}"
 
 RUN_ARGS=(
@@ -126,15 +126,16 @@ RUN_ARGS=(
 if [[ -n "${START_PC}" ]]; then
   RUN_ARGS+=(--start-pc "${START_PC}")
 fi
+if [[ -n "${FLOPPY}" ]]; then
+  RUN_ARGS+=(--floppy "${FLOPPY}")
+fi
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
+PASM_SYSTEM_DIR="${SYSTEM_DIR}" \
+PASM_EMU_FLOPPY_AUTO_PATH="${FLOPPY}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 PASM_TRACE="${PASM_TRACE}" \
 PASM_TRACE_FILE="${PASM_TRACE_FILE}" \
-PASM_BBC_IO_TRACE="${PASM_BBC_IO_TRACE}" \
-PASM_BBC_IO_TRACE_FILE="${PASM_BBC_IO_TRACE_FILE}" \
-PASM_BBC_KB_TRACE="${PASM_BBC_KB_TRACE}" \
-PASM_BBC_KB_TRACE_FILE="${PASM_BBC_KB_TRACE_FILE}" \
 RUST_BACKTRACE="${RUST_BACKTRACE}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   "${RUN_ARGS[@]}"

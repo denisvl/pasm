@@ -334,16 +334,75 @@ uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
 }}
 
 void {cpu_prefix}_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {{
+    static int __trace_mem_write_addr_state = -1;
+    static uint16_t __trace_mem_write_addrs[16];
+    static size_t __trace_mem_write_addr_count = 0u;
+    static FILE *__trace_mem_write_fp = NULL;
     {{
         uint8_t __handled = 0u;
         (void)cpu_components_bus_write(cpu, addr, value, &__handled);
         if (__handled != 0u) return;
+    }}
+    if (__trace_mem_write_addr_state < 0) {{
+        const char *__trace_addrs_env = getenv("PASM_TRACE_MEM_WRITE_ADDRS");
+        const char *__trace_addr_env = getenv("PASM_TRACE_MEM_WRITE_ADDR");
+        if (__trace_addrs_env != NULL && __trace_addrs_env[0] != '\\0') {{
+            char __trace_addrs_buf[256];
+            char *__trace_tok = NULL;
+            char *__trace_save = NULL;
+            (void)snprintf(__trace_addrs_buf, sizeof(__trace_addrs_buf), "%s", __trace_addrs_env);
+            __trace_tok = strtok_r(__trace_addrs_buf, ",", &__trace_save);
+            while (__trace_tok != NULL && __trace_mem_write_addr_count < (sizeof(__trace_mem_write_addrs) / sizeof(__trace_mem_write_addrs[0]))) {{
+                while (*__trace_tok == ' ' || *__trace_tok == '\t') __trace_tok++;
+                if (*__trace_tok != '\\0') {{
+                    __trace_mem_write_addrs[__trace_mem_write_addr_count++] = (uint16_t)(strtoul(__trace_tok, NULL, 0) & 0xFFFFu);
+                }}
+                __trace_tok = strtok_r(NULL, ",", &__trace_save);
+            }}
+        }} else if (__trace_addr_env != NULL && __trace_addr_env[0] != '\\0') {{
+            __trace_mem_write_addrs[0] = (uint16_t)(strtoul(__trace_addr_env, NULL, 0) & 0xFFFFu);
+            __trace_mem_write_addr_count = 1u;
+        }}
+        if (__trace_mem_write_addr_count > 0u) {{
+            __trace_mem_write_addr_state = 1;
+            const char *__trace_path_env = getenv("PASM_TRACE_MEM_WRITE_FILE");
+            if (__trace_path_env != NULL && __trace_path_env[0] != '\\0') {{
+                __trace_mem_write_fp = fopen(__trace_path_env, "a");
+            }}
+            if (__trace_mem_write_fp == NULL) {{
+                __trace_mem_write_fp = stdout;
+            }}
+        }} else {{
+            __trace_mem_write_addr_state = 0;
+        }}
     }}
     if (addr >= cpu->memory_size) {{
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
     }}
 {memory_write_guard}
+    if (__trace_mem_write_addr_state > 0 && __trace_mem_write_fp != NULL) {{
+        size_t __trace_idx;
+        for (__trace_idx = 0u; __trace_idx < __trace_mem_write_addr_count; ++__trace_idx) {{
+            if (addr == __trace_mem_write_addrs[__trace_idx]) {{
+                uint8_t __old_value = cpu->memory[addr];
+                fprintf(__trace_mem_write_fp,
+                        "mem_write cycle=%llu pc=%04X addr=%04X old=%02X new=%02X a=%02X x=%02X y=%02X sp=%02X p=%02X\\n",
+                        (unsigned long long)cpu->total_cycles,
+                        (unsigned int)cpu->pc,
+                        (unsigned int)addr,
+                        (unsigned int)__old_value,
+                        (unsigned int)value,
+                        (unsigned int)cpu->registers[REG_A],
+                        (unsigned int)cpu->registers[REG_X],
+                        (unsigned int)cpu->registers[REG_Y],
+                        (unsigned int)cpu->sp,
+                        (unsigned int)cpu->flags.raw);
+                fflush(__trace_mem_write_fp);
+                break;
+            }}
+        }}
+    }}
     cpu->memory[addr] = value;
 }}
 

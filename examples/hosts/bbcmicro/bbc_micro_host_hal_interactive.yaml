@@ -157,6 +157,9 @@ state:
 - name: kb_shiftlock_prev_raw
   type: uint8_t
   initial: '0'
+- name: boot_shift_hold_until_cycle
+  type: uint64_t
+  initial: '0'
 interfaces:
   callbacks:
   - name: keyboard_ascii
@@ -246,7 +249,7 @@ behavior:
       comp->kb_row3 = 0xFFu;\ncomp->kb_row4 = 0xFFu;\ncomp->kb_row5 = 0xFFu;\ncomp->kb_row6 = 0xFFu;\ncomp->kb_row7 = 0xFFu;\n\
       comp->kb_row8 = 0xFFu;\ncomp->kb_row9 = 0xFFu;\ncomp->kb_row10 = 0xFFu;\ncomp->kb_row11 = 0xFFu;\ncomp->kb_row12 = 0xFFu;\n\
       comp->kb_row13 = 0xFFu;\ncomp->kb_row14 = 0xFFu;\ncomp->kb_row15 = 0xFFu;\ncomp->kb_shiftlock_latched = 0u;\ncomp->kb_shiftlock_prev_raw\
-      \ = 0u;\nif (comp->audio_out_dev != 0u) {\n    cpu_host_hal_audio_clear(comp->audio_out_dev);\n}\ncomp->display_shader_supported\
+      \ = 0u;\ncomp->boot_shift_hold_until_cycle = 0u;\nif (comp->audio_out_dev != 0u) {\n    cpu_host_hal_audio_clear(comp->audio_out_dev);\n}\ncomp->display_shader_supported\
       \ = (comp->display_shader != NULL) ? -1 : 0;\n"
     step_post: "if (comp->host_inited == 0u) return;\n{\n    uint64_t now = cpu->total_cycles;\n    if ((now - comp->last_event_poll_cycle)\
       \ < 4096u) {\n        return;\n    }\n    comp->last_event_poll_cycle = now;\n}\nCPUHostEvent ev;\nwhile (cpu_host_hal_poll_event(&ev))\
@@ -254,16 +257,30 @@ behavior:
       \ = true;\n        return;\n    } else if (cpu_host_hal_event_type(&ev) == CPU_HOST_EVENT_KEYDOWN && cpu_host_hal_event_key_repeat(&ev)\
       \ == 0) {\n        int32_t sc = cpu_host_hal_event_scancode(&ev);\n        int key_count = 0;\n        const uint8_t\
       \ *ks = cpu_host_hal_keyboard_state(&key_count);\n        cpu_component_keyboard_ascii_feed(sc, ks, (size_t)((key_count\
-      \ > 0) ? key_count : 0), 1u);\n    }\n}\n{\n    int key_count = 0;\n    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n\
-      \    uint8_t rows[16] = { 0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu\
-      \ };\n    if (ks != NULL && key_count > 0) { cpu_component_apply_declared_keymap(cpu, \"host_bbc_micro\", ks, (size_t)key_count,\
-      \ rows, 16u, 1u); } { uint8_t raw_shiftlock = (uint8_t)(((rows[6] & (uint8_t)(1u << 7u)) == 0u) ? 1u : 0u); if (raw_shiftlock\
-      \ != 0u && comp->kb_shiftlock_prev_raw == 0u) { comp->kb_shiftlock_latched ^= 1u; } comp->kb_shiftlock_prev_raw = raw_shiftlock;\
-      \ if (comp->kb_shiftlock_latched != 0u) rows[6] = (uint8_t)(rows[6] & (uint8_t)~(1u << 7u)); else rows[6] = (uint8_t)(rows[6]\
-      \ | (uint8_t)(1u << 7u)); } comp->kb_row0 = rows[0]; comp->kb_row1 = rows[1]; comp->kb_row2 = rows[2]; comp->kb_row3\
-      \ = rows[3]; comp->kb_row4 = rows[4]; comp->kb_row5 = rows[5]; comp->kb_row6 = rows[6]; comp->kb_row7 = rows[7]; comp->kb_row8\
-      \ = rows[8]; comp->kb_row9 = rows[9]; comp->kb_row10 = rows[10]; comp->kb_row11 = rows[11]; comp->kb_row12 = rows[12];\
-      \ comp->kb_row13 = rows[13]; comp->kb_row14 = rows[14]; comp->kb_row15 = rows[15]; } { pasm_overlay_update_perf(\n \
+      \ > 0) ? key_count : 0), 1u);\n    }\n}\n{\n    static uint8_t floppy_auto_boot_armed = 0u;\n\
+      \    static uint8_t pause_prev = 0u;\n    static uint8_t shift_break_hold = 0u;\n    static uint64_t shift_break_release_cycle = 0u;\n\
+      \    int key_count = 0;\n    const uint8_t *ks = cpu_host_hal_keyboard_state(&key_count);\n    uint8_t rows[16] = {\
+      \ 0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu,0xFFu };\n\
+      \    uint8_t shift_pressed = 0u;\n    uint8_t pause_pressed = 0u;\n    uint8_t trigger_reset = 0u;\n    uint8_t trigger_shift_break = 0u;\n\
+      \    if (ks != NULL\
+      \ && key_count > 0) {\n        if ((size_t)CPU_HOST_SCANCODE(LSHIFT) < (size_t)key_count && ks[CPU_HOST_SCANCODE(LSHIFT)]\
+      \ != 0u) shift_pressed = 1u;\n        if ((size_t)CPU_HOST_SCANCODE(RSHIFT) < (size_t)key_count && ks[CPU_HOST_SCANCODE(RSHIFT)]\
+      \ != 0u) shift_pressed = 1u;\n        if ((size_t)CPU_HOST_SCANCODE(PAUSE) < (size_t)key_count && ks[CPU_HOST_SCANCODE(PAUSE)]\
+      \ != 0u) pause_pressed = 1u;\n        cpu_component_apply_declared_keymap(cpu, \"host_bbc_micro\", ks, (size_t)key_count,\
+      \ rows, 16u, 1u);\n    }\n    if (pause_pressed != 0u && pause_prev == 0u) {\n        if (shift_pressed != 0u) trigger_shift_break = 1u;\n\
+      \        else trigger_reset = 1u;\n    }\n    pause_prev = pause_pressed;\n    if (trigger_shift_break != 0u) {\n\
+      \        floppy_auto_boot_armed = 1u;\n        shift_break_hold = 1u;\n        shift_break_release_cycle = cpu->total_cycles + (uint64_t)(CPU_SYSTEM_CLOCK_HZ * 1u);\n\
+      \        mos6502_reset(cpu);\n        cpu->memory[0x028Cu] = 0x0Fu;\n        cpu->memory[0x028Du] = 0x02u;\n        cpu->memory[0x028Eu] = 0x80u;\n        cpu->memory[0x028Fu] = 0xFFu;\n        cpu->memory[0x024Au] = 0x0Eu;\n    } else if (trigger_reset != 0u) {\n        mos6502_reset(cpu);\n\
+      \        cpu->memory[0x028Cu] = 0x0Fu;\n        cpu->memory[0x028Du] = 0x00u;\n        cpu->memory[0x028Eu] = 0x80u;\n        cpu->memory[0x028Fu] = 0xFFu;\n        cpu->memory[0x024Au] = 0x0Du;\n    }\n    if (floppy_auto_boot_armed != 0u && cpu->memory[0x028Cu] == 0xFFu) {\n        cpu->memory[0x028Cu] = 0x0Fu;\n        cpu->memory[0x024Au] = 0x0Eu;\n        if (cpu->memory[0x028Du] == 0u) cpu->memory[0x028Du] = 0x02u;\n    }\n    if (shift_break_hold != 0u) {\n\
+      \        rows[0] = (uint8_t)(rows[0] & (uint8_t)~(1u << 0u));\n        if (cpu->total_cycles >= shift_break_release_cycle) shift_break_hold = 0u;\n\
+      \    }\n    if (comp->boot_shift_hold_until_cycle != 0u && cpu->total_cycles < comp->boot_shift_hold_until_cycle) {\n\
+      \        rows[0] = (uint8_t)(rows[0] & (uint8_t)~(1u << 0u));\n    }\n    { uint8_t raw_shiftlock = (uint8_t)(((rows[6] & (uint8_t)(1u << 7u)) == 0u) ?\
+      \ 1u : 0u); if (raw_shiftlock != 0u && comp->kb_shiftlock_prev_raw == 0u) { comp->kb_shiftlock_latched ^= 1u; } comp->kb_shiftlock_prev_raw\
+      \ = raw_shiftlock; if (comp->kb_shiftlock_latched != 0u) rows[6] = (uint8_t)(rows[6] & (uint8_t)~(1u << 7u)); else\
+      \ rows[6] = (uint8_t)(rows[6] | (uint8_t)(1u << 7u)); } comp->kb_row0 = rows[0]; comp->kb_row1 = rows[1]; comp->kb_row2\
+      \ = rows[2]; comp->kb_row3 = rows[3]; comp->kb_row4 = rows[4]; comp->kb_row5 = rows[5]; comp->kb_row6 = rows[6]; comp->kb_row7\
+      \ = rows[7]; comp->kb_row8 = rows[8]; comp->kb_row9 = rows[9]; comp->kb_row10 = rows[10]; comp->kb_row11 = rows[11];\
+      \ comp->kb_row12 = rows[12]; comp->kb_row13 = rows[13]; comp->kb_row14 = rows[14]; comp->kb_row15 = rows[15]; } { pasm_overlay_update_perf(\n \
       \       cpu_host_hal_ticks_ms(),\n        (uint64_t)comp->frame_count,\n        cpu->total_cycles,\n        (uint64_t)CPU_SYSTEM_CLOCK_HZ,\n\
       \        &comp->overlay_last_ms,\n        &comp->overlay_last_frame_count,\n        &comp->overlay_last_cycle_count,\n\
       \        &comp->overlay_fps_x100,\n        &comp->overlay_cpu_hz,\n        &comp->overlay_cpu_pct_x10\n    );\n}\nif\

@@ -41,7 +41,7 @@ set "PROCESSOR=examples/processors/z80.yaml"
 set "IC_MAIN=examples/ics/trs80_model4/trs80_model4_peripherals.yaml"
 set "IC_MAIN_RAM=examples/ics/trs80_model4/trs80_model4_main_ram.yaml"
 set "IC_GA=examples/ics/trs80_model4/trs80_model4_gate_array.yaml"
-set "IC_FDC=examples/ics/trs80_model4/trs80_model4_fdc.yaml"
+set "IC_FDC=examples/ics/common/wd1793.yaml"
 set "IC_PPI=examples/ics/trs80_model4/trs80_model4_ppi.yaml"
 set "IC_SIO=examples/ics/trs80_model4/trs80_model4_serial.yaml"
 set "IC_VIDEO=examples/ics/trs80_model4/trs80_model4_video.yaml"
@@ -50,6 +50,7 @@ set "IC_CASS=examples/ics/trs80_model4/trs80_model4_cassette.yaml"
 set "DEVICE_KB=examples/devices/trs80_model4/trs80_keyboard.yaml"
 set "DEVICE_VIDEO=examples/devices/trs80_model4/trs80_video.yaml"
 set "DEVICE_SPK=examples/devices/trs80_model4/trs80_speaker.yaml"
+set "DEVICE_FLOPPY_BACKEND=examples/devices/common/trs80_floppy_image_backend.yaml"
 set "SYSTEM_DIR=examples/systems"
 
 if /I "%PROFILE%"=="default" (
@@ -134,6 +135,7 @@ uv run python -m src.main generate ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
+  --device "%DEVICE_FLOPPY_BACKEND%" ^
   --host "%HOST%" ^
   --host-backend "%HOST_BACKEND%" ^
   --output "%OUTPUT_DIR%"

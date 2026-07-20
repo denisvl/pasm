@@ -22,6 +22,7 @@ SUPPORTED_DISPLAY_KINDS = {
     "hex16_plain",
     "hex8_asm",
     "hex16_asm",
+    "pc_rel8",
     "signed8",
     "signed16",
     "unsigned",
@@ -42,6 +43,7 @@ GENERIC_DISPLAY_KINDS = {
     "hex16_plain",
     "hex8_asm",
     "hex16_asm",
+    "pc_rel8",
     "signed8",
     "signed16",
     "unsigned",
@@ -1177,6 +1179,14 @@ def _append_instruction_template_render(
             lines.append(
                 f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "$%04X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
             )
+        elif kind == "pc_rel8":
+            fmt = _escape_c_string(numeric_formats.get("hex16", "0x%04X"))
+            lines.append(
+                f"{indent}    uint16_t rel_target_{idx} = (uint16_t)((uint16_t)(pc + inst.length) + (uint16_t)(int16_t)(int8_t)(((uint32_t){field_ref}) & 0x{mask:X}u));"
+            )
+            lines.append(
+                f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "{fmt}", (unsigned int)rel_target_{idx});'
+            )
         elif kind == "hex32":
             lines.append(
                 f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "0x%08X", (unsigned int)(((uint32_t){field_ref}) & 0x{mask:X}u));'
@@ -1287,6 +1297,10 @@ def _infer_display_template(
         _replace_literal("(IX+d)", "(IX+{disp:signed8})")
         _replace_literal("(IY+d)", "(IY+{disp:signed8})")
         _replace_regex(r"\bd\b", "{disp:signed8}")
+
+    if "rel" in field_names and "{" not in template:
+        template = f"{template} {{rel:pc_rel8}}"
+        changed = True
 
     # MC6809 direct-page offset byte rendered as zero-extended 16-bit.
     if "offset" in field_names:
@@ -2005,6 +2019,14 @@ def _generate_ic_runtime_blocks(
     cassette_treble_up_action = str(cassette_controls.get("treble_up_action_id", "EMU_CASSETTE_TREBLE_UP"))
     cassette_treble_down_action = str(cassette_controls.get("treble_down_action_id", "EMU_CASSETTE_TREBLE_DOWN"))
     cassette_play_sets_motor = bool(cassette_controls.get("play_sets_motor", True))
+    floppy_drives_cfg = floppy_cfg.get("drives", []) if has_runtime_floppy else []
+    if not isinstance(floppy_drives_cfg, list):
+        floppy_drives_cfg = []
+    floppy_component_id = ""
+    if floppy_drives_cfg and isinstance(floppy_drives_cfg[0], dict):
+        floppy_component_id = str(floppy_drives_cfg[0].get("component", "") or "")
+    if not floppy_component_id:
+        floppy_component_id = str(floppy_cfg.get("component", "") or "")
     floppy_sources_cfg = floppy_cfg.get("sources", []) if has_runtime_floppy else []
     if not isinstance(floppy_sources_cfg, list):
         floppy_sources_cfg = []
@@ -2019,8 +2041,9 @@ def _generate_ic_runtime_blocks(
         source_model = ""
         if isinstance(source_type, dict):
             metadata = source_type.get("metadata", {}) or {}
-            source_model = str(metadata.get("name", "") or "")
+            source_model = str(metadata.get("model", "") or metadata.get("name", "") or "")
         source_label = str(source.get("label", "") or "")
+        source_component = str(source.get("source_component", floppy_component_id or "")).strip() or floppy_component_id
         source_exts: List[str] = []
         raw_exts = source.get("allowed_extensions", [])
         if isinstance(raw_exts, list):
@@ -2036,6 +2059,7 @@ def _generate_ic_runtime_blocks(
                 "kind": source_kind,
                 "label": source_label,
                 "model": source_model,
+                "source_component": source_component,
                 "allowed_extensions": source_exts,
             }
         )
@@ -2044,14 +2068,6 @@ def _generate_ic_runtime_blocks(
         for ext in source["allowed_extensions"]:
             if ext not in floppy_all_exts:
                 floppy_all_exts.append(ext)
-    floppy_drives_cfg = floppy_cfg.get("drives", []) if has_runtime_floppy else []
-    if not isinstance(floppy_drives_cfg, list):
-        floppy_drives_cfg = []
-    floppy_component_id = ""
-    if floppy_drives_cfg and isinstance(floppy_drives_cfg[0], dict):
-        floppy_component_id = str(floppy_drives_cfg[0].get("component", "") or "")
-    if not floppy_component_id:
-        floppy_component_id = str(floppy_cfg.get("component", "") or "")
     floppy_picker_action = str((floppy_cfg.get("controls", {}) or {}).get("picker_action_id", media_picker_action))
     if cartridge:
         components.append(cartridge)
@@ -8274,6 +8290,7 @@ def _generate_ic_runtime_blocks(
                 "    char media_path[1024];",
                 "    char file_name[256];",
                 "    char source_model[64];",
+                "    char source_component_id[64];",
                 "    char source_label[64];",
                 "} RuntimeFloppyEntry;",
                 "",
@@ -8299,6 +8316,7 @@ def _generate_ic_runtime_blocks(
                 "    char component_id[64];",
                 "    char loaded_name[256];",
                 "    char active_source_model[64];",
+                "    char active_source_component_id[64];",
                 "    char active_source_label[64];",
                 "    uint8_t media_loaded;",
                 "    uint8_t activity_flags;",
@@ -8307,7 +8325,7 @@ def _generate_ic_runtime_blocks(
                 "} RuntimeFloppyPicker;",
                 "",
                 "static RuntimeFloppyPicker g_runtime_floppy_picker = {",
-                f'    0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, "", "{_escape_c_string(str(floppy_cfg.get("directory", "")))}", NULL, 0u, 0u, 0u, "{_escape_c_string(floppy_component_id)}", "", "", "", 0u, 0u, 0u, 0u',
+                f'    0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, "", "{_escape_c_string(str(floppy_cfg.get("directory", "")))}", NULL, 0u, 0u, 0u, "{_escape_c_string(floppy_component_id)}", "", "", "", "", 0u, 0u, 0u, 0u',
                 "};",
                 "static RuntimeFloppyEntry *cpu_component_floppy_picker_add_entry(void) {",
                 "    if (g_runtime_floppy_picker.entry_count >= g_runtime_floppy_picker.entry_cap) {",
@@ -8363,6 +8381,13 @@ def _generate_ic_runtime_blocks(
                 ],
                 '    return "";',
                 "}",
+                "static const char *cpu_component_floppy_source_component_for_source_index(uint8_t source_index) {",
+                *[
+                    f'    if (source_index == {int(source["index"])}u) return "{_escape_c_string(source["source_component"])}";'
+                    for source in floppy_sources
+                ],
+                f'    return "{_escape_c_string(floppy_component_id)}";',
+                "}",
                 "static const char *cpu_component_floppy_label_for_source_index(uint8_t source_index) {",
                 *[
                     f'    if (source_index == {int(source["index"])}u) return "{_escape_c_string(source["label"])}";'
@@ -8385,6 +8410,7 @@ def _generate_ic_runtime_blocks(
                 '        snprintf(entry->file_name, sizeof(entry->file_name), "%s", "<NO DISK>");',
                 '        snprintf(entry->source_label, sizeof(entry->source_label), "%s", "Empty Drive");',
                 '        entry->source_model[0] = \'\\0\';',
+                '        entry->source_component_id[0] = \'\\0\';',
                 '        entry->media_path[0] = \'\\0\';',
                 "        entry->source_index = 0u;",
                 "    }",
@@ -8403,6 +8429,7 @@ def _generate_ic_runtime_blocks(
                 "        snprintf(entry->file_name, sizeof(entry->file_name), \"%s\", de->d_name);",
                 "        snprintf(entry->media_path, sizeof(entry->media_path), \"%s/%s\", g_runtime_floppy_picker.directory, de->d_name);",
                 "        snprintf(entry->source_model, sizeof(entry->source_model), \"%s\", cpu_component_floppy_model_for_source_index(source_index));",
+                "        snprintf(entry->source_component_id, sizeof(entry->source_component_id), \"%s\", cpu_component_floppy_source_component_for_source_index(source_index));",
                 "        snprintf(entry->source_label, sizeof(entry->source_label), \"%s\", cpu_component_floppy_label_for_source_index(source_index));",
                 "    }",
                 "    closedir(d);",
@@ -8419,19 +8446,23 @@ def _generate_ic_runtime_blocks(
                 "int cpu_component_floppy_picker_load_path(CPUState *cpu, const char *path) {",
                 "    uint8_t source_index;",
                 "    const char *source_model;",
+                "    const char *source_component;",
                 "    const char *source_label;",
                 "    const char *file_name;",
-                "    uint64_t load_args[1];",
+                "    uint64_t load_args[3];",
                 "    if (cpu == NULL || path == NULL || path[0] == '\\0') return -1;",
                 "    if (g_runtime_floppy_picker.component_id[0] == '\\0') return -1;",
                 "    source_index = cpu_component_floppy_source_index_for_ext(path);",
                 "    source_model = cpu_component_floppy_model_for_source_index(source_index);",
+                "    source_component = cpu_component_floppy_source_component_for_source_index(source_index);",
                 "    source_label = cpu_component_floppy_label_for_source_index(source_index);",
                 "    if (g_runtime_floppy_picker.media_loaded != 0u) {",
                 '        if (cpu_component_dispatch_callback(cpu, g_runtime_floppy_picker.component_id, "unload_media", NULL, 0u) == 0u) return -1;',
                 "    }",
                 "    load_args[0] = (uint64_t)(uintptr_t)path;",
-                '    if (cpu_component_dispatch_callback(cpu, g_runtime_floppy_picker.component_id, "load_media", load_args, 1u) == 0u) return -1;',
+                "    load_args[1] = (uint64_t)(uintptr_t)source_model;",
+                "    load_args[2] = (uint64_t)(uintptr_t)source_component;",
+                '    if (cpu_component_dispatch_callback(cpu, g_runtime_floppy_picker.component_id, "load_media", load_args, 3u) == 0u) return -1;',
                 "    g_runtime_floppy_picker.pending_eject = 0u;",
                 "    g_runtime_floppy_picker.pending_load = 0u;",
                 "    g_runtime_floppy_picker.pending_path[0] = '\\0';",
@@ -8439,6 +8470,7 @@ def _generate_ic_runtime_blocks(
                 "    g_runtime_floppy_picker.media_loaded = 1u;",
                 "    g_runtime_floppy_picker.activity_flags = 0u;",
                 "    if (source_model != NULL) snprintf(g_runtime_floppy_picker.active_source_model, sizeof(g_runtime_floppy_picker.active_source_model), \"%s\", source_model); else g_runtime_floppy_picker.active_source_model[0] = '\\0';",
+                "    if (source_component != NULL) snprintf(g_runtime_floppy_picker.active_source_component_id, sizeof(g_runtime_floppy_picker.active_source_component_id), \"%s\", source_component); else g_runtime_floppy_picker.active_source_component_id[0] = '\\0';",
                 "    snprintf(g_runtime_floppy_picker.active_source_label, sizeof(g_runtime_floppy_picker.active_source_label), \"%s\", (source_label != NULL) ? source_label : \"Unknown\");",
                 "    file_name = strrchr(path, '/');",
                 "#if defined(_WIN32)",
@@ -8458,6 +8490,7 @@ def _generate_ic_runtime_blocks(
                 "        if (auto_path != NULL && auto_path[0] != '\\0' && g_runtime_floppy_picker.media_loaded == 0u && g_runtime_floppy_picker.pending_load == 0u && g_runtime_floppy_picker.component_id[0] != '\\0') {",
                 "            uint8_t auto_source_index = cpu_component_floppy_source_index_for_ext(auto_path);",
                 "            const char *auto_source_model = cpu_component_floppy_model_for_source_index(auto_source_index);",
+                "            const char *auto_source_component = cpu_component_floppy_source_component_for_source_index(auto_source_index);",
                 "            const char *auto_source_label = cpu_component_floppy_label_for_source_index(auto_source_index);",
                 "            g_runtime_floppy_picker.pending_eject = 0u;",
                 "            g_runtime_floppy_picker.pending_load = 1u;",
@@ -8465,6 +8498,7 @@ def _generate_ic_runtime_blocks(
                 "            snprintf(g_runtime_floppy_picker.pending_path, sizeof(g_runtime_floppy_picker.pending_path), \"%s\", auto_path);",
                 "            snprintf(g_runtime_floppy_picker.loaded_name, sizeof(g_runtime_floppy_picker.loaded_name), \"%s\", auto_path);",
                 "            if (auto_source_model != NULL) snprintf(g_runtime_floppy_picker.active_source_model, sizeof(g_runtime_floppy_picker.active_source_model), \"%s\", auto_source_model); else g_runtime_floppy_picker.active_source_model[0] = '\\0';",
+                "            if (auto_source_component != NULL) snprintf(g_runtime_floppy_picker.active_source_component_id, sizeof(g_runtime_floppy_picker.active_source_component_id), \"%s\", auto_source_component); else g_runtime_floppy_picker.active_source_component_id[0] = '\\0';",
                 "            snprintf(g_runtime_floppy_picker.active_source_label, sizeof(g_runtime_floppy_picker.active_source_label), \"%s\", (auto_source_label != NULL) ? auto_source_label : \"Unknown\");",
                 "        }",
                 "    }",
@@ -8478,6 +8512,7 @@ def _generate_ic_runtime_blocks(
                 "        g_runtime_floppy_picker.activity_flags = 0u;",
                 "        g_runtime_floppy_picker.loaded_name[0] = '\\0';",
                 "        g_runtime_floppy_picker.active_source_model[0] = '\\0';",
+                "        g_runtime_floppy_picker.active_source_component_id[0] = '\\0';",
                 "        g_runtime_floppy_picker.active_source_label[0] = '\\0';",
                 "        g_runtime_floppy_picker.status_now_cycle = cpu->total_cycles;",
                 "        g_runtime_floppy_picker.status_until_cycle = cpu->total_cycles + (uint64_t)(CPU_SYSTEM_CLOCK_HZ * 10u);",
@@ -8631,6 +8666,7 @@ def _generate_ic_runtime_blocks(
                 "            g_runtime_floppy_picker.pending_path[0] = '\\0';",
                 "            snprintf(g_runtime_floppy_picker.loaded_name, sizeof(g_runtime_floppy_picker.loaded_name), \"%s\", \"<NO DISK>\");",
                 "            g_runtime_floppy_picker.active_source_model[0] = '\\0';",
+                "            g_runtime_floppy_picker.active_source_component_id[0] = '\\0';",
                 "            snprintf(g_runtime_floppy_picker.active_source_label, sizeof(g_runtime_floppy_picker.active_source_label), \"%s\", sel->source_label);",
                 "            g_runtime_floppy_picker.activity_flags = 0u;",
                 "        } else {",
@@ -8640,6 +8676,7 @@ def _generate_ic_runtime_blocks(
                 "            snprintf(g_runtime_floppy_picker.pending_path, sizeof(g_runtime_floppy_picker.pending_path), \"%s\", sel->media_path);",
                 "            snprintf(g_runtime_floppy_picker.loaded_name, sizeof(g_runtime_floppy_picker.loaded_name), \"%s\", sel->file_name);",
                 "            snprintf(g_runtime_floppy_picker.active_source_model, sizeof(g_runtime_floppy_picker.active_source_model), \"%s\", sel->source_model);",
+                "            snprintf(g_runtime_floppy_picker.active_source_component_id, sizeof(g_runtime_floppy_picker.active_source_component_id), \"%s\", sel->source_component_id);",
                 "            snprintf(g_runtime_floppy_picker.active_source_label, sizeof(g_runtime_floppy_picker.active_source_label), \"%s\", sel->source_label);",
                 "            g_runtime_floppy_picker.activity_flags = 0u;",
                 "        }",
@@ -9164,7 +9201,15 @@ def _generate_ic_runtime_blocks(
             initial = str(field.get("initial", "0")).strip() or "0"
             init_lines.append(f"    cpu->comp_{comp_ident}.{field_name} = {initial};")
             is_pointer_field = "*" in field_type
-            preserve_reset_field = field_name in {"rom_data", "rom_size"}
+            preserve_reset_field = field_name in {
+                "rom_data",
+                "rom_size",
+                "image_size",
+                "sectors_per_track",
+                "side_count",
+                "track_count",
+                "sector_number_base",
+            }
             if (
                 not is_host_component
                 and not is_pointer_field

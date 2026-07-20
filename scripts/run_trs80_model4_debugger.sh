@@ -34,7 +34,7 @@ PROCESSOR="examples/processors/z80.yaml"
 IC_MAIN="examples/ics/trs80_model4/trs80_model4_peripherals.yaml"
 IC_MAIN_RAM="examples/ics/trs80_model4/trs80_model4_main_ram.yaml"
 IC_GA="examples/ics/trs80_model4/trs80_model4_gate_array.yaml"
-IC_FDC="examples/ics/trs80_model4/trs80_model4_fdc.yaml"
+IC_FDC="examples/ics/common/wd1793.yaml"
 IC_PPI="examples/ics/trs80_model4/trs80_model4_ppi.yaml"
 IC_SIO="examples/ics/trs80_model4/trs80_model4_serial.yaml"
 IC_VIDEO="examples/ics/trs80_model4/trs80_model4_video.yaml"
@@ -43,6 +43,7 @@ IC_CASS="examples/ics/trs80_model4/trs80_model4_cassette.yaml"
 DEVICE_KB="examples/devices/trs80_model4/trs80_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/trs80_model4/trs80_video.yaml"
 DEVICE_SPK="examples/devices/trs80_model4/trs80_speaker.yaml"
+DEVICE_FLOPPY_BACKEND="examples/devices/common/trs80_floppy_image_backend.yaml"
 DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
 
 case "${PROFILE}" in
@@ -85,6 +86,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
+  --device "${DEVICE_FLOPPY_BACKEND}" \
   --device "${DEVICE_CASS}" \
   --host "${HOST}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
