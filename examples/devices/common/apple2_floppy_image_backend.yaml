@@ -1,0 +1,789 @@
+metadata:
+  id: apple2_floppy_image_backend
+  type: floppy_image_backend
+  model: apple2_floppy_image_backend
+  version: "1.0"
+
+state:
+  - name: image_data0
+    type: uint8_t *
+    initial: "NULL"
+  - name: image_data1
+    type: uint8_t *
+    initial: "NULL"
+  - name: image_size0
+    type: uint32_t
+    initial: "0"
+  - name: image_size1
+    type: uint32_t
+    initial: "0"
+  - name: sectors_per_track0
+    type: uint8_t
+    initial: "16"
+  - name: sectors_per_track1
+    type: uint8_t
+    initial: "16"
+  - name: side_count0
+    type: uint8_t
+    initial: "1"
+  - name: side_count1
+    type: uint8_t
+    initial: "1"
+  - name: track_count0
+    type: uint16_t
+    initial: "35"
+  - name: track_count1
+    type: uint16_t
+    initial: "35"
+  - name: is_prodos_order0
+    type: uint8_t
+    initial: "0"
+  - name: is_prodos_order1
+    type: uint8_t
+    initial: "0"
+  - name: activity_flags0
+    type: uint8_t
+    initial: "0"
+  - name: activity_flags1
+    type: uint8_t
+    initial: "0"
+  - name: nibble_data0
+    type: uint8_t *
+    initial: "NULL"
+  - name: nibble_data1
+    type: uint8_t *
+    initial: "NULL"
+  - name: nibble_track_bytes0
+    type: uint16_t
+    initial: "6656"
+  - name: nibble_track_bytes1
+    type: uint16_t
+    initial: "6656"
+  - name: current_nibble_track0
+    type: uint8_t
+    initial: "0"
+  - name: current_nibble_track1
+    type: uint8_t
+    initial: "0"
+  - name: current_nibble_pos0
+    type: uint16_t
+    initial: "0"
+  - name: current_nibble_pos1
+    type: uint16_t
+    initial: "0"
+  - name: nibble_track_lengths0
+    type: uint16_t *
+    initial: "NULL"
+  - name: nibble_track_lengths1
+    type: uint16_t *
+    initial: "NULL"
+  - name: track_map0
+    type: uint8_t *
+    initial: "NULL"
+  - name: track_map1
+    type: uint8_t *
+    initial: "NULL"
+  - name: track_map_count0
+    type: uint16_t
+    initial: "0"
+  - name: track_map_count1
+    type: uint16_t
+    initial: "0"
+  - name: raw_track_data0
+    type: uint8_t *
+    initial: "NULL"
+  - name: raw_track_data1
+    type: uint8_t *
+    initial: "NULL"
+  - name: raw_track_bit_lengths0
+    type: uint32_t *
+    initial: "NULL"
+  - name: raw_track_bit_lengths1
+    type: uint32_t *
+    initial: "NULL"
+  - name: raw_track_stride0
+    type: uint32_t
+    initial: "0"
+  - name: raw_track_stride1
+    type: uint32_t
+    initial: "0"
+  - name: write_protected0
+    type: uint8_t
+    initial: "0"
+  - name: write_protected1
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr, u8]
+      returns: u8
+    - name: unload_media
+      args: [u8]
+      returns: u8
+    - name: query_drive_activity
+      args: [u8]
+      returns: u8
+    - name: query_geometry
+      args: [u8]
+      returns: u64
+    - name: query_track_present
+      args: [u8, u8, u8, u8]
+      returns: u8
+    - name: query_stream_mode
+      args: [u8]
+      returns: u8
+    - name: query_track_slots
+      args: [u8]
+      returns: u64
+    - name: query_track_bits
+      args: [u8, u8]
+      returns: u64
+    - name: read_bit
+      args: [u8, u8, u64]
+      returns: u8
+    - name: query_write_protect
+      args: [u8]
+      returns: u8
+    - name: read_sector
+      args: [u8, u8, u8, u8, u8, ptr]
+      returns: u8
+    - name: read_nibble
+      args: [u8, u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->activity_flags0 = 0u;
+      comp->activity_flags1 = 0u;
+    destroy: |
+      if (comp->image_data0 != NULL) { free(comp->image_data0); comp->image_data0 = NULL; }
+      if (comp->image_data1 != NULL) { free(comp->image_data1); comp->image_data1 = NULL; }
+      if (comp->nibble_data0 != NULL) { free(comp->nibble_data0); comp->nibble_data0 = NULL; }
+      if (comp->nibble_data1 != NULL) { free(comp->nibble_data1); comp->nibble_data1 = NULL; }
+      if (comp->nibble_track_lengths0 != NULL) { free(comp->nibble_track_lengths0); comp->nibble_track_lengths0 = NULL; }
+      if (comp->nibble_track_lengths1 != NULL) { free(comp->nibble_track_lengths1); comp->nibble_track_lengths1 = NULL; }
+      if (comp->track_map0 != NULL) { free(comp->track_map0); comp->track_map0 = NULL; }
+      if (comp->track_map1 != NULL) { free(comp->track_map1); comp->track_map1 = NULL; }
+      if (comp->raw_track_data0 != NULL) { free(comp->raw_track_data0); comp->raw_track_data0 = NULL; }
+      if (comp->raw_track_data1 != NULL) { free(comp->raw_track_data1); comp->raw_track_data1 = NULL; }
+      if (comp->raw_track_bit_lengths0 != NULL) { free(comp->raw_track_bit_lengths0); comp->raw_track_bit_lengths0 = NULL; }
+      if (comp->raw_track_bit_lengths1 != NULL) { free(comp->raw_track_bit_lengths1); comp->raw_track_bit_lengths1 = NULL; }
+      comp->raw_track_stride0 = 0u;
+      comp->raw_track_stride1 = 0u;
+      comp->image_size0 = 0u;
+      comp->image_size1 = 0u;
+      comp->sectors_per_track0 = 16u;
+      comp->sectors_per_track1 = 16u;
+      comp->side_count0 = 1u;
+      comp->side_count1 = 1u;
+      comp->track_count0 = 35u;
+      comp->track_count1 = 35u;
+      comp->is_prodos_order0 = 0u;
+      comp->is_prodos_order1 = 0u;
+      comp->activity_flags0 = 0u;
+      comp->activity_flags1 = 0u;
+      comp->nibble_track_bytes0 = 6656u;
+      comp->nibble_track_bytes1 = 6656u;
+      comp->current_nibble_track0 = 0u;
+      comp->current_nibble_track1 = 0u;
+      comp->current_nibble_pos0 = 0u;
+      comp->current_nibble_pos1 = 0u;
+      comp->track_map_count0 = 0u;
+      comp->track_map_count1 = 0u;
+      comp->write_protected0 = 0u;
+      comp->write_protected1 = 0u;
+      (void)cpu;
+  callback_handlers:
+    load_media: |
+      const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+      uint8_t drive_slot = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      FILE *fp;
+      uint8_t *image = NULL;
+      uint8_t *nibbles = NULL;
+      long file_size_long;
+      size_t file_size;
+      const char *dot;
+      char ext[16];
+      size_t ext_len = 0u;
+      uint8_t is_prodos = 0u;
+      uint8_t is_woz = 0u;
+      uint8_t write_protected = 0u;
+      uint8_t *track_map = NULL;
+      uint16_t *track_lengths = NULL;
+      uint8_t *raw_tracks = NULL;
+      uint32_t *raw_track_bit_lengths = NULL;
+      uint32_t raw_track_stride = 0u;
+      uint16_t mapped_track_count = 35u;
+      uint8_t **image_data_p = (drive_slot == 0u) ? &comp->image_data0 : &comp->image_data1;
+      uint32_t *image_size_p = (drive_slot == 0u) ? &comp->image_size0 : &comp->image_size1;
+      uint8_t *sectors_per_track_p = (drive_slot == 0u) ? &comp->sectors_per_track0 : &comp->sectors_per_track1;
+      uint8_t *side_count_p = (drive_slot == 0u) ? &comp->side_count0 : &comp->side_count1;
+      uint16_t *track_count_p = (drive_slot == 0u) ? &comp->track_count0 : &comp->track_count1;
+      uint8_t *is_prodos_order_p = (drive_slot == 0u) ? &comp->is_prodos_order0 : &comp->is_prodos_order1;
+      uint8_t *activity_flags_p = (drive_slot == 0u) ? &comp->activity_flags0 : &comp->activity_flags1;
+      uint8_t **nibble_data_p = (drive_slot == 0u) ? &comp->nibble_data0 : &comp->nibble_data1;
+      uint16_t *nibble_track_bytes_p = (drive_slot == 0u) ? &comp->nibble_track_bytes0 : &comp->nibble_track_bytes1;
+      uint8_t *current_nibble_track_p = (drive_slot == 0u) ? &comp->current_nibble_track0 : &comp->current_nibble_track1;
+      uint16_t *current_nibble_pos_p = (drive_slot == 0u) ? &comp->current_nibble_pos0 : &comp->current_nibble_pos1;
+      uint16_t **nibble_track_lengths_p = (drive_slot == 0u) ? &comp->nibble_track_lengths0 : &comp->nibble_track_lengths1;
+      uint8_t **track_map_p = (drive_slot == 0u) ? &comp->track_map0 : &comp->track_map1;
+      uint16_t *track_map_count_p = (drive_slot == 0u) ? &comp->track_map_count0 : &comp->track_map_count1;
+      uint8_t **raw_track_data_p = (drive_slot == 0u) ? &comp->raw_track_data0 : &comp->raw_track_data1;
+      uint32_t **raw_track_bit_lengths_p = (drive_slot == 0u) ? &comp->raw_track_bit_lengths0 : &comp->raw_track_bit_lengths1;
+      uint32_t *raw_track_stride_p = (drive_slot == 0u) ? &comp->raw_track_stride0 : &comp->raw_track_stride1;
+      uint8_t *write_protected_p = (drive_slot == 0u) ? &comp->write_protected0 : &comp->write_protected1;
+          #define IMAGE_DATA (*image_data_p)
+          #define IMAGE_SIZE (*image_size_p)
+          #define SECTORS_PER_TRACK (*sectors_per_track_p)
+          #define SIDE_COUNT (*side_count_p)
+          #define TRACK_COUNT (*track_count_p)
+          #define IS_PRODOS_ORDER (*is_prodos_order_p)
+          #define ACTIVITY_FLAGS (*activity_flags_p)
+          #define NIBBLE_DATA (*nibble_data_p)
+          #define NIBBLE_TRACK_BYTES (*nibble_track_bytes_p)
+          #define CURRENT_NIBBLE_TRACK (*current_nibble_track_p)
+          #define CURRENT_NIBBLE_POS (*current_nibble_pos_p)
+          #define NIBBLE_TRACK_LENGTHS (*nibble_track_lengths_p)
+          #define TRACK_MAP (*track_map_p)
+          #define TRACK_MAP_COUNT (*track_map_count_p)
+          #define RAW_TRACK_DATA (*raw_track_data_p)
+          #define RAW_TRACK_BIT_LENGTHS (*raw_track_bit_lengths_p)
+          #define RAW_TRACK_STRIDE (*raw_track_stride_p)
+          #define WRITE_PROTECTED (*write_protected_p)
+      if (path == NULL || path[0] == '\0') return 0u;
+      fp = fopen(path, "rb");
+      if (fp == NULL) return 0u;
+      {
+          FILE *wfp = fopen(path, "r+b");
+          write_protected = (wfp == NULL) ? 1u : 0u;
+          if (wfp != NULL) fclose(wfp);
+      }
+      if (fseek(fp, 0L, SEEK_END) != 0) { fclose(fp); return 0u; }
+      file_size_long = ftell(fp);
+      if (file_size_long <= 0L) { fclose(fp); return 0u; }
+      if (fseek(fp, 0L, SEEK_SET) != 0) { fclose(fp); return 0u; }
+      file_size = (size_t)file_size_long;
+      image = (uint8_t *)malloc(file_size);
+      if (image == NULL) { fclose(fp); return 0u; }
+      if (fread(image, 1u, file_size, fp) != file_size) {
+          fclose(fp);
+          free(image);
+          return 0u;
+      }
+      fclose(fp);
+      dot = strrchr(path, '.');
+      if (dot != NULL && dot[1] != '\0') {
+          dot++;
+          while (dot[ext_len] != '\0' && ext_len + 1u < sizeof(ext)) {
+              char c = dot[ext_len];
+              if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+              ext[ext_len++] = c;
+          }
+      }
+      ext[ext_len] = '\0';
+      if (strcmp(ext, "po") == 0) is_prodos = 1u;
+      if (strcmp(ext, "woz") == 0) is_woz = 1u;
+      if (is_woz != 0u) {
+          /* Match reference emulator behavior: WOZ images are treated as
+             write-protected media unless an explicit write path exists. */
+          write_protected = 1u;
+      }
+      if (is_woz != 0u) {
+          size_t pos = 12u;
+          size_t tmap_offset = 0u, tmap_size = 0u;
+          size_t trks_offset = 0u, trks_size = 0u;
+          uint32_t signature;
+          uint32_t integrity;
+          uint8_t *parsed_tracks = NULL;
+          uint16_t *parsed_lengths = NULL;
+          uint8_t *parsed_raw_tracks = NULL;
+          uint32_t *parsed_raw_lengths = NULL;
+          if (file_size < 12u) {
+              free(image);
+              return 0u;
+          }
+          signature = (uint32_t)image[0] |
+                      ((uint32_t)image[1] << 8u) |
+                      ((uint32_t)image[2] << 16u) |
+                      ((uint32_t)image[3] << 24u);
+          integrity = (uint32_t)image[4] |
+                      ((uint32_t)image[5] << 8u) |
+                      ((uint32_t)image[6] << 16u) |
+                      ((uint32_t)image[7] << 24u);
+          if (signature != 0x325A4F57u || integrity != 0x0A0D0AFFu) {
+              free(image);
+              return 0u;
+          }
+          while (pos + 8u <= file_size) {
+              uint32_t chunk_size = (uint32_t)image[pos + 4u] |
+                                    ((uint32_t)image[pos + 5u] << 8u) |
+                                    ((uint32_t)image[pos + 6u] << 16u) |
+                                    ((uint32_t)image[pos + 7u] << 24u);
+              if (pos + 8u + (size_t)chunk_size > file_size) break;
+              if (memcmp(image + pos, "TMAP", 4u) == 0) {
+                  tmap_offset = pos + 8u;
+                  tmap_size = (size_t)chunk_size;
+              } else if (memcmp(image + pos, "TRKS", 4u) == 0) {
+                  trks_offset = pos + 8u;
+                  trks_size = (size_t)chunk_size;
+              }
+              pos += 8u + (size_t)chunk_size;
+          }
+          if (tmap_offset == 0u || trks_offset == 0u || tmap_size < 160u || trks_size < 1280u) {
+              free(image);
+              return 0u;
+          }
+          for (uint32_t track_idx = 0u; track_idx < 160u; ++track_idx) {
+              size_t entry_off = trks_offset + (size_t)track_idx * 8u;
+              uint16_t block_count;
+              uint32_t bit_count;
+              uint32_t capacity_bits;
+              if (entry_off + 8u > trks_offset + trks_size) break;
+              block_count = (uint16_t)((uint16_t)image[entry_off + 2u] | ((uint16_t)image[entry_off + 3u] << 8u));
+              bit_count = (uint32_t)image[entry_off + 4u] |
+                          ((uint32_t)image[entry_off + 5u] << 8u) |
+                          ((uint32_t)image[entry_off + 6u] << 16u) |
+                          ((uint32_t)image[entry_off + 7u] << 24u);
+              if (bit_count == 0u || block_count == 0u) continue;
+              capacity_bits = (uint32_t)((uint32_t)block_count * 512u * 8u);
+              if (capacity_bits > raw_track_stride) raw_track_stride = capacity_bits;
+          }
+          if (raw_track_stride == 0u) {
+              free(image);
+              return 0u;
+          }
+          parsed_tracks = (uint8_t *)malloc(160u * 6656u);
+          parsed_lengths = (uint16_t *)malloc(160u * sizeof(uint16_t));
+          parsed_raw_tracks = (uint8_t *)malloc((size_t)160u * (size_t)raw_track_stride);
+          parsed_raw_lengths = (uint32_t *)malloc(160u * sizeof(uint32_t));
+          track_map = (uint8_t *)malloc(160u);
+          if (parsed_tracks == NULL || parsed_lengths == NULL || parsed_raw_tracks == NULL ||
+              parsed_raw_lengths == NULL || track_map == NULL) {
+              free(track_map);
+              free(parsed_raw_lengths);
+              free(parsed_raw_tracks);
+              free(parsed_lengths);
+              free(parsed_tracks);
+              free(image);
+              return 0u;
+          }
+          memset(parsed_tracks, 0xFF, 160u * 6656u);
+          memset(parsed_lengths, 0, 160u * sizeof(uint16_t));
+          memset(parsed_raw_tracks, 0, (size_t)160u * (size_t)raw_track_stride);
+          memset(parsed_raw_lengths, 0, 160u * sizeof(uint32_t));
+          memcpy(track_map, image + tmap_offset, 160u);
+          for (uint32_t track_idx = 0u; track_idx < 160u; ++track_idx) {
+              size_t entry_off = trks_offset + (size_t)track_idx * 8u;
+              uint16_t start_block;
+              uint16_t block_count;
+              uint32_t bit_count;
+              size_t data_start;
+              size_t data_end;
+              uint16_t nib_count = 0u;
+              uint8_t nibble = 0u;
+              uint8_t wait_for_one = 1u;
+              if (entry_off + 8u > trks_offset + trks_size) break;
+              start_block = (uint16_t)((uint16_t)image[entry_off] | ((uint16_t)image[entry_off + 1u] << 8u));
+              block_count = (uint16_t)((uint16_t)image[entry_off + 2u] | ((uint16_t)image[entry_off + 3u] << 8u));
+              bit_count = (uint32_t)image[entry_off + 4u] |
+                          ((uint32_t)image[entry_off + 5u] << 8u) |
+                          ((uint32_t)image[entry_off + 6u] << 16u) |
+                          ((uint32_t)image[entry_off + 7u] << 24u);
+              if (bit_count == 0u || block_count == 0u) continue;
+              data_start = (size_t)start_block * 512u;
+              data_end = data_start + (size_t)block_count * 512u;
+              if (data_start >= file_size || data_end > file_size) continue;
+              if (bit_count > raw_track_stride) continue;
+              parsed_raw_lengths[track_idx] = bit_count;
+              for (uint32_t bit_idx = 0u; bit_idx < bit_count && nib_count < 6656u; ++bit_idx) {
+                  size_t byte_index = data_start + (size_t)(bit_idx >> 3u);
+                  uint8_t bit_index = (uint8_t)(7u - (bit_idx & 0x07u));
+                  uint8_t bit = (uint8_t)((image[byte_index] >> bit_index) & 0x01u);
+                  parsed_raw_tracks[(size_t)track_idx * (size_t)raw_track_stride + (size_t)bit_idx] = bit;
+                  if (bit != 0u) {
+                      nibble = (uint8_t)((nibble << 1u) | 0x01u);
+                      wait_for_one = 0u;
+                  } else if (wait_for_one == 0u) {
+                      nibble = (uint8_t)(nibble << 1u);
+                  }
+                  if ((nibble & 0x80u) != 0u) {
+                      parsed_tracks[(size_t)track_idx * 6656u + nib_count] = nibble;
+                      nib_count++;
+                      nibble = 0u;
+                      wait_for_one = 1u;
+                  }
+              }
+              parsed_lengths[track_idx] = nib_count;
+          }
+          nibbles = parsed_tracks;
+          track_lengths = parsed_lengths;
+          raw_tracks = parsed_raw_tracks;
+          raw_track_bit_lengths = parsed_raw_lengths;
+          {
+              uint16_t max_full_track = 0u;
+              for (uint32_t i = 0u; i < 160u; ++i) {
+                  uint8_t mapped = track_map[i];
+                  if (mapped != 0xFFu && parsed_lengths[mapped] != 0u) {
+                      uint16_t full_track = (uint16_t)(i >> 2u);
+                      if (full_track > max_full_track) max_full_track = full_track;
+                  }
+              }
+              mapped_track_count = (uint16_t)(max_full_track + 1u);
+              if (mapped_track_count < 35u) mapped_track_count = 35u;
+          }
+      } else {
+          if (file_size != (35u * 16u * 256u)) {
+              free(image);
+              return 0u;
+          }
+          static const uint8_t gcr6[64] = {
+              0x96u,0x97u,0x9Au,0x9Bu,0x9Du,0x9Eu,0x9Fu,0xA6u,
+              0xA7u,0xABu,0xACu,0xADu,0xAEu,0xAFu,0xB2u,0xB3u,
+              0xB4u,0xB5u,0xB6u,0xB7u,0xB9u,0xBAu,0xBBu,0xBCu,
+              0xBDu,0xBEu,0xBFu,0xCBu,0xCDu,0xCEu,0xCFu,0xD3u,
+              0xD6u,0xD7u,0xD9u,0xDAu,0xDBu,0xDCu,0xDDu,0xDEu,
+              0xDFu,0xE5u,0xE6u,0xE7u,0xE9u,0xEAu,0xEBu,0xECu,
+              0xEDu,0xEEu,0xEFu,0xF2u,0xF3u,0xF4u,0xF5u,0xF6u,
+              0xF7u,0xF9u,0xFAu,0xFBu,0xFCu,0xFDu,0xFEu,0xFFu
+          };
+          static const uint8_t dos_physical_to_file_index[16] = {
+              0x00u, 0x07u, 0x0Eu, 0x06u, 0x0Du, 0x05u, 0x0Cu, 0x04u,
+              0x0Bu, 0x03u, 0x0Au, 0x02u, 0x09u, 0x01u, 0x08u, 0x0Fu
+          };
+          const uint16_t track_bytes = 6656u;
+          nibbles = (uint8_t *)malloc((size_t)track_bytes * 35u);
+          track_lengths = (uint16_t *)malloc(35u * sizeof(uint16_t));
+          if (nibbles == NULL) {
+              free(track_lengths);
+              free(image);
+              return 0u;
+          }
+          if (track_lengths == NULL) {
+              free(nibbles);
+              free(image);
+              return 0u;
+          }
+          memset(nibbles, 0xFF, (size_t)track_bytes * 35u);
+          for (uint32_t i = 0u; i < 35u; ++i) track_lengths[i] = (uint16_t)((i == 0u) ? 6632u : 6602u);
+          for (uint32_t track = 0u; track < 35u; ++track) {
+              uint8_t *track_dst = nibbles + (size_t)track * track_bytes;
+              uint32_t pos = 0u;
+              for (uint32_t phys = 0u; phys < 16u; ++phys) {
+                  uint8_t sector_data[256];
+                  uint8_t enc[0x158];
+                  uint8_t vol = 0xFEu;
+                  uint8_t cks = (uint8_t)(vol ^ (uint8_t)track ^ (uint8_t)phys);
+                  uint8_t last = 0u;
+                  uint32_t file_sector = IS_PRODOS_ORDER ? phys : (uint32_t)dos_physical_to_file_index[phys];
+                  const uint8_t *src = image + (((track * 16u) + file_sector) * 256u);
+                  uint32_t gap = (phys == 0u) ? 0x80u : ((track == 0u) ? 0x28u : 0x26u);
+                  for (uint32_t i = 0u; i < gap && pos < track_bytes; ++i) track_dst[pos++] = 0xFFu;
+                  if (pos + 14u <= track_bytes) {
+                      track_dst[pos++] = 0xD5u; track_dst[pos++] = 0xAAu; track_dst[pos++] = 0x96u;
+                      track_dst[pos++] = (uint8_t)(((vol >> 1u) & 0x55u) | 0xAAu);
+                      track_dst[pos++] = (uint8_t)((vol & 0x55u) | 0xAAu);
+                      track_dst[pos++] = (uint8_t)((((uint8_t)track >> 1u) & 0x55u) | 0xAAu);
+                      track_dst[pos++] = (uint8_t)(((uint8_t)track & 0x55u) | 0xAAu);
+                      track_dst[pos++] = (uint8_t)((((uint8_t)phys >> 1u) & 0x55u) | 0xAAu);
+                      track_dst[pos++] = (uint8_t)(((uint8_t)phys & 0x55u) | 0xAAu);
+                      track_dst[pos++] = (uint8_t)(((cks >> 1u) & 0x55u) | 0xAAu);
+                      track_dst[pos++] = (uint8_t)((cks & 0x55u) | 0xAAu);
+                      track_dst[pos++] = 0xDEu; track_dst[pos++] = 0xAAu; track_dst[pos++] = 0xEBu;
+                  }
+                  for (uint32_t i = 0u; i < 5u && pos < track_bytes; ++i) track_dst[pos++] = 0xFFu;
+                  memcpy(sector_data, src, 256u);
+                  memset(enc, 0, sizeof(enc));
+                  {
+                      uint32_t idx2 = 0x55u;
+                      for (int32_t idx6 = 0x101; idx6 >= 0; --idx6) {
+                          uint8_t val6 = sector_data[(uint32_t)idx6 & 0xFFu];
+                          uint8_t val2 = enc[idx2];
+                          val2 = (uint8_t)((val2 << 1u) | (val6 & 0x01u));
+                          val6 >>= 1u;
+                          val2 = (uint8_t)((val2 << 1u) | (val6 & 0x01u));
+                          val6 >>= 1u;
+                          enc[0x56u + (uint32_t)idx6] = val6;
+                          enc[idx2] = val2;
+                          if (idx2 == 0u) idx2 = 0x55u;
+                          else idx2--;
+                      }
+                  }
+                  if (pos + (3u + 0x156u + 1u + 3u + 1u) <= track_bytes) {
+                      track_dst[pos++] = 0xD5u; track_dst[pos++] = 0xAAu; track_dst[pos++] = 0xADu;
+                      last = 0u;
+                      for (uint32_t i = 0u; i < 0x156u; ++i) {
+                          uint8_t v = enc[i];
+                          track_dst[pos++] = gcr6[(uint8_t)(last ^ v) & 0x3Fu];
+                          last = v;
+                      }
+                      track_dst[pos++] = gcr6[last & 0x3Fu];
+                      track_dst[pos++] = 0xDEu; track_dst[pos++] = 0xAAu; track_dst[pos++] = 0xEBu;
+                  }
+                  if (pos < track_bytes) track_dst[pos++] = 0xFFu;
+              }
+              while (pos < track_bytes) track_dst[pos++] = 0xFFu;
+          }
+      }
+      if (IMAGE_DATA != NULL) {
+          free(IMAGE_DATA);
+          IMAGE_DATA = NULL;
+      }
+      if (NIBBLE_DATA != NULL) {
+          free(NIBBLE_DATA);
+          NIBBLE_DATA = NULL;
+      }
+      if (NIBBLE_TRACK_LENGTHS != NULL) {
+          free(NIBBLE_TRACK_LENGTHS);
+          NIBBLE_TRACK_LENGTHS = NULL;
+      }
+      if (TRACK_MAP != NULL) {
+          free(TRACK_MAP);
+          TRACK_MAP = NULL;
+      }
+      if (RAW_TRACK_DATA != NULL) {
+          free(RAW_TRACK_DATA);
+          RAW_TRACK_DATA = NULL;
+      }
+      if (RAW_TRACK_BIT_LENGTHS != NULL) {
+          free(RAW_TRACK_BIT_LENGTHS);
+          RAW_TRACK_BIT_LENGTHS = NULL;
+      }
+      IMAGE_DATA = image;
+      NIBBLE_DATA = nibbles;
+      NIBBLE_TRACK_LENGTHS = track_lengths;
+      TRACK_MAP = track_map;
+      RAW_TRACK_DATA = raw_tracks;
+      RAW_TRACK_BIT_LENGTHS = raw_track_bit_lengths;
+      IMAGE_SIZE = (uint32_t)file_size;
+      SECTORS_PER_TRACK = 16u;
+      SIDE_COUNT = 1u;
+      TRACK_COUNT = mapped_track_count;
+      IS_PRODOS_ORDER = is_prodos;
+      ACTIVITY_FLAGS = 0u;
+      NIBBLE_TRACK_BYTES = 6656u;
+      CURRENT_NIBBLE_TRACK = 0u;
+      CURRENT_NIBBLE_POS = 0u;
+      TRACK_MAP_COUNT = (uint16_t)((track_map != NULL) ? 160u : 0u);
+      RAW_TRACK_STRIDE = raw_track_stride;
+      WRITE_PROTECTED = write_protected;
+      return 1u;
+    unload_media: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t **image_data_p = (drive_slot == 0u) ? &comp->image_data0 : &comp->image_data1;
+      uint32_t *image_size_p = (drive_slot == 0u) ? &comp->image_size0 : &comp->image_size1;
+      uint8_t *sectors_per_track_p = (drive_slot == 0u) ? &comp->sectors_per_track0 : &comp->sectors_per_track1;
+      uint8_t *side_count_p = (drive_slot == 0u) ? &comp->side_count0 : &comp->side_count1;
+      uint16_t *track_count_p = (drive_slot == 0u) ? &comp->track_count0 : &comp->track_count1;
+      uint8_t *is_prodos_order_p = (drive_slot == 0u) ? &comp->is_prodos_order0 : &comp->is_prodos_order1;
+      uint8_t *activity_flags_p = (drive_slot == 0u) ? &comp->activity_flags0 : &comp->activity_flags1;
+      uint8_t **nibble_data_p = (drive_slot == 0u) ? &comp->nibble_data0 : &comp->nibble_data1;
+      uint16_t *nibble_track_bytes_p = (drive_slot == 0u) ? &comp->nibble_track_bytes0 : &comp->nibble_track_bytes1;
+      uint8_t *current_nibble_track_p = (drive_slot == 0u) ? &comp->current_nibble_track0 : &comp->current_nibble_track1;
+      uint16_t *current_nibble_pos_p = (drive_slot == 0u) ? &comp->current_nibble_pos0 : &comp->current_nibble_pos1;
+      uint16_t **nibble_track_lengths_p = (drive_slot == 0u) ? &comp->nibble_track_lengths0 : &comp->nibble_track_lengths1;
+      uint8_t **track_map_p = (drive_slot == 0u) ? &comp->track_map0 : &comp->track_map1;
+      uint16_t *track_map_count_p = (drive_slot == 0u) ? &comp->track_map_count0 : &comp->track_map_count1;
+      uint8_t **raw_track_data_p = (drive_slot == 0u) ? &comp->raw_track_data0 : &comp->raw_track_data1;
+      uint32_t **raw_track_bit_lengths_p = (drive_slot == 0u) ? &comp->raw_track_bit_lengths0 : &comp->raw_track_bit_lengths1;
+      uint32_t *raw_track_stride_p = (drive_slot == 0u) ? &comp->raw_track_stride0 : &comp->raw_track_stride1;
+      uint8_t *write_protected_p = (drive_slot == 0u) ? &comp->write_protected0 : &comp->write_protected1;
+          #define IMAGE_DATA (*image_data_p)
+          #define IMAGE_SIZE (*image_size_p)
+          #define SECTORS_PER_TRACK (*sectors_per_track_p)
+          #define SIDE_COUNT (*side_count_p)
+          #define TRACK_COUNT (*track_count_p)
+          #define IS_PRODOS_ORDER (*is_prodos_order_p)
+          #define ACTIVITY_FLAGS (*activity_flags_p)
+          #define NIBBLE_DATA (*nibble_data_p)
+          #define NIBBLE_TRACK_BYTES (*nibble_track_bytes_p)
+          #define CURRENT_NIBBLE_TRACK (*current_nibble_track_p)
+          #define CURRENT_NIBBLE_POS (*current_nibble_pos_p)
+          #define NIBBLE_TRACK_LENGTHS (*nibble_track_lengths_p)
+          #define TRACK_MAP (*track_map_p)
+          #define TRACK_MAP_COUNT (*track_map_count_p)
+          #define RAW_TRACK_DATA (*raw_track_data_p)
+          #define RAW_TRACK_BIT_LENGTHS (*raw_track_bit_lengths_p)
+          #define RAW_TRACK_STRIDE (*raw_track_stride_p)
+          #define WRITE_PROTECTED (*write_protected_p)
+      if (IMAGE_DATA != NULL) { free(IMAGE_DATA); IMAGE_DATA = NULL; }
+      if (NIBBLE_DATA != NULL) { free(NIBBLE_DATA); NIBBLE_DATA = NULL; }
+      if (NIBBLE_TRACK_LENGTHS != NULL) { free(NIBBLE_TRACK_LENGTHS); NIBBLE_TRACK_LENGTHS = NULL; }
+      if (TRACK_MAP != NULL) { free(TRACK_MAP); TRACK_MAP = NULL; }
+      if (RAW_TRACK_DATA != NULL) { free(RAW_TRACK_DATA); RAW_TRACK_DATA = NULL; }
+      if (RAW_TRACK_BIT_LENGTHS != NULL) { free(RAW_TRACK_BIT_LENGTHS); RAW_TRACK_BIT_LENGTHS = NULL; }
+      IMAGE_SIZE = 0u;
+      SECTORS_PER_TRACK = 16u;
+      SIDE_COUNT = 1u;
+      TRACK_COUNT = 35u;
+      IS_PRODOS_ORDER = 0u;
+      ACTIVITY_FLAGS = 0u;
+      NIBBLE_TRACK_BYTES = 6656u;
+      CURRENT_NIBBLE_TRACK = 0u;
+      CURRENT_NIBBLE_POS = 0u;
+      TRACK_MAP_COUNT = 0u;
+      RAW_TRACK_STRIDE = 0u;
+      WRITE_PROTECTED = 0u;
+      return 1u;
+    query_drive_activity: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t *activity_flags_p = (drive_slot == 0u) ? &comp->activity_flags0 : &comp->activity_flags1;
+      uint8_t flags = *activity_flags_p;
+      *activity_flags_p = 0u;
+      return (uint64_t)flags;
+    query_geometry: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t sectors_per_track = (drive_slot == 0u) ? comp->sectors_per_track0 : comp->sectors_per_track1;
+      uint16_t track_count = (drive_slot == 0u) ? comp->track_count0 : comp->track_count1;
+      uint8_t side_count = (drive_slot == 0u) ? comp->side_count0 : comp->side_count1;
+      uint64_t packed = ((uint64_t)sectors_per_track & 0xFFu) |
+                        ((((uint64_t)track_count) & 0xFFFFu) << 8u) |
+                        ((((uint64_t)side_count) & 0xFFu) << 24u);
+      return packed;
+    query_track_present: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_track = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t target_side = (argc > 2u) ? (uint8_t)(args[2] & 0xFFu) : 0u;
+      uint8_t *image_data = (drive_slot == 0u) ? comp->image_data0 : comp->image_data1;
+      uint8_t *nibble_data = (drive_slot == 0u) ? comp->nibble_data0 : comp->nibble_data1;
+      uint16_t track_count = (drive_slot == 0u) ? comp->track_count0 : comp->track_count1;
+      if (image_data == NULL && nibble_data == NULL) return 0u;
+      return (uint64_t)((target_track < track_count && target_side == 0u) ? 1u : 0u);
+    query_stream_mode: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t *raw_track_data = (drive_slot == 0u) ? comp->raw_track_data0 : comp->raw_track_data1;
+      uint32_t *raw_track_bit_lengths = (drive_slot == 0u) ? comp->raw_track_bit_lengths0 : comp->raw_track_bit_lengths1;
+      return (uint64_t)((raw_track_data != NULL && raw_track_bit_lengths != NULL) ? 1u : 0u);
+    query_track_slots: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t *track_map = (drive_slot == 0u) ? comp->track_map0 : comp->track_map1;
+      uint16_t track_map_count = (drive_slot == 0u) ? comp->track_map_count0 : comp->track_map_count1;
+      uint16_t track_count = (drive_slot == 0u) ? comp->track_count0 : comp->track_count1;
+      if (track_map != NULL && track_map_count != 0u) {
+          return (uint64_t)track_map_count;
+      }
+      return (uint64_t)((uint64_t)track_count * 4u);
+    query_track_bits: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_track = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t *track_map = (drive_slot == 0u) ? comp->track_map0 : comp->track_map1;
+      uint16_t track_map_count = (drive_slot == 0u) ? comp->track_map_count0 : comp->track_map_count1;
+      uint32_t *raw_track_bit_lengths = (drive_slot == 0u) ? comp->raw_track_bit_lengths0 : comp->raw_track_bit_lengths1;
+      uint8_t *raw_track_data = (drive_slot == 0u) ? comp->raw_track_data0 : comp->raw_track_data1;
+      uint8_t physical_track = 0xFFu;
+      if (raw_track_data == NULL || raw_track_bit_lengths == NULL) return 0u;
+      if (track_map != NULL && track_map_count != 0u) {
+          if (target_track >= track_map_count) return 1u;
+          physical_track = track_map[target_track];
+      } else {
+          physical_track = (uint8_t)(target_track >> 2u);
+      }
+      if (physical_track == 0xFFu) return 1u;
+      return (uint64_t)raw_track_bit_lengths[physical_track];
+    read_bit: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_track = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint64_t bit_pos = (argc > 2u) ? (uint64_t)args[2] : 0u;
+      uint8_t *track_map = (drive_slot == 0u) ? comp->track_map0 : comp->track_map1;
+      uint16_t track_map_count = (drive_slot == 0u) ? comp->track_map_count0 : comp->track_map_count1;
+      uint8_t *raw_track_data = (drive_slot == 0u) ? comp->raw_track_data0 : comp->raw_track_data1;
+      uint32_t *raw_track_bit_lengths = (drive_slot == 0u) ? comp->raw_track_bit_lengths0 : comp->raw_track_bit_lengths1;
+      uint32_t raw_track_stride = (drive_slot == 0u) ? comp->raw_track_stride0 : comp->raw_track_stride1;
+      uint8_t physical_track = 0xFFu;
+      uint32_t bit_count = 0u;
+      if (raw_track_data == NULL || raw_track_bit_lengths == NULL) return 0u;
+      if (track_map != NULL && track_map_count != 0u) {
+          if (target_track >= track_map_count) return 0u;
+          physical_track = track_map[target_track];
+      } else {
+          physical_track = (uint8_t)(target_track >> 2u);
+      }
+      if (physical_track == 0xFFu) return 0u;
+      bit_count = raw_track_bit_lengths[physical_track];
+      if (bit_count == 0u) return 0u;
+      bit_pos %= (uint64_t)bit_count;
+      if (raw_track_stride == 0u) return 0u;
+      return (uint64_t)raw_track_data[(size_t)physical_track * (size_t)raw_track_stride + (size_t)bit_pos];
+    query_write_protect: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t write_protected = (drive_slot == 0u) ? comp->write_protected0 : comp->write_protected1;
+      return (uint64_t)(write_protected != 0u ? 1u : 0u);
+    read_sector: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_track = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t target_sector = (argc > 2u) ? (uint8_t)(args[2] & 0xFFu) : 0u;
+      uint8_t target_side = (argc > 3u) ? (uint8_t)(args[3] & 0xFFu) : 0u;
+      uint8_t *dst = (argc > 5u && args[5] != 0u) ? (uint8_t *)(uintptr_t)args[5] : NULL;
+      uint8_t *image_data = (drive_slot == 0u) ? comp->image_data0 : comp->image_data1;
+      uint32_t image_size = (drive_slot == 0u) ? comp->image_size0 : comp->image_size1;
+      uint8_t is_prodos_order = (drive_slot == 0u) ? comp->is_prodos_order0 : comp->is_prodos_order1;
+      uint16_t track_count = (drive_slot == 0u) ? comp->track_count0 : comp->track_count1;
+      uint8_t *activity_flags_p = (drive_slot == 0u) ? &comp->activity_flags0 : &comp->activity_flags1;
+      uint8_t result = 0u;
+      uint8_t sector_index = target_sector;
+      static const uint8_t dos_physical_to_file_index[16] = {
+          0x00u, 0x07u, 0x0Eu, 0x06u, 0x0Du, 0x05u, 0x0Cu, 0x04u,
+          0x0Bu, 0x03u, 0x0Au, 0x02u, 0x09u, 0x01u, 0x08u, 0x0Fu
+      };
+      uint32_t offset = 0u;
+      if (dst == NULL || image_data == NULL || image_size == 0u) return 0u;
+      if (is_prodos_order == 0u && target_sector < 16u) {
+          sector_index = dos_physical_to_file_index[target_sector];
+      }
+      if (target_track < track_count && target_side == 0u && target_sector < 16u) {
+          offset = (((uint32_t)target_track * 16u) + (uint32_t)sector_index) * 256u;
+          if (offset + 256u <= image_size) {
+              memcpy(dst, image_data + offset, 256u);
+              result = 0x01u;
+              *activity_flags_p |= 0x01u;
+          }
+      }
+      return (uint64_t)result;
+    read_nibble: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_track = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t *nibble_data = (drive_slot == 0u) ? comp->nibble_data0 : comp->nibble_data1;
+      uint8_t *track_map = (drive_slot == 0u) ? comp->track_map0 : comp->track_map1;
+      uint16_t track_map_count = (drive_slot == 0u) ? comp->track_map_count0 : comp->track_map_count1;
+      uint16_t track_count = (drive_slot == 0u) ? comp->track_count0 : comp->track_count1;
+      uint16_t *nibble_track_lengths = (drive_slot == 0u) ? comp->nibble_track_lengths0 : comp->nibble_track_lengths1;
+      uint16_t nibble_track_bytes = (drive_slot == 0u) ? comp->nibble_track_bytes0 : comp->nibble_track_bytes1;
+      uint8_t *current_nibble_track_p = (drive_slot == 0u) ? &comp->current_nibble_track0 : &comp->current_nibble_track1;
+      uint16_t *current_nibble_pos_p = (drive_slot == 0u) ? &comp->current_nibble_pos0 : &comp->current_nibble_pos1;
+      uint8_t *activity_flags_p = (drive_slot == 0u) ? &comp->activity_flags0 : &comp->activity_flags1;
+      uint8_t physical_track = 0u;
+      uint16_t track_bytes;
+      uint8_t value = 0xFFu;
+      if (nibble_data == NULL) return 0xFFu;
+      if (track_map != NULL && track_map_count != 0u) {
+          if (target_track >= track_map_count) return 0xFFu;
+          physical_track = track_map[target_track];
+          if (physical_track == 0xFFu) return 0xFFu;
+      } else {
+          physical_track = (uint8_t)(target_track >> 2u);
+          if (physical_track >= track_count) return 0xFFu;
+      }
+      track_bytes = (nibble_track_lengths != NULL)
+          ? nibble_track_lengths[physical_track]
+          : (uint16_t)((physical_track == 0u) ? 6632u : 6602u);
+      if (track_bytes == 0u) return 0xFFu;
+      *current_nibble_track_p = physical_track;
+      if (*current_nibble_pos_p >= track_bytes) *current_nibble_pos_p = 0u;
+      value = nibble_data[(size_t)physical_track * (size_t)nibble_track_bytes + (size_t)(*current_nibble_pos_p)];
+      *current_nibble_pos_p = (uint16_t)(*current_nibble_pos_p + 1u);
+      if (*current_nibble_pos_p >= track_bytes) *current_nibble_pos_p = 0u;
+      *activity_flags_p |= 0x01u;
+      return (uint64_t)value;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

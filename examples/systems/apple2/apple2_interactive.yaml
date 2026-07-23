@@ -51,10 +51,14 @@ components:
   - speaker
   - apple2_cassette_adapter
   - cassette_transport_nomotor
+  - apple2_floppy_image_backend
   - monitor
   hosts:
   - host_apple2
   cassette: apple2_cassette_adapter
+  floppy: apple2_slot_decoder
+media_picker:
+  open_action_id: EMU_MEDIA_PICKER
 cassette:
   component: apple2_cassette_adapter
   directory: examples/cassettes/apple2
@@ -70,7 +74,7 @@ cassette:
       component: apple2_cassette_adapter
       label: Line In
   controls:
-    picker_action_id: EMU_CASSETTE_PICKER
+    picker_action_id: EMU_MEDIA_PICKER
     play_action_id: EMU_CASSETTE_PLAY
     pause_action_id: EMU_CASSETTE_PAUSE
     stop_action_id: EMU_CASSETTE_STOP
@@ -81,6 +85,40 @@ cassette:
     bass_down_action_id: EMU_CASSETTE_BASS_DOWN
     treble_up_action_id: EMU_CASSETTE_TREBLE_UP
     treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+floppy:
+  directory: examples/floppies/apple2
+  sources:
+    - kind: file
+      source_type: ../../floppy_sources/dsk_file.yaml
+      source_component: apple2_floppy_image_backend
+      label: Apple II DSK Disk
+      allowed_extensions: [dsk]
+    - kind: file
+      source_type: ../../floppy_sources/do_file.yaml
+      source_component: apple2_floppy_image_backend
+      label: Apple II DO Disk
+      allowed_extensions: [do]
+    - kind: file
+      source_type: ../../floppy_sources/po_file.yaml
+      source_component: apple2_floppy_image_backend
+      label: Apple II PO Disk
+      allowed_extensions: [po]
+    - kind: file
+      source_type: ../../floppy_sources/woz_file.yaml
+      source_component: apple2_floppy_image_backend
+      label: Apple II WOZ Disk
+      allowed_extensions: [woz]
+  drives:
+    - slot: 0
+      label: Drive 1
+      drive_type: ../../floppy_drives/apple2_diskii.yaml
+      component: apple2_slot_decoder
+    - slot: 1
+      label: Drive 2
+      drive_type: ../../floppy_drives/apple2_diskii.yaml
+      component: apple2_slot_decoder
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
 connections:
 - from:
     component: apple2_keyboard_encoder

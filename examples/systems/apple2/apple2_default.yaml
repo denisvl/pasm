@@ -27,8 +27,87 @@ integrations:
   profile: apple2_default
 
 components:
-  ics: []
-  devices: []
+  ics:
+    - apple2_keyboard_encoder
+    - apple2_gameio
+    - apple2_video_softswitches
+    - apple2_speaker_toggle
+    - apple2_cassette_io
+    - apple2_char_rom
+    - apple2_slot_decoder
+    - apple2_main_ram
+  devices:
+    - keyboard_apple2
+    - gameport_apple2
+    - video_apple2
+    - speaker
+    - apple2_cassette_adapter
+    - cassette_transport_nomotor
+    - apple2_floppy_image_backend
+    - monitor
   hosts: []
+  cassette: apple2_cassette_adapter
+  floppy: apple2_slot_decoder
+
+cassette:
+  component: apple2_cassette_adapter
+  directory: examples/cassettes/apple2
+  allowed_extensions: [yaml, wav]
+  sources:
+    - kind: file
+      source_type: ../../cassette_sources/wav_file.yaml
+      component: apple2_cassette_adapter
+      label: Tape File
+      allowed_extensions: [yaml, wav]
+    - kind: line_in
+      source_type: ../../cassette_sources/line_in.yaml
+      component: apple2_cassette_adapter
+      label: Line In
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+floppy:
+  directory: examples/floppies/apple2
+  sources:
+    - kind: file
+      source_type: ../../floppy_sources/dsk_file.yaml
+      source_component: apple2_floppy_image_backend
+      label: Apple II DSK Disk
+      allowed_extensions: [dsk]
+    - kind: file
+      source_type: ../../floppy_sources/do_file.yaml
+      source_component: apple2_floppy_image_backend
+      label: Apple II DO Disk
+      allowed_extensions: [do]
+    - kind: file
+      source_type: ../../floppy_sources/po_file.yaml
+      source_component: apple2_floppy_image_backend
+      label: Apple II PO Disk
+      allowed_extensions: [po]
+    - kind: file
+      source_type: ../../floppy_sources/woz_file.yaml
+      source_component: apple2_floppy_image_backend
+      label: Apple II WOZ Disk
+      allowed_extensions: [woz]
+  drives:
+    - slot: 0
+      label: Drive 1
+      drive_type: ../../floppy_drives/apple2_diskii.yaml
+      component: apple2_slot_decoder
+    - slot: 1
+      label: Drive 2
+      drive_type: ../../floppy_drives/apple2_diskii.yaml
+      component: apple2_slot_decoder
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
 
 connections: []

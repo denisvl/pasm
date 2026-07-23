@@ -1,0 +1,11 @@
+metadata:
+  id: woz_file
+  type: floppy_source
+  model: common_woz_file_source
+  version: "1.0"
+  title: WOZ Disk Image
+
+source:
+  kind: file
+  label: WOZ Disk Image
+  allowed_extensions: [woz]
