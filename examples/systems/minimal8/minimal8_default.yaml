@@ -1,5 +1,6 @@
 metadata:
   name: Minimal8DefaultSystem
+  title: PASM Minimal8
   version: '1.0'
 clock_hz: 1000000
 reset_delay_seconds: 0

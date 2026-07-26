@@ -32,15 +32,14 @@ behavior:
     destroy: |
       comp->bytes = NULL;
     mem_read_pre: |
-      if ((uint64_t)addr < cpu->memory_size) {
+      if (addr < 0xC000u) {
           return cpu->memory[addr];
       }
-      return 0u;
     mem_write_pre: |
-      if ((uint64_t)addr < cpu->memory_size) {
+      if (addr < 0xC000u) {
           cpu->memory[addr] = value;
+          return;
       }
-      return;
   callback_handlers: {}
   handler_bodies: {}
 

@@ -415,8 +415,9 @@ behavior:
       for (uint16_t i = 0u; i < 256u; ++i) {
           uint16_t src = (uint16_t)(base + i);
           uint8_t b = mos6502_read_byte(cpu, src);
-          cpu->comp_nes_ppu_regs.oam[(uint8_t)(cpu->comp_nes_ppu_regs.oam_addr + (uint8_t)i)] = b;
+          cpu->comp_nes_ppu_regs.oam[(uint8_t)i] = b;
       }
+      cpu->comp_nes_ppu_regs.oam_addr = 0u;
       {
           uint64_t dma_cycles = 513u + (cpu->total_cycles & 1u);
           cpu->total_cycles += dma_cycles;
@@ -556,7 +557,7 @@ behavior:
                   uint8_t sprite_h = ((io->ppu_ctrl & 0x20u) != 0u) ? 16u : 8u;
                   for (uint16_t si = 0u; si < 64u; ++si) {
                       uint8_t sy = io->oam[(uint16_t)(si * 4u)];
-                      int top = (int)sy + 1;
+                      int top = (int)sy;
                       if ((int)scanline >= top && (int)scanline < (top + (int)sprite_h)) {
                           if (si == 0u) {
                               static int ppu_status_trace_enabled = -1;
@@ -589,7 +590,6 @@ behavior:
                               line_sprite_count += 1u;
                           } else {
                               io->ppu_status = (uint8_t)(io->ppu_status | 0x20u);
-                              break;
                           }
                       }
                   }
@@ -665,7 +665,7 @@ behavior:
                       uint8_t sx = io->oam[(uint16_t)(base + 3u)];
                       if (x < sx || x >= (uint16_t)(sx + 8u)) continue;
                       uint8_t sprite_h = (spr_8x16 != 0u) ? 16u : 8u;
-                      uint8_t row = (uint8_t)(y - (uint16_t)(sy + 1u));
+                      uint8_t row = (uint8_t)(y - (uint16_t)sy);
                       if (row >= sprite_h) continue;
                       if ((attr & 0x80u) != 0u) {
                           row = (uint8_t)(sprite_h - 1u - row);
@@ -886,8 +886,8 @@ behavior:
 
 coding:
   headers:
-    - stdio.h
-    - stdlib.h
+    - <stdio.h>
+    - <stdlib.h>
   include_paths: []
   linked_libraries: []
   library_paths: []

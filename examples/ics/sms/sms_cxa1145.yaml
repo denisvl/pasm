@@ -1,0 +1,84 @@
+metadata:
+  id: sms_cxa0
+  type: video_encoder
+  model: cxa1145_sms
+  version: "1.0"
+
+clock_hz: 3579545
+
+state:
+  - name: output_mode
+    type: uint8_t
+    initial: "0"
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: last_frame_ptr
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: on_frame_ready
+      args: [u32, u64, u32, u32]
+  signals:
+    - name: frame_present
+      args: [u32, u64, u32, u32]
+
+maps:
+  ports:
+    read: []
+    write: []
+
+behavior:
+  snippets:
+    init: |
+      {
+          const char *mode_env = getenv("PASM_SMS_VIDEO_OUT");
+          if (mode_env != NULL) {
+              if (mode_env[0] == 'r' || mode_env[0] == 'R') comp->output_mode = 2u; /* RGB  */
+              else if (mode_env[0] == 's' || mode_env[0] == 'S') comp->output_mode = 1u; /* S-Video */
+              else comp->output_mode = 0u; /* composite */
+          } else {
+              comp->output_mode = 0u;
+          }
+      }
+      comp->frame_count = 0u;
+      comp->last_frame_ptr = 0u;
+
+    reset: |
+      comp->frame_count = 0u;
+      comp->last_frame_ptr = 0u;
+
+    destroy: ""
+
+    step_post: ""
+
+  callback_handlers: {}
+
+  handler_bodies:
+    on_frame_ready: |
+      /* args: [frame_counter, framebuf_ptr, width, height] */
+      uint32_t frame_idx = (uint32_t)args[0];
+      uint64_t fb_ptr     = args[1];
+      uint32_t w          = (uint32_t)args[2];
+      uint32_t h          = (uint32_t)args[3];
+
+      comp->frame_count = frame_idx;
+      comp->last_frame_ptr = fb_ptr;
+
+      /* Re-emit frame to video device (output_mode is internal state) */
+      uint64_t out_args[4] = {
+          (uint64_t)frame_idx,
+          fb_ptr,
+          (uint64_t)w,
+          (uint64_t)h
+      };
+      cpu_component_emit_signal(cpu, "sms_cxa0", "frame_present", out_args, 4);
+
+coding:
+  headers: ["stdlib.h"]
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

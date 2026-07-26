@@ -1,0 +1,167 @@
+metadata:
+  name: Z80SM3DefaultSystem
+  title: PASM Sega Mark III
+  version: '0.1'
+clock_hz: 3579545
+reset_delay_seconds: 0
+memory:
+  default_size: 65536
+  regions:
+  - name: CART_SLOT_48K
+    start: 0
+    size: 49152
+    read_only: true
+  - name: RAM_MAIN_8K
+    start: 49152
+    size: 8192
+    read_write: true
+  - name: RAM_MIRROR_8K
+    start: 57344
+    size: 8192
+    read_write: true
+  rom_images: []
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+components:
+  ics:
+  - sms_bus0
+  - sms_ram0
+  - sms_vdp0
+  - sms_joy0
+  - sms_psg0
+  - sms_cxa0
+  devices:
+  - controller_sms
+  - video_sms
+  - speaker
+  - tv
+  hosts:
+  - host_sms
+  cartridge: sms_cart0
+connections:
+- from:
+    component: sms_joy0
+    kind: callback
+    name: joy1_read
+  to:
+    component: controller_sms
+    kind: callback
+    name: read_joy1
+- from:
+    component: sms_joy0
+    kind: callback
+    name: joy2_read
+  to:
+    component: controller_sms
+    kind: callback
+    name: read_joy2
+- from:
+    component: controller_sms
+    kind: callback
+    name: host_joy1
+  to:
+    component: host_sms
+    kind: callback
+    name: read_joy1
+- from:
+    component: controller_sms
+    kind: callback
+    name: host_joy2
+  to:
+    component: host_sms
+    kind: callback
+    name: read_joy2
+- from:
+    component: sms_vdp0
+    kind: signal
+    name: frame_ready
+  to:
+    component: sms_cxa0
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: sms_cxa0
+    kind: signal
+    name: frame_present
+  to:
+    component: video_sms
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_sms
+    kind: signal
+    name: frame_present
+  to:
+    component: tv
+    kind: handler
+    name: on_frame_present
+- from:
+    component: sms_vdp0
+    kind: signal
+    name: irq_edge
+  to:
+    component: host_sms
+    kind: handler
+    name: irq_edge
+- from:
+    component: sms_psg0
+    kind: signal
+    name: pcm_sample_s16
+  to:
+    component: host_sms
+    kind: handler
+    name: audio_pcm_s16
+- from:
+    component: tv
+    kind: signal
+    name: frame_present
+  to:
+    component: host_sms
+    kind: handler
+    name: video_frame
+- from:
+    component: tv
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_sms
+    kind: handler
+    name: audio_pcm
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+integrations:
+  profile: sm3_default
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

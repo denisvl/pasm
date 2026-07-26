@@ -11,7 +11,6 @@ if not defined EXTRA_CMAKE_ARGS set "EXTRA_CMAKE_ARGS="
 if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
-if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/bbcmicro/host_keyboard_bbc_micro.yaml"
 if not defined UV_CACHE_DIR set "UV_CACHE_DIR=.uv-cache"
 if not defined RUST_BACKTRACE set "RUST_BACKTRACE=1"
 if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=1"
@@ -23,6 +22,7 @@ set "PASM_BBC_KB_TRACE=0"
 set "PASM_BBC_KB_TRACE_FILE="
 if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 if not defined HOST_FILE set "HOST_FILE="
+if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/bbcmicro/host_keyboard_bbc_micro.yaml"
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
@@ -46,6 +46,9 @@ set "IC_MAIN_RAM=examples/ics/bbcmicro/bbc_micro_main_ram.yaml"
 set "DEVICE_KB=examples/devices/bbcmicro/bbc_micro_keyboard.yaml"
 set "DEVICE_VIDEO=examples/devices/bbcmicro/bbc_micro_video.yaml"
 set "DEVICE_SPK=examples/devices/bbcmicro/bbc_micro_speaker.yaml"
+set "DEVICE_CASSETTE=examples/devices/bbcmicro/bbc_micro_cassette_adapter.yaml"
+set "DEVICE_TRANSPORT=examples/devices/common/cassette_transport.yaml"
+set "DEVICE_MONITOR=examples/devices/common/monitor_crt_color.yaml"
 set "HOST_INTERACTIVE=examples/hosts/bbcmicro/bbc_micro_host_hal_interactive.yaml"
 set "HOST_STUB=examples/hosts/bbcmicro/bbc_micro_host_stub.yaml"
 
@@ -143,6 +146,9 @@ uv run python -m src.main generate ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
+  --device "%DEVICE_CASSETTE%" ^
+  --device "%DEVICE_TRANSPORT%" ^
+  --device "%DEVICE_MONITOR%" ^
   --host "%HOST_FILE%" ^
   --host-backend "%HOST_BACKEND%" ^
   --output "%OUTPUT_DIR%"

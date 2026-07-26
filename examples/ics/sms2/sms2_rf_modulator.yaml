@@ -1,0 +1,81 @@
+metadata:
+  id: sms2_rf0
+  type: video_encoder
+  model: rf_modulator_sms2
+  version: "1.0"
+
+clock_hz: 3579545
+
+state:
+  - name: rf_channel
+    type: uint8_t
+    initial: "3"
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: last_frame_ptr
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: on_frame_ready
+      args: [u32, u64, u32, u32]
+  signals:
+    - name: frame_present
+      args: [u32, u64, u32, u32]
+
+maps:
+  ports:
+    read: []
+    write: []
+
+behavior:
+  snippets:
+    init: |
+      {
+          const char *ch_env = getenv("PASM_SMS2_RF_CHANNEL");
+          if (ch_env != NULL && (ch_env[0] == '3' || ch_env[0] == '4'))
+              comp->rf_channel = (uint8_t)(ch_env[0] - '0');
+          else
+              comp->rf_channel = 3u;
+      }
+      comp->frame_count = 0u;
+      comp->last_frame_ptr = 0u;
+
+    reset: |
+      comp->frame_count = 0u;
+      comp->last_frame_ptr = 0u;
+
+    destroy: ""
+
+    step_post: ""
+
+  callback_handlers: {}
+
+  handler_bodies:
+    on_frame_ready: |
+      /* args: [frame_counter, framebuf_ptr, width, height] */
+      uint32_t frame_idx = (uint32_t)args[0];
+      uint64_t fb_ptr     = args[1];
+      uint32_t w          = (uint32_t)args[2];
+      uint32_t h          = (uint32_t)args[3];
+
+      comp->frame_count = frame_idx;
+      comp->last_frame_ptr = fb_ptr;
+
+      /* RF modulator passes frame through unchanged (RF is internal transport) */
+      uint64_t out_args[4] = {
+          (uint64_t)frame_idx,
+          fb_ptr,
+          (uint64_t)w,
+          (uint64_t)h
+      };
+      cpu_component_emit_signal(cpu, "sms2_rf0", "frame_present", out_args, 4);
+
+coding:
+  headers: ["stdlib.h"]
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

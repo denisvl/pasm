@@ -9,6 +9,12 @@ state:
   - name: key_ascii
     type: uint8_t
     initial: "0"
+  - name: key_mods
+    type: uint8_t
+    initial: "0"
+  - name: break_pressed
+    type: uint8_t
+    initial: "0"
   - name: consol_state
     type: uint8_t
     initial: "0x07"
@@ -42,6 +48,12 @@ interfaces:
     - name: keyboard_ascii
       args: []
       returns: u8
+    - name: keyboard_mods
+      args: []
+      returns: u8
+    - name: break_state
+      args: []
+      returns: u8
     - name: consol_state
       args: []
       returns: u8
@@ -72,6 +84,10 @@ behavior:
   callback_handlers:
     keyboard_ascii: |
       return (uint64_t)comp->key_ascii;
+    keyboard_mods: |
+      return (uint64_t)comp->key_mods;
+    break_state: |
+      return (uint64_t)(comp->break_pressed & 0x01u);
     consol_state: |
       return (uint64_t)(comp->consol_state & 0x07u);
     joystick_porta: |
@@ -93,7 +109,9 @@ behavior:
       comp->audio_samples += 1u;
 
 coding:
-  headers: []
-  include_paths: []
+  headers:
+  - pasm_overlay.h
+  include_paths:
+  - ../include
   linked_libraries: []
   library_paths: []

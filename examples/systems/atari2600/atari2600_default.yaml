@@ -1,5 +1,6 @@
 metadata:
   name: MOS6502Atari2600DefaultSystem
+  title: PASM Atari 2600
   version: '0.1'
 clock_hz: 1193191
 reset_delay_seconds: 0

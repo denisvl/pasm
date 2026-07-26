@@ -88,7 +88,12 @@ elif command -v readlink >/dev/null 2>&1; then
 else
   ROM_RUNTIME="${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}"
 fi
-GEN_CARTRIDGE_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_GEN}")
+# Cartridge args are only needed for the interactive profile (runtime cartridge
+# picker). The default profile boots the bare system without a cartridge.
+GEN_CARTRIDGE_ARGS=()
+if [[ "${PROFILE}" == "interactive" ]]; then
+  GEN_CARTRIDGE_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_GEN}")
+fi
 if [[ ! -d "${CARTRIDGE_DIR}" ]]; then
   echo "warning: CARTRIDGE_DIR does not exist: ${CARTRIDGE_DIR}" >&2
   echo "         picker hotkey will appear to do nothing until this is fixed." >&2

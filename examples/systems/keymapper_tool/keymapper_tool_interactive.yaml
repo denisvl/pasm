@@ -1,5 +1,6 @@
 metadata:
   name: KeymapperToolInteractive
+  title: PASM Keymapper Tool (Host-HAL)
   version: '1.0'
 
 clock_hz: 1000000

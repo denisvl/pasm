@@ -1,0 +1,155 @@
+metadata:
+  name: BBCMicroModelAInteractiveSystem
+  title: PASM BBC Micro Model A
+  version: '0.1'
+clock_hz: 2000000
+reset_delay_seconds: 0
+memory:
+  default_size: 65536
+  regions:
+  - name: RAM_MAIN
+    start: 0
+    size: 16384
+    read_write: true
+  - name: ROM_PAGED
+    start: 32768
+    size: 16384
+    read_only: true
+  - name: ROM_OS
+    start: 49152
+    size: 16384
+    read_only: true
+  rom_images:
+  - name: bbc_basic_rom
+    file: ../../roms/bbcmicro/BASIC2.ROM
+    target_region: ROM_PAGED
+    offset: 0
+  - name: bbc_mos_rom
+    file: ../../roms/bbcmicro/OS12.ROM
+    target_region: ROM_OS
+    offset: 0
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+components:
+  ics:
+  - bbc_micro_crtc_6845
+  - bbc_micro_video_ula
+  - bbc_micro_system_via_6522
+  - bbc_micro_teletext_saa5050
+  - bbc_micro_acia_6850
+  - bbc_micro_mmu_paged_rom
+  - sn76489_psg0
+  - bbc_micro_model_a_main_ram
+  devices:
+  - keyboard_bbc_micro
+  - video_bbc_micro
+  - speaker
+  - bbc_micro_cassette_adapter
+  - cassette_transport
+  - tv
+  hosts:
+  - host_bbc_micro
+  cassette: bbc_micro_cassette_adapter
+cassette:
+  component: bbc_micro_cassette_adapter
+  directory: examples/cassettes/bbcmicro
+  allowed_extensions: [yaml, wav]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+connections:
+- from:
+    component: bbc_micro_crtc_6845
+    kind: callback
+    name: keyboard_read_row
+  to:
+    component: host_bbc_micro
+    kind: callback
+    name: keyboard_read_row
+- from:
+    component: bbc_micro_crtc_6845
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_bbc_micro
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_bbc_micro
+    kind: signal
+    name: frame_present
+  to:
+    component: tv
+    kind: handler
+    name: on_frame_present
+- from:
+    component: bbc_micro_crtc_6845
+    kind: signal
+    name: audio_command
+  to:
+    component: sn76489_psg0
+    kind: handler
+    name: on_audio_command
+- from:
+    component: sn76489_psg0
+    kind: signal
+    name: audio_level
+  to:
+    component: speaker
+    kind: handler
+    name: on_audio_level
+- from:
+    component: speaker
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_bbc_micro
+    kind: handler
+    name: audio_pcm
+- from:
+    component: tv
+    kind: signal
+    name: frame_present
+  to:
+    component: host_bbc_micro
+    kind: handler
+    name: video_frame
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+integrations:
+  profile: bbc_micro_model_a_interactive
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo

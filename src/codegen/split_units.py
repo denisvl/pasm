@@ -67,10 +67,16 @@ def emit_ic_unit(isa_data: Dict[str, Any], cpu_name: str, component: Dict[str, A
             step_post,
         )
     )
+    coding = component.get("coding") or {}
+    header_includes = [
+        f"#include {h}"
+        for h in (coding.get("headers") or [])
+    ]
     lines = [
         "/* Auto-generated split unit: per-IC ownership scaffold. */",
         f"/* IC id: {comp_id} */",
         f'#include "{cpu_name}.h"',
+        *header_includes,
         "int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes);",
         "uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev);",
         '#include <pasm_overlay_draw.h>' if needs_pasm_overlay_include else "",
@@ -734,6 +740,51 @@ def generate_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         if "pasm_overlay_" in picker_runtime
         else ""
     )
+    has_input_runtime = "No INPUT_RUNTIME support emitted" not in input_runtime_support
+    keyboard_runtime = ""
+    if has_input_runtime:
+        keyboard_runtime = (
+            "uint8_t cpu_component_keyboard_host_shift_down(const uint8_t *host_keys, size_t host_key_count) {\n"
+            "    if (host_keys == NULL || host_key_count == 0u) return 0u;\n"
+            "    if ((size_t)CPU_HOST_SCANCODE(LSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LSHIFT)] != 0u) return 1u;\n"
+            "    if ((size_t)CPU_HOST_SCANCODE(RSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RSHIFT)] != 0u) return 1u;\n"
+            "    return 0u;\n"
+            "}\n\n"
+            "static uint8_t cpu_runtime_keyboard_binding_pressed(const RuntimeKeyboardBinding *b, const uint8_t *host_keys, size_t host_key_count) {\n"
+            "    uint8_t shift_down;\n"
+            "    if (b == NULL || host_keys == NULL || host_key_count == 0u) return 0u;\n"
+            "    shift_down = cpu_component_keyboard_host_shift_down(host_keys, host_key_count);\n"
+            "    if (b->shift_mode == 1u && shift_down != 0u) return 0u;\n"
+            "    if (b->shift_mode == 2u && shift_down == 0u) return 0u;\n"
+            "    if (b->source_kind == 1u) {\n"
+            "        if (b->scancode < 0 || (size_t)b->scancode >= host_key_count) return 0u;\n"
+            "        return (uint8_t)(host_keys[b->scancode] != 0u);\n"
+            "    }\n"
+            "    if (b->source_kind == 2u) {\n"
+            "        if (b->host_key_name[0] == '\\0') return 0u;\n"
+            "        for (size_t i = 0; i < host_key_count; ++i) {\n"
+            "            const char *key_name;\n"
+            "            if (host_keys[i] == 0u) continue;\n"
+            "            key_name = cpu_host_hal_key_name(cpu_host_hal_key_from_scancode((int)i));\n"
+            "            if (key_name != NULL && strcmp(key_name, b->host_key_name) == 0) return 1u;\n"
+            "        }\n"
+            "    }\n"
+            "    return 0u;\n"
+            "}\n\n"
+            "uint8_t cpu_component_keyboard_emulator_action_pressed(const char *action_id, const uint8_t *host_keys, size_t host_key_count, uint8_t has_focus) {\n"
+            "    if (g_runtime_keyboard_map.loaded == 0u) return 0u;\n"
+            "    if (!action_id || action_id[0] == '\\0') return 0u;\n"
+            "    if (!host_keys || host_key_count == 0u) return 0u;\n"
+            "    if (g_runtime_keyboard_map.focus_required != 0u && has_focus == 0u) return 0u;\n"
+            "    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {\n"
+            "        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];\n"
+            "        if (b->emulator_key_id[0] == '\\0') continue;\n"
+            "        if (strcmp(b->emulator_key_id, action_id) != 0) continue;\n"
+            "        if (cpu_runtime_keyboard_binding_pressed(b, host_keys, host_key_count) != 0u) return 1u;\n"
+            "    }\n"
+            "    return 0u;\n"
+            "}\n\n"
+        )
     return (
         "/* Auto-generated split unit: media picker ownership. */\n"
         f'#include "{cpu_name}.h"\n\n'
@@ -762,46 +813,7 @@ def generate_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         + "    }\n"
         + "    return s;\n"
         + "}\n\n"
-        + "uint8_t cpu_component_keyboard_host_shift_down(const uint8_t *host_keys, size_t host_key_count) {\n"
-        + "    if (host_keys == NULL || host_key_count == 0u) return 0u;\n"
-        + "    if ((size_t)CPU_HOST_SCANCODE(LSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LSHIFT)] != 0u) return 1u;\n"
-        + "    if ((size_t)CPU_HOST_SCANCODE(RSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(RSHIFT)] != 0u) return 1u;\n"
-        + "    return 0u;\n"
-        + "}\n\n"
-        + "static uint8_t cpu_runtime_keyboard_binding_pressed(const RuntimeKeyboardBinding *b, const uint8_t *host_keys, size_t host_key_count) {\n"
-        + "    uint8_t shift_down;\n"
-        + "    if (b == NULL || host_keys == NULL || host_key_count == 0u) return 0u;\n"
-        + "    shift_down = cpu_component_keyboard_host_shift_down(host_keys, host_key_count);\n"
-        + "    if (b->shift_mode == 1u && shift_down != 0u) return 0u;\n"
-        + "    if (b->shift_mode == 2u && shift_down == 0u) return 0u;\n"
-        + "    if (b->source_kind == 1u) {\n"
-        + "        if (b->scancode < 0 || (size_t)b->scancode >= host_key_count) return 0u;\n"
-        + "        return (uint8_t)(host_keys[b->scancode] != 0u);\n"
-        + "    }\n"
-        + "    if (b->source_kind == 2u) {\n"
-        + "        if (b->host_key_name[0] == '\\0') return 0u;\n"
-        + "        for (size_t i = 0; i < host_key_count; ++i) {\n"
-        + "            const char *key_name;\n"
-        + "            if (host_keys[i] == 0u) continue;\n"
-        + "            key_name = cpu_host_hal_key_name(cpu_host_hal_key_from_scancode((int)i));\n"
-        + "            if (key_name != NULL && strcmp(key_name, b->host_key_name) == 0) return 1u;\n"
-        + "        }\n"
-        + "    }\n"
-        + "    return 0u;\n"
-        + "}\n\n"
-        + "uint8_t cpu_component_keyboard_emulator_action_pressed(const char *action_id, const uint8_t *host_keys, size_t host_key_count, uint8_t has_focus) {\n"
-        + "    if (g_runtime_keyboard_map.loaded == 0u) return 0u;\n"
-        + "    if (!action_id || action_id[0] == '\\0') return 0u;\n"
-        + "    if (!host_keys || host_key_count == 0u) return 0u;\n"
-        + "    if (g_runtime_keyboard_map.focus_required != 0u && has_focus == 0u) return 0u;\n"
-        + "    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {\n"
-        + "        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];\n"
-        + "        if (b->emulator_key_id[0] == '\\0') continue;\n"
-        + "        if (strcmp(b->emulator_key_id, action_id) != 0) continue;\n"
-        + "        if (cpu_runtime_keyboard_binding_pressed(b, host_keys, host_key_count) != 0u) return 1u;\n"
-        + "    }\n"
-        + "    return 0u;\n"
-        + "}\n\n"
+        + keyboard_runtime
         + picker_runtime
         + "\n"
     )

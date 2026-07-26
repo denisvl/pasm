@@ -176,7 +176,7 @@ behavior:
       \ | CPU_HOST_INIT_EVENTS) != 0) break;\n\n    int window_w = 160;\n    int window_h = 192;\n    cpu_host_hal_display_window_size(\n\
       \        cpu->comp_tv.display_width,\n        cpu->comp_tv.display_height,\n        cpu->comp_tv.aspect_width,\n   \
       \     cpu->comp_tv.aspect_height,\n        cpu->comp_tv.display_inches,\n        160,\n        192,\n        &window_w,\n\
-      \        &window_h\n    );\n    comp->window = cpu_host_hal_create_window(\n        \"PASM Atari 2600\",\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
+      \        &window_h\n    );\n    comp->window = cpu_host_hal_create_window(\n        CPU_SYSTEM_TITLE,\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
       \        CPU_HOST_WINDOWPOS_CENTERED,\n        window_w,\n        window_h,\n        CPU_HOST_WINDOW_RESIZABLE\n   \
       \ );\n    if (comp->window == NULL) break;\n\n    comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, CPU_HOST_RENDERER_ACCELERATED);\n\
       \    if (comp->renderer == NULL) {\n        comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);\n  \

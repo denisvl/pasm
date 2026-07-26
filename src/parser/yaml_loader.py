@@ -1250,14 +1250,49 @@ class ProcessorSystemLoader:
                 )
 
             file_size = int(rom_path.stat().st_size)
-            if offset + file_size > region_size:
+
+            # Optional file_offset: start reading from this byte offset within the file.
+            # Enables loading a portion of a larger ROM image (e.g. a merged 16 KB ROM
+            # chip that contains both BASIC and KERNAL in two 8 KB halves).
+            file_offset = int(rom.get("file_offset", 0))
+            if file_offset < 0:
+                raise ValidationError(
+                    "Composition validation failed:\n"
+                    f"system.memory.rom_images[{idx}].file_offset must be non-negative"
+                )
+            if file_offset >= file_size:
+                raise ValidationError(
+                    "Composition validation failed:\n"
+                    f"system.memory.rom_images[{idx}].file_offset ({file_offset}) "
+                    f"exceeds file size ({file_size})"
+                )
+
+            # Optional load_size: how many bytes to load from the file (starting at
+            # file_offset). Defaults to the remaining bytes in the file from file_offset.
+            if "load_size" in rom and rom["load_size"] is not None:
+                load_size = int(rom["load_size"])
+                if load_size <= 0:
+                    raise ValidationError(
+                        "Composition validation failed:\n"
+                        f"system.memory.rom_images[{idx}].load_size must be positive"
+                    )
+                if file_offset + load_size > file_size:
+                    raise ValidationError(
+                        "Composition validation failed:\n"
+                        f"system.memory.rom_images[{idx}].load_size ({load_size}) + "
+                        f"file_offset ({file_offset}) exceeds file size ({file_size})"
+                    )
+            else:
+                load_size = file_size - file_offset
+
+            if offset + load_size > region_size:
                 raise ValidationError(
                     "Composition validation failed:\n"
                     f"system.memory.rom_images[{idx}] ({rom_name}) exceeds target_region '{target_region_name}' size"
                 )
 
             address = region_start + offset
-            end = address + file_size
+            end = address + load_size
             if end > default_size:
                 raise ValidationError(
                     "Composition validation failed:\n"
@@ -1268,7 +1303,8 @@ class ProcessorSystemLoader:
             validated = copy.deepcopy(rom)
             validated["offset"] = offset
             validated["address"] = address
-            validated["size"] = file_size
+            validated["size"] = load_size
+            validated["file_offset"] = file_offset
             validated_roms.append(validated)
 
         placed_ranges.sort(key=lambda item: (item[0], item[1]))

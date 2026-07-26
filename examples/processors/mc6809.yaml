@@ -85,6 +85,8 @@ flags:
   bit: 7
 interrupts:
   model: mc6809
+  reset_post:
+  - '    cpu->pc = {cpu_prefix}_read_word(cpu, 0xFFFEu);'
 instructions:
 - name: NEG_DIR
   display: 'NEG <n'

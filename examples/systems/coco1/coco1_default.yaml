@@ -1,5 +1,6 @@
 metadata:
   name: MC6809CoCo1DefaultSystem
+  title: PASM TRS-80 Color Computer 1
   version: '0.1'
 clock_hz: 894886
 reset_delay_seconds: 0

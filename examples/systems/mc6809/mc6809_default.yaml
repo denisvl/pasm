@@ -1,5 +1,6 @@
 metadata:
   name: MC6809DefaultSystem
+  title: PASM MC6809
   version: "0.1"
 
 clock_hz: 1000000

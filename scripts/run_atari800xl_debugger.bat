@@ -36,7 +36,7 @@ if not defined USE_CARTRIDGE set "USE_CARTRIDGE=1"
 if not defined BOOT_CARTRIDGE set "BOOT_CARTRIDGE=0"
 if not defined PASM_EMU_CART_PICKER_RAW_KEYS set "PASM_EMU_CART_PICKER_RAW_KEYS=1"
 if not defined CARTRIDGE_MAP set "CARTRIDGE_MAP=examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml"
-if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN=../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom"
+if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN=../../roms/atari800xl/Miner_2049er.rom"
 if not defined CARTRIDGE_ROM_RUNTIME set "CARTRIDGE_ROM_RUNTIME="
 if not defined OS_ROM set "OS_ROM=../../roms/atari800xl/ATARIXL.ROM"
 if not defined BASIC_ROM set "BASIC_ROM=../../roms/atari800xl/BASIC_C.ROM"
@@ -60,6 +60,9 @@ set "IC_MAIN_RAM=examples/ics/atari800xl/atari800xl_main_ram.yaml"
 set "DEVICE_KB=examples/devices/atari800xl/atari800xl_keyboard.yaml"
 set "DEVICE_CTRL=examples/devices/atari800xl/atari800xl_controller.yaml"
 set "DEVICE_VIDEO=examples/devices/atari800xl/atari800xl_video.yaml"
+set "DEVICE_SPK=examples/devices/atari800xl/atari800xl_speaker.yaml"
+set "DEVICE_CASS_ADAPTER=examples/devices/atari800xl/atari800xl_cassette_adapter.yaml"
+set "DEVICE_CASS=examples/devices/common/cassette_transport.yaml"
 set "DEVICE_TV=examples/devices/common/tv_crt_mono.yaml"
 set "SYSTEM_DIR=examples/systems/atari800xl"
 
@@ -185,6 +188,9 @@ uv run python -m src.main generate ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_CTRL%" ^
   --device "%DEVICE_VIDEO%" ^
+  --device "%DEVICE_SPK%" ^
+  --device "%DEVICE_CASS_ADAPTER%" ^
+  --device "%DEVICE_CASS%" ^
   --device "%DEVICE_TV%" ^
   --host "%HOST%" ^
   --host-backend "%HOST_BACKEND%" ^

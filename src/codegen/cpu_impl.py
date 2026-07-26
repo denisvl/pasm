@@ -1657,6 +1657,8 @@ def _generate_system_rom_loader(isa_data: Dict[str, Any], cpu_prefix: str) -> st
         "    const char *path;",
         "    uint16_t address;",
         "    uint32_t max_size;",
+        "    uint32_t file_offset;",
+        "    uint32_t load_size;",
         "} SystemRomImage;",
         "",
         "static const SystemRomImage g_system_rom_images[] = {",
@@ -1666,12 +1668,16 @@ def _generate_system_rom_loader(isa_data: Dict[str, Any], cpu_prefix: str) -> st
         path = _escape_c_string(str(rom.get("file", "")))
         address = int(rom.get("address", 0)) & 0xFFFF
         max_size = int(rom.get("size", 0))
+        file_offset = int(rom.get("file_offset", 0))
+        load_size = int(rom.get("load_size", max_size))
         lines.append(
             "    { "
             f"\"{name}\", "
             f"\"{path}\", "
             f"0x{address:04X}u, "
-            f"{max_size}u "
+            f"{max_size}u, "
+            f"{file_offset}u, "
+            f"{load_size}u "
             "},"
         )
     lines.extend(
@@ -1706,14 +1712,14 @@ def _generate_system_rom_loader(isa_data: Dict[str, Any], cpu_prefix: str) -> st
             "        if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }",
             "        long file_size = ftell(f);",
             "        if (file_size < 0) { fclose(f); return -1; }",
-            "        if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }",
+            "        if ((uint64_t)rom->file_offset + (uint64_t)rom->load_size > (uint64_t)file_size) { fclose(f); return -1; }",
+            "        if (fseek(f, (long)rom->file_offset, SEEK_SET) != 0) { fclose(f); return -1; }",
             "",
-            "        if ((uint64_t)file_size > rom->max_size) { fclose(f); return -1; }",
-            "        if ((uint64_t)rom->address + (uint64_t)file_size > cpu->memory_size) { fclose(f); return -1; }",
+            "        if ((uint64_t)rom->address + (uint64_t)rom->load_size > cpu->memory_size) { fclose(f); return -1; }",
             "",
-            "        size_t read_len = fread(&cpu->memory[rom->address], 1, (size_t)file_size, f);",
+            "        size_t read_len = fread(&cpu->memory[rom->address], 1, rom->load_size, f);",
             "        fclose(f);",
-            "        if (read_len != (size_t)file_size) return -1;",
+            "        if (read_len != (size_t)rom->load_size) return -1;",
             "        if (i == 0u) {",
             "            if (rom_count > 1u) {",
             "                snprintf(",
@@ -1930,6 +1936,11 @@ def _generate_ic_runtime_blocks(
             "",
             (
                 f"int {cpu_prefix}_load_keyboard_map(CPUState *cpu, const char *path) {{\n"
+                "    (void)cpu;\n"
+                "    (void)path;\n"
+                "    return -1;\n"
+                "}\n"
+                f"int {cpu_prefix}_load_controller_map(CPUState *cpu, const char *path) {{\n"
                 "    (void)cpu;\n"
                 "    (void)path;\n"
                 "    return -1;\n"

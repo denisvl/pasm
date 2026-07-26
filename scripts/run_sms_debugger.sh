@@ -46,6 +46,7 @@ IC_RAM="examples/ics/sms/sms_main_ram.yaml"
 IC_VDP="examples/ics/sms/sms_vdp_sega315_5124.yaml"
 IC_JOY="examples/ics/sms/sms_joypad_io.yaml"
 IC_PSG="examples/ics/sms/sms_psg_sn76489.yaml"
+IC_CXA="examples/ics/sms/sms_cxa1145.yaml"
 DEVICE_VIDEO="examples/devices/sms/sms_video.yaml"
 DEVICE_SPK="examples/devices/sms/sms_speaker.yaml"
 DEVICE_CTRL="examples/devices/sms/sms_controller.yaml"
@@ -95,6 +96,7 @@ uv run python -m src.main generate \
   --ic "${IC_VDP}" \
   --ic "${IC_JOY}" \
   --ic "${IC_PSG}" \
+  --ic "${IC_CXA}" \
   --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \

@@ -1,5 +1,6 @@
 metadata:
   name: Apple2InteractiveSystem
+  title: PASM Apple II
   version: '0.1'
 clock_hz: 1023000
 reset_delay_seconds: 0
@@ -11,12 +12,12 @@ memory:
     size: 49152
     read_write: true
   - name: ROM_SYSTEM
-    start: 53248
-    size: 12288
+    start: 0xE000
+    size: 0x2000
     read_only: true
   rom_images:
   - name: apple2plus_rom
-    file: ../../roms/apple2/apple2.rom
+    file: ../../roms/apple2/apple2-int-auto.rom
     target_region: ROM_SYSTEM
     offset: 0
 hooks:

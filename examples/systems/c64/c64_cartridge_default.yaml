@@ -1,5 +1,6 @@
 metadata:
   name: C64DefaultSystem
+  title: PASM Commodore 64
   version: "1.0"
 
 clock_hz: 1022727
@@ -54,6 +55,5 @@ components:
   ics: []
   devices: []
   hosts: []
-  cartridge: c64_cart0
 
 connections: []

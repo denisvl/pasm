@@ -37,6 +37,7 @@ cd "${REPO_ROOT}"
 
 PROCESSOR="examples/processors/mos6502.yaml"
 SYSTEM_DIR="examples/systems/apple2"
+export PASM_SYSTEM_DIR="${SYSTEM_DIR}"
 IC_KBD="examples/ics/apple2/apple2_keyboard_encoder_ay_5_3600.yaml"
 IC_GAMEIO="examples/ics/apple2/apple2_gameio_ne558.yaml"
 IC_VIDEO_SW="examples/ics/apple2/apple2_video_softswitches.yaml"

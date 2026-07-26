@@ -1,5 +1,6 @@
 metadata:
   name: MOS6502NESDefaultSystem
+  title: PASM NES
   version: '0.1'
 clock_hz: 1789773
 reset_delay_seconds: 0

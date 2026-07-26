@@ -19,7 +19,7 @@ MEMORY_SIZE="${MEMORY_SIZE:-65536}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
-KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/bbcmicro/host_keyboard_bbc_micro.yaml}"
+KEYBOARD_MAP="${KEYBOARD_MAP:-}"
 UV_CACHE_DIR="${UV_CACHE_DIR:-.uv-cache}"
 RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
@@ -35,6 +35,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 mkdir -p "${UV_CACHE_DIR}"
 mkdir -p log
+
+: "${KEYBOARD_MAP:=examples/hosts/bbcmicro/host_keyboard_bbc_micro.yaml}"
 
 PROCESSOR="examples/processors/mos6502.yaml"
 SYSTEM_DIR="examples/systems/bbcmicro"

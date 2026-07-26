@@ -1,7 +1,7 @@
 metadata:
   id: host_bbc_micro
   type: host_adapter
-  model: bbc_micro_hal_headless
+  model: bbc_micro_model_b_hal_headless
   version: "1.0"
 
 state:
@@ -17,6 +17,10 @@ interfaces:
     - name: keyboard_ascii
       args: []
       returns: u8
+    - name: keyboard_read_row
+      args:
+        - u8
+      returns: u8
   handlers:
     - name: video_frame
       args: [u32, u64, u32, u32]
@@ -29,6 +33,8 @@ behavior:
   callback_handlers:
     keyboard_ascii: |
       return (uint64_t)cpu_component_keyboard_ascii_pop();
+    keyboard_read_row: |
+      return (uint64_t)0xFFu;
   handler_bodies:
     video_frame: |
       if (argc > 0) comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
@@ -36,7 +42,9 @@ behavior:
       comp->audio_samples += 1u;
 
 coding:
-  headers: []
-  include_paths: []
+  headers:
+  - pasm_overlay.h
+  include_paths:
+  - ../include
   linked_libraries: []
   library_paths: []

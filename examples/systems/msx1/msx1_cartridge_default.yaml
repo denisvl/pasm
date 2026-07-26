@@ -1,5 +1,6 @@
 metadata:
   name: Z80MSX1DefaultSystem
+  title: PASM MSX1
   version: '0.1'
 clock_hz: 3579545
 reset_delay_seconds: 0

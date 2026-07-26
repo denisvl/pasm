@@ -1,5 +1,6 @@
 metadata:
   name: Z80SMSBiosInteractiveSystem
+  title: PASM Sega Master System
   version: '0.1'
 clock_hz: 3579545
 reset_delay_seconds: 0
@@ -7,6 +8,10 @@ memory:
   default_size: 65536
   regions:
   - name: BIOS_32K
+    start: 0
+    size: 32768
+    read_only: true
+  - name: SEGACARD_32K
     start: 0
     size: 32768
     read_only: true
@@ -45,6 +50,7 @@ components:
   - sms_vdp0
   - sms_joy0
   - sms_psg0
+  - sms_cxa0
   devices:
   - controller_sms
   - video_sms
@@ -89,6 +95,14 @@ connections:
     component: sms_vdp0
     kind: signal
     name: frame_ready
+  to:
+    component: sms_cxa0
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: sms_cxa0
+    kind: signal
+    name: frame_present
   to:
     component: video_sms
     kind: handler

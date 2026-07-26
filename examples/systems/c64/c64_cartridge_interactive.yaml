@@ -1,5 +1,6 @@
 metadata:
   name: C64InteractiveSystem
+  title: PASM Commodore 64
   version: '1.0'
 clock_hz: 1022727
 reset_delay_seconds: 0

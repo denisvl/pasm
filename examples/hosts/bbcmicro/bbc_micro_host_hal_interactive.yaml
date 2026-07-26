@@ -1,7 +1,7 @@
 metadata:
   id: host_bbc_micro
   type: host_adapter
-  model: bbc_micro_hal_interactive
+  model: bbc_micro_model_b_hal_interactive
   version: '1.0'
 state:
 - name: host_inited
@@ -188,7 +188,7 @@ behavior:
       \ = 480;\n    int window_h = 250;\n    cpu_host_hal_display_window_size(\n        cpu->comp_monitor.display_width,\n\
       \        cpu->comp_monitor.display_height,\n        cpu->comp_monitor.aspect_width,\n        cpu->comp_monitor.aspect_height,\n\
       \        cpu->comp_monitor.display_inches,\n        480,\n        250,\n        &window_w,\n        &window_h\n    );\n\
-      \    comp->window = cpu_host_hal_create_window(\n        \"PASM BBC Micro\",\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
+      \    comp->window = cpu_host_hal_create_window(\n        CPU_SYSTEM_TITLE,\n        CPU_HOST_WINDOWPOS_CENTERED,\n\
       \        CPU_HOST_WINDOWPOS_CENTERED,\n        window_w,\n        window_h,\n        CPU_HOST_WINDOW_RESIZABLE\n   \
       \ );\n    if (comp->window == NULL) break;\n    comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, CPU_HOST_RENDERER_ACCELERATED);\n\
       \    if (comp->renderer == NULL) {\n        comp->renderer = cpu_host_hal_create_renderer(comp->window, -1, 0);\n  \

@@ -1,5 +1,6 @@
 metadata:
   name: Z80SG1000DefaultSystem
+  title: PASM Sega SG-1000
   version: '0.1'
 clock_hz: 3579545
 reset_delay_seconds: 0

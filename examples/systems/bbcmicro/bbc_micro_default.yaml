@@ -1,5 +1,6 @@
 metadata:
-  name: BBCMicroDefaultSystem
+  name: BBCMicroModelBDefaultSystem
+  title: PASM BBC Micro Model B
   version: '0.1'
 clock_hz: 2000000
 reset_delay_seconds: 0
@@ -142,7 +143,7 @@ audio:
   format: s16le
   channels: 1
 integrations:
-  profile: bbc_micro_default
+  profile: bbc_micro_model_b_default
 display:
   default_component: monitor
   default_model: generic_crt_monitor_color

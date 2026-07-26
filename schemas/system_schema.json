@@ -23,6 +23,10 @@
           "type": "string",
           "description": "System profile name"
         },
+        "title": {
+          "type": "string",
+          "description": "Human-readable display title for the system (e.g. window title)"
+        },
         "version": {
           "type": "string",
           "description": "Optional system profile version"
@@ -104,6 +108,16 @@
               "offset": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "file_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Byte offset within the ROM file to start reading from (for merged ROMs)"
+              },
+              "load_size": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Number of bytes to load from the ROM file starting at file_offset"
               }
             }
           }

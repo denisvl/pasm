@@ -1,0 +1,199 @@
+metadata:
+  name: MOS6502FamicomInteractiveSystem
+  title: PASM Famicom
+  version: '0.1'
+clock_hz: 1789773
+reset_delay_seconds: 0
+memory:
+  default_size: 65536
+  regions:
+  - name: CPU_RAM_2K
+    start: 0
+    size: 2048
+    read_write: true
+  - name: CART_RAM_8K
+    start: 24576
+    size: 8192
+    read_write: true
+  - name: CART_ROM_32K
+    start: 32768
+    size: 32768
+    read_only: true
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+components:
+  ics:
+  - famicom_cpu_bus
+  - famicom_controller_ports
+  - famicom_apu
+  - famicom_ppu_regs
+  - nes_cpu_ram
+  - famicom_io_ports
+  - nes_cart_bridge
+  devices:
+  - controller_famicom
+  - video_nes
+  - speaker
+  - tv
+  hosts:
+  - host_famicom
+  cartridge: famicom_cart0
+connections:
+- from:
+    component: nes_cart_bridge
+    kind: callback
+    name: chr_read
+  to:
+    component: famicom_cart0
+    kind: callback
+    name: chr_read
+- from:
+    component: nes_cart_bridge
+    kind: callback
+    name: chr_write
+  to:
+    component: famicom_cart0
+    kind: callback
+    name: chr_write
+- from:
+    component: nes_cart_bridge
+    kind: callback
+    name: mirroring
+  to:
+    component: famicom_cart0
+    kind: callback
+    name: mirroring
+- from:
+    component: nes_cart_bridge
+    kind: callback
+    name: irq_pending
+  to:
+    component: famicom_cart0
+    kind: callback
+    name: irq_pending
+- from:
+    component: nes_cart_bridge
+    kind: callback
+    name: irq_clock
+  to:
+    component: famicom_cart0
+    kind: callback
+    name: irq_clock
+- from:
+    component: famicom_controller_ports
+    kind: callback
+    name: joy1_read
+  to:
+    component: controller_famicom
+    kind: callback
+    name: read_joy1
+- from:
+    component: famicom_controller_ports
+    kind: callback
+    name: joy2_read
+  to:
+    component: controller_famicom
+    kind: callback
+    name: read_joy2
+- from:
+    component: controller_famicom
+    kind: callback
+    name: host_joy1
+  to:
+    component: host_famicom
+    kind: callback
+    name: read_joy1
+- from:
+    component: controller_famicom
+    kind: callback
+    name: host_joy2
+  to:
+    component: host_famicom
+    kind: callback
+    name: read_joy2
+- from:
+    component: famicom_ppu_regs
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_nes
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_nes
+    kind: signal
+    name: frame_present
+  to:
+    component: tv
+    kind: handler
+    name: on_frame_present
+- from:
+    component: famicom_apu
+    kind: signal
+    name: audio_level
+  to:
+    component: speaker
+    kind: handler
+    name: on_audio_level
+- from:
+    component: speaker
+    kind: signal
+    name: pcm_sample
+  to:
+    component: tv
+    kind: handler
+    name: on_audio_level
+- from:
+    component: tv
+    kind: signal
+    name: frame_present
+  to:
+    component: host_famicom
+    kind: handler
+    name: video_frame
+- from:
+    component: tv
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_famicom
+    kind: handler
+    name: audio_pcm
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+integrations:
+  profile: famicom_interactive
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

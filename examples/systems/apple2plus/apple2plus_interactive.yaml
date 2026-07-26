@@ -1,0 +1,244 @@
+metadata:
+  name: Apple2PlusInteractiveSystem
+  title: PASM Apple II Plus
+  version: '0.1'
+clock_hz: 1023000
+reset_delay_seconds: 0
+memory:
+  default_size: 65536
+  regions:
+  - name: RAM_MAIN
+    start: 0
+    size: 49152
+    read_write: true
+  - name: ROM_SYSTEM
+    start: 53248
+    size: 12288
+    read_only: true
+  rom_images:
+  - name: apple2plus_rom
+    file: ../../roms/apple2plus/apple2-asoft-auto.rom
+    target_region: ROM_SYSTEM
+    offset: 0
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+components:
+  ics:
+  - apple2_keyboard_encoder
+  - apple2_gameio
+  - apple2_video_softswitches
+  - apple2_speaker_toggle
+  - apple2_cassette_io
+  - apple2_char_rom
+  - apple2_slot_decoder
+  - apple2_main_ram
+  devices:
+  - keyboard_apple2
+  - gameport_apple2
+  - video_apple2
+  - speaker
+  - apple2_cassette_adapter
+  - cassette_transport
+  - monitor
+  hosts:
+  - host_apple2
+  cassette: apple2_cassette_adapter
+cassette:
+  component: apple2_cassette_adapter
+  directory: examples/cassettes/apple2plus
+  allowed_extensions: [yaml, wav]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+connections:
+- from:
+    component: apple2_keyboard_encoder
+    kind: callback
+    name: keyboard_ascii
+  to:
+    component: keyboard_apple2
+    kind: callback
+    name: read_key
+- from:
+    component: keyboard_apple2
+    kind: callback
+    name: host_key
+  to:
+    component: host_apple2
+    kind: callback
+    name: keyboard_ascii
+- from:
+    component: apple2_gameio
+    kind: callback
+    name: read_paddle0
+  to:
+    component: gameport_apple2
+    kind: callback
+    name: read_paddle0
+- from:
+    component: apple2_gameio
+    kind: callback
+    name: read_paddle1
+  to:
+    component: gameport_apple2
+    kind: callback
+    name: read_paddle1
+- from:
+    component: apple2_gameio
+    kind: callback
+    name: read_button0
+  to:
+    component: gameport_apple2
+    kind: callback
+    name: read_button0
+- from:
+    component: apple2_gameio
+    kind: callback
+    name: read_button1
+  to:
+    component: gameport_apple2
+    kind: callback
+    name: read_button1
+- from:
+    component: gameport_apple2
+    kind: callback
+    name: host_paddle0
+  to:
+    component: host_apple2
+    kind: callback
+    name: joystick_paddle0
+- from:
+    component: gameport_apple2
+    kind: callback
+    name: host_paddle1
+  to:
+    component: host_apple2
+    kind: callback
+    name: joystick_paddle1
+- from:
+    component: gameport_apple2
+    kind: callback
+    name: host_button0
+  to:
+    component: host_apple2
+    kind: callback
+    name: joystick_button0
+- from:
+    component: gameport_apple2
+    kind: callback
+    name: host_button1
+  to:
+    component: host_apple2
+    kind: callback
+    name: joystick_button1
+- from:
+    component: apple2_video_softswitches
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_apple2
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_apple2
+    kind: signal
+    name: frame_present
+  to:
+    component: monitor
+    kind: handler
+    name: on_frame_present
+- from:
+    component: apple2_speaker_toggle
+    kind: signal
+    name: audio_level
+  to:
+    component: speaker
+    kind: handler
+    name: on_audio_level
+- from:
+    component: apple2_cassette_io
+    kind: signal
+    name: cassette_write
+  to:
+    component: apple2_cassette_adapter
+    kind: handler
+    name: on_output_sample
+- from:
+    component: cassette_transport
+    kind: signal
+    name: playback_sample
+  to:
+    component: speaker
+    kind: handler
+    name: on_tape_playback_sample
+- from:
+    component: cassette_transport
+    kind: signal
+    name: transport_state
+  to:
+    component: speaker
+    kind: handler
+    name: on_transport_state
+- from:
+    component: speaker
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_apple2
+    kind: handler
+    name: audio_pcm
+- from:
+    component: monitor
+    kind: signal
+    name: frame_present
+  to:
+    component: host_apple2
+    kind: handler
+    name: video_frame
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+integrations:
+  profile: apple2plus_interactive
+display:
+  default_component: monitor
+  default_model: generic_crt_monitor_green
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

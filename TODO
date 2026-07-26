@@ -534,3 +534,27 @@
             - Added common monitor device models with literal `metadata.id: monitor`; monitors include silent and audio-capable variants.
             - Added optional `system.display` metadata for startup default display model selection and runtime-switchable model lists.
             - Added contract tests for CRT/LCD display models, TV mono/stereo audio, mono-to-stereo duplication, silent/audio monitor behavior, literal display IDs, and ZX Spectrum beeper separation.
+
+☐ System YAML must support a path where custom code or guards may be inserted when reading RAM.
+        Motivation:
+            - BBC Micro Model A reports "32K" at boot instead of "16K". The MOS detects RAM size by writing to $3000 and reading back from $7000; on real hardware the unpopulated $4000-$7FFF range returns 0xFF (no RAM), so the MOS concludes 16K. The current generated emulator uses a flat 64K `cpu->memory[]` array, so $4000-$7FFF reads back the written value and the MOS reports 32K.
+            - The flat array cannot simply be shrunk to 16K because ROMs (`ROM_PAGED` at $8000, `ROM_OS` at $C000) are loaded directly into `cpu->memory[]` by `mos6502_load_rom` (see `generated/bbc_micro_model_a_interactive/src/MOS6502_core.c`), so `memory_size` must remain 64K.
+        Current codegen gaps:
+            - `src/codegen/cpu_impl.py` `_generate_memory_write_guard()` only emits write-side guards for `read_only` regions; there is no read-side guard generation and no concept of an "unpopulated" region.
+            - `src/codegen/templates.py` (line ~316) `read_byte` template has no guard placeholder — only `write_byte` has `{memory_write_guard}`. `read_byte` falls straight through to `cpu->memory[addr]` after the IC bus dispatch.
+            - The RAM IC glue (`examples/ics/bbcmicro/bbc_micro_model_a_main_ram.yaml`) has empty `maps.memory.ranges`, so its generated `bus_read`/`bus_write` are empty stubs that never set `*handled = 1`, meaning all RAM access falls through to the flat array.
+            - `examples/systems/bbcmicro/bbc_micro_model_a_interactive.yaml` `memory.regions` only defines `RAM_MAIN` ($0000-$3FFF), `ROM_PAGED`, and `ROM_OS`; the $4000-$7FFF gap is not declared, so it is treated as ordinary flat RAM.
+        Required design:
+            - The system YAML must offer a mechanism to insert custom code or guards into the generated `mos6502_read_byte` (and ideally `mos6502_write_byte`) for specific address ranges. Candidate approaches:
+                1. A new region type (e.g. `unpopulated` / `floating` / `open_bus`) in `memory.regions` that the codegen emits as a read guard returning a configurable value (default `0xFF`) and a write guard that discards writes.
+                2. An explicit per-region `read_guard` / `write_guard` snippet field (raw C or a small DSL) that the codegen splices into the read/write templates via new `{memory_read_guard}` / `{memory_write_guard}` placeholders.
+                3. A general "memory hook" list on the system YAML allowing named C snippets to be inserted before the flat-array fallback.
+            - Whichever shape is chosen, it must be driven entirely from the system YAML (and/or IC YAML), not hard-coded per CPU in the codegen, consistent with the existing "must come from the processor/system yaml" principle documented above.
+        Affected files (implementation deferred):
+            - `src/codegen/cpu_impl.py` — extend `_generate_memory_write_guard` (or add `_generate_memory_read_guard`) to emit read guards for unpopulated/custom regions.
+            - `src/codegen/templates.py` — add a `{memory_read_guard}` placeholder to the `read_byte` template alongside the existing `{memory_write_guard}` in `write_byte`.
+            - `schemas/system_schema.json` — add the new region type or guard-snippet fields.
+            - `examples/systems/bbcmicro/bbc_micro_model_a_interactive.yaml` — declare $4000-$7FFF as the new unpopulated region (read returns 0xFF, writes ignored).
+            - Optionally `examples/ics/bbcmicro/bbc_micro_model_a_main_ram.yaml` — populate `maps.memory.ranges` so the RAM IC actually owns $0000-$3FFF instead of relying on the flat array.
+        Verification (after implementation):
+            - Regenerate the `bbc_micro_model_a_interactive` profile, cmake configure + build, boot, and confirm the MOS prints "BBC Computer 16K" instead of "32K".

@@ -1,5 +1,6 @@
 metadata:
   name: Z80TRS80Model4InteractiveSystem
+  title: PASM TRS-80 Model 4
   version: '0.1'
 clock_hz: 4000000
 reset_delay_seconds: 5

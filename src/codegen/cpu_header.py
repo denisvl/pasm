@@ -224,6 +224,7 @@ def _generate_system_constants(isa_data: Dict[str, Any]) -> str:
     system = isa_data.get("system", {})
     system_meta = system.get("metadata", {})
     system_name = _escape_c_string(str(system_meta.get("name", "UnknownSystem")))
+    system_title = _escape_c_string(str(system_meta.get("title", system_meta.get("name", "UnknownSystem"))))
     system_version = _escape_c_string(str(system_meta.get("version", "")))
     clock_hz = int(system.get("clock_hz", 0))
     audio = isa_data.get("audio", {})
@@ -235,6 +236,7 @@ def _generate_system_constants(isa_data: Dict[str, Any]) -> str:
     )
     lines = [
         f'#define CPU_SYSTEM_NAME "{system_name}"',
+        f'#define CPU_SYSTEM_TITLE "{system_title}"',
         f'#define CPU_SYSTEM_VERSION "{system_version}"',
         f"#define CPU_SYSTEM_CLOCK_HZ {clock_hz}ULL",
         f"#define CPU_AUDIO_SAMPLE_RATE {audio_rate}ULL",

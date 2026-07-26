@@ -186,7 +186,7 @@ behavior:
           cpu_host_hal_stop_text_input();
 
           comp->window = cpu_host_hal_create_window(
-              "PASM Keymapper Tool (Host-HAL)",
+              CPU_SYSTEM_TITLE,
               CPU_HOST_WINDOWPOS_CENTERED,
               CPU_HOST_WINDOWPOS_CENTERED,
               1280,
@@ -2140,30 +2140,7 @@ behavior:
                   }
               }
 
-              snprintf(
-                  title,
-                  sizeof(title),
-                  "PASM Keymapper Tool (Host-HAL)%s | zoom=%d%% off=(%d,%d) boxes=%u sel_count=%u field=%s focus=%u | sel=%s binds=%s | %s sc=%d(%s) key=%s mods=0x%X rep=%u -> %s%s",
-                  (comp->dirty != 0u) ? " *" : "",
-                  (int)((comp->view_zoom_q8 * 100) / 256),
-                  (int)comp->view_off_x,
-                  (int)comp->view_off_y,
-                  (unsigned)comp->mapper_box_count,
-                  (unsigned)comp->selection_count,
-                  field_name,
-                  (unsigned)comp->has_keyboard_focus,
-                  selected_id,
-                  binds_preview,
-                  event_name,
-                  (int)comp->title_last_scancode,
-                  sc_name ? sc_name : "-",
-                  key_name ? key_name : "-",
-                  (unsigned)comp->title_last_mods,
-                  (unsigned)comp->title_last_repeat,
-                  map_id,
-                  prompt
-              );
-              cpu_host_hal_set_window_title(comp->window, title);
+              cpu_host_hal_set_window_title(comp->window, CPU_SYSTEM_TITLE);
           }
       }
 

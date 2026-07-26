@@ -1,4 +1,4 @@
-system_name: bbc_micro
+system_name: bbc_micro_model_b
 image:
   file: bbc_micro_keyboard.png
   width_px: 800

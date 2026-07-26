@@ -1,5 +1,6 @@
 metadata:
   name: Z80Spectrum48KSystem
+  title: PASM ZX Spectrum 48K
   version: '0.2'
 clock_hz: 3500000
 reset_delay_seconds: 0

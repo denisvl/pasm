@@ -1,5 +1,6 @@
 metadata:
   name: Atari800XLInteractiveSystem
+  title: PASM Atari 800XL
   version: '0.1'
 clock_hz: 1789773
 reset_delay_seconds: 0

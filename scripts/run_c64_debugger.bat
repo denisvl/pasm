@@ -38,6 +38,7 @@ set "IC_MAIN_RAM=examples/ics/c64/c64_main_ram.yaml"
 set "DEVICE_KB=examples/devices/c64/c64_keyboard.yaml"
 set "DEVICE_JOY=examples/devices/c64/c64_joystick.yaml"
 set "DEVICE_VIDEO=examples/devices/c64/c64_video.yaml"
+set "DEVICE_DATASETTE=examples/devices/c64/c64_datasette.yaml"
 set "DEVICE_TV=examples/devices/common/tv_crt_mono.yaml"
 set "HOST_INTERACTIVE=examples/hosts/c64/c64_host_hal_interactive.yaml"
 
@@ -70,8 +71,6 @@ if /I "%PROFILE%"=="interactive" goto :gen_interactive
 uv run python -m src.main generate ^
   --processor "%PROCESSOR%" ^
   --system "%SYSTEM%" ^
-  --cartridge-map "%CARTRIDGE_MAP%" ^
-  --cartridge-rom "%CARTRIDGE_ROM_GEN%" ^
   --output "%OUTPUT_DIR%"
 if errorlevel 1 exit /b %errorlevel%
 goto :gen_done
@@ -90,6 +89,7 @@ uv run python -m src.main generate ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_JOY%" ^
   --device "%DEVICE_VIDEO%" ^
+  --device "%DEVICE_DATASETTE%" ^
   --device "%DEVICE_TV%" ^
   --host "%HOST_INTERACTIVE%" ^
   --host-backend "%HOST_BACKEND%" ^
