@@ -48,11 +48,12 @@ def test_generate_trs80_model4_moves_reset_delay_out_of_core(tmp_path):
     outdir = tmp_path / "trs80_reset_delay_test"
     examples_dir = processor_path.parents[1]
     trs80_ics = examples_dir / "ics" / "trs80_model4"
+    common_ics = examples_dir / "ics" / "common"
     ic_paths = [
         str(trs80_ics / "trs80_model4_peripherals.yaml"),
         str(trs80_ics / "trs80_model4_gate_array.yaml"),
         str(trs80_ics / "trs80_model4_main_ram.yaml"),
-        str(trs80_ics / "trs80_model4_fdc.yaml"),
+        str(common_ics / "wd1793.yaml"),
         str(trs80_ics / "trs80_model4_ppi.yaml"),
         str(trs80_ics / "trs80_model4_serial.yaml"),
         str(trs80_ics / "trs80_model4_video.yaml"),
@@ -63,6 +64,7 @@ def test_generate_trs80_model4_moves_reset_delay_out_of_core(tmp_path):
         str(examples_dir / "devices" / "trs80_keyboard.yaml"),
         str(examples_dir / "devices" / "trs80_video.yaml"),
         str(examples_dir / "devices" / "trs80_speaker.yaml"),
+        str(examples_dir / "devices" / "common" / "trs80_floppy_image_backend.yaml"),
     ]
     host_paths = [
         str(examples_dir / "hosts" / "trs80_host_hal_interactive.yaml"),

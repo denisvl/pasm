@@ -1,0 +1,279 @@
+metadata:
+  id: trs80_floppy_image_backend
+  type: floppy_image_backend
+  model: trs80_floppy_image_backend
+  version: "1.0"
+
+state:
+  - name: image_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: image_size
+    type: uint32_t
+    initial: "0"
+  - name: sectors_per_track
+    type: uint8_t
+    initial: "0"
+  - name: track_count
+    type: uint16_t
+    initial: "0"
+  - name: activity_flags
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
+      returns: u8
+    - name: query_geometry
+      args: []
+      returns: u64
+    - name: query_track_present
+      args: [u8, u8, u8]
+      returns: u8
+    - name: read_sector
+      args: [u8, u8, u8, u8, ptr]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->activity_flags = 0u;
+    destroy: |
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_size = 0u;
+      comp->sectors_per_track = 0u;
+      comp->track_count = 0u;
+      comp->activity_flags = 0u;
+      (void)cpu;
+  callback_handlers:
+    load_media: |
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+      FILE *fp;
+      uint8_t *image = NULL;
+      long file_size_long;
+      size_t file_size;
+      uint8_t looks_like_jv3 = 0u;
+      uint8_t sectors_per_track = 18u;
+      uint16_t track_count = 0u;
+      const char *dot;
+      char ext[16];
+      size_t ext_len = 0u;
+      if (trace_enabled < 0) {
+          const char *env = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/trs80_fdc_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
+      }
+      if (path == NULL || path[0] == '\0') return 0u;
+      fp = fopen(path, "rb");
+      if (fp == NULL) return 0u;
+      if (fseek(fp, 0L, SEEK_END) != 0) { fclose(fp); return 0u; }
+      file_size_long = ftell(fp);
+      if (file_size_long <= 0L) { fclose(fp); return 0u; }
+      if (fseek(fp, 0L, SEEK_SET) != 0) { fclose(fp); return 0u; }
+      file_size = (size_t)file_size_long;
+      image = (uint8_t *)malloc(file_size);
+      if (image == NULL) { fclose(fp); return 0u; }
+      if (fread(image, 1u, file_size, fp) != file_size) {
+          fclose(fp);
+          free(image);
+          return 0u;
+      }
+      fclose(fp);
+      dot = strrchr(path, '.');
+      if (dot != NULL && dot[1] != '\0') {
+          dot++;
+          while (dot[ext_len] != '\0' && ext_len + 1u < sizeof(ext)) {
+              char c = dot[ext_len];
+              if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+              ext[ext_len++] = c;
+          }
+      }
+      ext[ext_len] = '\0';
+      if (file_size >= 8704u) {
+          size_t active_entries = 0u;
+          size_t ff_run = 0u;
+          size_t scan_limit = (8704u / 3u) * 3u;
+          for (size_t off = 0u; off + 2u < scan_limit; off += 3u) {
+              uint8_t b0 = image[off + 0u];
+              uint8_t b1 = image[off + 1u];
+              uint8_t b2 = image[off + 2u];
+              if (b0 == 0xFFu && b1 == 0xFFu && b2 == 0xFFu) {
+                  ff_run += 1u;
+                  continue;
+              }
+              if ((b2 & 0x80u) == 0u) {
+                  active_entries = 0u;
+                  ff_run = 0u;
+                  break;
+              }
+              active_entries += 1u;
+          }
+          if (active_entries >= 18u && ff_run >= 16u && ((file_size - 8704u) % 256u) == 0u) {
+              looks_like_jv3 = 1u;
+          }
+      }
+      if (strcmp(ext, "jv3") == 0 || (strcmp(ext, "dsk") == 0 && looks_like_jv3 != 0u)) {
+          size_t active_entries = 0u;
+          uint8_t max_track = 0u;
+          for (size_t off = 0u; off + 2u < 8704u; off += 3u) {
+              uint8_t b0 = image[off + 0u];
+              uint8_t b1 = image[off + 1u];
+              uint8_t b2 = image[off + 2u];
+              (void)b1;
+              if (b0 == 0xFFu && image[off + 1u] == 0xFFu && b2 == 0xFFu) continue;
+              if ((b2 & 0x80u) == 0u) break;
+              active_entries += 1u;
+              if (b0 > max_track) max_track = b0;
+          }
+          if (active_entries > 0u && (8704u + (active_entries * 256u)) <= file_size) {
+              track_count = (uint16_t)(max_track + 1u);
+          }
+      }
+      if (track_count == 0u) {
+          if (trace_enabled != 0) {
+              fprintf(trace_fp, "floppy_backend_load reject path=%s size=%zu ext=%s looks_like_jv3=%u\n",
+                      path, file_size, ext, (unsigned)looks_like_jv3);
+              fflush(trace_fp);
+          }
+          free(image);
+          return 0u;
+      }
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_data = image;
+      comp->image_size = (uint32_t)file_size;
+      comp->sectors_per_track = sectors_per_track;
+      comp->track_count = track_count;
+      comp->activity_flags = 0u;
+      if (trace_enabled != 0) {
+          fprintf(trace_fp, "floppy_backend_load ok path=%s size=%zu spt=%u tracks=%u\n",
+                  path, file_size, (unsigned)sectors_per_track, (unsigned)track_count);
+          fflush(trace_fp);
+      }
+      return 1u;
+    unload_media: |
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_size = 0u;
+      comp->sectors_per_track = 0u;
+      comp->track_count = 0u;
+      comp->activity_flags = 0u;
+      return 1u;
+    query_drive_activity: |
+      uint8_t flags = comp->activity_flags;
+      comp->activity_flags = 0u;
+      return (uint64_t)flags;
+    query_geometry: |
+      uint64_t packed = ((uint64_t)comp->sectors_per_track & 0xFFu) |
+                        ((((uint64_t)comp->track_count) & 0xFFFFu) << 8u);
+      return packed;
+    query_track_present: |
+      uint8_t target_track = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_side = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t target_density = (argc > 2u) ? (uint8_t)(args[2] & 0xFFu) : 0u;
+      if (comp->image_data == NULL || comp->image_size == 0u) return 0u;
+      if (comp->image_size > 8704u) {
+          for (size_t off = 0u; off + 2u < 8704u; off += 3u) {
+              uint8_t trk = comp->image_data[off + 0u];
+              uint8_t sec = comp->image_data[off + 1u];
+              uint8_t flg = comp->image_data[off + 2u];
+              uint8_t side = (uint8_t)(((flg & 0x10u) != 0u) ? 1u : 0u);
+              uint8_t density = (uint8_t)(((flg & 0x80u) != 0u) ? 1u : 0u);
+              if (trk == 0xFFu && sec == 0xFFu) continue;
+              if (trk == target_track && side == target_side && density == target_density) return 1u;
+          }
+      }
+      return 0u;
+    read_sector: |
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      uint8_t target_track = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_sector = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t target_side = (argc > 2u) ? (uint8_t)(args[2] & 0xFFu) : 0u;
+      uint8_t target_density = (argc > 3u) ? (uint8_t)(args[3] & 0xFFu) : 0u;
+      uint8_t *dst = (argc > 4u && args[4] != 0u) ? (uint8_t *)(uintptr_t)args[4] : NULL;
+      uint8_t result = 0u;
+      if (trace_enabled < 0) {
+          const char *env = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = cpu_host_hal_getenv("PASM_TRS80_FDC_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/trs80_fdc_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
+      }
+      if (dst == NULL || comp->image_data == NULL || comp->image_size == 0u) return 0u;
+      if (comp->image_size > 8704u) {
+          size_t data_index = 0u;
+          for (size_t off = 0u; off + 2u < 8704u; off += 3u) {
+              uint8_t trk = comp->image_data[off + 0u];
+              uint8_t sec = comp->image_data[off + 1u];
+              uint8_t flg = comp->image_data[off + 2u];
+              uint8_t side = (uint8_t)(((flg & 0x10u) != 0u) ? 1u : 0u);
+              uint8_t density = (uint8_t)(((flg & 0x80u) != 0u) ? 1u : 0u);
+              uint32_t offset;
+              if (trk == 0xFFu && sec == 0xFFu) {
+                  continue;
+              }
+              offset = (uint32_t)(8704u + (data_index * 256u));
+              if (offset + 256u > comp->image_size) break;
+              if (trk == target_track && sec == target_sector && side == target_side && density == target_density) {
+                  memcpy(dst, comp->image_data + offset, 256u);
+                  result = 0x01u;
+                  if (target_density == 0u) {
+                      uint8_t dam = (uint8_t)(flg & 0x60u);
+                      if (dam != 0x00u) result |= 0x20u;
+                  } else {
+                      uint8_t dam = (uint8_t)(flg & 0x20u);
+                      if (dam != 0x00u) result |= 0x20u;
+                  }
+                  if ((flg & 0x08u) != 0u) result |= 0x08u;
+                  break;
+              }
+              data_index += 1u;
+          }
+      }
+      if ((result & 0x01u) != 0u) {
+          comp->activity_flags |= 0x01u;
+      }
+      if (trace_enabled != 0) {
+          fprintf(trace_fp, "floppy_backend_read track=%u sector=%u side=%u density=%u ok=%u status=%02X\n",
+                  (unsigned)target_track, (unsigned)target_sector, (unsigned)target_side,
+                  (unsigned)target_density, (unsigned)((result & 0x01u) != 0u), (unsigned)(result & 0xFEu));
+          fflush(trace_fp);
+      }
+      return (uint64_t)result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

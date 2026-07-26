@@ -194,6 +194,27 @@ def _iter_all_components(isa_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     return comps
 
 
+def _generate_component_coding_includes(components: List[Dict[str, Any]]) -> str:
+    headers: List[str] = []
+    seen: set[str] = set()
+    for comp in components:
+        coding = comp.get("coding", {})
+        if not isinstance(coding, dict):
+            continue
+        for header in coding.get("headers", []) or []:
+            h = str(header).strip()
+            if not h or h in seen:
+                continue
+            seen.add(h)
+            if h.startswith("<") or h.startswith('"'):
+                headers.append(f"#include {h}")
+            else:
+                headers.append(f"#include <{h}>")
+    if not headers:
+        return ""
+    return "\n".join(headers) + "\n\n"
+
+
 def _rewrite_memory_read_block(block: str) -> str:
     if not block.strip():
         return "    (void)cpu;\n    (void)addr;"
@@ -270,7 +291,20 @@ def _ic_lifecycle_reset_block(component: Dict[str, Any]) -> str:
         field_name = _to_ident(str(field.get("name", "field")))
         field_type = str(field.get("type", "")).strip()
         initial = str(field.get("initial", "0")).strip() or "0"
-        preserve_reset_field = field_name in {"rom_data", "rom_size"}
+        preserve_reset_field = field_name in {
+            "rom_data",
+            "rom_size",
+            "fdc_image_data",
+            "fdc_image_size",
+            "fdc_image_format",
+            "fdc_sectors_per_track",
+            "fdc_track_count",
+            "image_size",
+            "sectors_per_track",
+            "side_count",
+            "track_count",
+            "sector_number_base",
+        }
         if ("*" not in field_type) and (not preserve_reset_field):
             lines.append(f"    comp->{field_name} = {initial};")
     snippet = _component_snippet_block(component, "reset")
@@ -665,7 +699,11 @@ def generate_host_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         + "#define CPU_HOST_HAT_LEFT 0x08u\n"
         + "\n"
     )
-    has_picker = bool(isa_data.get("cartridge")) or bool(isa_data.get("cassette"))
+    has_picker = (
+        bool(isa_data.get("cartridge"))
+        or bool(isa_data.get("cassette"))
+        or bool(isa_data.get("floppy"))
+    )
     if has_picker:
         return (
             "/* Auto-generated split unit: host-side glue ownership. */\n"
@@ -674,22 +712,31 @@ def generate_host_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
             + host_hal_impl
             + "\n"
             "extern uint8_t cpu_component_cartridge_picker_is_active(void);\n"
+            "extern uint8_t cpu_component_cartridge_picker_blocks_input(void);\n"
+            "extern uint8_t cpu_component_cassette_picker_blocks_input(void);\n"
+            "extern uint8_t cpu_component_floppy_picker_blocks_input(void);\n"
             "extern void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus);\n"
+            "extern void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus);\n"
+            "extern void cpu_component_floppy_picker_update(CPUState *cpu, uint8_t has_focus);\n"
             "extern void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
+            "extern void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
+            "extern void cpu_component_floppy_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
             "int cpu_component_host_picker_set_dir(const char *path) {\n"
             "    (void)path;\n"
             "    return 0;\n"
             "}\n\n"
             "uint8_t cpu_component_host_picker_is_active(void) {\n"
-            "    return (uint8_t)(cpu_component_cartridge_picker_is_active() != 0u || cpu_component_cassette_picker_is_active() != 0u);\n"
+            "    return (uint8_t)(cpu_component_cartridge_picker_blocks_input() != 0u || cpu_component_cassette_picker_blocks_input() != 0u || cpu_component_floppy_picker_blocks_input() != 0u);\n"
             "}\n\n"
             "void cpu_component_host_picker_step(CPUState *cpu, uint8_t has_focus) {\n"
             "    cpu_component_cartridge_picker_update(cpu, has_focus);\n"
             "    cpu_component_cassette_picker_update(cpu, has_focus);\n"
+            "    cpu_component_floppy_picker_update(cpu, has_focus);\n"
             "}\n\n"
             "void cpu_component_host_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {\n"
             "    cpu_component_cartridge_picker_draw_overlay(cpu, pixels, w, h);\n"
             "    cpu_component_cassette_picker_draw_overlay(cpu, pixels, w, h);\n"
+            "    cpu_component_floppy_picker_draw_overlay(cpu, pixels, w, h);\n"
             "}\n"
         )
     return (
@@ -831,6 +878,10 @@ def generate_system_interrupt_glue(isa_data: Dict[str, Any], cpu_name: str) -> s
 
 def generate_device_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
     """Generate split device/runtime ownership for non-CPU component glue."""
+    device_owned_components = [
+        comp for comp in _iter_all_components(isa_data)
+        if str((comp.get("metadata") or {}).get("type", "")).strip() != "ic"
+    ]
     component_runtime = generate_component_runtime_dispatch_glue(isa_data)
     component_lifecycle = generate_component_lifecycle_dispatch_glue(isa_data)
     component_dispatch = generate_component_dispatch_glue(isa_data, cpu_name)
@@ -857,10 +908,12 @@ def generate_device_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         )
         else ""
     )
+    component_includes = _generate_component_coding_includes(device_owned_components)
     return (
         "/* Auto-generated split unit: device/runtime ownership. */\n"
         f'#include "{cpu_name}.h"\n\n'
         + overlay_include
+        + component_includes
         + host_hal_support
         + "int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);\n"
         + "uint8_t cpu_component_cartridge_picker_is_active(void);\n"
@@ -870,6 +923,10 @@ def generate_device_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         + "uint8_t cpu_component_cassette_picker_overlay_visible(void);\n"
         + "void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus);\n"
         + "void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
+        + "uint8_t cpu_component_floppy_picker_is_active(void);\n"
+        + "uint8_t cpu_component_floppy_picker_overlay_visible(void);\n"
+        + "void cpu_component_floppy_picker_update(CPUState *cpu, uint8_t has_focus);\n"
+        + "void cpu_component_floppy_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
         + input_runtime_impl
         + component_connections
         + component_dispatch
@@ -966,7 +1023,15 @@ def generate_component_lifecycle_dispatch_glue(isa_data: Dict[str, Any]) -> str:
                 field_name = _to_ident(str(field.get("name", "field")))
                 field_type = str(field.get("type", "")).strip()
                 initial = str(field.get("initial", "0")).strip() or "0"
-                preserve_reset_field = field_name in {"rom_data", "rom_size"}
+                preserve_reset_field = field_name in {
+                    "rom_data",
+                    "rom_size",
+                    "image_size",
+                    "sectors_per_track",
+                    "side_count",
+                    "track_count",
+                    "sector_number_base",
+                }
                 if ("*" not in field_type) and (not preserve_reset_field):
                     lines.append(f"      comp->{field_name} = {initial};")
         reset_snippet = _component_snippet_block(comp, "reset")
@@ -1018,6 +1083,7 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
     ]
     has_runtime_cartridge = bool(isa_data.get("cartridge"))
     has_runtime_cassette = bool(isa_data.get("cassette"))
+    has_runtime_floppy = bool(isa_data.get("floppy"))
     lines: List[str] = []
     for _, ident in pre_hook_ics:
         lines.append(f"void cpu_component_ic_{ident}_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);")
@@ -1027,6 +1093,7 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
         [
             "",
             "int cpu_components_runtime_pre_step(CPUState *cpu) {",
+            "    int runtime_rc = 0;",
             "    if (cpu != NULL && cpu->reset_delay_pending) {",
             "        cpu->reset_delay_pending = false;",
             "    }",
@@ -1035,7 +1102,8 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
     if has_runtime_cartridge:
         lines.extend(
             [
-                "    if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {",
+                "    runtime_rc = cpu_component_cartridge_picker_apply_pending_swap(cpu);",
+                "    if (runtime_rc < 0) {",
                 "        return -1;",
                 "    }",
             ]
@@ -1043,7 +1111,17 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
     if has_runtime_cassette:
         lines.extend(
             [
-                "    if (cpu_component_cassette_picker_apply_pending_load(cpu) != 0) {",
+                "    runtime_rc = cpu_component_cassette_picker_apply_pending_load(cpu);",
+                "    if (runtime_rc < 0) {",
+                "        return -1;",
+                "    }",
+            ]
+        )
+    if has_runtime_floppy:
+        lines.extend(
+            [
+                "    runtime_rc = cpu_component_floppy_picker_apply_pending_load(cpu);",
+                "    if (runtime_rc < 0) {",
                 "        return -1;",
                 "    }",
             ]

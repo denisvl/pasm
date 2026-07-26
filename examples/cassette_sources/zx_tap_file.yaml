@@ -1,0 +1,12 @@
+metadata:
+  id: zx_tap_file
+  type: cassette_source
+  model: common_zx_tap_file_source
+  version: "1.0"
+  title: ZX TAP Tape File
+
+source:
+  kind: file
+  label: ZX TAP Tape
+  source_component: cassette_zx_tap_source
+  allowed_extensions: [tap]

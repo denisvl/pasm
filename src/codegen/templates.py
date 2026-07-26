@@ -135,6 +135,7 @@ int {cpu_prefix}_load_rom(CPUState *cpu, const char *filename, uint16_t address)
 int {cpu_prefix}_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int {cpu_prefix}_load_cartridge_rom(CPUState *cpu, const char *path);
 int {cpu_prefix}_set_cartridge_dir(CPUState *cpu, const char *path);
+int {cpu_prefix}_load_floppy_media(CPUState *cpu, const char *path);
 int {cpu_prefix}_load_keyboard_map(CPUState *cpu, const char *path);
 int {cpu_prefix}_load_controller_map(CPUState *cpu, const char *path);
 int cpu_component_host_picker_set_dir(const char *path);
@@ -145,6 +146,13 @@ int cpu_component_cassette_picker_apply_pending_load(CPUState *cpu);
 uint8_t cpu_component_cassette_picker_is_active(void);
 void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus);
 void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);
+int cpu_component_floppy_picker_apply_pending_load(CPUState *cpu);
+int cpu_component_floppy_picker_load_path(CPUState *cpu, const char *path);
+uint8_t cpu_component_floppy_picker_is_active(void);
+uint8_t cpu_component_floppy_picker_overlay_visible(void);
+uint8_t cpu_component_floppy_picker_blocks_input(void);
+void cpu_component_floppy_picker_update(CPUState *cpu, uint8_t has_focus);
+void cpu_component_floppy_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);
 
 /* ===== Split Contracts (Core/System Glue) ===== */
 {dispatch_contract}
@@ -308,6 +316,7 @@ int {cpu_prefix}_load_rom(CPUState *cpu, const char *filename, uint16_t address)
 }}
 {system_rom_loader}
 {cartridge_rom_loader}
+{floppy_media_loader}
 
 /* ===== Memory Access ===== */
 uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
@@ -325,16 +334,75 @@ uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
 }}
 
 void {cpu_prefix}_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {{
+    static int __trace_mem_write_addr_state = -1;
+    static uint16_t __trace_mem_write_addrs[16];
+    static size_t __trace_mem_write_addr_count = 0u;
+    static FILE *__trace_mem_write_fp = NULL;
     {{
         uint8_t __handled = 0u;
         (void)cpu_components_bus_write(cpu, addr, value, &__handled);
         if (__handled != 0u) return;
+    }}
+    if (__trace_mem_write_addr_state < 0) {{
+        const char *__trace_addrs_env = getenv("PASM_TRACE_MEM_WRITE_ADDRS");
+        const char *__trace_addr_env = getenv("PASM_TRACE_MEM_WRITE_ADDR");
+        if (__trace_addrs_env != NULL && __trace_addrs_env[0] != '\\0') {{
+            char __trace_addrs_buf[256];
+            char *__trace_tok = NULL;
+            char *__trace_save = NULL;
+            (void)snprintf(__trace_addrs_buf, sizeof(__trace_addrs_buf), "%s", __trace_addrs_env);
+            __trace_tok = strtok_r(__trace_addrs_buf, ",", &__trace_save);
+            while (__trace_tok != NULL && __trace_mem_write_addr_count < (sizeof(__trace_mem_write_addrs) / sizeof(__trace_mem_write_addrs[0]))) {{
+                while (*__trace_tok == ' ' || *__trace_tok == '\t') __trace_tok++;
+                if (*__trace_tok != '\\0') {{
+                    __trace_mem_write_addrs[__trace_mem_write_addr_count++] = (uint16_t)(strtoul(__trace_tok, NULL, 0) & 0xFFFFu);
+                }}
+                __trace_tok = strtok_r(NULL, ",", &__trace_save);
+            }}
+        }} else if (__trace_addr_env != NULL && __trace_addr_env[0] != '\\0') {{
+            __trace_mem_write_addrs[0] = (uint16_t)(strtoul(__trace_addr_env, NULL, 0) & 0xFFFFu);
+            __trace_mem_write_addr_count = 1u;
+        }}
+        if (__trace_mem_write_addr_count > 0u) {{
+            __trace_mem_write_addr_state = 1;
+            const char *__trace_path_env = getenv("PASM_TRACE_MEM_WRITE_FILE");
+            if (__trace_path_env != NULL && __trace_path_env[0] != '\\0') {{
+                __trace_mem_write_fp = fopen(__trace_path_env, "a");
+            }}
+            if (__trace_mem_write_fp == NULL) {{
+                __trace_mem_write_fp = stdout;
+            }}
+        }} else {{
+            __trace_mem_write_addr_state = 0;
+        }}
     }}
     if (addr >= cpu->memory_size) {{
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return;
     }}
 {memory_write_guard}
+    if (__trace_mem_write_addr_state > 0 && __trace_mem_write_fp != NULL) {{
+        size_t __trace_idx;
+        for (__trace_idx = 0u; __trace_idx < __trace_mem_write_addr_count; ++__trace_idx) {{
+            if (addr == __trace_mem_write_addrs[__trace_idx]) {{
+                uint8_t __old_value = cpu->memory[addr];
+                fprintf(__trace_mem_write_fp,
+                        "mem_write cycle=%llu pc=%04X addr=%04X old=%02X new=%02X a=%02X x=%02X y=%02X sp=%02X p=%02X\\n",
+                        (unsigned long long)cpu->total_cycles,
+                        (unsigned int)cpu->pc,
+                        (unsigned int)addr,
+                        (unsigned int)__old_value,
+                        (unsigned int)value,
+                        (unsigned int)cpu->registers[REG_A],
+                        (unsigned int)cpu->registers[REG_X],
+                        (unsigned int)cpu->registers[REG_Y],
+                        (unsigned int)cpu->sp,
+                        (unsigned int)cpu->flags.raw);
+                fflush(__trace_mem_write_fp);
+                break;
+            }}
+        }}
+    }}
     cpu->memory[addr] = value;
 }}
 
@@ -596,6 +664,7 @@ void print_usage(const char *prog) {{
     printf("  --addr <addr>   Load address (default: 0x0000)\\n");
     printf("  --keyboard-map <file>  Load runtime keyboard map YAML\\n");
     printf("  --controller-map <file>  Load runtime controller map YAML\\n");
+    printf("  --floppy <file>  Start with floppy image inserted\\n");
     printf("  --run           Run emulator\\n");
     printf("  --step          Run one instruction\\n");
     printf("  --cycles <n>    Run for n cycles\\n");
@@ -616,6 +685,7 @@ int main(int argc, char *argv[]) {{
     const char *rom_file = NULL;
     const char *keyboard_map_file = NULL;
     const char *controller_map_file = NULL;
+    const char *floppy_file = NULL;
     uint16_t load_addr = 0;
     const char *test_name = NULL;
     
@@ -628,6 +698,8 @@ int main(int argc, char *argv[]) {{
             keyboard_map_file = argv[++i];
         }} else if (strcmp(argv[i], "--controller-map") == 0 && i + 1 < argc) {{
             controller_map_file = argv[++i];
+        }} else if (strcmp(argv[i], "--floppy") == 0 && i + 1 < argc) {{
+            floppy_file = argv[++i];
         }} else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {{
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
         }} else if (strcmp(argv[i], "--run") == 0) {{
@@ -665,6 +737,21 @@ int main(int argc, char *argv[]) {{
             return 1;
         }}
         printf("Loaded controller map: %s\\n", controller_map_file);
+    }}
+
+    if (floppy_file && floppy_file[0]) {{
+#if defined(_WIN32)
+        if (_putenv_s("PASM_EMU_FLOPPY_AUTO_PATH", floppy_file) != 0) {{
+            fprintf(stderr, "Failed to set startup floppy path: %s\\n", floppy_file);
+            return 1;
+        }}
+#else
+        if (setenv("PASM_EMU_FLOPPY_AUTO_PATH", floppy_file, 1) != 0) {{
+            fprintf(stderr, "Failed to set startup floppy path: %s\\n", floppy_file);
+            return 1;
+        }}
+#endif
+        printf("Startup floppy: %s\\n", floppy_file);
     }}
     
     if (rom_file) {{

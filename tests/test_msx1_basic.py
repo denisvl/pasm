@@ -70,6 +70,11 @@ def test_msx1_component_graph_validates():
         "video_msx",
         "speaker",
         "tv",
+        "cassette_transport",
+        "cassette_line_in_source",
+        "cassette_wav_source",
+        "cassette_msx_cas_source",
+        "cassette_msx_tsx_source",
     ]
     assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_msx"]
 
@@ -85,6 +90,13 @@ def test_msx1_interactive_component_graph_validates():
     )
     assert data["system"]["metadata"]["name"] == "Z80MSX1InteractiveSystem"
     assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_msx"]
+    assert data["cassette"]["allowed_extensions"] == ["yaml", "wav", "cas", "tsx"]
+    assert [src["source_component"] for src in data["cassette"]["sources"]] == [
+        "cassette_line_in_source",
+        "cassette_wav_source",
+        "cassette_msx_cas_source",
+        "cassette_msx_tsx_source",
+    ]
 
 
 def test_msx1_ppi_keyboard_row_decode_and_bsr_generation(tmp_path):
@@ -103,12 +115,13 @@ def test_msx1_ppi_keyboard_row_decode_and_bsr_generation(tmp_path):
     c_bus = (outdir / "src" / "msx1_system_bus.c").read_text(encoding="utf-8")
     c_ppi = (outdir / "src" / "msx1_ic_ppi0.c").read_text(encoding="utf-8")
     c_vdp = (outdir / "src" / "msx1_ic_vdp0.c").read_text(encoding="utf-8")
-    c_src = c_core + "\n" + c_glue + "\n" + c_bus + "\n" + c_ppi + "\n" + c_vdp
+    c_device = (outdir / "src" / "msx1_device_glue.c").read_text(encoding="utf-8")
+    c_src = c_core + "\n" + c_glue + "\n" + c_bus + "\n" + c_ppi + "\n" + c_vdp + "\n" + c_device
     assert "comp->port_c" in c_src
     assert "if ((value & 0x80u) != 0u)" in c_src
     assert "uint8_t bit = (uint8_t)((value >> 1) & 0x07u);" in c_src
-    assert "uint8_t lo = (uint8_t)(comp->port_c & 0x0Fu);" in c_src
-    assert "uint8_t hi = (uint8_t)((comp->port_c >> 4) & 0x0Fu);" in c_src
+    assert "uint8_t lo = (uint8_t)(new_port_c & 0x0Fu);" in c_src
+    assert "uint8_t hi = (uint8_t)((new_port_c >> 4) & 0x0Fu);" in c_src
     assert "value = comp->port_c;" in c_src
     assert "uint8_t value = (cpu->port_size > 0u) ? cpu->port_memory[port_index] : 0xFF;" in c_src
     assert "CPU_HOST_SCANCODE(LEFT)" in c_src

@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PASM Floppy Drive Definition",
+  "description": "Schema for reusable floppy drive hardware definitions.",
+  "type": "object",
+  "required": [
+    "metadata",
+    "drive"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "model"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "floppy_drive"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "drive": {
+      "type": "object",
+      "required": [
+        "type",
+        "size",
+        "speed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "size": {
+          "type": "object",
+          "required": [
+            "form_factor",
+            "sides",
+            "formatted_capacity_kb"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "form_factor": {
+              "type": "string"
+            },
+            "sides": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "tracks": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sectors_per_track": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "formatted_capacity_kb": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "speed": {
+          "type": "object",
+          "required": [
+            "transfer_bytes_per_sec"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "transfer_bytes_per_sec": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "controller_class": {
+          "type": "string"
+        },
+        "bus": {
+          "type": "string"
+        },
+        "media_extensions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\.?[A-Za-z0-9_+\\-]{1,15}$"
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

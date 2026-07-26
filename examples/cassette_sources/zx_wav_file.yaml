@@ -1,0 +1,12 @@
+metadata:
+  id: zx_wav_file
+  type: cassette_source
+  model: common_zx_wav_file_source
+  version: "1.0"
+  title: ZX WAV Tape File
+
+source:
+  kind: file
+  label: ZX WAV Tape
+  source_component: cassette_wav_source
+  allowed_extensions: [yaml, wav]

@@ -1,0 +1,615 @@
+metadata:
+  id: cassette_transport_nomotor
+  type: cassette_transport
+  model: common_cassette_transport_nomotor_wav
+  version: "1.0"
+
+state:
+  - name: transport_mode
+    type: uint8_t
+    initial: "0"
+  - name: motor_on
+    type: uint8_t
+    initial: "0"
+  - name: volume_percent
+    type: uint8_t
+    initial: "100"
+  - name: bass_percent
+    type: uint8_t
+    initial: "50"
+  - name: treble_percent
+    type: uint8_t
+    initial: "50"
+  - name: input_level
+    type: uint8_t
+    initial: "128"
+  - name: input_raw_level
+    type: uint8_t
+    initial: "128"
+  - name: playback_level
+    type: uint8_t
+    initial: "128"
+  - name: output_level
+    type: uint8_t
+    initial: "128"
+  - name: media_loaded
+    type: uint8_t
+    initial: "0"
+  - name: media_path
+    type: char *
+    initial: "NULL"
+  - name: record_fp
+    type: void *
+    initial: "NULL"
+  - name: record_bytes
+    type: uint32_t
+    initial: "0"
+  - name: selected_source_kind
+    type: uint8_t
+    initial: "0"
+  - name: selected_source_model
+    type: char *
+    initial: "NULL"
+  - name: selected_source_component
+    type: char *
+    initial: "NULL"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: select_source
+      args: [u8, u8, ptr, ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: set_transport_mode
+      args: [u8]
+      returns: u8
+    - name: set_motor
+      args: [u8]
+      returns: u8
+    - name: set_volume
+      args: [u8]
+      returns: u8
+    - name: set_bass
+      args: [u8]
+      returns: u8
+    - name: set_treble
+      args: [u8]
+      returns: u8
+    - name: sample_input
+      args: []
+      returns: u8
+    - name: query_transport_state
+      args: []
+      returns: u64
+    - name: query_selected_source_kind
+      args: []
+      returns: u64
+    - name: query_selected_source_model
+      args: []
+      returns: u64
+    - name: query_edge_count
+      args: []
+      returns: u64
+    - name: query_edge_initial_level
+      args: []
+      returns: u64
+    - name: query_edge_fp
+      args: [u32]
+      returns: u64
+    - name: query_sample_rate
+      args: []
+      returns: u64
+    - name: query_playhead_samples
+      args: []
+      returns: u64
+    - name: query_leader_start_sample
+      args: []
+      returns: u64
+    - name: query_leader_start_index
+      args: []
+      returns: u64
+    - name: query_leader_end_sample
+      args: []
+      returns: u64
+    - name: query_leader_end_index
+      args: []
+      returns: u64
+    - name: query_playback_level
+      args: []
+      returns: u64
+    - name: query_volume_percent
+      args: []
+      returns: u64
+    - name: set_playhead_fp
+      args: [u64, u32]
+      returns: u8
+    - name: push_output_sample
+      args: [u8, u64]
+      returns: u8
+  handlers:
+    - name: on_output_sample
+      args: [u8, u64]
+  signals:
+    - name: tape_level
+      args: [u8, u64]
+    - name: playback_sample
+      args: [u8, u64]
+    - name: tape_output_level
+      args: [u8, u64]
+    - name: transport_state
+      args: [u8]
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->transport_mode = 0u;
+      comp->motor_on = 0u;
+      comp->volume_percent = 100u;
+      comp->bass_percent = 50u;
+      comp->treble_percent = 50u;
+      comp->input_level = 128u;
+      comp->input_raw_level = 128u;
+      comp->playback_level = 128u;
+      comp->output_level = 128u;
+      comp->media_loaded = 0u;
+      comp->selected_source_kind = 0u;
+      if (comp->media_path != NULL) {
+          free(comp->media_path);
+          comp->media_path = NULL;
+      }
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+    destroy: |
+      if (comp->record_fp != NULL) {
+          FILE *fp = (FILE *)comp->record_fp;
+          uint32_t riff_size = 36u + comp->record_bytes;
+          uint32_t data_size = comp->record_bytes;
+          fseek(fp, 4, SEEK_SET);
+          fwrite(&riff_size, 1, 4, fp);
+          fseek(fp, 40, SEEK_SET);
+          fwrite(&data_size, 1, 4, fp);
+          fclose(fp);
+          comp->record_fp = NULL;
+      }
+      if (comp->media_path != NULL) {
+          free(comp->media_path);
+          comp->media_path = NULL;
+      }
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      (void)cpu;
+  callback_handlers:
+    select_source: |
+      const char *model = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : NULL;
+      const char *source_component = (argc > 3u && args[3] != 0u) ? (const char *)(uintptr_t)args[3] : NULL;
+      FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_EMU_CASSETTE_TRACE");
+      if (trace_env != NULL && trace_env[0] != '\0' && strcmp(trace_env, "0") != 0) {
+          const char *trace_path = getenv("PASM_EMU_CASSETTE_TRACE_FILE");
+          if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+          if (trace_fp == NULL) trace_fp = stderr;
+      }
+      comp->selected_source_kind = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      if (model != NULL && model[0] != '\0') {
+          comp->selected_source_model = strdup(model);
+          if (comp->selected_source_model == NULL) return 0u;
+      }
+      if (source_component != NULL && source_component[0] != '\0') {
+          comp->selected_source_component = strdup(source_component);
+          if (comp->selected_source_component == NULL) return 0u;
+      }
+      if (
+          comp->selected_source_component != NULL &&
+          comp->selected_source_component[0] != '\0' &&
+          strcmp(comp->selected_source_component, "cassette_transport_nomotor") != 0
+      ) {
+          uint64_t forwarded = cpu_component_dispatch_callback(cpu, comp->selected_source_component, "select_source", args, argc);
+          if (trace_fp != NULL) {
+              fprintf(
+                  trace_fp,
+                  "cassette_transport select kind=%u model=%s component=%s forwarded=%llu\n",
+                  (unsigned)comp->selected_source_kind,
+                  (comp->selected_source_model != NULL) ? comp->selected_source_model : "",
+                  comp->selected_source_component,
+                  (unsigned long long)forwarded
+              );
+              fflush(trace_fp);
+              if (trace_fp != stderr) fclose(trace_fp);
+          }
+      } else if (trace_fp != NULL) {
+          fprintf(
+              trace_fp,
+              "cassette_transport select kind=%u model=%s component=%s forwarded=skip\n",
+              (unsigned)comp->selected_source_kind,
+              (comp->selected_source_model != NULL) ? comp->selected_source_model : "",
+              (comp->selected_source_component != NULL) ? comp->selected_source_component : ""
+          );
+          fflush(trace_fp);
+          if (trace_fp != stderr) fclose(trace_fp);
+      }
+      return 1u;
+    load_media: |
+      if (argc < 1u || args[0] == 0u) return 0u;
+      {
+          const char *path = (const char *)(uintptr_t)args[0];
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          uint8_t ok = 0u;
+          FILE *trace_fp = NULL;
+          const char *trace_env = getenv("PASM_EMU_CASSETTE_TRACE");
+          if (trace_env != NULL && trace_env[0] != '\0' && strcmp(trace_env, "0") != 0) {
+              const char *trace_path = getenv("PASM_EMU_CASSETTE_TRACE_FILE");
+              if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
+          if (comp->record_fp != NULL) {
+              FILE *old_fp = (FILE *)comp->record_fp;
+              uint32_t riff_size = 36u + comp->record_bytes;
+              uint32_t data_size = comp->record_bytes;
+              fseek(old_fp, 4, SEEK_SET);
+              fwrite(&riff_size, 1, 4, old_fp);
+              fseek(old_fp, 40, SEEK_SET);
+              fwrite(&data_size, 1, 4, old_fp);
+              fclose(old_fp);
+              comp->record_fp = NULL;
+              comp->record_bytes = 0u;
+          }
+          if (comp->media_path != NULL) {
+              free(comp->media_path);
+              comp->media_path = NULL;
+          }
+          if (source_component[0] == '\0' || strcmp(source_component, "cassette_transport_nomotor") == 0) {
+              if (trace_fp != NULL) {
+                  fprintf(trace_fp, "cassette_transport load path=%s component=%s ok=0 reason=no_source\n", path, source_component);
+                  fflush(trace_fp);
+                  if (trace_fp != stderr) fclose(trace_fp);
+              }
+              return 0u;
+          }
+          ok = (uint8_t)cpu_component_dispatch_callback(cpu, source_component, "load_media", args, argc);
+          if (trace_fp != NULL) {
+              fprintf(trace_fp, "cassette_transport load path=%s component=%s ok=%u\n", path, source_component, (unsigned)ok);
+              fflush(trace_fp);
+              if (trace_fp != stderr) fclose(trace_fp);
+          }
+          if (ok == 0u) return 0u;
+          comp->media_path = strdup(path);
+          comp->media_loaded = 1u;
+          comp->transport_mode = 0u;
+          comp->motor_on = 0u;
+          comp->input_level = 128u;
+          comp->input_raw_level = 128u;
+          comp->playback_level = 128u;
+      }
+      return 1u;
+    unload_media: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              (void)cpu_component_dispatch_callback(cpu, source_component, "unload_media", NULL, 0);
+          }
+          comp->media_loaded = 0u;
+          comp->transport_mode = 0u;
+          comp->motor_on = 0u;
+          comp->input_level = 128u;
+          comp->input_raw_level = 128u;
+          comp->playback_level = 128u;
+          if (comp->media_path != NULL) {
+              free(comp->media_path);
+              comp->media_path = NULL;
+          }
+          if (comp->record_fp != NULL) {
+              FILE *fp = (FILE *)comp->record_fp;
+              uint32_t riff_size = 36u + comp->record_bytes;
+              uint32_t data_size = comp->record_bytes;
+              fseek(fp, 4, SEEK_SET);
+              fwrite(&riff_size, 1, 4, fp);
+              fseek(fp, 40, SEEK_SET);
+              fwrite(&data_size, 1, 4, fp);
+              fclose(fp);
+              comp->record_fp = NULL;
+              comp->record_bytes = 0u;
+          }
+      }
+      return 1u;
+    set_transport_mode: |
+      if (argc < 1u) return 0u;
+      {
+          uint8_t prev_mode = comp->transport_mode;
+          uint8_t next_mode = (uint8_t)(args[0] & 0xFFu);
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          comp->transport_mode = next_mode;
+          comp->motor_on = (uint8_t)((next_mode == 1u || next_mode == 3u) ? 1u : 0u);
+          if (next_mode != 1u) {
+              comp->input_level = 128u;
+              comp->input_raw_level = 128u;
+              comp->playback_level = 128u;
+              }
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              if (cpu_component_dispatch_callback(cpu, source_component, "set_transport_mode", args, argc) == 0u) return 0u;
+          }
+          if (prev_mode != next_mode) {
+              uint64_t packed_state = (uint64_t)comp->transport_mode | ((uint64_t)(comp->motor_on != 0u) << 8u);
+              uint64_t sig_args[1] = { packed_state };
+              cpu_component_emit_signal(cpu, "cassette_transport_nomotor", "transport_state", sig_args, 1);
+          }
+      }
+      if (comp->transport_mode == 3u && comp->record_fp == NULL && comp->media_path != NULL) {
+          FILE *fp = fopen(comp->media_path, "wb");
+          if (fp != NULL) {
+              uint32_t zero32 = 0u;
+              uint16_t fmt16 = 1u;
+              uint16_t ch16 = 1u;
+              uint32_t rate32 = (CPU_AUDIO_SAMPLE_RATE > 0u) ? (uint32_t)CPU_AUDIO_SAMPLE_RATE : 44100u;
+              uint32_t byte_rate = rate32 * 2u;
+              uint16_t align16 = 2u;
+              uint16_t bits16 = 16u;
+              fwrite("RIFF", 1, 4, fp);
+              fwrite(&zero32, 1, 4, fp);
+              fwrite("WAVEfmt ", 1, 8, fp);
+              zero32 = 16u;
+              fwrite(&zero32, 1, 4, fp);
+              fwrite(&fmt16, 1, 2, fp);
+              fwrite(&ch16, 1, 2, fp);
+              fwrite(&rate32, 1, 4, fp);
+              fwrite(&byte_rate, 1, 4, fp);
+              fwrite(&align16, 1, 2, fp);
+              fwrite(&bits16, 1, 2, fp);
+              fwrite("data", 1, 4, fp);
+              zero32 = 0u;
+              fwrite(&zero32, 1, 4, fp);
+              comp->record_fp = (void *)fp;
+              comp->record_bytes = 0u;
+          }
+      }
+      return 1u;
+    set_motor: |
+      if (argc >= 1u) {
+          comp->motor_on = (uint8_t)((args[0] & 0xFFu) != 0u ? 1u : 0u);
+      }
+      (void)argc;
+      if (
+          comp->selected_source_component != NULL &&
+          comp->selected_source_component[0] != '\0' &&
+          strcmp(comp->selected_source_component, "cassette_transport_nomotor") != 0
+      ) {
+          (void)cpu_component_dispatch_callback(cpu, comp->selected_source_component, "set_motor", args, argc);
+      }
+      return 1u;
+    set_volume: |
+      if (argc < 1u) return 0u;
+      comp->volume_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      if (
+          comp->selected_source_component != NULL &&
+          comp->selected_source_component[0] != '\0' &&
+          strcmp(comp->selected_source_component, "cassette_transport_nomotor") != 0
+      ) {
+          (void)cpu_component_dispatch_callback(cpu, comp->selected_source_component, "set_volume", args, argc);
+      }
+      return 1u;
+    set_bass: |
+      if (argc < 1u) return 0u;
+      comp->bass_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      if (
+          comp->selected_source_component != NULL &&
+          comp->selected_source_component[0] != '\0' &&
+          strcmp(comp->selected_source_component, "cassette_transport_nomotor") != 0
+      ) {
+          (void)cpu_component_dispatch_callback(cpu, comp->selected_source_component, "set_bass", args, argc);
+      }
+      return 1u;
+    set_treble: |
+      if (argc < 1u) return 0u;
+      comp->treble_percent = (uint8_t)((args[0] > 100u) ? 100u : (args[0] & 0xFFu));
+      if (
+          comp->selected_source_component != NULL &&
+          comp->selected_source_component[0] != '\0' &&
+          strcmp(comp->selected_source_component, "cassette_transport_nomotor") != 0
+      ) {
+          (void)cpu_component_dispatch_callback(cpu, comp->selected_source_component, "set_treble", args, argc);
+      }
+      return 1u;
+    query_transport_state: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          uint64_t packed = (uint64_t)comp->transport_mode;
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_transport_state", NULL, 0);
+          }
+          if (comp->motor_on != 0u) packed |= (1ull << 8);
+          if (comp->media_loaded != 0u) packed |= (1ull << 9);
+          packed |= ((uint64_t)comp->volume_percent & 0xFFull) << 48u;
+          return packed;
+      }
+    query_selected_source_kind: |
+      return (uint64_t)comp->selected_source_kind;
+    query_selected_source_model: |
+      return (uint64_t)(uintptr_t)((comp->selected_source_model != NULL) ? comp->selected_source_model : "");
+    query_edge_count: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_edge_count", NULL, 0);
+          }
+          return 0u;
+      }
+    query_edge_initial_level: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_edge_initial_level", NULL, 0);
+          }
+          return 0u;
+      }
+    query_edge_fp: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_edge_fp", args, argc);
+          }
+          return 0u;
+      }
+    query_sample_rate: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_sample_rate", NULL, 0);
+          }
+          return 0u;
+      }
+    query_playhead_samples: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_playhead_samples", NULL, 0);
+          }
+          return 0u;
+      }
+    query_leader_start_sample: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_leader_start_sample", NULL, 0);
+          }
+          return 0u;
+      }
+    query_leader_start_index: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_leader_start_index", NULL, 0);
+          }
+          return 0u;
+      }
+    query_leader_end_sample: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_leader_end_sample", NULL, 0);
+          }
+          return 0u;
+      }
+    query_leader_end_index: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_leader_end_index", NULL, 0);
+          }
+          return 0u;
+      }
+    query_playback_level: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_playback_level", NULL, 0);
+          }
+          return (uint64_t)comp->playback_level;
+      }
+    query_volume_percent: |
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return cpu_component_dispatch_callback(cpu, source_component, "query_volume_percent", NULL, 0);
+          }
+          return (uint64_t)comp->volume_percent;
+      }
+    set_playhead_fp: |
+      if (argc < 1u) return 0u;
+      {
+          const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+              return (uint8_t)cpu_component_dispatch_callback(cpu, source_component, "set_playhead_fp", args, argc);
+          }
+      }
+      return 0u;
+    sample_input: |
+      uint64_t cycle = (argc > 1u) ? args[1] : cpu->total_cycles;
+      uint64_t flags = (argc > 0u) ? args[0] : 0u;
+      uint8_t want_raw = (uint8_t)((flags & 0x01u) != 0u ? 1u : 0u);
+      const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+      uint8_t prev_input = comp->input_level;
+      uint8_t prev_playback = comp->playback_level;
+      if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
+          uint8_t value = (uint8_t)cpu_component_dispatch_callback(cpu, source_component, "sample_input", args, argc);
+          comp->playback_level = (uint8_t)cpu_component_dispatch_callback(cpu, source_component, "query_playback_level", NULL, 0);
+          if (want_raw != 0u) comp->input_raw_level = value;
+          else comp->input_level = value;
+          if (prev_playback != comp->playback_level) {
+              uint64_t aud_args[2] = { (uint64_t)comp->playback_level, cycle };
+              cpu_component_emit_signal(cpu, "cassette_transport_nomotor", "playback_sample", aud_args, 2);
+          }
+          if (want_raw == 0u && prev_input != comp->input_level) {
+              uint64_t sig_args[2] = { (uint64_t)comp->input_level, cycle };
+              cpu_component_emit_signal(cpu, "cassette_transport_nomotor", "tape_level", sig_args, 2);
+          }
+          return value;
+      }
+      comp->input_level = 128u;
+      comp->input_raw_level = 128u;
+      comp->playback_level = 128u;
+      return (want_raw != 0u) ? comp->input_raw_level : comp->input_level;
+    push_output_sample: |
+      uint64_t cycle = (argc > 1u) ? args[1] : cpu->total_cycles;
+      if (argc < 1u) return 0u;
+      comp->output_level = (uint8_t)(args[0] & 0xFFu);
+      if (comp->transport_mode == 3u && comp->motor_on != 0u && comp->record_fp != NULL) {
+          FILE *fp = (FILE *)comp->record_fp;
+          int16_t sample = (int16_t)(((int32_t)comp->output_level - 128) << 8u);
+          fwrite(&sample, 1, 2, fp);
+          comp->record_bytes += 2u;
+      }
+      {
+          uint64_t sig_args[2] = { (uint64_t)comp->output_level, cycle };
+          cpu_component_emit_signal(cpu, "cassette_transport_nomotor", "tape_output_level", sig_args, 2);
+      }
+      return 1u;
+  handler_bodies:
+    on_output_sample: |
+      uint64_t cycle = (argc > 1u) ? args[1] : cpu->total_cycles;
+      if (argc < 1u) return;
+      comp->output_level = (uint8_t)(args[0] & 0xFFu);
+      if (comp->transport_mode == 3u && comp->motor_on != 0u && comp->record_fp != NULL) {
+          FILE *fp = (FILE *)comp->record_fp;
+          int16_t sample = (int16_t)(((int32_t)comp->output_level - 128) << 8u);
+          fwrite(&sample, 1, 2, fp);
+          comp->record_bytes += 2u;
+      }
+      {
+          uint64_t sig_args[2] = { (uint64_t)comp->output_level, cycle };
+          cpu_component_emit_signal(cpu, "cassette_transport_nomotor", "tape_output_level", sig_args, 2);
+      }
+
+coding:
+  headers:
+    - stdio.h
+    - stdlib.h
+    - string.h
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

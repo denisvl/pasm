@@ -16,6 +16,7 @@ from src.codegen.cpu_debug_abi import generate_debug_abi
 from src.codegen.cpu_header import generate_cpu_header
 from src.codegen.cpu_impl import generate_cpu_impl
 from src.codegen.cpu_impl import generate_cartridge_picker_runtime_glue
+from src.codegen.cpu_impl import generate_cpu_impl
 from src.codegen.cpu_impl import generate_host_hal_impl_glue
 from src.codegen.cpu_impl import generate_input_runtime_glue
 from src.codegen.cpu_impl import generate_input_runtime_contract_support
@@ -1434,6 +1435,99 @@ def test_cpu_impl_excludes_picker_fs_headers_from_core():
     assert "#include <limits.h>" not in core_impl
     assert "#include <sys/stat.h>" not in core_impl
     assert "#include <dirent.h>" not in core_impl
+
+
+def test_cpu_impl_generates_cassette_source_type_runtime_glue():
+    isa = _base_isa("CassetteSourceSplit8")
+    isa["host_backend_target"] = "sdl2"
+    isa["hosts"] = [{"metadata": {"id": "host_dummy"}}]
+    isa["system"] = {"ui": {}}
+    isa["cassette"] = {
+        "component": "cassette_transport",
+        "directory": "examples/cassettes/demo",
+        "allowed_extensions": ["yaml", "wav", "uef"],
+        "sources": [
+                {
+                    "source_type": "examples/cassette_sources/wav_file.yaml",
+                    "source_model": "common_wav_file_source",
+                    "kind": "file",
+                    "component": "cassette_transport",
+                    "source_component": "cassette_wav_source",
+                    "allowed_extensions": ["yaml", "wav"],
+                    "label": "Tape File",
+                },
+                {
+                    "source_type": "examples/cassette_sources/line_in.yaml",
+                    "source_model": "common_line_in_source",
+                    "kind": "line_in",
+                    "component": "cassette_transport",
+                    "label": "Line In",
+                },
+                {
+                    "source_type": "examples/cassette_sources/uef_file.yaml",
+                    "source_model": "common_uef_file_source",
+                    "kind": "file",
+                    "component": "cassette_transport",
+                    "source_component": "cassette_uef_source",
+                    "allowed_extensions": ["uef"],
+                    "label": "UEF Tape",
+                },
+        ],
+        "controls": {
+            "picker_action_id": "EMU_CASSETTE_PICKER",
+            "play_action_id": "EMU_CASSETTE_PLAY",
+            "pause_action_id": "EMU_CASSETTE_PAUSE",
+            "stop_action_id": "EMU_CASSETTE_STOP",
+            "record_action_id": "EMU_CASSETTE_RECORD",
+            "volume_up_action_id": "EMU_CASSETTE_VOL_UP",
+            "volume_down_action_id": "EMU_CASSETTE_VOL_DOWN",
+            "bass_up_action_id": "EMU_CASSETTE_BASS_UP",
+            "bass_down_action_id": "EMU_CASSETTE_BASS_DOWN",
+            "treble_up_action_id": "EMU_CASSETTE_TREBLE_UP",
+            "treble_down_action_id": "EMU_CASSETTE_TREBLE_DOWN",
+        },
+    }
+
+    impl = generate_cpu_impl(
+        isa,
+        "CassetteSourceSplit8",
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+
+    assert 'component_id = cpu_component_cassette_component_for_ext(de->d_name, &source_index);' in impl
+    assert 'static const char *cpu_component_cassette_model_for_ext(const char *name) {' in impl
+    assert 'static const char *cpu_component_cassette_component_for_source_index(uint8_t source_index) {' in impl
+    assert 'static const char *cpu_component_cassette_source_component_for_source_index(uint8_t source_index) {' in impl
+    assert 'static uint8_t cpu_component_cassette_kind_for_source_index(uint8_t source_index) {' in impl
+    assert 'static const char *cpu_component_cassette_model_for_source_index(uint8_t source_index) {' in impl
+    assert 'if (ea->source_kind != eb->source_kind) return (ea->source_kind == 1u) ? -1 : 1;' in impl
+    assert 'if (source_index == 1u) return 1u;' in impl
+    assert 'if (strcmp(ext, "wav") == 0) return cpu_component_cassette_model_for_source_index(0u);' in impl
+    assert 'if (strcmp(ext, "uef") == 0) return cpu_component_cassette_model_for_source_index(2u);' in impl
+    assert 'uint8_t active_source_kind;' in impl
+    assert 'uint8_t active_source_index;' in impl
+    assert 'uint8_t pending_source_index;' in impl
+    assert 'uint64_t args[1] = { (uint64_t)(uintptr_t)"" };' in impl
+    assert 'snprintf(entry->file_name, sizeof(entry->file_name), "%s", "Line In");' in impl
+    assert 'snprintf(entry->source_model, sizeof(entry->source_model), "%s", cpu_component_cassette_model_for_source_index(1u));' in impl
+    assert 'snprintf(entry->component_id, sizeof(entry->component_id), "%s", cpu_component_cassette_component_for_source_index(1u));' in impl
+    assert 'snprintf(entry->source_component_id, sizeof(entry->source_component_id), "%s", cpu_component_cassette_source_component_for_source_index(1u));' in impl
+    assert 'if (source_model != NULL) snprintf(entry->source_model, sizeof(entry->source_model), "%s", source_model); else entry->source_model[0] = \'\\0\';' in impl
+    assert 'g_runtime_cassette_picker.active_source_kind = cpu_component_cassette_kind_for_source_index(auto_source_index);' in impl
+    assert 'g_runtime_cassette_picker.pending_source_index = auto_source_index;' in impl
+    assert 'g_runtime_cassette_picker.pending_source_kind = cpu_component_cassette_kind_for_source_index(auto_source_index);' in impl
+    assert 'g_runtime_cassette_picker.active_source_kind = sel->source_kind;' in impl
+    assert 'g_runtime_cassette_picker.pending_source_index = sel->source_index;' in impl
+    assert 'g_runtime_cassette_picker.active_source_kind = g_runtime_cassette_picker.pending_source_kind;' in impl
+    assert 'g_runtime_cassette_picker.active_source_index = g_runtime_cassette_picker.pending_source_index;' in impl
+    assert 'snprintf(g_runtime_cassette_picker.active_source_model, sizeof(g_runtime_cassette_picker.active_source_model), "%s", sel->source_model);' in impl
+    assert 'snprintf(g_runtime_cassette_picker.active_source_component_id, sizeof(g_runtime_cassette_picker.active_source_component_id), "%s", sel->source_component_id);' in impl
+    assert 'uint64_t select_args[4] = {' in impl
+    assert '(uint64_t)(uintptr_t)g_runtime_cassette_picker.active_source_component_id' in impl
+    assert 'if (cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, "select_source", select_args, 4) == 0u) {' in impl
+    assert 'snprintf(g_runtime_cassette_picker.active_component_id, sizeof(g_runtime_cassette_picker.active_component_id), "%s", sel->component_id);' in impl
 
 
 def test_extract_split_section_finds_component_dispatch_block():

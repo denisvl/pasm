@@ -4,10 +4,130 @@ metadata:
   model: apple2_ttl_decode
   version: "1.0"
 
-state: []
+state:
+  - name: phase0
+    type: uint8_t
+    initial: "0"
+  - name: phase1
+    type: uint8_t
+    initial: "0"
+  - name: phase2
+    type: uint8_t
+    initial: "0"
+  - name: phase3
+    type: uint8_t
+    initial: "0"
+  - name: motor_on
+    type: uint8_t
+    initial: "0"
+  - name: motor_off_pending
+    type: uint8_t
+    initial: "0"
+  - name: motor_off_cycle
+    type: uint64_t
+    initial: "0"
+  - name: drive_select
+    type: uint8_t
+    initial: "0"
+  - name: q6
+    type: uint8_t
+    initial: "0"
+  - name: q7
+    type: uint8_t
+    initial: "0"
+  - name: track_pos0
+    type: uint16_t
+    initial: "0"
+  - name: track_pos1
+    type: uint16_t
+    initial: "0"
+  - name: current_phase0
+    type: uint8_t
+    initial: "0"
+  - name: current_phase1
+    type: uint8_t
+    initial: "0"
+  - name: last_phase_mask
+    type: uint8_t
+    initial: "0"
+  - name: data_latch
+    type: uint8_t
+    initial: "0"
+  - name: controller_bus
+    type: uint8_t
+    initial: "0"
+  - name: drive_write_protected0
+    type: uint8_t
+    initial: "0"
+  - name: drive_write_protected1
+    type: uint8_t
+    initial: "0"
+  - name: stream_skip0
+    type: uint8_t
+    initial: "0"
+  - name: stream_skip1
+    type: uint8_t
+    initial: "0"
+  - name: stream_mode0
+    type: uint8_t
+    initial: "0"
+  - name: stream_mode1
+    type: uint8_t
+    initial: "0"
+  - name: drive_head0
+    type: uint32_t
+    initial: "0"
+  - name: drive_head1
+    type: uint32_t
+    initial: "0"
+  - name: seq_clock0
+    type: uint8_t
+    initial: "0"
+  - name: seq_clock1
+    type: uint8_t
+    initial: "0"
+  - name: seq_state0
+    type: uint8_t
+    initial: "2"
+  - name: seq_state1
+    type: uint8_t
+    initial: "2"
+  - name: seq_zero_run0
+    type: uint8_t
+    initial: "0"
+  - name: seq_zero_run1
+    type: uint8_t
+    initial: "0"
+  - name: seq_noise0
+    type: uint32_t
+    initial: "0x1A2B3C4D"
+  - name: seq_noise1
+    type: uint32_t
+    initial: "0x1A2B3C4D"
+  - name: seq_last_cycles0
+    type: uint64_t
+    initial: "0"
+  - name: seq_last_cycles1
+    type: uint64_t
+    initial: "0"
+  - name: selected_source_component0
+    type: char *
+    initial: "NULL"
+  - name: selected_source_component1
+    type: char *
+    initial: "NULL"
 
 interfaces:
-  callbacks: []
+  callbacks:
+    - name: load_media
+      args: [ptr, ptr, ptr]
+      returns: u8
+    - name: unload_media
+      args: [u8]
+      returns: u8
+    - name: query_drive_activity
+      args: [u8]
+      returns: u8
   handlers: []
   signals: []
 
@@ -16,8 +136,614 @@ maps:
     ranges: []
 
 behavior:
-  snippets: {}
-  callback_handlers: {}
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->phase0 = 0u;
+      comp->phase1 = 0u;
+      comp->phase2 = 0u;
+      comp->phase3 = 0u;
+      comp->motor_on = 0u;
+      comp->motor_off_pending = 0u;
+      comp->motor_off_cycle = 0u;
+      comp->drive_select = 0u;
+      comp->q6 = 0u;
+      comp->q7 = 0u;
+      comp->track_pos0 = 0u;
+      comp->track_pos1 = 0u;
+      comp->current_phase0 = 0u;
+      comp->current_phase1 = 0u;
+      comp->last_phase_mask = 0u;
+      comp->data_latch = 0u;
+      comp->controller_bus = 0u;
+      comp->drive_write_protected0 = 0u;
+      comp->drive_write_protected1 = 0u;
+      comp->stream_skip0 = 0u;
+      comp->stream_skip1 = 0u;
+      comp->stream_mode0 = 0u;
+      comp->stream_mode1 = 0u;
+      comp->drive_head0 = 0u;
+      comp->drive_head1 = 0u;
+      comp->seq_clock0 = 0u;
+      comp->seq_clock1 = 0u;
+      comp->seq_state0 = 2u;
+      comp->seq_state1 = 2u;
+      comp->seq_zero_run0 = 0u;
+      comp->seq_zero_run1 = 0u;
+      comp->seq_noise0 = 0x1A2B3C4Du;
+      comp->seq_noise1 = 0x1A2B3C4Du;
+      comp->seq_last_cycles0 = 0u;
+      comp->seq_last_cycles1 = 0u;
+    destroy: |
+      if (comp->selected_source_component0 != NULL) {
+          free(comp->selected_source_component0);
+          comp->selected_source_component0 = NULL;
+      }
+      if (comp->selected_source_component1 != NULL) {
+          free(comp->selected_source_component1);
+          comp->selected_source_component1 = NULL;
+      }
+      (void)cpu;
+    mem_read_pre: |
+      static const uint8_t disk2_rom[256] = {
+          0xA2,0x20,0xA0,0x00,0xA2,0x03,0x86,0x3C,0x8A,0x0A,0x24,0x3C,0xF0,0x10,0x05,0x3C,
+          0x49,0xFF,0x29,0x7E,0xB0,0x08,0x4A,0xD0,0xFB,0x98,0x9D,0x56,0x03,0xC8,0xE8,0x10,
+          0xE5,0x20,0x58,0xFF,0xBA,0xBD,0x00,0x01,0x0A,0x0A,0x0A,0x0A,0x85,0x2B,0xAA,0xBD,
+          0x8E,0xC0,0xBD,0x8C,0xC0,0xBD,0x8A,0xC0,0xBD,0x89,0xC0,0xA0,0x50,0xBD,0x80,0xC0,
+          0x98,0x29,0x03,0x0A,0x05,0x2B,0xAA,0xBD,0x81,0xC0,0xA9,0x56,0x20,0xA8,0xFC,0x88,
+          0x10,0xEB,0x85,0x26,0x85,0x3D,0x85,0x41,0xA9,0x08,0x85,0x27,0x18,0x08,0xBD,0x8C,
+          0xC0,0x10,0xFB,0x49,0xD5,0xD0,0xF7,0xBD,0x8C,0xC0,0x10,0xFB,0xC9,0xAA,0xD0,0xF3,
+          0xEA,0xBD,0x8C,0xC0,0x10,0xFB,0xC9,0x96,0xF0,0x09,0x28,0x90,0xDF,0x49,0xAD,0xF0,
+          0x25,0xD0,0xD9,0xA0,0x03,0x85,0x40,0xBD,0x8C,0xC0,0x10,0xFB,0x2A,0x85,0x3C,0xBD,
+          0x8C,0xC0,0x10,0xFB,0x25,0x3C,0x88,0xD0,0xEC,0x28,0xC5,0x3D,0xD0,0xBE,0xA5,0x40,
+          0xC5,0x41,0xD0,0xB8,0xB0,0xB7,0xA0,0x56,0x84,0x3C,0xBC,0x8C,0xC0,0x10,0xFB,0x59,
+          0xD6,0x02,0xA4,0x3C,0x88,0x99,0x00,0x03,0xD0,0xEE,0x84,0x3C,0xBC,0x8C,0xC0,0x10,
+          0xFB,0x59,0xD6,0x02,0xA4,0x3C,0x91,0x26,0xC8,0xD0,0xEF,0xBC,0x8C,0xC0,0x10,0xFB,
+          0x59,0xD6,0x02,0xD0,0x87,0xA0,0x00,0xA2,0x56,0xCA,0x30,0xFB,0xB1,0x26,0x5E,0x00,
+          0x03,0x2A,0x5E,0x00,0x03,0x2A,0x91,0x26,0xC8,0xD0,0xEE,0xE6,0x27,0xE6,0x3D,0xA5,
+          0x3D,0xCD,0x00,0x08,0xA6,0x2B,0x90,0xDB,0x4C,0x01,0x08,0x00,0x00,0x00,0x00,0x00
+      };
+      if (addr >= 0xC600u && addr <= 0xC6FFu &&
+          (comp->selected_source_component0 != NULL || comp->selected_source_component1 != NULL)) {
+          return disk2_rom[addr - 0xC600u];
+      }
+      if (addr >= 0xC0E0u && addr <= 0xC0EFu) {
+          static const uint8_t sequencer_rom_16[256] = {
+              0x18,0x18,0x18,0x18,0x0A,0x0A,0x0A,0x0A,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,
+              0x2D,0x2D,0x38,0x38,0x0A,0x0A,0x0A,0x0A,0x28,0x28,0x28,0x28,0x28,0x28,0x28,0x28,
+              0xD8,0x38,0x08,0x28,0x0A,0x0A,0x0A,0x0A,0x39,0x39,0x39,0x39,0x3B,0x3B,0x3B,0x3B,
+              0xD8,0x48,0x48,0x48,0x0A,0x0A,0x0A,0x0A,0x48,0x48,0x48,0x48,0x48,0x48,0x48,0x48,
+              0xD8,0x58,0xD8,0x58,0x0A,0x0A,0x0A,0x0A,0x58,0x58,0x58,0x58,0x58,0x58,0x58,0x58,
+              0xD8,0x68,0xD8,0x68,0x0A,0x0A,0x0A,0x0A,0x68,0x68,0x68,0x68,0x68,0x68,0x68,0x68,
+              0xD8,0x78,0xD8,0x78,0x0A,0x0A,0x0A,0x0A,0x78,0x78,0x78,0x78,0x78,0x78,0x78,0x78,
+              0xD8,0x88,0xD8,0x88,0x0A,0x0A,0x0A,0x0A,0x08,0x08,0x88,0x88,0x08,0x08,0x88,0x88,
+              0xD8,0x98,0xD8,0x98,0x0A,0x0A,0x0A,0x0A,0x98,0x98,0x98,0x98,0x98,0x98,0x98,0x98,
+              0xD8,0x29,0xD8,0xA8,0x0A,0x0A,0x0A,0x0A,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,
+              0xCD,0xBD,0xD8,0xB8,0x0A,0x0A,0x0A,0x0A,0xB9,0xB9,0xB9,0xB9,0xBB,0xBB,0xBB,0xBB,
+              0xD9,0x59,0xD8,0xC8,0x0A,0x0A,0x0A,0x0A,0xC8,0xC8,0xC8,0xC8,0xC8,0xC8,0xC8,0xC8,
+              0xD9,0xD9,0xD8,0xA0,0x0A,0x0A,0x0A,0x0A,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,
+              0xD8,0x08,0xE8,0xE8,0x0A,0x0A,0x0A,0x0A,0xE8,0xE8,0xE8,0xE8,0xE8,0xE8,0xE8,0xE8,
+              0xFD,0xFD,0xF8,0xF8,0x0A,0x0A,0x0A,0x0A,0xF8,0xF8,0xF8,0xF8,0xF8,0xF8,0xF8,0xF8,
+              0xDD,0x4D,0xE0,0xE0,0x0A,0x0A,0x0A,0x0A,0x88,0x88,0x08,0x08,0x88,0x88,0x08,0x08
+          };
+          uint8_t sw = (uint8_t)(addr & 0x0Fu);
+          uint8_t trace_before_skip = (comp->drive_select == 0u) ? comp->stream_skip0 : comp->stream_skip1;
+          uint8_t trace_before_latch = comp->data_latch;
+          char *selected_source_component = (comp->drive_select == 0u) ? comp->selected_source_component0 : comp->selected_source_component1;
+          uint16_t *track_pos_p = (comp->drive_select == 0u) ? &comp->track_pos0 : &comp->track_pos1;
+          uint8_t *current_phase_p = (comp->drive_select == 0u) ? &comp->current_phase0 : &comp->current_phase1;
+          uint8_t *drive_write_protected_p = (comp->drive_select == 0u) ? &comp->drive_write_protected0 : &comp->drive_write_protected1;
+          uint8_t *stream_skip_p = (comp->drive_select == 0u) ? &comp->stream_skip0 : &comp->stream_skip1;
+          uint8_t *stream_mode_p = (comp->drive_select == 0u) ? &comp->stream_mode0 : &comp->stream_mode1;
+          uint32_t *drive_head_p = (comp->drive_select == 0u) ? &comp->drive_head0 : &comp->drive_head1;
+          uint8_t *seq_clock_p = (comp->drive_select == 0u) ? &comp->seq_clock0 : &comp->seq_clock1;
+          uint8_t *seq_state_p = (comp->drive_select == 0u) ? &comp->seq_state0 : &comp->seq_state1;
+          uint8_t *seq_zero_run_p = (comp->drive_select == 0u) ? &comp->seq_zero_run0 : &comp->seq_zero_run1;
+          uint32_t *seq_noise_p = (comp->drive_select == 0u) ? &comp->seq_noise0 : &comp->seq_noise1;
+          uint64_t *seq_last_cycles_p = (comp->drive_select == 0u) ? &comp->seq_last_cycles0 : &comp->seq_last_cycles1;
+          #define TRACK_POS (*track_pos_p)
+          #define CURRENT_PHASE (*current_phase_p)
+          #define DRIVE_WRITE_PROTECTED (*drive_write_protected_p)
+          #define STREAM_SKIP (*stream_skip_p)
+          #define STREAM_MODE (*stream_mode_p)
+          #define DRIVE_HEAD (*drive_head_p)
+          #define SEQ_CLOCK (*seq_clock_p)
+          #define SEQ_STATE (*seq_state_p)
+          #define SEQ_ZERO_RUN (*seq_zero_run_p)
+          #define SEQ_NOISE (*seq_noise_p)
+          #define SEQ_LAST_CYCLES (*seq_last_cycles_p)
+          uint8_t phase_mask = (uint8_t)((comp->phase0 ? 1u : 0u) |
+                                         (comp->phase1 ? 2u : 0u) |
+                                         (comp->phase2 ? 4u : 0u) |
+                                         (comp->phase3 ? 8u : 0u));
+          const char *source_component = selected_source_component;
+          switch (sw) {
+              case 0x0u: comp->phase0 = 0u; break;
+              case 0x1u: comp->phase0 = 1u; break;
+              case 0x2u: comp->phase1 = 0u; break;
+              case 0x3u: comp->phase1 = 1u; break;
+              case 0x4u: comp->phase2 = 0u; break;
+              case 0x5u: comp->phase2 = 1u; break;
+              case 0x6u: comp->phase3 = 0u; break;
+              case 0x7u: comp->phase3 = 1u; break;
+              case 0x8u:
+                  if (comp->motor_on != 0u && comp->motor_off_pending == 0u) {
+                      comp->motor_off_pending = 1u;
+                      comp->motor_off_cycle = cpu->total_cycles + 1000000u;
+                  }
+                  break;
+              case 0x9u:
+                  if (comp->motor_on == 0u) SEQ_LAST_CYCLES = cpu->total_cycles;
+                  comp->motor_on = 1u;
+                  comp->motor_off_pending = 0u;
+                  break;
+              case 0xAu: comp->drive_select = 0u; break;
+              case 0xBu: comp->drive_select = 1u; break;
+              case 0xCu: comp->q6 = 0u; break;
+              case 0xDu:
+                  comp->q6 = 1u;
+                  if (STREAM_MODE == 0u && comp->q7 == 0u) {
+                      comp->data_latch = (uint8_t)(comp->data_latch >> 1u);
+                  }
+                  break;
+              case 0xEu: comp->q7 = 0u; break;
+              case 0xFu: comp->q7 = 1u; break;
+              default: break;
+          }
+          phase_mask = (uint8_t)((comp->phase0 ? 1u : 0u) |
+                                 (comp->phase1 ? 2u : 0u) |
+                                 (comp->phase2 ? 4u : 0u) |
+                                 (comp->phase3 ? 8u : 0u));
+          if (comp->motor_on != 0u) {
+              int32_t next_phase = -1;
+              int32_t delta = 0;
+              static const int8_t phase_delta[4][4] = {
+                  { 0,  1,  2, -1 },
+                  { -1, 0,  1,  2 },
+                  { -2, -1, 0,  1 },
+                  { 1, -2, -1, 0 }
+              };
+              switch (sw) {
+                  case 0x1u: next_phase = 0; break;
+                  case 0x3u: next_phase = 1; break;
+                  case 0x5u: next_phase = 2; break;
+                  case 0x7u: next_phase = 3; break;
+                  default: break;
+              }
+              if (next_phase >= 0) {
+                  uint32_t track_slots = 35u * 4u;
+                  delta = (int32_t)phase_delta[CURRENT_PHASE & 0x03u][next_phase] * 2;
+                  if (STREAM_MODE != 0u && source_component != NULL) {
+                      uint64_t slots = ({ uint64_t __a[1] = { (uint64_t)comp->drive_select }; cpu_component_dispatch_callback(cpu, source_component, "query_track_slots", __a, 1u); });
+                      if (slots != 0u) track_slots = (uint32_t)slots;
+                  }
+                  {
+                      int32_t new_track = (int32_t)TRACK_POS + delta;
+                      if (new_track < 0) new_track = 0;
+                      if (track_slots == 0u) track_slots = 1u;
+                      if (new_track > (int32_t)(track_slots - 1u)) new_track = (int32_t)(track_slots - 1u);
+                      TRACK_POS = (uint16_t)new_track;
+                  }
+                  CURRENT_PHASE = (uint8_t)next_phase;
+              }
+          }
+          comp->last_phase_mask = phase_mask;
+          if (STREAM_MODE != 0u && source_component != NULL) {
+              uint64_t work_cycles64 = 0u;
+              uint32_t track_bits = 0u;
+              if (comp->motor_on != 0u && cpu->total_cycles > SEQ_LAST_CYCLES) {
+                  work_cycles64 = (cpu->total_cycles - SEQ_LAST_CYCLES) * 2u;
+              }
+              if (comp->motor_on == 0u) {
+                  comp->data_latch = 0u;
+                  SEQ_LAST_CYCLES = cpu->total_cycles;
+              } else {
+                  uint64_t args_len[2] = { (uint64_t)comp->drive_select, (uint64_t)TRACK_POS };
+                  track_bits = (uint32_t)cpu_component_dispatch_callback(cpu, source_component, "query_track_bits", args_len, 2u);
+                  if (work_cycles64 > 200000u) work_cycles64 = 200000u;
+                  for (uint64_t wc = 0u; wc < work_cycles64; ++wc) {
+                      uint8_t pulse = 0u;
+                      if (SEQ_CLOCK == 4u && track_bits != 0u) {
+                          uint64_t args_bit[3] = { (uint64_t)comp->drive_select, (uint64_t)TRACK_POS, (uint64_t)DRIVE_HEAD };
+                          pulse = (uint8_t)cpu_component_dispatch_callback(cpu, source_component, "read_bit", args_bit, 3u);
+                          if (pulse == 0u) {
+                              SEQ_ZERO_RUN = (uint8_t)(SEQ_ZERO_RUN + 1u);
+                              if (SEQ_ZERO_RUN > 2u) {
+                                  uint32_t noise = SEQ_NOISE;
+                                  if (noise == 0u) noise = 0x1A2B3C4Du;
+                                  noise ^= noise << 13u;
+                                  noise ^= noise >> 17u;
+                                  noise ^= noise << 5u;
+                                  SEQ_NOISE = noise;
+                                  pulse = (uint8_t)(noise & 0x01u);
+                              }
+                          } else {
+                              SEQ_ZERO_RUN = 0u;
+                          }
+                      }
+                      {
+                          uint8_t idx = (uint8_t)((pulse != 0u) ? 0u : 1u);
+                          uint8_t command;
+                          idx |= (uint8_t)((comp->data_latch & 0x80u) != 0u ? 0x02u : 0u);
+                          idx |= (uint8_t)(comp->q6 != 0u ? 0x04u : 0u);
+                          idx |= (uint8_t)(comp->q7 != 0u ? 0x08u : 0u);
+                          idx |= (uint8_t)((SEQ_STATE & 0x0Fu) << 4u);
+                          command = sequencer_rom_16[idx];
+                          switch (command & 0x0Fu) {
+                              case 0x0u: comp->data_latch = 0u; break;
+                              case 0x8u: break;
+                              case 0x9u: comp->data_latch = (uint8_t)((comp->data_latch << 1u) & 0xFFu); break;
+                              case 0xAu:
+                                  comp->data_latch = (uint8_t)(comp->data_latch >> 1u);
+                                  if (DRIVE_WRITE_PROTECTED != 0u) comp->data_latch = (uint8_t)(comp->data_latch | 0x80u);
+                                  break;
+                              case 0xBu: comp->data_latch = comp->controller_bus; break;
+                              case 0xDu: comp->data_latch = (uint8_t)(((comp->data_latch << 1u) | 0x01u) & 0xFFu); break;
+                              default: break;
+                          }
+                          SEQ_STATE = (uint8_t)((command >> 4u) & 0x0Fu);
+                      }
+                      if (SEQ_CLOCK == 4u && track_bits != 0u) {
+                          DRIVE_HEAD++;
+                          if (DRIVE_HEAD >= track_bits) DRIVE_HEAD = 0u;
+                      }
+                      SEQ_CLOCK = (uint8_t)((SEQ_CLOCK + 1u) & 0x07u);
+                  }
+                  SEQ_LAST_CYCLES = cpu->total_cycles;
+              }
+          } else if (source_component != NULL && comp->q7 == 0u && comp->q6 == 0u && sw == 0x0Cu) {
+              if (comp->motor_on != 0u) {
+                  uint8_t track = (uint8_t)TRACK_POS;
+                  if (STREAM_SKIP != 0u) {
+                      uint64_t args_rd[2] = { (uint64_t)comp->drive_select, (uint64_t)track };
+                      comp->data_latch = (uint8_t)cpu_component_dispatch_callback(cpu, source_component, "read_nibble", args_rd, 2u);
+                  } else {
+                      comp->data_latch = 0u;
+                  }
+                  STREAM_SKIP ^= 1u;
+              } else {
+                  comp->data_latch = 0u;
+                  STREAM_SKIP = 0u;
+              }
+          }
+          if ((sw & 0x01u) != 0u) return 0x00u;
+          return comp->data_latch;
+      }
+    mem_write_pre: |
+      if (addr >= 0xC0E0u && addr <= 0xC0EFu) {
+          static const uint8_t sequencer_rom_16[256] = {
+              0x18,0x18,0x18,0x18,0x0A,0x0A,0x0A,0x0A,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,
+              0x2D,0x2D,0x38,0x38,0x0A,0x0A,0x0A,0x0A,0x28,0x28,0x28,0x28,0x28,0x28,0x28,0x28,
+              0xD8,0x38,0x08,0x28,0x0A,0x0A,0x0A,0x0A,0x39,0x39,0x39,0x39,0x3B,0x3B,0x3B,0x3B,
+              0xD8,0x48,0x48,0x48,0x0A,0x0A,0x0A,0x0A,0x48,0x48,0x48,0x48,0x48,0x48,0x48,0x48,
+              0xD8,0x58,0xD8,0x58,0x0A,0x0A,0x0A,0x0A,0x58,0x58,0x58,0x58,0x58,0x58,0x58,0x58,
+              0xD8,0x68,0xD8,0x68,0x0A,0x0A,0x0A,0x0A,0x68,0x68,0x68,0x68,0x68,0x68,0x68,0x68,
+              0xD8,0x78,0xD8,0x78,0x0A,0x0A,0x0A,0x0A,0x78,0x78,0x78,0x78,0x78,0x78,0x78,0x78,
+              0xD8,0x88,0xD8,0x88,0x0A,0x0A,0x0A,0x0A,0x08,0x08,0x88,0x88,0x08,0x08,0x88,0x88,
+              0xD8,0x98,0xD8,0x98,0x0A,0x0A,0x0A,0x0A,0x98,0x98,0x98,0x98,0x98,0x98,0x98,0x98,
+              0xD8,0x29,0xD8,0xA8,0x0A,0x0A,0x0A,0x0A,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,0xA8,
+              0xCD,0xBD,0xD8,0xB8,0x0A,0x0A,0x0A,0x0A,0xB9,0xB9,0xB9,0xB9,0xBB,0xBB,0xBB,0xBB,
+              0xD9,0x59,0xD8,0xC8,0x0A,0x0A,0x0A,0x0A,0xC8,0xC8,0xC8,0xC8,0xC8,0xC8,0xC8,0xC8,
+              0xD9,0xD9,0xD8,0xA0,0x0A,0x0A,0x0A,0x0A,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,
+              0xD8,0x08,0xE8,0xE8,0x0A,0x0A,0x0A,0x0A,0xE8,0xE8,0xE8,0xE8,0xE8,0xE8,0xE8,0xE8,
+              0xFD,0xFD,0xF8,0xF8,0x0A,0x0A,0x0A,0x0A,0xF8,0xF8,0xF8,0xF8,0xF8,0xF8,0xF8,0xF8,
+              0xDD,0x4D,0xE0,0xE0,0x0A,0x0A,0x0A,0x0A,0x88,0x88,0x08,0x08,0x88,0x88,0x08,0x08
+          };
+          uint8_t sw = (uint8_t)(addr & 0x0Fu);
+          char *selected_source_component = (comp->drive_select == 0u) ? comp->selected_source_component0 : comp->selected_source_component1;
+          uint16_t *track_pos_p = (comp->drive_select == 0u) ? &comp->track_pos0 : &comp->track_pos1;
+          uint8_t *current_phase_p = (comp->drive_select == 0u) ? &comp->current_phase0 : &comp->current_phase1;
+          uint8_t *drive_write_protected_p = (comp->drive_select == 0u) ? &comp->drive_write_protected0 : &comp->drive_write_protected1;
+          uint8_t *stream_skip_p = (comp->drive_select == 0u) ? &comp->stream_skip0 : &comp->stream_skip1;
+          uint8_t *stream_mode_p = (comp->drive_select == 0u) ? &comp->stream_mode0 : &comp->stream_mode1;
+          uint32_t *drive_head_p = (comp->drive_select == 0u) ? &comp->drive_head0 : &comp->drive_head1;
+          uint8_t *seq_clock_p = (comp->drive_select == 0u) ? &comp->seq_clock0 : &comp->seq_clock1;
+          uint8_t *seq_state_p = (comp->drive_select == 0u) ? &comp->seq_state0 : &comp->seq_state1;
+          uint8_t *seq_zero_run_p = (comp->drive_select == 0u) ? &comp->seq_zero_run0 : &comp->seq_zero_run1;
+          uint32_t *seq_noise_p = (comp->drive_select == 0u) ? &comp->seq_noise0 : &comp->seq_noise1;
+          uint64_t *seq_last_cycles_p = (comp->drive_select == 0u) ? &comp->seq_last_cycles0 : &comp->seq_last_cycles1;
+          #define TRACK_POS (*track_pos_p)
+          #define CURRENT_PHASE (*current_phase_p)
+          #define DRIVE_WRITE_PROTECTED (*drive_write_protected_p)
+          #define STREAM_SKIP (*stream_skip_p)
+          #define STREAM_MODE (*stream_mode_p)
+          #define DRIVE_HEAD (*drive_head_p)
+          #define SEQ_CLOCK (*seq_clock_p)
+          #define SEQ_STATE (*seq_state_p)
+          #define SEQ_ZERO_RUN (*seq_zero_run_p)
+          #define SEQ_NOISE (*seq_noise_p)
+          #define SEQ_LAST_CYCLES (*seq_last_cycles_p)
+          const char *source_component = selected_source_component;
+          uint8_t phase_mask = (uint8_t)((comp->phase0 ? 1u : 0u) |
+                                         (comp->phase1 ? 2u : 0u) |
+                                         (comp->phase2 ? 4u : 0u) |
+                                         (comp->phase3 ? 8u : 0u));
+          switch (sw) {
+              case 0x0u: comp->phase0 = 0u; break;
+              case 0x1u: comp->phase0 = 1u; break;
+              case 0x2u: comp->phase1 = 0u; break;
+              case 0x3u: comp->phase1 = 1u; break;
+              case 0x4u: comp->phase2 = 0u; break;
+              case 0x5u: comp->phase2 = 1u; break;
+              case 0x6u: comp->phase3 = 0u; break;
+              case 0x7u: comp->phase3 = 1u; break;
+              case 0x8u:
+                  if (comp->motor_on != 0u && comp->motor_off_pending == 0u) {
+                      comp->motor_off_pending = 1u;
+                      comp->motor_off_cycle = cpu->total_cycles + 1000000u;
+                  }
+                  break;
+              case 0x9u:
+                  if (comp->motor_on == 0u) SEQ_LAST_CYCLES = cpu->total_cycles;
+                  comp->motor_on = 1u;
+                  comp->motor_off_pending = 0u;
+                  break;
+              case 0xAu: comp->drive_select = 0u; break;
+              case 0xBu: comp->drive_select = 1u; break;
+              case 0xCu: comp->q6 = 0u; break;
+              case 0xDu:
+                  comp->q6 = 1u;
+                  if (STREAM_MODE == 0u && comp->q7 == 0u) {
+                      comp->data_latch = (uint8_t)(comp->data_latch >> 1u);
+                  }
+                  break;
+              case 0xEu: comp->q7 = 0u; break;
+              case 0xFu: comp->q7 = 1u; break;
+              default: break;
+          }
+          phase_mask = (uint8_t)((comp->phase0 ? 1u : 0u) |
+                                 (comp->phase1 ? 2u : 0u) |
+                                 (comp->phase2 ? 4u : 0u) |
+                                 (comp->phase3 ? 8u : 0u));
+          if (comp->motor_on != 0u) {
+              int32_t next_phase = -1;
+              int32_t delta = 0;
+              static const int8_t phase_delta[4][4] = {
+                  { 0,  1,  2, -1 },
+                  { -1, 0,  1,  2 },
+                  { -2, -1, 0,  1 },
+                  { 1, -2, -1, 0 }
+              };
+              switch (sw) {
+                  case 0x1u: next_phase = 0; break;
+                  case 0x3u: next_phase = 1; break;
+                  case 0x5u: next_phase = 2; break;
+                  case 0x7u: next_phase = 3; break;
+                  default: break;
+              }
+              if (next_phase >= 0) {
+                  uint32_t track_slots = 35u * 4u;
+                  delta = (int32_t)phase_delta[CURRENT_PHASE & 0x03u][next_phase] * 2;
+                  if (STREAM_MODE != 0u && source_component != NULL) {
+                      uint64_t slots = ({ uint64_t __a[1] = { (uint64_t)comp->drive_select }; cpu_component_dispatch_callback(cpu, source_component, "query_track_slots", __a, 1u); });
+                      if (slots != 0u) track_slots = (uint32_t)slots;
+                  }
+                  {
+                      int32_t new_track = (int32_t)TRACK_POS + delta;
+                      if (new_track < 0) new_track = 0;
+                      if (track_slots == 0u) track_slots = 1u;
+                      if (new_track > (int32_t)(track_slots - 1u)) new_track = (int32_t)(track_slots - 1u);
+                      TRACK_POS = (uint16_t)new_track;
+                  }
+                  CURRENT_PHASE = (uint8_t)next_phase;
+              }
+          }
+          comp->last_phase_mask = phase_mask;
+          if (STREAM_MODE != 0u && source_component != NULL) {
+              uint64_t work_cycles64 = 0u;
+              uint32_t track_bits = 0u;
+              if (comp->motor_on != 0u && cpu->total_cycles > SEQ_LAST_CYCLES) {
+                  work_cycles64 = (cpu->total_cycles - SEQ_LAST_CYCLES) * 2u;
+              }
+              if (comp->motor_on == 0u) {
+                  comp->data_latch = 0u;
+                  SEQ_LAST_CYCLES = cpu->total_cycles;
+              } else {
+                  uint64_t args_len[2] = { (uint64_t)comp->drive_select, (uint64_t)TRACK_POS };
+                  track_bits = (uint32_t)cpu_component_dispatch_callback(cpu, source_component, "query_track_bits", args_len, 2u);
+                  if (work_cycles64 > 200000u) work_cycles64 = 200000u;
+                  for (uint64_t wc = 0u; wc < work_cycles64; ++wc) {
+                      uint8_t pulse = 0u;
+                      if (SEQ_CLOCK == 4u && track_bits != 0u) {
+                          uint64_t args_bit[3] = { (uint64_t)comp->drive_select, (uint64_t)TRACK_POS, (uint64_t)DRIVE_HEAD };
+                          pulse = (uint8_t)cpu_component_dispatch_callback(cpu, source_component, "read_bit", args_bit, 3u);
+                          if (pulse == 0u) {
+                              SEQ_ZERO_RUN = (uint8_t)(SEQ_ZERO_RUN + 1u);
+                              if (SEQ_ZERO_RUN > 2u) {
+                                  uint32_t noise = SEQ_NOISE;
+                                  if (noise == 0u) noise = 0x1A2B3C4Du;
+                                  noise ^= noise << 13u;
+                                  noise ^= noise >> 17u;
+                                  noise ^= noise << 5u;
+                                  SEQ_NOISE = noise;
+                                  pulse = (uint8_t)(noise & 0x01u);
+                              }
+                          } else {
+                              SEQ_ZERO_RUN = 0u;
+                          }
+                      }
+                      {
+                          uint8_t idx = (uint8_t)((pulse != 0u) ? 0u : 1u);
+                          uint8_t command;
+                          idx |= (uint8_t)((comp->data_latch & 0x80u) != 0u ? 0x02u : 0u);
+                          idx |= (uint8_t)(comp->q6 != 0u ? 0x04u : 0u);
+                          idx |= (uint8_t)(comp->q7 != 0u ? 0x08u : 0u);
+                          idx |= (uint8_t)((SEQ_STATE & 0x0Fu) << 4u);
+                          command = sequencer_rom_16[idx];
+                          switch (command & 0x0Fu) {
+                              case 0x0u: comp->data_latch = 0u; break;
+                              case 0x8u: break;
+                              case 0x9u: comp->data_latch = (uint8_t)((comp->data_latch << 1u) & 0xFFu); break;
+                              case 0xAu:
+                                  comp->data_latch = (uint8_t)(comp->data_latch >> 1u);
+                                  if (DRIVE_WRITE_PROTECTED != 0u) comp->data_latch = (uint8_t)(comp->data_latch | 0x80u);
+                                  break;
+                              case 0xBu: comp->data_latch = comp->controller_bus; break;
+                              case 0xDu: comp->data_latch = (uint8_t)(((comp->data_latch << 1u) | 0x01u) & 0xFFu); break;
+                              default: break;
+                          }
+                          SEQ_STATE = (uint8_t)((command >> 4u) & 0x0Fu);
+                      }
+                      if (SEQ_CLOCK == 4u && track_bits != 0u) {
+                          DRIVE_HEAD++;
+                          if (DRIVE_HEAD >= track_bits) DRIVE_HEAD = 0u;
+                      }
+                      SEQ_CLOCK = (uint8_t)((SEQ_CLOCK + 1u) & 0x07u);
+                  }
+                  SEQ_LAST_CYCLES = cpu->total_cycles;
+              }
+          } else
+          if (source_component != NULL && comp->q7 == 0u && comp->q6 == 0u && sw == 0x0Cu) {
+              if (comp->motor_on != 0u) {
+                  uint8_t track = (uint8_t)TRACK_POS;
+                  if (STREAM_SKIP != 0u) {
+                      uint64_t args_rd[2] = { (uint64_t)comp->drive_select, (uint64_t)track };
+                      comp->data_latch = (uint8_t)cpu_component_dispatch_callback(cpu, source_component, "read_nibble", args_rd, 2u);
+                  } else {
+                      comp->data_latch = 0u;
+                  }
+                  STREAM_SKIP ^= 1u;
+              } else {
+                  comp->data_latch = 0u;
+                  STREAM_SKIP = 0u;
+              }
+          }
+          comp->controller_bus = value;
+          return;
+      }
+    step_pre: |
+      {
+          if (comp->motor_off_pending != 0u && cpu->total_cycles >= comp->motor_off_cycle) {
+              comp->motor_on = 0u;
+              comp->motor_off_pending = 0u;
+          }
+          if (comp->motor_on == 0u) {
+              comp->data_latch = 0u;
+          }
+      }
+  callback_handlers:
+    load_media: |
+      const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+      uint8_t drive_slot = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : comp->drive_select;
+      const char *source_component = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : NULL;
+      char **selected_source_component_p = (drive_slot == 0u) ? &comp->selected_source_component0 : &comp->selected_source_component1;
+      uint16_t *track_pos_p = (drive_slot == 0u) ? &comp->track_pos0 : &comp->track_pos1;
+      uint8_t *current_phase_p = (drive_slot == 0u) ? &comp->current_phase0 : &comp->current_phase1;
+      uint8_t *drive_write_protected_p = (drive_slot == 0u) ? &comp->drive_write_protected0 : &comp->drive_write_protected1;
+      uint8_t *stream_skip_p = (drive_slot == 0u) ? &comp->stream_skip0 : &comp->stream_skip1;
+      uint8_t *stream_mode_p = (drive_slot == 0u) ? &comp->stream_mode0 : &comp->stream_mode1;
+      uint32_t *drive_head_p = (drive_slot == 0u) ? &comp->drive_head0 : &comp->drive_head1;
+      uint8_t *seq_clock_p = (drive_slot == 0u) ? &comp->seq_clock0 : &comp->seq_clock1;
+      uint8_t *seq_state_p = (drive_slot == 0u) ? &comp->seq_state0 : &comp->seq_state1;
+      uint8_t *seq_zero_run_p = (drive_slot == 0u) ? &comp->seq_zero_run0 : &comp->seq_zero_run1;
+      uint32_t *seq_noise_p = (drive_slot == 0u) ? &comp->seq_noise0 : &comp->seq_noise1;
+      uint64_t *seq_last_cycles_p = (drive_slot == 0u) ? &comp->seq_last_cycles0 : &comp->seq_last_cycles1;
+          #define TRACK_POS (*track_pos_p)
+          #define CURRENT_PHASE (*current_phase_p)
+          #define DRIVE_WRITE_PROTECTED (*drive_write_protected_p)
+          #define STREAM_SKIP (*stream_skip_p)
+          #define STREAM_MODE (*stream_mode_p)
+          #define DRIVE_HEAD (*drive_head_p)
+          #define SEQ_CLOCK (*seq_clock_p)
+          #define SEQ_STATE (*seq_state_p)
+          #define SEQ_ZERO_RUN (*seq_zero_run_p)
+          #define SEQ_NOISE (*seq_noise_p)
+          #define SEQ_LAST_CYCLES (*seq_last_cycles_p)
+      uint8_t ok = 0u;
+      if (path == NULL || path[0] == '\0') return 0u;
+      if (*selected_source_component_p != NULL) {
+          free(*selected_source_component_p);
+          *selected_source_component_p = NULL;
+      }
+      if (source_component != NULL && source_component[0] != '\0') {
+          *selected_source_component_p = strdup(source_component);
+          if (*selected_source_component_p == NULL) return 0u;
+      } else {
+          *selected_source_component_p = strdup("apple2_floppy_image_backend");
+          if (*selected_source_component_p == NULL) return 0u;
+      }
+      ok = (uint8_t)cpu_component_dispatch_callback(cpu, *selected_source_component_p, "load_media", args, 2u);
+      if (ok != 0u) {
+          uint64_t drive_args[1] = { (uint64_t)drive_slot };
+          STREAM_MODE = (uint8_t)cpu_component_dispatch_callback(cpu, *selected_source_component_p, "query_stream_mode", drive_args, 1u);
+          DRIVE_WRITE_PROTECTED = (uint8_t)cpu_component_dispatch_callback(cpu, *selected_source_component_p, "query_write_protect", drive_args, 1u);
+          TRACK_POS = 0u;
+          comp->phase0 = 0u;
+          comp->phase1 = 0u;
+          comp->phase2 = 0u;
+          comp->phase3 = 0u;
+          comp->motor_on = 0u;
+          comp->drive_select = drive_slot;
+          comp->q6 = 0u;
+          comp->q7 = 0u;
+          comp->last_phase_mask = 0u;
+          CURRENT_PHASE = 0u;
+          comp->data_latch = 0u;
+          comp->controller_bus = 0u;
+          STREAM_SKIP = 0u;
+          DRIVE_HEAD = 0u;
+          SEQ_CLOCK = 0u;
+          SEQ_STATE = 2u;
+          SEQ_ZERO_RUN = 0u;
+          SEQ_NOISE = 0x1A2B3C4Du;
+          SEQ_LAST_CYCLES = cpu->total_cycles;
+      }
+      return ok;
+    unload_media: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : comp->drive_select;
+      char **selected_source_component_p = (drive_slot == 0u) ? &comp->selected_source_component0 : &comp->selected_source_component1;
+      uint8_t *current_phase_p = (drive_slot == 0u) ? &comp->current_phase0 : &comp->current_phase1;
+      uint8_t *drive_write_protected_p = (drive_slot == 0u) ? &comp->drive_write_protected0 : &comp->drive_write_protected1;
+      uint8_t *stream_skip_p = (drive_slot == 0u) ? &comp->stream_skip0 : &comp->stream_skip1;
+      uint8_t *stream_mode_p = (drive_slot == 0u) ? &comp->stream_mode0 : &comp->stream_mode1;
+      uint32_t *drive_head_p = (drive_slot == 0u) ? &comp->drive_head0 : &comp->drive_head1;
+      uint8_t *seq_clock_p = (drive_slot == 0u) ? &comp->seq_clock0 : &comp->seq_clock1;
+      uint8_t *seq_state_p = (drive_slot == 0u) ? &comp->seq_state0 : &comp->seq_state1;
+      uint8_t *seq_zero_run_p = (drive_slot == 0u) ? &comp->seq_zero_run0 : &comp->seq_zero_run1;
+      uint32_t *seq_noise_p = (drive_slot == 0u) ? &comp->seq_noise0 : &comp->seq_noise1;
+      uint64_t *seq_last_cycles_p = (drive_slot == 0u) ? &comp->seq_last_cycles0 : &comp->seq_last_cycles1;
+          #define CURRENT_PHASE (*current_phase_p)
+          #define DRIVE_WRITE_PROTECTED (*drive_write_protected_p)
+          #define STREAM_SKIP (*stream_skip_p)
+          #define STREAM_MODE (*stream_mode_p)
+          #define DRIVE_HEAD (*drive_head_p)
+          #define SEQ_CLOCK (*seq_clock_p)
+          #define SEQ_STATE (*seq_state_p)
+          #define SEQ_ZERO_RUN (*seq_zero_run_p)
+          #define SEQ_NOISE (*seq_noise_p)
+          #define SEQ_LAST_CYCLES (*seq_last_cycles_p)
+      uint8_t ok = 1u;
+      if (*selected_source_component_p != NULL && (*selected_source_component_p)[0] != '\0') {
+          uint64_t drive_args[1] = { (uint64_t)drive_slot };
+          ok = (uint8_t)cpu_component_dispatch_callback(cpu, *selected_source_component_p, "unload_media", drive_args, 1u);
+          free(*selected_source_component_p);
+          *selected_source_component_p = NULL;
+      }
+      comp->motor_on = 0u;
+      comp->q6 = 0u;
+      comp->q7 = 0u;
+      CURRENT_PHASE = 0u;
+      comp->data_latch = 0u;
+      comp->controller_bus = 0u;
+      STREAM_SKIP = 0u;
+      STREAM_MODE = 0u;
+      DRIVE_WRITE_PROTECTED = 0u;
+      DRIVE_HEAD = 0u;
+      SEQ_CLOCK = 0u;
+      SEQ_STATE = 2u;
+      SEQ_ZERO_RUN = 0u;
+      SEQ_NOISE = 0x1A2B3C4Du;
+      SEQ_LAST_CYCLES = 0u;
+      return ok;
+    query_drive_activity: |
+      uint8_t drive_slot = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : comp->drive_select;
+      const char *source_component = (drive_slot == 0u)
+          ? comp->selected_source_component0
+          : comp->selected_source_component1;
+      uint64_t drive_args[1] = { (uint64_t)drive_slot };
+      if (source_component == NULL || source_component[0] == '\0') return 0u;
+      return cpu_component_dispatch_callback(cpu, source_component, "query_drive_activity", drive_args, 1u);
   handler_bodies: {}
 
 coding:

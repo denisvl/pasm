@@ -18,8 +18,7 @@ interfaces:
       args: []
       returns: u8
     - name: keyboard_read_row
-      args:
-        - u8
+      args: [u8]
       returns: u8
   handlers:
     - name: video_frame
@@ -34,7 +33,8 @@ behavior:
     keyboard_ascii: |
       return (uint64_t)cpu_component_keyboard_ascii_pop();
     keyboard_read_row: |
-      return (uint64_t)0xFFu;
+      (void)args;
+      return 0xFFu;
   handler_bodies:
     video_frame: |
       if (argc > 0) comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);

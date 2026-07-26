@@ -1,0 +1,329 @@
+metadata:
+  id: floppy_raw_sector_image_backend
+  type: floppy_image_backend
+  model: floppy_raw_sector_image_backend
+  version: "1.0"
+
+state:
+  - name: image_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: image_size
+    type: uint32_t
+    initial: "0"
+  - name: sectors_per_track
+    type: uint8_t
+    initial: "0"
+  - name: side_count
+    type: uint8_t
+    initial: "0"
+  - name: track_count
+    type: uint16_t
+    initial: "0"
+  - name: sector_number_base
+    type: uint8_t
+    initial: "1"
+  - name: address_track
+    type: uint8_t
+    initial: "0"
+  - name: address_side
+    type: uint8_t
+    initial: "0"
+  - name: address_sector_index
+    type: uint8_t
+    initial: "0"
+  - name: activity_flags
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
+      returns: u8
+    - name: query_geometry
+      args: []
+      returns: u64
+    - name: query_track_present
+      args: [u8, u8, u8]
+      returns: u8
+    - name: read_address
+      args: [u8, u8, ptr]
+      returns: u8
+    - name: read_sector
+      args: [u8, u8, u8, u8, ptr]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->activity_flags = 0u;
+    destroy: |
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_size = 0u;
+      comp->sectors_per_track = 0u;
+      comp->side_count = 0u;
+      comp->track_count = 0u;
+      comp->sector_number_base = 1u;
+      comp->address_track = 0u;
+      comp->address_side = 0u;
+      comp->address_sector_index = 0u;
+      comp->activity_flags = 0u;
+      (void)cpu;
+  callback_handlers:
+    load_media: |
+      const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+      FILE *fp;
+      uint8_t *image = NULL;
+      long file_size_long;
+      size_t file_size;
+      const char *dot;
+      char ext[16];
+      size_t ext_len = 0u;
+      uint8_t sectors_per_track = 0u;
+      uint8_t side_count = 0u;
+      uint16_t track_count = 0u;
+      uint8_t sector_number_base = 1u;
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      if (trace_enabled < 0) {
+          const char *env = getenv("PASM_FLOPPY_BACKEND_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = getenv("PASM_FLOPPY_BACKEND_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/floppy_backend_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_enabled = 0;
+          }
+      }
+      if (path == NULL || path[0] == '\0') return 0u;
+      fp = fopen(path, "rb");
+      if (fp == NULL) return 0u;
+      if (fseek(fp, 0L, SEEK_END) != 0) { fclose(fp); return 0u; }
+      file_size_long = ftell(fp);
+      if (file_size_long <= 0L) { fclose(fp); return 0u; }
+      if (fseek(fp, 0L, SEEK_SET) != 0) { fclose(fp); return 0u; }
+      file_size = (size_t)file_size_long;
+      image = (uint8_t *)malloc(file_size);
+      if (image == NULL) { fclose(fp); return 0u; }
+      if (fread(image, 1u, file_size, fp) != file_size) {
+          fclose(fp);
+          free(image);
+          return 0u;
+      }
+      fclose(fp);
+      dot = strrchr(path, '.');
+      if (dot != NULL && dot[1] != '\0') {
+          dot++;
+          while (dot[ext_len] != '\0' && ext_len + 1u < sizeof(ext)) {
+              char c = dot[ext_len];
+              if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+              ext[ext_len++] = c;
+          }
+      }
+      ext[ext_len] = '\0';
+      if ((strcmp(ext, "jv1") == 0 || strcmp(ext, "dsk") == 0) && (file_size % 256u) == 0u) {
+          size_t sector_count = file_size / 256u;
+          if ((sector_count % 10u) == 0u) {
+              sectors_per_track = 10u;
+              side_count = 1u;
+              track_count = (uint16_t)(sector_count / 10u);
+          }
+      }
+      if (strcmp(ext, "ssd") == 0 && (file_size % 256u) == 0u) {
+          size_t sector_count = file_size / 256u;
+          if ((sector_count % 10u) == 0u) {
+              sectors_per_track = 10u;
+              side_count = 1u;
+              track_count = (uint16_t)(sector_count / 10u);
+              sector_number_base = 0u;
+          }
+      }
+      if (strcmp(ext, "dsd") == 0 && (file_size % 256u) == 0u) {
+          size_t sector_count = file_size / 256u;
+          if ((sector_count % 20u) == 0u) {
+              sectors_per_track = 10u;
+              side_count = 2u;
+              track_count = (uint16_t)(sector_count / 20u);
+              sector_number_base = 0u;
+          }
+      }
+      if (strcmp(ext, "adl") == 0 && (file_size % 256u) == 0u) {
+          size_t sector_count = file_size / 256u;
+          if ((sector_count % 32u) == 0u) {
+              sectors_per_track = 16u;
+              side_count = 2u;
+              track_count = (uint16_t)(sector_count / 32u);
+              sector_number_base = 0u;
+          }
+      }
+      if (sectors_per_track == 0u || side_count == 0u || track_count == 0u) {
+          free(image);
+          return 0u;
+      }
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_data = image;
+      comp->image_size = (uint32_t)file_size;
+      comp->sectors_per_track = sectors_per_track;
+      comp->side_count = side_count;
+      comp->track_count = track_count;
+      comp->sector_number_base = sector_number_base;
+      comp->address_track = 0u;
+      comp->address_side = 0u;
+      comp->address_sector_index = 0u;
+      comp->activity_flags = 0u;
+      if (trace_enabled != 0 && trace_fp != NULL) {
+          fprintf(trace_fp, "load_media path=%s size=%u spt=%u sides=%u tracks=%u secbase=%u\n",
+                  path, (unsigned)comp->image_size, (unsigned)comp->sectors_per_track,
+                  (unsigned)comp->side_count, (unsigned)comp->track_count,
+                  (unsigned)comp->sector_number_base);
+          fflush(trace_fp);
+      }
+      return 1u;
+    unload_media: |
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_size = 0u;
+      comp->sectors_per_track = 0u;
+      comp->side_count = 0u;
+      comp->track_count = 0u;
+      comp->sector_number_base = 1u;
+      comp->address_track = 0u;
+      comp->address_side = 0u;
+      comp->address_sector_index = 0u;
+      comp->activity_flags = 0u;
+      return 1u;
+    query_drive_activity: |
+      uint8_t flags = comp->activity_flags;
+      comp->activity_flags = 0u;
+      return (uint64_t)flags;
+    query_geometry: |
+      uint64_t packed = ((uint64_t)comp->sectors_per_track & 0xFFu) |
+                        ((((uint64_t)comp->track_count) & 0xFFFFu) << 8u) |
+                        ((((uint64_t)comp->side_count) & 0xFFu) << 24u);
+      return packed;
+    query_track_present: |
+      uint8_t target_track = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_side = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      (void)args;
+      if (comp->image_data == NULL || comp->image_size == 0u) return 0u;
+      return (uint64_t)((target_track < comp->track_count && target_side < comp->side_count) ? 1u : 0u);
+    read_address: |
+      uint8_t target_track = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_side = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t *dst = (argc > 2u && args[2] != 0u) ? (uint8_t *)(uintptr_t)args[2] : NULL;
+      uint8_t result = 0u;
+      if (dst == NULL || comp->image_data == NULL || comp->image_size == 0u) return 0u;
+      if (target_track < comp->track_count &&
+          target_side < comp->side_count &&
+          comp->sectors_per_track != 0u) {
+          if (comp->address_track != target_track || comp->address_side != target_side ||
+              comp->address_sector_index >= comp->sectors_per_track) {
+              comp->address_track = target_track;
+              comp->address_side = target_side;
+              comp->address_sector_index = 0u;
+          }
+          dst[0] = target_track;
+          dst[1] = target_side;
+          dst[2] = (uint8_t)(comp->sector_number_base != 0u ?
+              (uint8_t)(comp->address_sector_index + 1u) :
+              comp->address_sector_index);
+          dst[3] = 1u;
+          dst[4] = 0u;
+          dst[5] = 0u;
+          comp->address_sector_index = (uint8_t)(comp->address_sector_index + 1u);
+          if (comp->address_sector_index >= comp->sectors_per_track) {
+              comp->address_sector_index = 0u;
+          }
+          comp->activity_flags |= 0x01u;
+          result = 1u;
+      }
+      return (uint64_t)result;
+    read_sector: |
+      uint8_t target_track = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_sector = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t target_side = (argc > 2u) ? (uint8_t)(args[2] & 0xFFu) : 0u;
+      uint8_t *dst = (argc > 4u && args[4] != 0u) ? (uint8_t *)(uintptr_t)args[4] : NULL;
+      uint8_t result = 0u;
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      if (trace_enabled < 0) {
+          const char *env = getenv("PASM_FLOPPY_BACKEND_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = getenv("PASM_FLOPPY_BACKEND_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/floppy_backend_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_enabled = 0;
+          }
+      }
+      if (dst == NULL || comp->image_data == NULL || comp->image_size == 0u) {
+          if (trace_enabled != 0 && trace_fp != NULL) {
+              fprintf(trace_fp, "read_sector early_exit track=%u sec=%u side=%u dst=%p image=%p size=%u\n",
+                      (unsigned)target_track, (unsigned)target_sector, (unsigned)target_side,
+                      (void *)dst, (void *)comp->image_data, (unsigned)comp->image_size);
+              fflush(trace_fp);
+          }
+          return 0u;
+      }
+      if (comp->sectors_per_track != 0u && comp->side_count != 0u &&
+          target_track < comp->track_count && target_side < comp->side_count) {
+          uint8_t sector_index = target_sector;
+          if (comp->sector_number_base != 0u) {
+              sector_index = (target_sector > 0u) ? (uint8_t)(target_sector - 1u) : target_sector;
+          }
+          if (sector_index < comp->sectors_per_track) {
+              uint32_t lba = ((((uint32_t)target_track * (uint32_t)comp->side_count) + (uint32_t)target_side) *
+                              (uint32_t)comp->sectors_per_track) + (uint32_t)sector_index;
+              uint32_t offset = lba * 256u;
+              if (offset + 256u <= comp->image_size) {
+                  memcpy(dst, comp->image_data + offset, 256u);
+                  result = 0x01u;
+              }
+          }
+      }
+      if (trace_enabled != 0 && trace_fp != NULL) {
+          uint8_t sector_index = target_sector;
+          if (comp->sector_number_base != 0u) {
+              sector_index = (target_sector > 0u) ? (uint8_t)(target_sector - 1u) : target_sector;
+          }
+          uint32_t lba = ((((uint32_t)target_track * (uint32_t)comp->side_count) + (uint32_t)target_side) *
+                          (uint32_t)comp->sectors_per_track) + (uint32_t)sector_index;
+          uint32_t offset = lba * 256u;
+          fprintf(trace_fp, "read_sector track=%u sec=%u side=%u secbase=%u secidx=%u spt=%u sides=%u tracks=%u offset=%u ok=%u first=%02X second=%02X\n",
+                  (unsigned)target_track, (unsigned)target_sector, (unsigned)target_side,
+                  (unsigned)comp->sector_number_base, (unsigned)sector_index,
+                  (unsigned)comp->sectors_per_track, (unsigned)comp->side_count,
+                  (unsigned)comp->track_count, (unsigned)offset, (unsigned)result,
+                  (unsigned)(result != 0u ? dst[0] : 0u), (unsigned)(result != 0u ? dst[1] : 0u));
+          fflush(trace_fp);
+      }
+      if ((result & 0x01u) != 0u) {
+          comp->activity_flags |= 0x01u;
+      }
+      return (uint64_t)result;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

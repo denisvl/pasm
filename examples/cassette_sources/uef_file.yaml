@@ -1,0 +1,12 @@
+metadata:
+  id: uef_file
+  type: cassette_source
+  model: common_uef_file_source
+  version: "1.0"
+  title: UEF Tape File
+
+source:
+  kind: file
+  label: UEF Tape
+  source_component: cassette_uef_source
+  allowed_extensions: [uef]

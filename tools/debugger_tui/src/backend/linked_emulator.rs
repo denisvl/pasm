@@ -17,6 +17,7 @@ unsafe extern "C" {
     fn pasm_dbg_load_system_roms(cpu: *mut CPUState, system_base_dir: *const c_char) -> c_int;
     fn pasm_dbg_load_cartridge_rom(cpu: *mut CPUState, path: *const c_char) -> c_int;
     fn pasm_dbg_set_cartridge_dir(cpu: *mut CPUState, path: *const c_char) -> c_int;
+    fn pasm_dbg_load_floppy_media(cpu: *mut CPUState, path: *const c_char) -> c_int;
     fn pasm_dbg_load_keyboard_map(cpu: *mut CPUState, path: *const c_char) -> c_int;
     fn pasm_dbg_load_controller_map(cpu: *mut CPUState, path: *const c_char) -> c_int;
     fn pasm_dbg_requires_keyboard_map() -> c_uchar;
@@ -88,6 +89,26 @@ pub struct LinkedEmulatorBackend {
 }
 
 impl LinkedEmulatorBackend {
+    fn env_auto_floppy_path() -> Option<String> {
+        std::env::var("PASM_EMU_FLOPPY_AUTO_PATH")
+            .ok()
+            .filter(|s| !s.is_empty())
+    }
+
+    fn load_auto_floppy(cpu: *mut CPUState) -> Result<(), String> {
+        let Some(path) = Self::env_auto_floppy_path() else {
+            return Ok(());
+        };
+        let c_path = CString::new(path.as_str()).map_err(|_| "invalid floppy image path")?;
+        let rc = unsafe { pasm_dbg_load_floppy_media(cpu, c_path.as_ptr()) };
+        if rc != 0 {
+            return Err(format!(
+                "failed to load floppy image from '{path}' (code {rc})"
+            ));
+        }
+        Ok(())
+    }
+
     fn keyboard_map_diagnostic(path: &str) -> Option<String> {
         fn flush_binding(
             kind: &str,
@@ -386,8 +407,10 @@ Use the directory that contains your system YAML (for example: examples/systems)
                 ));
             }
         }
+        Self::load_auto_floppy(backend.cpu)?;
         if system_dir.is_some() || cart_rom.is_some() || keyboard_map.is_some() || controller_map.is_some() {
             unsafe { pasm_dbg_reset(backend.cpu) };
+            Self::load_auto_floppy(backend.cpu)?;
         }
         if let Some(pc) = start_pc {
             let rc = unsafe { pasm_dbg_set_pc(backend.cpu, pc) };
@@ -757,8 +780,10 @@ impl DebuggerBackend for LinkedEmulatorBackend {
                 ));
             }
         }
+        Self::load_auto_floppy(self.cpu)?;
         if self.system_dir.is_some() || self.cart_rom.is_some() || self.keyboard_map.is_some() || self.controller_map.is_some() {
             unsafe { pasm_dbg_reset(self.cpu) };
+            Self::load_auto_floppy(self.cpu)?;
         }
         if let Some(pc) = self.start_pc {
             self.check(unsafe { pasm_dbg_set_pc(self.cpu, pc) })?;

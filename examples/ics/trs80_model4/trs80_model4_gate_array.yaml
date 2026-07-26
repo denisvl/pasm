@@ -11,19 +11,31 @@ state:
   - name: memory_map
     type: uint8_t
     initial: "0"
+  - name: bank_command
+    type: uint8_t
+    initial: "0"
+  - name: bank_offset0
+    type: uint32_t
+    initial: "0"
+  - name: bank_offset1
+    type: uint32_t
+    initial: "0"
+  - name: video_page
+    type: uint8_t
+    initial: "0"
   - name: video_cols
     type: uint16_t
     initial: "64"
   - name: rom_shadow
     type: uint8_t *
     initial: "NULL"
-  - name: low_ram_shadow
+  - name: banked_ram
     type: uint8_t *
     initial: "NULL"
-  - name: low_shadow_valid
-    type: uint8_t
-    initial: "0"
-  - name: low_ram_active
+  - name: video_ram
+    type: uint8_t *
+    initial: "NULL"
+  - name: shadow_valid
     type: uint8_t
     initial: "0"
 
@@ -47,6 +59,9 @@ interfaces:
     - name: get_video_cols
       args: []
       returns: u8
+    - name: get_video_cell
+      args: [u16]
+      returns: u8
   handlers: []
   signals: []
 
@@ -60,33 +75,46 @@ behavior:
       if (comp->rom_shadow == NULL) {
           comp->rom_shadow = (uint8_t *)calloc(0x3800u, sizeof(uint8_t));
       }
-      if (comp->low_ram_shadow == NULL) {
-          comp->low_ram_shadow = (uint8_t *)calloc(0x3800u, sizeof(uint8_t));
+      if (comp->banked_ram == NULL) {
+          comp->banked_ram = (uint8_t *)calloc(0x20000u, sizeof(uint8_t));
+      }
+      if (comp->video_ram == NULL) {
+          comp->video_ram = (uint8_t *)calloc(0x0800u, sizeof(uint8_t));
       }
     reset: |
       comp->video_ctrl = 0x00u;
       comp->memory_map = 0u;
+      comp->bank_command = 0u;
+      comp->bank_offset0 = 0u;
+      comp->bank_offset1 = 0u;
+      comp->video_page = 0u;
       comp->video_cols = 64u;
-      comp->low_shadow_valid = 0u;
-      comp->low_ram_active = 0u;
+      comp->shadow_valid = 0u;
     destroy: |
       if (comp->rom_shadow != NULL) {
           free(comp->rom_shadow);
           comp->rom_shadow = NULL;
       }
-      if (comp->low_ram_shadow != NULL) {
-          free(comp->low_ram_shadow);
-          comp->low_ram_shadow = NULL;
+      if (comp->banked_ram != NULL) {
+          free(comp->banked_ram);
+          comp->banked_ram = NULL;
       }
-      comp->low_shadow_valid = 0u;
-      comp->low_ram_active = 0u;
+      if (comp->video_ram != NULL) {
+          free(comp->video_ram);
+          comp->video_ram = NULL;
+      }
+      comp->shadow_valid = 0u;
   callback_handlers:
     map_mem_read: |
       if (argc < 1u) return 0xFFu;
       uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
-      if (comp->rom_shadow == NULL || comp->low_ram_shadow == NULL) return 0xFFu;
-
-      if (comp->low_shadow_valid == 0u) {
+      uint32_t text_page_offset = (comp->video_cols == 64u && comp->video_page != 0u) ? 0x0400u : 0x0000u;
+      if (comp->rom_shadow == NULL || comp->banked_ram == NULL || comp->video_ram == NULL) return 0xFFu;
+      if (comp->shadow_valid == 0u) {
+          for (uint32_t i = 0u; i < 0x10000u; ++i) {
+              comp->banked_ram[i] = (i < cpu->memory_size) ? cpu->memory[i] : 0x00u;
+          }
+          memset(comp->banked_ram + 0x10000u, 0, 0x10000u);
           if (cpu->memory_size >= 0x3800u) {
               memcpy(comp->rom_shadow, cpu->memory, 0x3800u);
           } else {
@@ -94,107 +122,147 @@ behavior:
                   comp->rom_shadow[i] = (i < cpu->memory_size) ? cpu->memory[i] : 0xFFu;
               }
           }
-          memset(comp->low_ram_shadow, 0, 0x3800u);
-          comp->low_shadow_valid = 1u;
-          comp->low_ram_active = 0u;
+          if (cpu->memory_size > 0x3C00u) {
+              uint32_t copy_len = (cpu->memory_size - 0x3C00u > 0x0400u) ? 0x0400u : (uint32_t)(cpu->memory_size - 0x3C00u);
+              memcpy(comp->video_ram, cpu->memory + 0x3C00u, copy_len);
+          }
+          comp->shadow_valid = 1u;
       }
 
-      if (addr < 0x3800u) {
-          if (comp->low_ram_active != 0u) {
-              return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+      if (comp->memory_map == 0u) {
+          if (addr >= 0x3C00u && addr < 0x4000u) {
+              return comp->video_ram[text_page_offset + (uint32_t)(addr - 0x3C00u)];
+          }
+          if (addr >= 0x3800u && addr < 0x3C00u) {
+              uint64_t ppi_args[1] = { (uint64_t)(addr & 0xFFu) };
+              return (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ppi", "ppi_read_columns", ppi_args, 1);
+          }
+          if (addr >= 0x4000u) {
+              uint32_t off = (addr < 0x8000u) ? comp->bank_offset0 : comp->bank_offset1;
+              return comp->banked_ram[(uint32_t)addr + off];
           }
           return comp->rom_shadow[addr];
+      } else if (comp->memory_map == 1u) {
+          if (addr < 0x3800u || addr >= 0x3800u) {
+              if (addr >= 0x3C00u && addr < 0x4000u) {
+                  return comp->video_ram[text_page_offset + (uint32_t)(addr - 0x3C00u)];
+              }
+              if (addr >= 0x3800u && addr < 0x3C00u) {
+                  uint64_t ppi_args[1] = { (uint64_t)(addr & 0xFFu) };
+                  return (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ppi", "ppi_read_columns", ppi_args, 1);
+              }
+              {
+                  uint32_t off = (addr < 0x8000u) ? comp->bank_offset0 : comp->bank_offset1;
+                  return comp->banked_ram[(uint32_t)addr + off];
+              }
+          }
+      } else if (comp->memory_map == 2u) {
+          if (addr >= 0xF800u) {
+              return comp->video_ram[(uint32_t)(addr - 0xF800u)];
+          }
+          if (addr >= 0xF400u) {
+              uint64_t ppi_args[1] = { (uint64_t)(addr & 0xFFu) };
+              return (uint8_t)cpu_component_dispatch_callback(cpu, "trs80_m4ppi", "ppi_read_columns", ppi_args, 1);
+          }
+          {
+              uint32_t off = (addr < 0x8000u) ? comp->bank_offset0 : comp->bank_offset1;
+              return comp->banked_ram[(uint32_t)addr + off];
+          }
       }
-
-      return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+      {
+          uint32_t off = (addr < 0x8000u) ? comp->bank_offset0 : comp->bank_offset1;
+          return comp->banked_ram[(uint32_t)addr + off];
+      }
     map_mem_write: |
       if (argc < 2u) return 0u;
       uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
       uint8_t value = (uint8_t)(args[1] & 0xFFu);
-      if (comp->rom_shadow == NULL || comp->low_ram_shadow == NULL) return 0u;
-
-      if (comp->low_shadow_valid == 0u) {
-          if (cpu->memory_size >= 0x3800u) {
-              memcpy(comp->rom_shadow, cpu->memory, 0x3800u);
-          } else {
-              for (uint32_t i = 0u; i < 0x3800u; ++i) {
-                  comp->rom_shadow[i] = (i < cpu->memory_size) ? cpu->memory[i] : 0xFFu;
-              }
-          }
-          memset(comp->low_ram_shadow, 0, 0x3800u);
-          comp->low_shadow_valid = 1u;
-          comp->low_ram_active = 0u;
+      uint32_t text_page_offset = (comp->video_cols == 64u && comp->video_page != 0u) ? 0x0400u : 0x0000u;
+      if (comp->rom_shadow == NULL || comp->banked_ram == NULL || comp->video_ram == NULL) return 0u;
+      if (comp->shadow_valid == 0u) {
+          uint64_t read_args[1] = { (uint64_t)addr };
+          (void)component_trs80_m4ga_callback_map_mem_read(cpu, read_args, 1);
       }
 
-      if (addr < 0x3800u) {
-          if (comp->low_ram_active != 0u) {
-              if ((uint64_t)addr < cpu->memory_size) {
-                  cpu->memory[addr] = value;
-              }
-              comp->low_ram_shadow[addr] = value;
+      if (comp->memory_map == 0u) {
+          if (addr >= 0x3C00u && addr < 0x4000u) {
+              comp->video_ram[text_page_offset + (uint32_t)(addr - 0x3C00u)] = value;
+              return 1u;
+          }
+          if (addr >= 0x4000u) {
+              uint32_t off = (addr < 0x8000u) ? comp->bank_offset0 : comp->bank_offset1;
+              comp->banked_ram[(uint32_t)addr + off] = value;
+              return 1u;
+          }
+          return 1u;
+      } else if (comp->memory_map == 1u) {
+          if (addr >= 0x3C00u && addr < 0x4000u) {
+              comp->video_ram[text_page_offset + (uint32_t)(addr - 0x3C00u)] = value;
+              return 1u;
+          }
+          if (addr < 0x3800u || addr >= 0x4000u) {
+              uint32_t off = (addr < 0x8000u) ? comp->bank_offset0 : comp->bank_offset1;
+              comp->banked_ram[(uint32_t)addr + off] = value;
+          }
+          return 1u;
+      } else if (comp->memory_map == 2u) {
+          if (addr >= 0xF800u) {
+              comp->video_ram[(uint32_t)(addr - 0xF800u)] = value;
+              return 1u;
+          }
+          if (addr < 0xF400u) {
+              uint32_t off = (addr < 0x8000u) ? comp->bank_offset0 : comp->bank_offset1;
+              comp->banked_ram[(uint32_t)addr + off] = value;
           }
           return 1u;
       }
-      return 0u;
+      {
+          uint32_t off = (addr < 0x8000u) ? comp->bank_offset0 : comp->bank_offset1;
+          comp->banked_ram[(uint32_t)addr + off] = value;
+      }
+      return 1u;
     port84_write: |
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
       if (argc < 1u) return 0u;
-      uint8_t value = (uint8_t)(args[0] & 0xFFu);
-      uint8_t old_map = (uint8_t)(comp->memory_map & 0x03u);
-      uint8_t new_map = (uint8_t)(value & 0x03u);
-      uint8_t old_ram = (old_map >= 2u) ? 1u : 0u;
-      uint8_t new_ram = (new_map >= 2u) ? 1u : 0u;
-
-      if (comp->rom_shadow != NULL && comp->low_ram_shadow != NULL) {
-          if (comp->low_shadow_valid == 0u) {
-              if (cpu->memory_size >= 0x3800u) {
-                  memcpy(comp->rom_shadow, cpu->memory, 0x3800u);
-              } else {
-                  for (uint32_t i = 0u; i < 0x3800u; ++i) {
-                      comp->rom_shadow[i] = (i < cpu->memory_size) ? cpu->memory[i] : 0xFFu;
-                  }
-              }
-              memset(comp->low_ram_shadow, 0, 0x3800u);
-              comp->low_shadow_valid = 1u;
-              comp->low_ram_active = 0u;
-          }
-
-          if (old_ram == 0u && new_ram != 0u) {
-              if (cpu->memory_size >= 0x3800u) {
-                  memcpy(cpu->memory, comp->low_ram_shadow, 0x3800u);
-              } else {
-                  for (uint32_t i = 0u; i < cpu->memory_size && i < 0x3800u; ++i) {
-                      cpu->memory[i] = comp->low_ram_shadow[i];
-                  }
-              }
-              comp->low_ram_active = 1u;
-          } else if (old_ram != 0u && new_ram == 0u) {
-              if (cpu->memory_size >= 0x3800u) {
-                  memcpy(comp->low_ram_shadow, cpu->memory, 0x3800u);
-                  memcpy(cpu->memory, comp->rom_shadow, 0x3800u);
-              } else {
-                  for (uint32_t i = 0u; i < 0x3800u; ++i) {
-                      if (i < cpu->memory_size) {
-                          comp->low_ram_shadow[i] = cpu->memory[i];
-                          cpu->memory[i] = comp->rom_shadow[i];
-                      }
-                  }
-              }
-              comp->low_ram_active = 0u;
-          } else if (new_ram == 0u) {
-              if (cpu->memory_size >= 0x3800u) {
-                  memcpy(cpu->memory, comp->rom_shadow, 0x3800u);
-              } else {
-                  for (uint32_t i = 0u; i < cpu->memory_size && i < 0x3800u; ++i) {
-                      cpu->memory[i] = comp->rom_shadow[i];
-                  }
-              }
-              comp->low_ram_active = 0u;
+      if (trace_enabled < 0) {
+          const char *env = cpu_host_hal_getenv("PASM_TRS80_M4_IO_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = cpu_host_hal_getenv("PASM_TRS80_M4_IO_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/trs80_model4_io_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
           }
       }
-
+      uint8_t value = (uint8_t)(args[0] & 0xFFu);
+      uint8_t bank = (uint8_t)(value & 0x70u);
       comp->video_ctrl = value;
-      comp->memory_map = new_map;
+      comp->memory_map = (uint8_t)(value & 0x03u);
+      comp->video_page = (uint8_t)(((value & 0x80u) != 0u) ? 1u : 0u);
+      comp->bank_command = (uint8_t)(bank >> 4u);
+      switch (bank) {
+          case 0x00u: comp->bank_offset0 = 0x0000u; comp->bank_offset1 = 0x0000u; break;
+          case 0x20u: comp->bank_offset0 = 0x0000u; comp->bank_offset1 = 0x8000u; break;
+          case 0x30u: comp->bank_offset0 = 0x0000u; comp->bank_offset1 = 0x10000u; break;
+          case 0x60u: comp->bank_offset0 = 0x10000u; comp->bank_offset1 = 0x0000u; break;
+          case 0x70u: comp->bank_offset0 = 0x18000u; comp->bank_offset1 = 0x0000u; break;
+          default: break;
+      }
       comp->video_cols = ((value & 0x04u) != 0u) ? 80u : 64u;
+      if (trace_enabled != 0) {
+          fprintf(trace_fp,
+                  "ga_port84 cycle=%llu value=%02X map=%u page=%u bank=%u off0=%05X off1=%05X cols=%u\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)value,
+                  (unsigned)comp->memory_map,
+                  (unsigned)comp->video_page,
+                  (unsigned)comp->bank_command,
+                  (unsigned)comp->bank_offset0,
+                  (unsigned)comp->bank_offset1,
+                  (unsigned)comp->video_cols);
+          fflush(trace_fp);
+      }
       return 0u;
     get_memory_map: |
       (void)argc;
@@ -208,6 +276,14 @@ behavior:
       (void)argc;
       (void)args;
       return (comp->video_cols == 80u) ? 80u : 64u;
+    get_video_cell: |
+      if (argc < 1u) return 0x20u;
+      uint16_t idx = (uint16_t)(args[0] & 0xFFFFu);
+      uint32_t text_page_offset = (comp->video_cols == 64u && comp->video_page != 0u) ? 0x0400u : 0x0000u;
+      uint32_t cell_limit = (comp->video_cols == 80u) ? 0x0800u : 0x0400u;
+      if (comp->video_ram == NULL) return 0x20u;
+      if ((uint32_t)idx >= cell_limit) return 0x20u;
+      return comp->video_ram[text_page_offset + (uint32_t)idx];
   handler_bodies: {}
 
 coding:

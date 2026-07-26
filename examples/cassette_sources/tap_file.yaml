@@ -1,0 +1,12 @@
+metadata:
+  id: tap_file
+  type: cassette_source
+  model: common_tap_file_source
+  version: "1.0"
+  title: TAP Tape File
+
+source:
+  kind: file
+  label: TAP Tape
+  source_component: datasette_c64
+  allowed_extensions: [tap]

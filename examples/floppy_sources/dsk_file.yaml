@@ -1,0 +1,11 @@
+metadata:
+  id: dsk_file
+  type: floppy_source
+  model: common_dsk_file_source
+  version: "1.0"
+  title: DSK Disk Image
+
+source:
+  kind: file
+  label: DSK Disk Image
+  allowed_extensions: [dsk]

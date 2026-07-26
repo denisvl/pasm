@@ -1,0 +1,11 @@
+metadata:
+  id: line_in
+  type: cassette_source
+  model: common_line_in_source
+  version: "1.0"
+  title: Line In
+
+source:
+  kind: line_in
+  label: Line In
+  source_component: cassette_line_in_source

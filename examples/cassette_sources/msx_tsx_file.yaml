@@ -1,0 +1,12 @@
+metadata:
+  id: msx_tsx_file
+  type: cassette_source
+  model: msx1_tsx_file_source
+  version: "1.0"
+  title: MSX TSX Tape File
+
+source:
+  kind: file
+  label: MSX TSX Tape
+  source_component: cassette_msx_tsx_source
+  allowed_extensions: [tsx]

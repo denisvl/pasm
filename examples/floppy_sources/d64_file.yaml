@@ -1,0 +1,11 @@
+metadata:
+  id: d64_file
+  type: floppy_source
+  model: common_d64_file_source
+  version: "1.0"
+  title: D64 Disk Image
+
+source:
+  kind: file
+  label: D64 Disk Image
+  allowed_extensions: [d64]

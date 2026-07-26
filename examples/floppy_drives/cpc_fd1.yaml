@@ -1,0 +1,20 @@
+metadata:
+  id: cpc_fd1
+  type: floppy_drive
+  model: amstrad_fd1_ddi1
+  version: "1.0"
+  title: Amstrad FD-1 / DDI-1
+
+drive:
+  type: floppy_drive
+  size:
+    form_factor: "3.0"
+    sides: 1
+    tracks: 40
+    sectors_per_track: 9
+    formatted_capacity_kb: 180
+  speed:
+    transfer_bytes_per_sec: 12000
+  controller_class: upd765a
+  bus: parallel_controller
+  media_extensions: [dsk]

@@ -35,7 +35,7 @@ DEVICE_CTRL="examples/devices/zx_spectrum48k/zx48_controller.yaml"
 DEVICE_VIDEO="examples/devices/zx_spectrum48k/zx48_video.yaml"
 DEVICE_BEEPER="examples/devices/zx_spectrum48k/zx48_beeper.yaml"
 DEVICE_MIC="examples/devices/zx_spectrum48k/zx48_mic.yaml"
-DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
+DEVICE_CASS="examples/devices/common/cassette_transport_nomotor.yaml"
 
 case "${PROFILE}" in
   default)

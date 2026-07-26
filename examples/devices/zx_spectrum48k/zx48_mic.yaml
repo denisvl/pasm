@@ -25,16 +25,19 @@ interfaces:
 behavior:
   snippets:
     step_post: |
-      if (CPU_AUDIO_SAMPLE_RATE > 0u && CPU_SYSTEM_CLOCK_HZ > 0u) {
-          uint64_t period = CPU_SYSTEM_CLOCK_HZ / CPU_AUDIO_SAMPLE_RATE;
-          if (period == 0u) period = 1u;
-          while (cpu->total_cycles >= comp->next_sample_cycle) {
-              uint8_t sample = (uint8_t)cpu_component_call(cpu, "mic0", "sample_input", NULL, 0);
+      {
+          uint64_t sample_args[2] = { 0x44u, cpu->total_cycles };
+          uint8_t sample = (uint8_t)cpu_component_dispatch_callback(
+              cpu, "cassette_transport_nomotor", "sample_input", sample_args, 2
+          );
+          if (sample != comp->current_level || comp->next_sample_cycle == 0u) {
               comp->current_level = sample;
-              uint64_t sig_args[1] = { (uint64_t)sample };
-              cpu_component_emit_signal(cpu, "mic0", "mic_level", sig_args, 1);
-              comp->next_sample_cycle += period;
+              {
+                  uint64_t sig_args[1] = { (uint64_t)sample };
+                  cpu_component_emit_signal(cpu, "mic0", "mic_level", sig_args, 1);
+              }
           }
+          comp->next_sample_cycle = cpu->total_cycles;
       }
   callback_handlers: {}
   handler_bodies: {}

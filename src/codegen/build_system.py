@@ -1,5 +1,6 @@
 """Build system generator (CMake, Makefile)."""
 
+from pathlib import Path
 from typing import Dict, Any, Optional
 
 from .templates import get_template
@@ -94,7 +95,12 @@ def generate_cmake(
 
     template = get_template("cmake")
     coding = isa_data.get("coding", {})
-    include_paths = coding.get("include_paths", [])
+    include_paths = list(coding.get("include_paths", []))
+    overlay_include_dir = Path("examples/hosts/include").resolve()
+    if overlay_include_dir.exists():
+        overlay_include_dir_str = str(overlay_include_dir)
+        if overlay_include_dir_str not in include_paths:
+            include_paths.append(overlay_include_dir_str)
     library_paths = coding.get("library_paths", [])
     linked_libraries = coding.get("linked_libraries", [])
     backend_target = _single_host_backend_target(isa_data)

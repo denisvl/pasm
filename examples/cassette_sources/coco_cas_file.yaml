@@ -1,0 +1,12 @@
+metadata:
+  id: coco_cas_file
+  type: cassette_source
+  model: coco1_cas_file_source
+  version: "1.0"
+  title: CoCo CAS Tape File
+
+source:
+  kind: file
+  label: CoCo CAS Tape
+  source_component: cassette_coco_cas_source
+  allowed_extensions: [cas]

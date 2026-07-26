@@ -17,6 +17,7 @@ set -euo pipefail
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/cart.bin
 #   CARTRIDGE_DIR=/abs/path/to/c64/roms
 #   BOOT_CARTRIDGE=0|1
+#   USE_CARTRIDGE_SYSTEM=0|1
 #   PASM_EMU_CART_PICKER_RAW_KEYS=0|1
 
 PROFILE="${1:-interactive}"
@@ -32,6 +33,7 @@ CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/c64/basic.901226-01.bin}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
 BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-0}"
+USE_CARTRIDGE_SYSTEM="${USE_CARTRIDGE_SYSTEM:-0}"
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,11 +62,11 @@ HOST_INTERACTIVE="examples/hosts/c64/c64_host_hal_interactive.yaml"
 
 case "${PROFILE}" in
   default)
-    SYSTEM="examples/systems/c64/c64_cartridge_default.yaml"
+    SYSTEM="examples/systems/c64/c64_default.yaml"
     DEFAULT_OUTPUT="generated/c64"
     ;;
   interactive)
-    SYSTEM="examples/systems/c64/c64_cartridge_interactive.yaml"
+    SYSTEM="examples/systems/c64/c64_interactive.yaml"
     DEFAULT_OUTPUT="generated/c64_interactive"
     ;;
   *)
@@ -73,6 +75,17 @@ case "${PROFILE}" in
     exit 2
     ;;
 esac
+
+if [[ "${USE_CARTRIDGE_SYSTEM}" != "0" ]]; then
+  case "${PROFILE}" in
+    default)
+      SYSTEM="examples/systems/c64/c64_cartridge_default.yaml"
+      ;;
+    interactive)
+      SYSTEM="examples/systems/c64/c64_cartridge_interactive.yaml"
+      ;;
+  esac
+fi
 
 SYSTEM_DIR="$(dirname "${SYSTEM}")"
 SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"

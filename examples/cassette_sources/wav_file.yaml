@@ -1,0 +1,12 @@
+metadata:
+  id: wav_file
+  type: cassette_source
+  model: common_wav_file_source
+  version: "1.0"
+  title: WAV Tape File
+
+source:
+  kind: file
+  label: Tape File
+  source_component: cassette_wav_source
+  allowed_extensions: [yaml, wav]

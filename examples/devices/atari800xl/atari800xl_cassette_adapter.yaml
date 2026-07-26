@@ -35,6 +35,21 @@ state:
   - name: atari_cas_current_byte
     type: uint8_t
     initial: "0xFF"
+  - name: atari_cas_last_playhead_ticks
+    type: uint64_t
+    initial: "0"
+  - name: atari_transport_mode_state
+    type: uint8_t
+    initial: "0"
+  - name: atari_motor_state
+    type: uint8_t
+    initial: "0"
+  - name: atari_playhead_base_samples
+    type: uint64_t
+    initial: "0"
+  - name: atari_playhead_base_valid
+    type: uint8_t
+    initial: "0"
   - name: atari_event_durations
     type: uint32_t *
     initial: "NULL"
@@ -68,11 +83,32 @@ state:
   - name: atari_playback_level
     type: uint8_t
     initial: "128"
+  - name: atari_event_total_ticks
+    type: uint64_t
+    initial: "0"
+  - name: atari_synth_edge_positions
+    type: uint32_t *
+    initial: "NULL"
+  - name: atari_synth_edge_count
+    type: uint32_t
+    initial: "0"
+  - name: atari_synth_edge_cap
+    type: uint32_t
+    initial: "0"
+  - name: atari_synth_total_samples
+    type: uint32_t
+    initial: "0"
+  - name: atari_synth_sample_rate
+    type: uint32_t
+    initial: "44100"
 
 interfaces:
   callbacks:
     - name: load_media
       args: [ptr]
+      returns: u8
+    - name: select_source
+      args: [u8, u8, ptr, ptr]
       returns: u8
     - name: unload_media
       args: []
@@ -125,6 +161,12 @@ interfaces:
     - name: query_transport_state
       args: []
       returns: u64
+    - name: query_selected_source_kind
+      args: []
+      returns: u64
+    - name: query_selected_source_model
+      args: []
+      returns: u64
   handlers: []
   signals: []
 
@@ -143,11 +185,21 @@ behavior:
       comp->atari_cas_pending_byte = 0xFFu;
       comp->atari_cas_current_kind = 1u;
       comp->atari_cas_current_byte = 0xFFu;
+      comp->atari_cas_last_playhead_ticks = 0u;
+      comp->atari_transport_mode_state = 0u;
+      comp->atari_motor_state = 0u;
+      comp->atari_playhead_base_samples = 0u;
+      comp->atari_playhead_base_valid = 0u;
       comp->atari_audio_track_pos = 0u;
       comp->atari_audio_track_cycle_residue = 0u;
       comp->atari_audio_track_last_cycle = cpu->total_cycles;
       comp->atari_audio_present = 0u;
       comp->atari_playback_level = 128u;
+      comp->atari_event_total_ticks = 0u;
+      comp->atari_synth_edge_count = 0u;
+      comp->atari_synth_edge_cap = 0u;
+      comp->atari_synth_total_samples = 0u;
+      comp->atari_synth_sample_rate = 44100u;
     destroy: |
       (void)cpu;
       if (comp->atari_event_durations != NULL) {
@@ -167,10 +219,19 @@ behavior:
           free(comp->atari_audio_track);
           comp->atari_audio_track = NULL;
       }
+      if (comp->atari_synth_edge_positions != NULL) {
+          free(comp->atari_synth_edge_positions);
+          comp->atari_synth_edge_positions = NULL;
+      }
       comp->atari_audio_track_length = 0u;
+      comp->atari_event_total_ticks = 0u;
   callback_handlers:
+    select_source: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "select_source", args, argc);
     load_media: |
       uint8_t result = 0u;
+      const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+      if (path == NULL) return 0u;
       comp->atari_fsk_cursor_samples = 0u;
       comp->atari_fsk_edge_cursor = 0u;
       comp->atari_fsk_prev_symbol = 1u;
@@ -181,11 +242,21 @@ behavior:
       comp->atari_cas_pending_byte = 0xFFu;
       comp->atari_cas_current_kind = 1u;
       comp->atari_cas_current_byte = 0xFFu;
+      comp->atari_cas_last_playhead_ticks = 0u;
+      comp->atari_transport_mode_state = 0u;
+      comp->atari_motor_state = 0u;
+      comp->atari_playhead_base_samples = 0u;
+      comp->atari_playhead_base_valid = 0u;
       comp->atari_audio_track_pos = 0u;
       comp->atari_audio_track_cycle_residue = 0u;
       comp->atari_audio_track_last_cycle = cpu->total_cycles;
       comp->atari_audio_present = 0u;
       comp->atari_playback_level = 128u;
+      comp->atari_event_total_ticks = 0u;
+      comp->atari_synth_edge_count = 0u;
+      comp->atari_synth_edge_cap = 0u;
+      comp->atari_synth_total_samples = 0u;
+      comp->atari_synth_sample_rate = 44100u;
       if (comp->atari_event_durations != NULL) {
           free(comp->atari_event_durations);
           comp->atari_event_durations = NULL;
@@ -203,48 +274,247 @@ behavior:
           free(comp->atari_audio_track);
           comp->atari_audio_track = NULL;
       }
+      if (comp->atari_synth_edge_positions != NULL) {
+          free(comp->atari_synth_edge_positions);
+          comp->atari_synth_edge_positions = NULL;
+      }
       comp->atari_audio_track_length = 0u;
+      comp->atari_event_total_ticks = 0u;
       result = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "load_media", args, argc);
-      if (result != 0u) {
-          uint32_t count = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_event_count", NULL, 0);
-          if (count != 0u) {
-              uint32_t *durations = (uint32_t *)malloc((size_t)count * sizeof(uint32_t));
-              uint8_t *bytes = (uint8_t *)malloc((size_t)count * sizeof(uint8_t));
-              uint8_t *kinds = (uint8_t *)malloc((size_t)count * sizeof(uint8_t));
-              uint32_t i;
-              if (durations == NULL || bytes == NULL || kinds == NULL) {
-                  if (durations != NULL) free(durations);
-                  if (bytes != NULL) free(bytes);
-                  if (kinds != NULL) free(kinds);
-                  (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "unload_media", NULL, 0);
-                  return 0u;
-              }
-              for (i = 0u; i < count; ++i) {
-                  durations[i] = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_event_duration", (uint64_t[]){ i }, 1);
-                  bytes[i] = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_event_byte", (uint64_t[]){ i }, 1);
-                  kinds[i] = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_event_kind", (uint64_t[]){ i }, 1);
-              }
-              comp->atari_event_durations = durations;
-              comp->atari_event_bytes = bytes;
-              comp->atari_event_kinds = kinds;
-              comp->atari_event_count = count;
+      if (result != 0u && path != NULL) {
+          char wav_path[1024];
+          char cas_path[1024];
+          const char *src_dot = strrchr(path, '.');
+          FILE *wfp = NULL;
+          FILE *cfp = NULL;
+          if (src_dot != NULL && strcmp(src_dot, ".wav") == 0) {
+              wfp = fopen(path, "rb");
+          } else if (src_dot != NULL && strcmp(src_dot, ".yaml") == 0 && (size_t)(src_dot - path) < sizeof(wav_path) - 5u) {
+              size_t base_len = (size_t)(src_dot - path);
+              memcpy(wav_path, path, base_len);
+              memcpy(wav_path + base_len, ".wav", 5u);
+              wfp = fopen(wav_path, "rb");
           }
-          if (cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_audio_present", NULL, 0) != 0u) {
-              uint32_t count = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_audio_length", NULL, 0);
-              if (count != 0u) {
-                  uint8_t *track = (uint8_t *)malloc((size_t)count * sizeof(uint8_t));
-                  uint32_t i;
-                  if (track == NULL) {
-                      (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "unload_media", NULL, 0);
-                      return 0u;
+          if (wfp != NULL) {
+              uint8_t header[44];
+              if (fread(header, 1, 44, wfp) == 44u && memcmp(header, "RIFF", 4) == 0 && memcmp(header + 8, "WAVE", 4) == 0) {
+                  uint16_t channels = (uint16_t)header[22] | ((uint16_t)header[23] << 8u);
+                  uint32_t sample_rate = (uint32_t)header[24] | ((uint32_t)header[25] << 8u) | ((uint32_t)header[26] << 16u) | ((uint32_t)header[27] << 24u);
+                  uint16_t bits_per_sample = (uint16_t)header[34] | ((uint16_t)header[35] << 8u);
+                  uint32_t data_length = (uint32_t)header[40] | ((uint32_t)header[41] << 8u) | ((uint32_t)header[42] << 16u) | ((uint32_t)header[43] << 24u);
+                  uint32_t bytes_per_sample_local = (uint32_t)((bits_per_sample / 8u) * channels);
+                  uint64_t total_samples_local = (bytes_per_sample_local != 0u) ? ((uint64_t)data_length / (uint64_t)bytes_per_sample_local) : 0u;
+                  if (total_samples_local > 0u && total_samples_local <= 0xFFFFFFFFull && sample_rate > 0u) {
+                      uint8_t *buf = (uint8_t *)malloc((size_t)data_length);
+                      if (buf != NULL && fread(buf, 1, data_length, wfp) == data_length) {
+                          uint64_t tape_samples64 = (total_samples_local * 7159090ull + ((uint64_t)sample_rate * 112ull)) / ((uint64_t)sample_rate * 224ull);
+                          if (tape_samples64 > 0u && tape_samples64 <= 0xFFFFFFFFull) {
+                              uint8_t *track = (uint8_t *)malloc((size_t)tape_samples64 + 1u);
+                              if (track != NULL) {
+                                  uint8_t track_has_audio = 0u;
+                                  uint64_t src_step_fp = (((uint64_t)sample_rate * 224ull) << 32u) / 7159090ull;
+                                  uint64_t src_pos_fp = 0u;
+                                  for (uint64_t i = 0u; i < tape_samples64; ++i) {
+                                      uint64_t src_index = src_pos_fp >> 32u;
+                                      uint32_t src_frac = (uint32_t)src_pos_fp;
+                                      uint8_t v0 = 128u;
+                                      uint8_t v1 = 128u;
+                                      for (uint32_t pair = 0u; pair < 2u; ++pair) {
+                                          uint64_t si = src_index + pair;
+                                          if (si < total_samples_local) {
+                                              uint64_t byte_index = si * (uint64_t)bytes_per_sample_local;
+                                              int32_t centered = 0;
+                                              if (bits_per_sample == 8u) centered = (int32_t)buf[byte_index];
+                                              else {
+                                                  int16_t s = (int16_t)((uint16_t)buf[byte_index] | ((uint16_t)buf[byte_index + 1u] << 8u));
+                                                  centered = ((int32_t)s + 32768) >> 8u;
+                                              }
+                                              if (centered < 0) centered = 0;
+                                              if (centered > 255) centered = 255;
+                                              if (pair == 0u) v0 = (uint8_t)centered;
+                                              else v1 = (uint8_t)centered;
+                                          } else if (pair == 1u) v1 = v0;
+                                      }
+                                      {
+                                          uint64_t interp = (uint64_t)v0 * (uint64_t)(0xFFFFFFFFu - src_frac) + (uint64_t)v1 * (uint64_t)src_frac;
+                                          track[i] = (uint8_t)(interp >> 32u);
+                                          if (track[i] != 128u) track_has_audio = 1u;
+                                      }
+                                      src_pos_fp += src_step_fp;
+                                  }
+                                  track[tape_samples64] = track[tape_samples64 - 1u];
+                                  comp->atari_audio_track = track;
+                                  comp->atari_audio_track_length = (uint32_t)tape_samples64;
+                                  comp->atari_audio_present = track_has_audio;
+                              }
+                          }
+                      }
+                      if (buf != NULL) free(buf);
                   }
-                  for (i = 0u; i < count; ++i) {
-                      track[i] = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_audio_sample", (uint64_t[]){ i }, 1);
-                  }
-                  comp->atari_audio_track = track;
-                  comp->atari_audio_track_length = count;
-                  comp->atari_audio_present = 1u;
               }
+              fclose(wfp);
+          }
+          if (src_dot != NULL && strcmp(src_dot, ".cas") == 0) {
+              cfp = fopen(path, "rb");
+          } else if (src_dot != NULL && strcmp(src_dot, ".yaml") == 0 && (size_t)(src_dot - path) < sizeof(cas_path) - 5u) {
+              size_t base_len = (size_t)(src_dot - path);
+              memcpy(cas_path, path, base_len);
+              memcpy(cas_path + base_len, ".cas", 5u);
+              cfp = fopen(cas_path, "rb");
+          }
+          if (cfp != NULL) {
+              uint32_t current_baud = 600u;
+              uint32_t event_cap = 0u;
+              uint32_t synth_sample_rate = 44100u;
+              uint64_t synth_pos_fp = 0u;
+              uint64_t synth_total_fp = 0u;
+              uint8_t synth_level = 0u;
+              #define ATARI_SYNTH_APPEND_EDGE(_fp) \
+                  do { \
+                      if (comp->atari_synth_edge_count >= comp->atari_synth_edge_cap) { \
+                          uint32_t new_cap = (comp->atari_synth_edge_cap == 0u) ? 4096u : (comp->atari_synth_edge_cap * 2u); \
+                          uint32_t *new_edges = (uint32_t *)realloc(comp->atari_synth_edge_positions, (size_t)new_cap * sizeof(uint32_t)); \
+                          if (new_edges == NULL) break; \
+                          comp->atari_synth_edge_positions = new_edges; \
+                          comp->atari_synth_edge_cap = new_cap; \
+                      } \
+                      comp->atari_synth_edge_positions[comp->atari_synth_edge_count++] = (uint32_t)(_fp); \
+                  } while (0)
+              #define ATARI_SYNTH_EMIT_TONE(_freq_hz, _sample_count) \
+                  do { \
+                      uint64_t __remaining = (uint64_t)(_sample_count); \
+                      uint64_t __step_fp = (((uint64_t)synth_sample_rate << 32u) + ((uint64_t)(_freq_hz))) / (uint64_t)((_freq_hz) * 2u); \
+                      if (__step_fp == 0u) __step_fp = 1u; \
+                      while (__remaining > 0u) { \
+                          uint64_t __sample_index = synth_pos_fp >> 32u; \
+                          uint64_t __limit_index = (synth_pos_fp + (__remaining << 32u)) >> 32u; \
+                          if ((__sample_index + (__step_fp >> 32u) + 1u) > __limit_index && __step_fp < (1ull << 32u)) { \
+                              synth_pos_fp += (__remaining << 32u); \
+                              __remaining = 0u; \
+                              break; \
+                          } \
+                          synth_pos_fp += __step_fp; \
+                          __sample_index = synth_pos_fp >> 32u; \
+                          if (__sample_index > __limit_index) __sample_index = __limit_index; \
+                          synth_level ^= 1u; \
+                          ATARI_SYNTH_APPEND_EDGE(__sample_index); \
+                          if (__sample_index >= __limit_index) { \
+                              __remaining = 0u; \
+                              break; \
+                          } \
+                          __remaining = __limit_index - __sample_index; \
+                          synth_pos_fp = (__sample_index << 32u); \
+                      } \
+                      synth_total_fp = synth_pos_fp; \
+                  } while (0)
+              #define ATARI_SYNTH_EMIT_SYMBOL(_symbol, _samples) \
+                  do { \
+                      if ((_samples) > 0u) { \
+                          ATARI_SYNTH_EMIT_TONE((_symbol) ? 5327u : 3995u, (_samples)); \
+                      } \
+                  } while (0)
+              #define ATARI_SYNTH_EMIT_BYTE(_byte, _baud) \
+                  do { \
+                      uint32_t __baud = (_baud) ? (_baud) : 600u; \
+                      uint32_t __bit_samples = (uint32_t)(((uint64_t)synth_sample_rate + (__baud / 2u)) / (uint64_t)__baud); \
+                      if (__bit_samples == 0u) __bit_samples = 1u; \
+                      ATARI_SYNTH_EMIT_SYMBOL(0u, __bit_samples); \
+                      for (uint32_t __bit = 0u; __bit < 8u; ++__bit) { \
+                          ATARI_SYNTH_EMIT_SYMBOL((((_byte) >> __bit) & 0x01u), __bit_samples); \
+                      } \
+                      ATARI_SYNTH_EMIT_SYMBOL(1u, __bit_samples); \
+                  } while (0)
+              #define ATARI_SYNTH_EMIT_GAP_MS10(_ms10) \
+                  do { \
+                      uint32_t __samples = (uint32_t)((((uint64_t)(_ms10) * (uint64_t)synth_sample_rate) + 5000u) / 10000u); \
+                      ATARI_SYNTH_EMIT_SYMBOL(1u, __samples); \
+                  } while (0)
+              for (;;) {
+                  uint8_t header[8];
+                  uint32_t chunk_len, chunk_aux;
+                  uint8_t *chunk_buf = NULL;
+                  if (fread(header, 1, 8, cfp) != 8u) break;
+                  chunk_len = (uint32_t)header[4] | ((uint32_t)header[5] << 8u);
+                  chunk_aux = (uint32_t)header[6] | ((uint32_t)header[7] << 8u);
+                  if (chunk_len > 0u) {
+                      chunk_buf = (uint8_t *)malloc((size_t)chunk_len);
+                      if (chunk_buf == NULL) break;
+                      if (fread(chunk_buf, 1, (size_t)chunk_len, cfp) != (size_t)chunk_len) {
+                          free(chunk_buf);
+                          break;
+                      }
+                  }
+                  if (memcmp(header, "baud", 4) == 0) {
+                      if (chunk_aux != 0u) current_baud = chunk_aux;
+                  } else if (memcmp(header, "data", 4) == 0 || memcmp(header, "fsk ", 4) == 0) {
+                      uint8_t mode_fsk = (uint8_t)(memcmp(header, "fsk ", 4) == 0);
+                      uint32_t gap_ticks = (uint32_t)(((uint64_t)chunk_aux * 1789790u) / 10000u);
+                      if (chunk_aux > 0u) ATARI_SYNTH_EMIT_GAP_MS10(chunk_aux);
+                      uint8_t fsk_symbol = 0u;
+                      if (gap_ticks > 0u) {
+                          if (comp->atari_event_count >= event_cap) {
+                              uint32_t new_cap = (event_cap == 0u) ? 256u : (event_cap * 2u);
+                              uint32_t *new_durations = (uint32_t *)realloc(comp->atari_event_durations, (size_t)new_cap * sizeof(uint32_t));
+                              uint8_t *new_bytes = (uint8_t *)realloc(comp->atari_event_bytes, (size_t)new_cap * sizeof(uint8_t));
+                              uint8_t *new_kinds = (uint8_t *)realloc(comp->atari_event_kinds, (size_t)new_cap * sizeof(uint8_t));
+                              if (new_durations == NULL || new_bytes == NULL || new_kinds == NULL) {
+                                  if (new_durations != NULL) comp->atari_event_durations = new_durations;
+                                  if (new_bytes != NULL) comp->atari_event_bytes = new_bytes;
+                                  if (new_kinds != NULL) comp->atari_event_kinds = new_kinds;
+                                  if (chunk_buf != NULL) free(chunk_buf);
+                                  break;
+                              }
+                              comp->atari_event_durations = new_durations;
+                              comp->atari_event_bytes = new_bytes;
+                              comp->atari_event_kinds = new_kinds;
+                              event_cap = new_cap;
+                          }
+                          comp->atari_event_durations[comp->atari_event_count] = gap_ticks;
+                          comp->atari_event_bytes[comp->atari_event_count] = 0xFFu;
+                          comp->atari_event_kinds[comp->atari_event_count] = 1u;
+                          comp->atari_event_count += 1u;
+                          comp->atari_event_total_ticks += (uint64_t)gap_ticks;
+                      }
+                      if (mode_fsk == 0u) {
+                          uint32_t byte_ticks = (current_baud != 0u) ? (uint32_t)((10u * 1789790u) / current_baud) : (uint32_t)((10u * 1789790u) / 600u);
+                          for (uint32_t i = 0u; i < chunk_len; ++i) {
+                              if (comp->atari_event_count >= event_cap) {
+                                  uint32_t new_cap = (event_cap == 0u) ? 256u : (event_cap * 2u);
+                                  uint32_t *new_durations = (uint32_t *)realloc(comp->atari_event_durations, (size_t)new_cap * sizeof(uint32_t));
+                                  uint8_t *new_bytes = (uint8_t *)realloc(comp->atari_event_bytes, (size_t)new_cap * sizeof(uint8_t));
+                                  uint8_t *new_kinds = (uint8_t *)realloc(comp->atari_event_kinds, (size_t)new_cap * sizeof(uint8_t));
+                                  if (new_durations == NULL || new_bytes == NULL || new_kinds == NULL) break;
+                                  comp->atari_event_durations = new_durations;
+                                  comp->atari_event_bytes = new_bytes;
+                                  comp->atari_event_kinds = new_kinds;
+                                  event_cap = new_cap;
+                              }
+                              comp->atari_event_durations[comp->atari_event_count] = byte_ticks;
+                              comp->atari_event_bytes[comp->atari_event_count] = chunk_buf[i];
+                              comp->atari_event_kinds[comp->atari_event_count] = 0u;
+                              comp->atari_event_count += 1u;
+                              comp->atari_event_total_ticks += (uint64_t)byte_ticks;
+                              ATARI_SYNTH_EMIT_BYTE(chunk_buf[i], current_baud);
+                          }
+                      } else {
+                          for (uint32_t i = 0u; i + 1u < chunk_len; i += 2u) {
+                              uint32_t samples = (uint32_t)((((uint64_t)(((uint32_t)chunk_buf[i] | ((uint32_t)chunk_buf[i + 1u] << 8u))) * (uint64_t)synth_sample_rate) + 5000u) / 10000u);
+                              if (samples == 0u) continue;
+                              ATARI_SYNTH_EMIT_SYMBOL(fsk_symbol, samples);
+                              fsk_symbol ^= 1u;
+                          }
+                      }
+                  }
+                  if (chunk_buf != NULL) free(chunk_buf);
+              }
+              fclose(cfp);
+              comp->atari_synth_total_samples = (uint32_t)(synth_total_fp >> 32u);
+              comp->atari_synth_sample_rate = synth_sample_rate;
+              #undef ATARI_SYNTH_APPEND_EDGE
+              #undef ATARI_SYNTH_EMIT_TONE
+              #undef ATARI_SYNTH_EMIT_SYMBOL
+              #undef ATARI_SYNTH_EMIT_BYTE
+              #undef ATARI_SYNTH_EMIT_GAP_MS10
           }
       }
       return result;
@@ -259,11 +529,21 @@ behavior:
       comp->atari_cas_pending_byte = 0xFFu;
       comp->atari_cas_current_kind = 1u;
       comp->atari_cas_current_byte = 0xFFu;
+      comp->atari_cas_last_playhead_ticks = 0u;
+      comp->atari_transport_mode_state = 0u;
+      comp->atari_motor_state = 0u;
+      comp->atari_playhead_base_samples = 0u;
+      comp->atari_playhead_base_valid = 0u;
       comp->atari_audio_track_pos = 0u;
       comp->atari_audio_track_cycle_residue = 0u;
       comp->atari_audio_track_last_cycle = cpu->total_cycles;
       comp->atari_audio_present = 0u;
       comp->atari_playback_level = 128u;
+      comp->atari_event_total_ticks = 0u;
+      comp->atari_synth_edge_count = 0u;
+      comp->atari_synth_edge_cap = 0u;
+      comp->atari_synth_total_samples = 0u;
+      comp->atari_synth_sample_rate = 44100u;
       if (comp->atari_event_durations != NULL) {
           free(comp->atari_event_durations);
           comp->atari_event_durations = NULL;
@@ -281,10 +561,15 @@ behavior:
           free(comp->atari_audio_track);
           comp->atari_audio_track = NULL;
       }
+      if (comp->atari_synth_edge_positions != NULL) {
+          free(comp->atari_synth_edge_positions);
+          comp->atari_synth_edge_positions = NULL;
+      }
       comp->atari_audio_track_length = 0u;
       return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "unload_media", args, argc);
     set_transport_mode: |
-      if (argc > 0u && ((uint8_t)(args[0] & 0xFFu)) == 1u) {
+      uint8_t mode = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      if (mode == 1u && comp->atari_transport_mode_state != 1u) {
           comp->atari_fsk_cursor_samples = 0u;
           comp->atari_fsk_edge_cursor = 0u;
           comp->atari_fsk_prev_symbol = 1u;
@@ -295,10 +580,15 @@ behavior:
           comp->atari_cas_pending_byte = 0xFFu;
           comp->atari_cas_current_kind = 1u;
           comp->atari_cas_current_byte = 0xFFu;
+          comp->atari_cas_last_playhead_ticks = 0u;
+          comp->atari_playhead_base_samples = 0u;
+          comp->atari_playhead_base_valid = 0u;
       }
+      comp->atari_transport_mode_state = mode;
       return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_transport_mode", args, argc);
     set_motor: |
-      if (argc > 0u && ((uint8_t)(args[0] & 0xFFu)) != 0u) {
+      uint8_t motor = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      if (motor != 0u && comp->atari_motor_state == 0u) {
           comp->atari_fsk_cursor_samples = 0u;
           comp->atari_fsk_edge_cursor = 0u;
           comp->atari_fsk_prev_symbol = 1u;
@@ -309,7 +599,11 @@ behavior:
           comp->atari_cas_pending_byte = 0xFFu;
           comp->atari_cas_current_kind = 1u;
           comp->atari_cas_current_byte = 0xFFu;
+          comp->atari_cas_last_playhead_ticks = 0u;
+          comp->atari_playhead_base_samples = 0u;
+          comp->atari_playhead_base_valid = 0u;
       }
+      comp->atari_motor_state = motor;
       return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_motor", args, argc);
     set_volume: |
       return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_volume", args, argc);
@@ -348,7 +642,7 @@ behavior:
                       uint8_t s0 = comp->atari_audio_track[pos];
                       uint8_t s1 = comp->atari_audio_track[(pos + 1u < comp->atari_audio_track_length) ? (pos + 1u) : pos];
                       int32_t interp = ((int32_t)s0 * (int32_t)(56u - frac) + (int32_t)s1 * (int32_t)frac + 28) / 56;
-                      interp = ((interp - 128) * (int32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_volume_percent", NULL, 0)) / 100 + 128;
+                      interp = ((interp - 128) * (int32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_volume_percent", NULL, 0)) / 100 + 128;
                       if (interp < 0) interp = 0;
                       if (interp > 255) interp = 255;
                       comp->atari_playback_level = (uint8_t)interp;
@@ -376,18 +670,50 @@ behavior:
               comp->atari_cas_pending_byte = 0xFFu;
               comp->atari_cas_current_kind = 1u;
               comp->atari_cas_current_byte = 0xFFu;
+              comp->atari_cas_last_playhead_ticks = 0u;
+              comp->atari_playhead_base_samples = 0u;
+              comp->atari_playhead_base_valid = 0u;
               comp->atari_playback_level = 128u;
               return (1ull << 16u);
+          }
+          if (comp->atari_playhead_base_valid == 0u) {
+              comp->atari_playhead_base_samples = available_samples;
+              comp->atari_playhead_base_valid = 1u;
+          }
+          if (available_samples >= comp->atari_playhead_base_samples) available_samples -= comp->atari_playhead_base_samples;
+          else available_samples = 0u;
+          if (comp->atari_synth_total_samples > 0u && available_samples >= (uint64_t)comp->atari_synth_total_samples) {
+              uint64_t stop_args[1] = { 0u };
+              (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_transport_mode", stop_args, 1);
+              (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_motor", stop_args, 1);
           }
           event_count = (uint64_t)comp->atari_event_count;
           if (event_count > 0u) {
               int loaded = 0;
               uint8_t loaded_byte = 0xFFu;
-              comp->atari_cas_event_time_left -= 114;
+              if (comp->atari_cas_event_index == 0u && comp->atari_cas_event_time_left == 0) {
+                  comp->atari_cas_current_kind = comp->atari_event_kinds[0];
+                  comp->atari_cas_current_byte = comp->atari_event_bytes[0];
+                  comp->atari_cas_event_time_left = (int32_t)comp->atari_event_durations[0];
+                  comp->atari_cas_pending_serin = (uint8_t)(comp->atari_cas_current_kind == 0u);
+                  if (comp->atari_cas_current_kind == 0u) comp->atari_cas_pending_byte = comp->atari_cas_current_byte;
+                  comp->atari_cas_event_index = 1u;
+              }
+              uint64_t playhead_ticks = 0u;
+              if (sample_rate > 0u) playhead_ticks = (available_samples * 1789790ull) / sample_rate;
+              if (playhead_ticks < comp->atari_cas_last_playhead_ticks) comp->atari_cas_last_playhead_ticks = playhead_ticks;
+              if (playhead_ticks > comp->atari_cas_last_playhead_ticks) {
+                  uint64_t delta_ticks64 = playhead_ticks - comp->atari_cas_last_playhead_ticks;
+                  int32_t delta_ticks = (delta_ticks64 > 0x7FFFFFFFull) ? 0x7FFFFFFF : (int32_t)delta_ticks64;
+                  comp->atari_cas_event_time_left -= delta_ticks;
+                  comp->atari_cas_last_playhead_ticks = playhead_ticks;
+              }
               while (comp->atari_cas_event_time_left < 0) {
                   if (comp->atari_cas_current_kind == 0u && comp->atari_cas_pending_serin != 0u) {
                       loaded = 1;
                       loaded_byte = comp->atari_cas_pending_byte;
+                      comp->atari_cas_pending_serin = 0u;
+                      break;
                   }
                   comp->atari_cas_pending_serin = 0u;
                   if (comp->atari_cas_event_index >= (uint32_t)event_count) {
@@ -405,7 +731,9 @@ behavior:
                   }
                   comp->atari_cas_event_index += 1u;
               }
-              if (comp->atari_cas_current_kind == 2u) {
+              if (comp->atari_synth_edge_count > 0u) {
+                  /* For .cas sources, line state comes from synthesized FSK below; this path only schedules exact SERIN bytes. */
+              } else if (comp->atari_cas_current_kind == 2u) {
                   comp->atari_fsk_line_state = (uint8_t)(comp->atari_cas_current_byte & 0x01u);
               } else if (comp->atari_cas_current_kind == 0u) {
                   uint32_t duration = (comp->atari_cas_event_index > 0u)
@@ -419,12 +747,30 @@ behavior:
                   }
                   if (bit <= 0 || bit > 9) comp->atari_fsk_line_state = 1u;
                   else if (bit == 9) comp->atari_fsk_line_state = 0u;
-                  else comp->atari_fsk_line_state = (uint8_t)((comp->atari_cas_current_byte >> (8 - bit)) & 0x01u);
+                  else comp->atari_fsk_line_state = (uint8_t)((comp->atari_cas_current_byte >> (bit - 1)) & 0x01u);
               } else {
                   comp->atari_fsk_line_state = 1u;
               }
               if (loaded != 0) {
+                  if (comp->atari_audio_present == 0u && comp->atari_synth_edge_count > 0u) {
+                      uint8_t vol = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_volume_percent", NULL, 0);
+                      int32_t centered = (comp->atari_fsk_line_state != 0u) ? 96 : -96;
+                      centered = (centered * (int32_t)vol) / 100;
+                      centered += 128;
+                      if (centered < 0) centered = 0;
+                      if (centered > 255) centered = 255;
+                      comp->atari_playback_level = (uint8_t)centered;
+                  }
                   return 1ull | ((uint64_t)loaded_byte << 8u) | ((uint64_t)(comp->atari_fsk_line_state != 0u) << 16u);
+              }
+              if (comp->atari_audio_present == 0u && comp->atari_synth_edge_count > 0u) {
+                  uint8_t vol = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_volume_percent", NULL, 0);
+                  int32_t centered = (comp->atari_fsk_line_state != 0u) ? 96 : -96;
+                  centered = (centered * (int32_t)vol) / 100;
+                  centered += 128;
+                  if (centered < 0) centered = 0;
+                  if (centered > 255) centered = 255;
+                  comp->atari_playback_level = (uint8_t)centered;
               }
               return ((uint64_t)(comp->atari_fsk_line_state != 0u) << 16u);
           }
@@ -544,13 +890,29 @@ behavior:
           }
       }
     query_sample_rate: |
-      return cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_sample_rate", NULL, 0);
+      if (comp->atari_synth_edge_count > 0u && comp->atari_synth_sample_rate > 0u) return (uint64_t)comp->atari_synth_sample_rate;
+      return cpu_component_dispatch_callback(cpu, "cassette_transport", "query_sample_rate", NULL, 0);
     query_available_samples: |
-      return cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_available_samples", NULL, 0);
+      if (comp->atari_synth_edge_count > 0u) {
+          uint64_t played = cpu_component_dispatch_callback(cpu, "cassette_transport", "query_playhead_samples", NULL, 0);
+          if (comp->atari_playhead_base_valid != 0u) {
+              if (played >= comp->atari_playhead_base_samples) played -= comp->atari_playhead_base_samples;
+              else played = 0u;
+          }
+          if (played > (uint64_t)comp->atari_synth_total_samples) played = (uint64_t)comp->atari_synth_total_samples;
+          return played;
+      }
+      return cpu_component_dispatch_callback(cpu, "cassette_transport", "query_playhead_samples", NULL, 0);
     query_edge_count: |
-      return cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_edge_count", NULL, 0);
+      if (comp->atari_synth_edge_count > 0u) return (uint64_t)comp->atari_synth_edge_count;
+      return cpu_component_dispatch_callback(cpu, "cassette_transport", "query_edge_count", NULL, 0);
     query_edge_fp: |
-      return cpu_component_dispatch_callback(cpu, "cassette_transport", "atari_query_edge_fp", args, argc);
+      if (comp->atari_synth_edge_count > 0u) {
+          uint32_t index = (argc > 0u) ? (uint32_t)(args[0] & 0xFFFFFFFFu) : 0u;
+          if (index < comp->atari_synth_edge_count && comp->atari_synth_edge_positions != NULL) return (uint64_t)comp->atari_synth_edge_positions[index];
+          return 0u;
+      }
+      return cpu_component_dispatch_callback(cpu, "cassette_transport", "query_edge_fp", args, argc);
     query_event_count: |
       return (uint64_t)comp->atari_event_count;
     query_event_duration: |
@@ -574,7 +936,23 @@ behavior:
     query_playback_level: |
       return comp->atari_playback_level;
     query_transport_state: |
-      return cpu_component_dispatch_callback(cpu, "cassette_transport", "query_transport_state", args, argc);
+      {
+          uint64_t packed = cpu_component_dispatch_callback(cpu, "cassette_transport", "query_transport_state", args, argc);
+          uint64_t total_secs = 0u;
+          if (comp->atari_synth_sample_rate > 0u && comp->atari_synth_total_samples > 0u) {
+              total_secs = ((uint64_t)comp->atari_synth_total_samples + ((uint64_t)comp->atari_synth_sample_rate / 2u)) / (uint64_t)comp->atari_synth_sample_rate;
+          } else if (comp->atari_event_total_ticks > 0u) {
+              total_secs = comp->atari_event_total_ticks / 1789790ull;
+          }
+          if (total_secs > 0xFFFFu) total_secs = 0xFFFFu;
+          packed &= ~(((uint64_t)0xFFFFu) << 32u);
+          packed |= (total_secs & 0xFFFFu) << 32u;
+          return packed;
+      }
+    query_selected_source_kind: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport", "query_selected_source_kind", args, argc);
+    query_selected_source_model: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport", "query_selected_source_model", args, argc);
   handler_bodies: {}
 
 coding:

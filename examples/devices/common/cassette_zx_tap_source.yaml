@@ -1,0 +1,583 @@
+metadata:
+  id: cassette_zx_tap_source
+  type: cassette_source_backend
+  model: common_cassette_zx_tap_source
+  version: "1.0"
+
+state:
+  - name: selected_source_kind
+    type: uint8_t
+    initial: "0"
+  - name: selected_source_index
+    type: uint8_t
+    initial: "0"
+  - name: selected_source_model
+    type: char *
+    initial: "NULL"
+  - name: selected_source_component
+    type: char *
+    initial: "NULL"
+  - name: media_loaded
+    type: uint8_t
+    initial: "0"
+  - name: transport_mode
+    type: uint8_t
+    initial: "0"
+  - name: motor_on
+    type: uint8_t
+    initial: "0"
+  - name: volume_percent
+    type: uint8_t
+    initial: "100"
+  - name: bass_percent
+    type: uint8_t
+    initial: "50"
+  - name: treble_percent
+    type: uint8_t
+    initial: "50"
+  - name: media_path
+    type: char *
+    initial: "NULL"
+  - name: edge_positions
+    type: uint64_t *
+    initial: "NULL"
+  - name: edge_count
+    type: uint32_t
+    initial: "0"
+  - name: edge_cap
+    type: uint32_t
+    initial: "0"
+  - name: edge_index
+    type: uint32_t
+    initial: "0"
+  - name: edge_initial_level
+    type: uint8_t
+    initial: "0"
+  - name: signal_tick_rate
+    type: uint32_t
+    initial: "3500000"
+  - name: total_ticks
+    type: uint64_t
+    initial: "0"
+  - name: playhead_ticks
+    type: uint64_t
+    initial: "0"
+  - name: playhead_cycle_residue
+    type: uint64_t
+    initial: "0"
+  - name: last_cycle
+    type: uint64_t
+    initial: "0"
+  - name: playback_level
+    type: uint8_t
+    initial: "128"
+  - name: leader_start_tick
+    type: uint64_t
+    initial: "0"
+  - name: leader_start_index
+    type: uint32_t
+    initial: "0"
+  - name: leader_end_tick
+    type: uint64_t
+    initial: "0"
+  - name: leader_end_index
+    type: uint32_t
+    initial: "0"
+  - name: leader_seek_applied
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: select_source
+      args: [u8, u8, ptr, ptr]
+      returns: u8
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: set_transport_mode
+      args: [u8]
+      returns: u8
+    - name: set_motor
+      args: [u8]
+      returns: u8
+    - name: set_volume
+      args: [u8]
+      returns: u8
+    - name: set_bass
+      args: [u8]
+      returns: u8
+    - name: set_treble
+      args: [u8]
+      returns: u8
+    - name: sample_input
+      args: []
+      returns: u8
+    - name: query_transport_state
+      args: []
+      returns: u64
+    - name: query_edge_count
+      args: []
+      returns: u64
+    - name: query_edge_initial_level
+      args: []
+      returns: u64
+    - name: query_edge_fp
+      args: [u32]
+      returns: u64
+    - name: query_sample_rate
+      args: []
+      returns: u64
+    - name: query_playhead_samples
+      args: []
+      returns: u64
+    - name: query_leader_start_sample
+      args: []
+      returns: u64
+    - name: query_leader_start_index
+      args: []
+      returns: u64
+    - name: query_leader_end_sample
+      args: []
+      returns: u64
+    - name: query_leader_end_index
+      args: []
+      returns: u64
+    - name: query_playback_level
+      args: []
+      returns: u64
+    - name: query_volume_percent
+      args: []
+      returns: u64
+    - name: set_playhead_fp
+      args: [u64, u32]
+      returns: u8
+    - name: push_output_sample
+      args: [u8, u64]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->selected_source_kind = 0u;
+      comp->selected_source_index = 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      if (comp->media_path != NULL) {
+          free(comp->media_path);
+          comp->media_path = NULL;
+      }
+      if (comp->edge_positions != NULL) {
+          free(comp->edge_positions);
+          comp->edge_positions = NULL;
+      }
+      comp->media_loaded = 0u;
+      comp->transport_mode = 0u;
+      comp->motor_on = 0u;
+      comp->volume_percent = 100u;
+      comp->bass_percent = 50u;
+      comp->treble_percent = 50u;
+      comp->edge_count = 0u;
+      comp->edge_cap = 0u;
+      comp->edge_index = 0u;
+      comp->edge_initial_level = 0u;
+      comp->signal_tick_rate = 3500000u;
+      comp->total_ticks = 0u;
+      comp->playhead_ticks = 0u;
+      comp->playhead_cycle_residue = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->playback_level = 128u;
+      comp->leader_start_tick = 0u;
+      comp->leader_start_index = 0u;
+      comp->leader_end_tick = 0u;
+      comp->leader_end_index = 0u;
+      comp->leader_seek_applied = 0u;
+    destroy: |
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      if (comp->media_path != NULL) {
+          free(comp->media_path);
+          comp->media_path = NULL;
+      }
+      if (comp->edge_positions != NULL) {
+          free(comp->edge_positions);
+          comp->edge_positions = NULL;
+      }
+      comp->edge_count = 0u;
+      comp->edge_cap = 0u;
+      (void)cpu;
+  callback_handlers:
+    select_source: |
+      const char *model = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : NULL;
+      const char *source_component = (argc > 3u && args[3] != 0u) ? (const char *)(uintptr_t)args[3] : NULL;
+      comp->selected_source_kind = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      comp->selected_source_index = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      if (model != NULL && model[0] != '\0') {
+          comp->selected_source_model = strdup(model);
+          if (comp->selected_source_model == NULL) return 0u;
+      }
+      if (source_component != NULL && source_component[0] != '\0') {
+          comp->selected_source_component = strdup(source_component);
+          if (comp->selected_source_component == NULL) return 0u;
+      }
+      return 1u;
+    load_media: |
+      if (argc < 1u || args[0] == 0u) return 0u;
+      {
+          const char *path = (const char *)(uintptr_t)args[0];
+          const char *source_model = (comp->selected_source_model != NULL) ? comp->selected_source_model : "";
+          FILE *fp = NULL;
+          uint8_t *buf = NULL;
+          long file_size = 0;
+          uint32_t pos = 0u;
+          uint64_t *edges = NULL;
+          uint32_t edge_count = 0u;
+          uint32_t edge_cap = 0u;
+          uint64_t tick = 0u;
+          uint8_t level = 0u;
+          uint32_t tick_rate = 3500000u;
+          uint8_t leader_captured = 0u;
+          if (comp->selected_source_kind != 0u) return 0u;
+          if (source_model[0] != '\0' && strcmp(source_model, "common_zx_tap_file_source") != 0) return 0u;
+          if (comp->edge_positions != NULL) {
+              free(comp->edge_positions);
+              comp->edge_positions = NULL;
+          }
+          if (comp->media_path != NULL) {
+              free(comp->media_path);
+              comp->media_path = NULL;
+          }
+          comp->edge_count = 0u;
+          comp->edge_cap = 0u;
+          comp->edge_index = 0u;
+          comp->edge_initial_level = 0u;
+          comp->total_ticks = 0u;
+          comp->playhead_ticks = 0u;
+          comp->playhead_cycle_residue = 0u;
+          comp->playback_level = 128u;
+          comp->leader_start_tick = 0u;
+          comp->leader_start_index = 0u;
+          comp->leader_end_tick = 0u;
+          comp->leader_end_index = 0u;
+          comp->leader_seek_applied = 0u;
+          comp->media_loaded = 0u;
+          comp->transport_mode = 0u;
+          comp->motor_on = 0u;
+          fp = fopen(path, "rb");
+          if (fp == NULL) return 0u;
+          if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return 0u; }
+          file_size = ftell(fp);
+          if (file_size <= 2) { fclose(fp); return 0u; }
+          if (fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); return 0u; }
+          buf = (uint8_t *)malloc((size_t)file_size);
+          if (buf == NULL) { fclose(fp); return 0u; }
+          if (fread(buf, 1, (size_t)file_size, fp) != (size_t)file_size) {
+              free(buf);
+              fclose(fp);
+              return 0u;
+          }
+          fclose(fp);
+          #define ZXTAP_NEED(n) do { if ((uint64_t)pos + (uint64_t)(n) > (uint64_t)file_size) goto zxtap_fail; } while (0)
+          #define ZXTAP_U16(off) ((uint16_t)buf[(off)] | (uint16_t)((uint16_t)buf[(off) + 1u] << 8u))
+          #define ZXTAP_APPEND_EDGE(edge_tick) \
+              do { \
+                  if (edge_count >= edge_cap) { \
+                      uint32_t new_cap = (edge_cap == 0u) ? 4096u : (edge_cap * 2u); \
+                      uint64_t *new_edges = (uint64_t *)realloc(edges, (size_t)new_cap * sizeof(uint64_t)); \
+                      if (new_edges == NULL) goto zxtap_fail; \
+                      edges = new_edges; \
+                      edge_cap = new_cap; \
+                  } \
+                  edges[edge_count++] = (edge_tick); \
+              } while (0)
+          #define ZXTAP_EMIT_PULSE(len_ticks) \
+              do { \
+                  uint64_t __len = (uint64_t)(len_ticks); \
+                  if (__len != 0u) { \
+                      tick += __len; \
+                      ZXTAP_APPEND_EDGE(tick); \
+                      level ^= 1u; \
+                  } \
+              } while (0)
+          #define ZXTAP_EMIT_BIT(bit_val, zero_len, one_len) \
+              do { \
+                  uint64_t __pulse = ((bit_val) != 0u) ? (uint64_t)(one_len) : (uint64_t)(zero_len); \
+                  ZXTAP_EMIT_PULSE(__pulse); \
+                  ZXTAP_EMIT_PULSE(__pulse); \
+              } while (0)
+          #define ZXTAP_EMIT_BITS(data_ptr, data_len, zero_len, one_len) \
+              do { \
+                  uint32_t __bytes = (uint32_t)(data_len); \
+                  for (uint32_t __i = 0u; __i < __bytes; ++__i) { \
+                      uint8_t __byte = (data_ptr)[__i]; \
+                      for (uint8_t __b = 0u; __b < 8u; ++__b) { \
+                          uint8_t __bit = (uint8_t)((__byte >> (7u - __b)) & 0x01u); \
+                          ZXTAP_EMIT_BIT(__bit, zero_len, one_len); \
+                      } \
+                  } \
+              } while (0)
+          #define ZXTAP_EMIT_PAUSE_MS(ms_val) \
+              do { \
+                  uint32_t __ms = (uint32_t)(ms_val); \
+                  tick += (uint64_t)__ms * 3500u; \
+              } while (0)
+          while (pos < (uint32_t)file_size) {
+              uint16_t data_len;
+              const uint8_t *data_ptr;
+              uint16_t pilot_len = 2168u;
+              uint16_t sync1_len = 667u;
+              uint16_t sync2_len = 735u;
+              uint16_t zero_len = 855u;
+              uint16_t one_len = 1710u;
+              uint16_t pilot_count;
+              ZXTAP_NEED(2u);
+              data_len = ZXTAP_U16(pos);
+              pos += 2u;
+              ZXTAP_NEED(data_len);
+              if (data_len == 0u) continue;
+              data_ptr = buf + pos;
+              pilot_count = (data_ptr[0] < 0x80u) ? 8063u : 3223u;
+              if (leader_captured == 0u) {
+                  comp->leader_start_tick = tick;
+                  comp->leader_start_index = edge_count;
+              }
+              for (uint32_t i = 0u; i < (uint32_t)pilot_count; ++i) ZXTAP_EMIT_PULSE(pilot_len);
+              if (leader_captured == 0u) {
+                  comp->leader_end_tick = tick;
+                  comp->leader_end_index = edge_count;
+                  leader_captured = 1u;
+              }
+              ZXTAP_EMIT_PULSE(sync1_len);
+              ZXTAP_EMIT_PULSE(sync2_len);
+              ZXTAP_EMIT_BITS(data_ptr, data_len, zero_len, one_len);
+              ZXTAP_EMIT_PAUSE_MS(1000u);
+              pos += data_len;
+          }
+          #undef ZXTAP_NEED
+          #undef ZXTAP_U16
+          #undef ZXTAP_APPEND_EDGE
+          #undef ZXTAP_EMIT_PULSE
+          #undef ZXTAP_EMIT_BIT
+          #undef ZXTAP_EMIT_BITS
+          #undef ZXTAP_EMIT_PAUSE_MS
+          free(buf);
+          comp->edge_positions = edges;
+          comp->edge_count = edge_count;
+          comp->edge_cap = edge_cap;
+          comp->edge_index = 0u;
+          comp->edge_initial_level = 0u;
+          comp->signal_tick_rate = tick_rate;
+          comp->total_ticks = tick;
+          comp->playhead_ticks = 0u;
+          comp->playhead_cycle_residue = 0u;
+          comp->last_cycle = cpu->total_cycles;
+          comp->media_path = strdup(path);
+          if (comp->media_path == NULL) {
+              if (comp->edge_positions != NULL) {
+                  free(comp->edge_positions);
+                  comp->edge_positions = NULL;
+              }
+              comp->edge_count = 0u;
+              comp->edge_cap = 0u;
+              return 0u;
+          }
+          comp->media_loaded = 1u;
+          return 1u;
+      zxtap_fail:
+          #undef ZXTAP_NEED
+          #undef ZXTAP_U16
+          #undef ZXTAP_APPEND_EDGE
+          #undef ZXTAP_EMIT_PULSE
+          #undef ZXTAP_EMIT_BIT
+          #undef ZXTAP_EMIT_BITS
+          #undef ZXTAP_EMIT_PAUSE_MS
+          if (edges != NULL) free(edges);
+          if (buf != NULL) free(buf);
+          return 0u;
+      }
+    unload_media: |
+      comp->media_loaded = 0u;
+      comp->transport_mode = 0u;
+      comp->motor_on = 0u;
+      comp->playhead_ticks = 0u;
+      comp->playhead_cycle_residue = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->playback_level = 128u;
+      comp->leader_start_tick = 0u;
+      comp->leader_start_index = 0u;
+      comp->leader_end_tick = 0u;
+      comp->leader_end_index = 0u;
+      comp->leader_seek_applied = 0u;
+      if (comp->edge_positions != NULL) {
+          free(comp->edge_positions);
+          comp->edge_positions = NULL;
+      }
+      if (comp->media_path != NULL) {
+          free(comp->media_path);
+          comp->media_path = NULL;
+      }
+      comp->edge_count = 0u;
+      comp->edge_cap = 0u;
+      comp->edge_index = 0u;
+      comp->edge_initial_level = 0u;
+      comp->total_ticks = 0u;
+      return 1u;
+    set_transport_mode: |
+      if (argc < 1u) return 0u;
+      comp->transport_mode = (uint8_t)(args[0] & 0xFFu);
+      if (comp->transport_mode == 1u && comp->media_loaded != 0u) {
+          comp->motor_on = 1u;
+      } else if (comp->transport_mode == 0u) {
+          comp->motor_on = 0u;
+      }
+      comp->leader_seek_applied = 0u;
+      comp->playhead_cycle_residue = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      comp->playback_level = (comp->edge_initial_level ^ (uint8_t)(comp->edge_index & 0x01u)) ? 255u : 0u;
+      return 1u;
+    set_motor: |
+      if (argc < 1u) return 0u;
+      comp->motor_on = (uint8_t)(args[0] & 0x01u);
+      comp->playhead_cycle_residue = 0u;
+      comp->last_cycle = cpu->total_cycles;
+      return 1u;
+    set_volume: |
+      if (argc < 1u) return 0u;
+      comp->volume_percent = (uint8_t)((args[0] > 100u) ? 100u : args[0]);
+      return 1u;
+    set_bass: |
+      if (argc < 1u) return 0u;
+      comp->bass_percent = (uint8_t)((args[0] > 100u) ? 100u : args[0]);
+      return 1u;
+    set_treble: |
+      if (argc < 1u) return 0u;
+      comp->treble_percent = (uint8_t)((args[0] > 100u) ? 100u : args[0]);
+      return 1u;
+    sample_input: |
+      {
+          uint64_t now = cpu->total_cycles;
+          uint64_t clock_hz = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (uint64_t)CPU_SYSTEM_CLOCK_HZ : 3500000u;
+          uint8_t current_level = comp->edge_initial_level;
+          if (comp->media_loaded == 0u || comp->motor_on == 0u || comp->transport_mode != 1u) {
+              comp->last_cycle = now;
+              comp->playback_level = 128u;
+              return 128u;
+          }
+          if (now > comp->last_cycle) {
+              uint64_t numer = comp->playhead_cycle_residue + ((now - comp->last_cycle) * (uint64_t)comp->signal_tick_rate);
+              comp->playhead_ticks += numer / clock_hz;
+              comp->playhead_cycle_residue = numer % clock_hz;
+          }
+          comp->last_cycle = now;
+          if (comp->total_ticks != 0u && comp->playhead_ticks >= comp->total_ticks) {
+              comp->playhead_ticks = comp->total_ticks;
+              comp->transport_mode = 0u;
+              comp->motor_on = 0u;
+              comp->edge_index = comp->edge_count;
+              comp->playback_level = 128u;
+              return 128u;
+          }
+          while (comp->edge_index < comp->edge_count && comp->edge_positions[comp->edge_index] <= comp->playhead_ticks) {
+              comp->edge_index += 1u;
+          }
+          current_level = (uint8_t)(comp->edge_initial_level ^ (uint8_t)(comp->edge_index & 0x01u));
+          comp->playback_level = current_level ? 255u : 0u;
+          return comp->playback_level;
+      }
+    query_transport_state: |
+      {
+          uint64_t packed = (uint64_t)comp->transport_mode;
+          uint64_t current_secs = 0u;
+          uint64_t total_secs = 0u;
+          if (comp->motor_on != 0u) packed |= (1ull << 8);
+          if (comp->media_loaded != 0u) packed |= (1ull << 9);
+          if (comp->signal_tick_rate != 0u) {
+              current_secs = comp->playhead_ticks / (uint64_t)comp->signal_tick_rate;
+              total_secs = comp->total_ticks / (uint64_t)comp->signal_tick_rate;
+          }
+          if (current_secs > 0xFFFFu) current_secs = 0xFFFFu;
+          if (total_secs > 0xFFFFu) total_secs = 0xFFFFu;
+          packed |= (current_secs & 0xFFFFu) << 16u;
+          packed |= (total_secs & 0xFFFFu) << 32u;
+          packed |= ((uint64_t)comp->volume_percent & 0xFFull) << 48u;
+          return packed;
+      }
+    query_edge_count: |
+      return (uint64_t)comp->edge_count;
+    query_edge_initial_level: |
+      return (uint64_t)comp->edge_initial_level;
+    query_edge_fp: |
+      if (argc < 1u) return 0u;
+      {
+          uint32_t index = (uint32_t)(args[0] & 0xFFFFFFFFu);
+          if (index < comp->edge_count && comp->edge_positions != NULL) return comp->edge_positions[index];
+      }
+      return 0u;
+    query_sample_rate: |
+      return (uint64_t)comp->signal_tick_rate;
+    query_playhead_samples: |
+      return (uint64_t)comp->playhead_ticks;
+    query_leader_start_sample: |
+      return (uint64_t)comp->leader_start_tick;
+    query_leader_start_index: |
+      return (uint64_t)comp->leader_start_index;
+    query_leader_end_sample: |
+      return (uint64_t)comp->leader_end_tick;
+    query_leader_end_index: |
+      return (uint64_t)comp->leader_end_index;
+    query_playback_level: |
+      return (uint64_t)comp->playback_level;
+    query_volume_percent: |
+      return (uint64_t)comp->volume_percent;
+    set_playhead_fp: |
+      if (argc < 1u) return 0u;
+      {
+          uint64_t fp = args[0];
+          comp->playhead_ticks = fp >> 8u;
+          if (comp->playhead_ticks > comp->total_ticks) comp->playhead_ticks = comp->total_ticks;
+          comp->playhead_cycle_residue = 0u;
+          comp->edge_index = 0u;
+          while (comp->edge_index < comp->edge_count && comp->edge_positions[comp->edge_index] <= comp->playhead_ticks) {
+              comp->edge_index += 1u;
+          }
+          comp->last_cycle = cpu->total_cycles;
+          comp->playback_level = (comp->edge_initial_level ^ (uint8_t)(comp->edge_index & 0x01u)) ? 255u : 0u;
+      }
+      return 1u;
+    push_output_sample: |
+      (void)args;
+      return 1u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

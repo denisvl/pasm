@@ -23,6 +23,9 @@ interfaces:
     - name: load_media
       args: [ptr]
       returns: u8
+    - name: select_source
+      args: [u8, u8, ptr]
+      returns: u8
     - name: unload_media
       args: []
       returns: u8
@@ -47,6 +50,12 @@ interfaces:
     - name: query_transport_state
       args: []
       returns: u64
+    - name: query_selected_source_kind
+      args: []
+      returns: u64
+    - name: query_selected_source_model
+      args: []
+      returns: u64
   handlers:
     - name: on_output_sample
       args: [u8, u64]
@@ -64,21 +73,23 @@ behavior:
     destroy: |
       (void)cpu;
   callback_handlers:
+    select_source: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "select_source", args, argc);
     load_media: |
-      uint8_t ok = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "load_media", args, argc);
+      uint8_t ok = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "load_media", args, argc);
       comp->start_sample = 0u;
       comp->start_index = 0u;
       comp->start_fp = 0u;
       comp->playhead_seeded = 0u;
       if (ok == 0u) return 0u;
       {
-          uint32_t edge_count = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){0u, 0u}, 2);
+          uint32_t edge_count = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_count", NULL, 0);
           if (edge_count > 512u) {
               uint32_t run_start = 0u;
               uint32_t run_len = 0u;
               for (uint32_t i = 1u; i < edge_count; ++i) {
-                  uint32_t prev_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, i - 1u}, 2);
-                  uint32_t curr_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, i}, 2);
+                  uint32_t prev_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ i - 1u }, 1);
+                  uint32_t curr_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ i }, 1);
                   uint32_t delta_fp = curr_fp - prev_fp;
                   uint32_t delta_samples = (delta_fp + 128u) >> 8u;
                   if (delta_samples >= 24u && delta_samples <= 32u) {
@@ -87,10 +98,10 @@ behavior:
                   } else {
                       if (run_len >= 64u) {
                           uint32_t start_edge = (run_start + 1u < edge_count) ? (run_start + 1u) : run_start;
-                          uint32_t start_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, start_edge}, 2);
+                          uint32_t start_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ start_edge }, 1);
                           uint32_t start_index = start_edge;
                           if (start_edge + 1u < edge_count) {
-                              uint32_t next_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "query_stream_info", (uint64_t[]){2u, start_edge + 1u}, 2);
+                              uint32_t next_fp = (uint32_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_edge_fp", (uint64_t[]){ start_edge + 1u }, 1);
                               if (next_fp > start_fp) {
                                   start_fp += (next_fp - start_fp) / 2u;
                                   start_index = start_edge + 1u;
@@ -112,40 +123,44 @@ behavior:
       comp->start_index = 0u;
       comp->start_fp = 0u;
       comp->playhead_seeded = 0u;
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "unload_media", args, argc);
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "unload_media", args, argc);
     set_transport_mode: |
       if (argc > 0u && (uint8_t)(args[0] & 0xFFu) != 1u) {
           comp->playhead_seeded = 0u;
       }
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_transport_mode", args, argc);
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_transport_mode", args, argc);
     set_motor: |
       if (argc > 0u && (uint8_t)(args[0] & 0x01u) == 0u) {
           comp->playhead_seeded = 0u;
       }
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_motor", args, argc);
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_motor", args, argc);
     set_volume: |
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_volume", args, argc);
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_volume", args, argc);
     set_bass: |
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_bass", args, argc);
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_bass", args, argc);
     set_treble: |
-      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_treble", args, argc);
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_treble", args, argc);
     sample_input: |
       uint64_t cycle = (argc > 1u) ? args[1] : cpu->total_cycles;
       uint64_t flags = (argc > 0u) ? args[0] : 0u;
       if (comp->playhead_seeded == 0u && comp->start_fp > 0u) {
           uint64_t seek_args[2] = { (uint64_t)comp->start_fp, (uint64_t)comp->start_index };
-          (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_playhead_fp", seek_args, 2);
+          (void)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_playhead_fp", seek_args, 2);
           comp->playhead_seeded = 1u;
       }
       {
           uint64_t transport_args[2] = { (flags & 0x01u) | 0x80u, cycle };
-          return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "sample_input", transport_args, 2);
+          return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "sample_input", transport_args, 2);
       }
     query_transport_state: |
-      return cpu_component_dispatch_callback(cpu, "cassette_transport", "query_transport_state", args, argc);
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_transport_state", args, argc);
+    query_selected_source_kind: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_selected_source_kind", args, argc);
+    query_selected_source_model: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_selected_source_model", args, argc);
   handler_bodies:
     on_output_sample: |
-      (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "push_output_sample", args, argc);
+      (void)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "push_output_sample", args, argc);
 
 coding:
   headers: []

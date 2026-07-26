@@ -1,0 +1,20 @@
+metadata:
+  id: zx_plusd
+  type: floppy_drive
+  model: zx_spectrum_plus_d
+  version: "1.0"
+  title: ZX Spectrum +D
+
+drive:
+  type: floppy_drive
+  size:
+    form_factor: "3.5"
+    sides: 1
+    tracks: 80
+    sectors_per_track: 9
+    formatted_capacity_kb: 180
+  speed:
+    transfer_bytes_per_sec: 9000
+  controller_class: plusd_fdc
+  bus: expansion_bus
+  media_extensions: [trd]

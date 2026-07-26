@@ -1,0 +1,11 @@
+metadata:
+  id: ssd_file
+  type: floppy_source
+  model: common_ssd_file_source
+  version: "1.0"
+  title: SSD Disk Image
+
+source:
+  kind: file
+  label: SSD Disk Image
+  allowed_extensions: [ssd]

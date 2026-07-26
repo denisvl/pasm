@@ -356,7 +356,7 @@ behavior:
       static uint32_t auto_boot_last_return_frame = 0u;
       static uint32_t auto_boot_last_space_frame = 0u;
       uint8_t queued = cpu_component_keyboard_ascii_queue_pop();
-      const char *auto_boot = cpu_host_hal_getenv("PASM_ATARI800XL_AUTO_CASSETTE_BOOT");
+      const char *auto_boot = cpu_host_hal_getenv("PASM_CASSETTE_AUTO_BOOT");
       if (comp->frame_count == 0u) {
           auto_boot_last_return_frame = 0u;
           auto_boot_last_space_frame = 0u;
@@ -389,7 +389,7 @@ behavior:
       static FILE *trace_fp = NULL;
       static uint32_t trace_count = 0u;
       uint8_t result;
-      const char *auto_boot = cpu_host_hal_getenv("PASM_ATARI800XL_AUTO_CASSETTE_BOOT");
+      const char *auto_boot = cpu_host_hal_getenv("PASM_CASSETTE_AUTO_BOOT");
       const char *auto_start = cpu_host_hal_getenv("PASM_ATARI800XL_AUTO_START");
       if (comp->frame_count == 0u) auto_boot_reads = 0u;
       if (trace_init < 0) {

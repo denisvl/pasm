@@ -54,9 +54,14 @@ fn build_backend() -> Result<Box<dyn DebuggerBackend>, String> {
             let system_dir = parse_arg("--system-dir");
             let cart_rom = parse_arg("--cart-rom");
             let cartridge_dir = parse_arg("--cartridge-dir");
+            let floppy = parse_arg("--floppy");
             let keyboard_map = parse_arg("--keyboard-map");
             let controller_map = parse_arg("--controller-map");
             let start_pc = parse_u64_arg("--start-pc");
+            if let Some(path) = floppy.as_deref() {
+                // SAFETY: debugger startup is single-threaded here; the generated runtime reads this env var later.
+                unsafe { std::env::set_var("PASM_EMU_FLOPPY_AUTO_PATH", path) };
+            }
             let backend = backend::linked_emulator::LinkedEmulatorBackend::new(
                 memory_size,
                 system_dir.as_deref(),

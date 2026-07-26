@@ -1,0 +1,20 @@
+metadata:
+  id: bbc_3_5_adfs
+  type: floppy_drive
+  model: bbc_3_5_adfs
+  version: "1.0"
+  title: BBC 3.5 ADFS Drive
+
+drive:
+  type: floppy_drive
+  size:
+    form_factor: "3.5"
+    sides: 2
+    tracks: 80
+    sectors_per_track: 16
+    formatted_capacity_kb: 320
+  speed:
+    transfer_bytes_per_sec: 12000
+  controller_class: wd1770_adfs
+  bus: internal_fdc
+  media_extensions: [dsd, adl]

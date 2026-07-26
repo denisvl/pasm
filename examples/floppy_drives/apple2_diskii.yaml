@@ -1,0 +1,20 @@
+metadata:
+  id: apple2_diskii
+  type: floppy_drive
+  model: apple_diskii
+  version: "1.0"
+  title: Apple Disk II
+
+drive:
+  type: floppy_drive
+  size:
+    form_factor: "5.25"
+    sides: 1
+    tracks: 35
+    sectors_per_track: 16
+    formatted_capacity_kb: 140
+  speed:
+    transfer_bytes_per_sec: 15000
+  controller_class: apple2_parallel_disk
+  bus: controller_card
+  media_extensions: [dsk, do, po]

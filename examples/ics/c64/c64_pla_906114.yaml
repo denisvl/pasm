@@ -5,8 +5,8 @@ metadata:
   version: "1.1"
 
 state:
-  - { name: io_ddr, type: uint8_t, initial: "0x2Fu" }
-  - { name: io_data, type: uint8_t, initial: "0x37u" }
+  - { name: io_ddr, type: uint8_t, initial: "0x00u" }
+  - { name: io_data, type: uint8_t, initial: "0x00u" }
   - { name: frame_counter, type: uint32_t, initial: "0u" }
   - { name: last_step_cycle, type: uint64_t, initial: "0u" }
   - { name: ram_a000, type: uint8_t *, initial: "NULL" }
@@ -60,7 +60,7 @@ behavior:
       cpu->registers[REG_IO_DDR] = (uint8_t)(comp->io_ddr | 0xC0u);
       cpu->registers[REG_IO_DATA] = (uint8_t)(comp->io_data | 0xC0u);
     reset: |
-      comp->io_ddr = 0x2Fu; comp->io_data = 0x37u;
+      comp->io_ddr = 0x00u; comp->io_data = 0x00u;
       {
           const char *env = getenv("PASM_C64_TAPE_IO_TRACE");
           if (env != NULL && env[0] != '\0' && env[0] != '0') {
@@ -82,7 +82,7 @@ behavior:
           }
       }
       cpu->comp_c64_cia1.pra = 0xFFu; cpu->comp_c64_cia1.prb = 0xFFu; cpu->comp_c64_cia1.ddra = 0xFFu; cpu->comp_c64_cia1.ddrb = 0x00u;
-      cpu->comp_c64_cia1.icr_mask = 0u; cpu->comp_c64_cia1.icr_status = 0u; cpu->comp_c64_cia1.irq_asserted = 0u;
+      cpu->comp_c64_cia1.icr_mask = 0u; cpu->comp_c64_cia1.icr_status = 0u; cpu->comp_c64_cia1.irq_asserted = 0u; cpu->comp_c64_cia1.flag_pending = 0u; cpu->comp_c64_cia1.flag_pending_cycle = 0u;
       cpu->comp_c64_cia1.ta_latch = 0xFFFFu; cpu->comp_c64_cia1.tb_latch = 0xFFFFu; cpu->comp_c64_cia1.ta_counter = 0xFFFFu; cpu->comp_c64_cia1.tb_counter = 0xFFFFu;
       cpu->comp_c64_cia2.pra = 0xFFu; cpu->comp_c64_cia2.prb = 0xFFu; cpu->comp_c64_cia2.ddra = 0x00u; cpu->comp_c64_cia2.ddrb = 0x00u;
       cpu->comp_c64_cia2.icr_mask = 0u; cpu->comp_c64_cia2.icr_status = 0u; cpu->comp_c64_cia2.nmi_asserted = 0u;
@@ -117,6 +117,10 @@ behavior:
       if (addr == 0x0001u) {
           uint8_t port = (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
           uint64_t transport_state = cpu_component_dispatch_callback(cpu, "datasette_c64", "query_transport_state", NULL, 0u);
+          uint8_t transport_mode = (uint8_t)(transport_state & 0xFFu);
+          uint8_t motor_on = (uint8_t)((transport_state >> 8u) & 0x01u);
+          uint8_t media_loaded = (uint8_t)((transport_state >> 9u) & 0x01u);
+          uint8_t tape_sense = (uint8_t)((transport_state >> 10u) & 0x01u);
           static int tape_io_trace = -1;
           static FILE *tape_io_trace_fp = NULL;
           if (tape_io_trace < 0) {
@@ -129,19 +133,23 @@ behavior:
                   if (tape_io_trace_fp == NULL) tape_io_trace = 0;
               }
           }
-          if ((transport_state & 0x01FFu) != 0u) {
+          if (tape_sense != 0u) {
               port = (uint8_t)(port & (uint8_t)~0x10u);
           } else {
               port = (uint8_t)(port | 0x10u);
           }
           if (tape_io_trace != 0 && tape_io_trace_fp != NULL) {
               fprintf(tape_io_trace_fp,
-                      "read0001 cycle=%llu port=%02X ddr=%02X data=%02X transport=%03llX\n",
+                      "read0001 cycle=%llu port=%02X ddr=%02X data=%02X transport=%03llX mode=%u motor=%u loaded=%u sense=%u\n",
                       (unsigned long long)cpu->total_cycles,
                       (unsigned)port,
                       (unsigned)comp->io_ddr,
                       (unsigned)comp->io_data,
-                      (unsigned long long)transport_state);
+                      (unsigned long long)transport_state,
+                      (unsigned)transport_mode,
+                      (unsigned)motor_on,
+                      (unsigned)media_loaded,
+                      (unsigned)tape_sense);
               fflush(tape_io_trace_fp);
           }
           return port;
@@ -152,15 +160,6 @@ behavior:
           uint8_t hiram = (uint8_t)((effective >> 1u) & 0x01u);
           uint8_t charen = (uint8_t)((effective >> 2u) & 0x01u);
           if (addr >= 0xA000u && addr <= 0xBFFFu) {
-              ComponentState_c64_cart0 *cart = &cpu->comp_c64_cart0;
-              if (cart->rom_data != NULL && cart->rom_size > 0u && cart->image_parsed != 0u &&
-                  cart->image_hi_len != 0u &&
-                  cart->crt_exrom == 0u && cart->crt_game == 0u) {
-                  uint32_t off = (uint32_t)(addr - 0xA000u);
-                  if (off < cart->image_hi_len) {
-                      return cart->rom_data[cart->image_hi_off + off];
-                  }
-              }
               if (loram != 0u && hiram != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
               return (comp->ram_a000 != NULL) ? comp->ram_a000[addr - 0xA000u] : 0xFFu;
           }
@@ -227,7 +226,7 @@ behavior:
                                   (unsigned)cpu->comp_c64_cia1.regs[0x0Fu]);
                           fflush(tape_io_trace_fp);
                       }
-                      cpu->comp_c64_cia1.icr_status=0u; cpu->comp_c64_cia1.irq_asserted=0u; return st;
+                      cpu->comp_c64_cia1.icr_status=0u; cpu->comp_c64_cia1.irq_asserted=0u; cpu->comp_c64_cia1.flag_pending = 0u; return st;
                   }
                   return cpu->comp_c64_cia1.regs[r];
               }
@@ -255,6 +254,35 @@ behavior:
       if (addr == 0x0000u) {
           comp->io_ddr = (uint8_t)(value & 0x3Fu);
           cpu->registers[REG_IO_DDR] = (uint8_t)(comp->io_ddr | 0xC0u);
+          {
+              uint8_t effective = (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
+              uint64_t motor_args[1] = { ((effective & 0x20u) == 0u) ? 1u : 0u };
+              uint64_t tape_out_args[2] = { ((effective & 0x08u) != 0u) ? 255u : 0u, cpu->total_cycles };
+              static int tape_io_trace = -1;
+              static FILE *tape_io_trace_fp = NULL;
+              if (tape_io_trace < 0) {
+                  const char *env = getenv("PASM_C64_TAPE_IO_TRACE");
+                  tape_io_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                  if (tape_io_trace != 0) {
+                      const char *path = getenv("PASM_C64_TAPE_IO_TRACE_FILE");
+                      if (path == NULL || path[0] == '\0') path = "/tmp/c64_tape_io_trace.log";
+                      tape_io_trace_fp = fopen(path, "a");
+                      if (tape_io_trace_fp == NULL) tape_io_trace = 0;
+                  }
+              }
+              if (tape_io_trace != 0 && tape_io_trace_fp != NULL) {
+                  fprintf(tape_io_trace_fp,
+                          "write0000 cycle=%llu value=%02X effective=%02X motor=%llu out=%llu\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)comp->io_ddr,
+                          (unsigned)effective,
+                          (unsigned long long)motor_args[0],
+                          (unsigned long long)tape_out_args[0]);
+                  fflush(tape_io_trace_fp);
+              }
+              (void)cpu_component_dispatch_callback(cpu, "datasette_c64", "set_motor", motor_args, 1u);
+              (void)cpu_component_dispatch_callback(cpu, "datasette_c64", "push_output_sample", tape_out_args, 2u);
+          }
           return;
       }
       if (addr == 0x0001u) {
@@ -566,10 +594,9 @@ behavior:
           static int tape_trace_init = -1;
           static FILE *tape_trace_fp = NULL;
           uint64_t step_start_cycle = (cpu->total_cycles >= delta_cycles) ? (cpu->total_cycles - delta_cycles) : 0u;
-          uint64_t tape_args[1] = { cpu->total_cycles };
-          uint64_t pulse_count = cpu_component_dispatch_callback(cpu, "datasette_c64", "c64_poll_pulses", tape_args, 1u);
-          uint64_t pulse_cycle = cpu_component_dispatch_callback(cpu, "datasette_c64", "c64_query_pending_pulse_cycle", NULL, 0u);
-          uint64_t pulse_offset = delta_cycles + 1u;
+          uint64_t pulse_end_cycle = cpu->total_cycles;
+          uint64_t cia_elapsed = 0u;
+          uint32_t pulse_safety = 0u;
           if (tape_trace_init < 0) {
               const char *env = getenv("PASM_C64_DATASETTE_TRACE");
               tape_trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
@@ -586,32 +613,37 @@ behavior:
               d = (step_cycles__); \
               if ((cpu->comp_c64_cia1.regs[0x0Eu] & 0x01u) != 0u && (cpu->comp_c64_cia1.regs[0x0Eu] & 0x20u) == 0u) { \
                   uint16_t rl = (cpu->comp_c64_cia1.ta_latch != 0u) ? cpu->comp_c64_cia1.ta_latch : 0xFFFFu; \
-                  while (d > 0u) { uint16_t c = (cpu->comp_c64_cia1.ta_counter != 0u) ? cpu->comp_c64_cia1.ta_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia1.ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia1.ta_counter = rl; cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status | 0x01u); if ((cpu->comp_c64_cia1.regs[0x0Eu] & 0x08u) != 0u) { cpu->comp_c64_cia1.regs[0x0Eu] &= (uint8_t)~0x01u; break; } } } \
+                  uint32_t period = (uint32_t)rl + 1u; \
+                  while (d > 0u) { uint32_t c = (cpu->comp_c64_cia1.ta_counter != 0u) ? (uint32_t)cpu->comp_c64_cia1.ta_counter : period; if (d < (uint64_t)c) { uint32_t rem = c - (uint32_t)d; cpu->comp_c64_cia1.ta_counter = (rem > (uint32_t)rl) ? 0u : (uint16_t)rem; d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia1.ta_counter = 0u; cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status | 0x01u); if ((cpu->comp_c64_cia1.regs[0x0Eu] & 0x08u) != 0u) { cpu->comp_c64_cia1.regs[0x0Eu] &= (uint8_t)~0x01u; break; } } } \
               } \
               d = (step_cycles__); \
               if ((cpu->comp_c64_cia1.regs[0x0Fu] & 0x01u) != 0u && (cpu->comp_c64_cia1.regs[0x0Fu] & 0x60u) == 0u) { \
                   uint16_t rl = (cpu->comp_c64_cia1.tb_latch != 0u) ? cpu->comp_c64_cia1.tb_latch : 0xFFFFu; \
-                  while (d > 0u) { uint16_t c = (cpu->comp_c64_cia1.tb_counter != 0u) ? cpu->comp_c64_cia1.tb_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia1.tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia1.tb_counter = rl; cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status | 0x02u); if ((cpu->comp_c64_cia1.regs[0x0Fu] & 0x08u) != 0u) { cpu->comp_c64_cia1.regs[0x0Fu] &= (uint8_t)~0x01u; break; } } } \
+                  uint32_t period = (uint32_t)rl + 1u; \
+                  while (d > 0u) { uint32_t c = (cpu->comp_c64_cia1.tb_counter != 0u) ? (uint32_t)cpu->comp_c64_cia1.tb_counter : period; if (d < (uint64_t)c) { uint32_t rem = c - (uint32_t)d; cpu->comp_c64_cia1.tb_counter = (rem > (uint32_t)rl) ? 0u : (uint16_t)rem; d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia1.tb_counter = 0u; cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status | 0x02u); if ((cpu->comp_c64_cia1.regs[0x0Fu] & 0x08u) != 0u) { cpu->comp_c64_cia1.regs[0x0Fu] &= (uint8_t)~0x01u; break; } } } \
               } \
               d = (step_cycles__); \
               if ((cpu->comp_c64_cia2.regs[0x0Eu] & 0x01u) != 0u && (cpu->comp_c64_cia2.regs[0x0Eu] & 0x20u) == 0u) { \
                   uint16_t rl = (cpu->comp_c64_cia2.ta_latch != 0u) ? cpu->comp_c64_cia2.ta_latch : 0xFFFFu; \
-                  while (d > 0u) { uint16_t c = (cpu->comp_c64_cia2.ta_counter != 0u) ? cpu->comp_c64_cia2.ta_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia2.ta_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia2.ta_counter = rl; cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status | 0x01u); if ((cpu->comp_c64_cia2.regs[0x0Eu] & 0x08u) != 0u) { cpu->comp_c64_cia2.regs[0x0Eu] &= (uint8_t)~0x01u; break; } } } \
+                  uint32_t period = (uint32_t)rl + 1u; \
+                  while (d > 0u) { uint32_t c = (cpu->comp_c64_cia2.ta_counter != 0u) ? (uint32_t)cpu->comp_c64_cia2.ta_counter : period; if (d < (uint64_t)c) { uint32_t rem = c - (uint32_t)d; cpu->comp_c64_cia2.ta_counter = (rem > (uint32_t)rl) ? 0u : (uint16_t)rem; d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia2.ta_counter = 0u; cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status | 0x01u); if ((cpu->comp_c64_cia2.regs[0x0Eu] & 0x08u) != 0u) { cpu->comp_c64_cia2.regs[0x0Eu] &= (uint8_t)~0x01u; break; } } } \
               } \
               d = (step_cycles__); \
               if ((cpu->comp_c64_cia2.regs[0x0Fu] & 0x01u) != 0u && (cpu->comp_c64_cia2.regs[0x0Fu] & 0x60u) == 0u) { \
                   uint16_t rl = (cpu->comp_c64_cia2.tb_latch != 0u) ? cpu->comp_c64_cia2.tb_latch : 0xFFFFu; \
-                  while (d > 0u) { uint16_t c = (cpu->comp_c64_cia2.tb_counter != 0u) ? cpu->comp_c64_cia2.tb_counter : rl; if (d < (uint64_t)c) { cpu->comp_c64_cia2.tb_counter = (uint16_t)(c - (uint16_t)d); d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia2.tb_counter = rl; cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status | 0x02u); if ((cpu->comp_c64_cia2.regs[0x0Fu] & 0x08u) != 0u) { cpu->comp_c64_cia2.regs[0x0Fu] &= (uint8_t)~0x01u; break; } } } \
+                  uint32_t period = (uint32_t)rl + 1u; \
+                  while (d > 0u) { uint32_t c = (cpu->comp_c64_cia2.tb_counter != 0u) ? (uint32_t)cpu->comp_c64_cia2.tb_counter : period; if (d < (uint64_t)c) { uint32_t rem = c - (uint32_t)d; cpu->comp_c64_cia2.tb_counter = (rem > (uint32_t)rl) ? 0u : (uint16_t)rem; d = 0u; } else { d -= (uint64_t)c; cpu->comp_c64_cia2.tb_counter = 0u; cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status | 0x02u); if ((cpu->comp_c64_cia2.regs[0x0Fu] & 0x08u) != 0u) { cpu->comp_c64_cia2.regs[0x0Fu] &= (uint8_t)~0x01u; break; } } } \
               } \
           } while (0)
-          #define PASM_SET_C64_FLAG(event_cycle__) \
+          #define PASM_APPLY_C64_FLAG(event_cycle__) \
           do { \
               cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status | 0x10u); \
+              cpu->comp_c64_cia1.flag_pending = 0u; \
               if (tape_trace_init != 0 && tape_trace_fp != NULL) { \
                   fprintf(tape_trace_fp, \
                           "cia1 flag cycle=%llu pulse=%llu icr=%02X mask=%02X cra=%02X crb=%02X ta=%u tb=%u\n", \
                           (unsigned long long)(event_cycle__), \
-                          (unsigned long long)pulse_count, \
+                          (unsigned long long)1u, \
                           (unsigned)cpu->comp_c64_cia1.icr_status, \
                           (unsigned)cpu->comp_c64_cia1.icr_mask, \
                           (unsigned)cpu->comp_c64_cia1.regs[0x0Eu], \
@@ -621,20 +653,63 @@ behavior:
                   fflush(tape_trace_fp); \
               } \
           } while (0)
-          if (pulse_count != 0u && pulse_cycle >= step_start_cycle && pulse_cycle <= cpu->total_cycles) {
-              pulse_offset = pulse_cycle - step_start_cycle;
+          #define PASM_QUEUE_C64_FLAG(event_cycle__) \
+          do { \
+              cpu->comp_c64_cia1.flag_pending = 1u; \
+              cpu->comp_c64_cia1.flag_pending_cycle = (uint64_t)(event_cycle__); \
+          } while (0)
+          while (cpu->comp_c64_cia1.flag_pending != 0u && cpu->comp_c64_cia1.flag_pending_cycle <= pulse_end_cycle) { \
+              uint64_t apply_offset = 0u; \
+              if (cpu->comp_c64_cia1.flag_pending_cycle > step_start_cycle) apply_offset = cpu->comp_c64_cia1.flag_pending_cycle - step_start_cycle; \
+              if (apply_offset < cia_elapsed) apply_offset = cia_elapsed; \
+              if (apply_offset > delta_cycles) break; \
+              PASM_ADVANCE_C64_CIAS(apply_offset - cia_elapsed); \
+              PASM_APPLY_C64_FLAG(cpu->comp_c64_cia1.flag_pending_cycle); \
+              cia_elapsed = apply_offset; \
           }
-          if (pulse_offset <= delta_cycles) {
-              PASM_ADVANCE_C64_CIAS(pulse_offset);
-              PASM_SET_C64_FLAG(pulse_cycle);
-              PASM_ADVANCE_C64_CIAS(delta_cycles - pulse_offset);
-          } else {
-              PASM_ADVANCE_C64_CIAS(delta_cycles);
-              if (pulse_count != 0u) {
-                  PASM_SET_C64_FLAG(cpu->total_cycles);
+          while (cia_elapsed < delta_cycles && pulse_safety < 16u) {
+              uint64_t tape_args[1] = { pulse_end_cycle };
+              uint64_t pulse_count = cpu_component_dispatch_callback(cpu, "datasette_c64", "c64_poll_pulses", tape_args, 1u);
+              uint64_t pulse_cycle = cpu_component_dispatch_callback(cpu, "datasette_c64", "c64_query_pending_pulse_cycle", NULL, 0u);
+              uint64_t event_offset = delta_cycles + 1u;
+              uint64_t rel_offset = 0u;
+              uint64_t step_remaining;
+              if (pulse_count == 0u) {
+                  break;
+              }
+              if (pulse_cycle > step_start_cycle) {
+                  rel_offset = pulse_cycle - step_start_cycle;
+              } else {
+                  rel_offset = cia_elapsed;
+              }
+              if (rel_offset < cia_elapsed) {
+                  rel_offset = cia_elapsed;
+              }
+              if (rel_offset <= delta_cycles) {
+                  event_offset = rel_offset;
+              }
+              if (event_offset > delta_cycles) {
+                  break;
+              }
+              PASM_ADVANCE_C64_CIAS(event_offset - cia_elapsed);
+              PASM_QUEUE_C64_FLAG(pulse_cycle);
+              cia_elapsed = event_offset;
+              pulse_safety += 1u;
+              while (cpu->comp_c64_cia1.flag_pending != 0u && cpu->comp_c64_cia1.flag_pending_cycle <= pulse_end_cycle) { \
+                  uint64_t apply_offset = 0u; \
+                  if (cpu->comp_c64_cia1.flag_pending_cycle > step_start_cycle) apply_offset = cpu->comp_c64_cia1.flag_pending_cycle - step_start_cycle; \
+                  if (apply_offset < cia_elapsed) apply_offset = cia_elapsed; \
+                  if (apply_offset > delta_cycles) break; \
+                  PASM_ADVANCE_C64_CIAS(apply_offset - cia_elapsed); \
+                  PASM_APPLY_C64_FLAG(cpu->comp_c64_cia1.flag_pending_cycle); \
+                  cia_elapsed = apply_offset; \
               }
           }
-          #undef PASM_SET_C64_FLAG
+          if (cia_elapsed < delta_cycles) {
+              PASM_ADVANCE_C64_CIAS(delta_cycles - cia_elapsed);
+          }
+          #undef PASM_QUEUE_C64_FLAG
+          #undef PASM_APPLY_C64_FLAG
           #undef PASM_ADVANCE_C64_CIAS
           if ((cpu->comp_c64_cia1.icr_status & cpu->comp_c64_cia1.icr_mask & 0x1Fu) != 0u) { cpu->comp_c64_cia1.icr_status = (uint8_t)((cpu->comp_c64_cia1.icr_status & 0x1Fu) | 0x80u); if (cpu->comp_c64_cia1.irq_asserted == 0u) { mos6510_interrupt(cpu, 0u); cpu->comp_c64_cia1.irq_asserted = 1u; } } else { cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status & 0x1Fu); cpu->comp_c64_cia1.irq_asserted = 0u; }
           if ((cpu->comp_c64_cia2.icr_status & cpu->comp_c64_cia2.icr_mask & 0x1Fu) != 0u) { cpu->comp_c64_cia2.icr_status = (uint8_t)((cpu->comp_c64_cia2.icr_status & 0x1Fu) | 0x80u); if (cpu->comp_c64_cia2.nmi_asserted == 0u) { mos6510_interrupt(cpu, 0xFFu); cpu->comp_c64_cia2.nmi_asserted = 1u; } } else { cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status & 0x1Fu); cpu->comp_c64_cia2.nmi_asserted = 0u; }
