@@ -56,6 +56,9 @@ state:
   - name: fdc_track_count
     type: uint16_t
     initial: "0"
+  - name: fdc_sector_size_code
+    type: uint8_t
+    initial: "1"
   - name: fdc_nmi_mask
     type: uint8_t
     initial: "0"
@@ -97,11 +100,12 @@ behavior:
   snippets:
     init: |
       if (comp->fdc_sector_buffer == NULL) {
-          comp->fdc_sector_buffer = (uint8_t *)calloc(256u, sizeof(uint8_t));
+          comp->fdc_sector_buffer = (uint8_t *)calloc(1024u, sizeof(uint8_t));
       }
       comp->fdc_media_loaded = 0u;
       comp->fdc_sectors_per_track = 10u;
       comp->fdc_track_count = 0u;
+      comp->fdc_sector_size_code = 1u;
       comp->fdc_source_component = NULL;
     reset: |
       comp->fdc_status = 0x04u;
@@ -117,9 +121,10 @@ behavior:
       comp->fdc_irq_pending = 0u;
       comp->fdc_data_index = 0u;
       comp->fdc_data_count = 0u;
+      comp->fdc_sector_size_code = 1u;
       comp->fdc_nmi_mask = 0u;
       if (comp->fdc_sector_buffer != NULL) {
-          memset(comp->fdc_sector_buffer, 0, 256u);
+          memset(comp->fdc_sector_buffer, 0, 1024u);
       }
     destroy: |
       if (comp->fdc_sector_buffer != NULL) {
@@ -132,6 +137,7 @@ behavior:
       }
       comp->fdc_media_loaded = 0u;
       comp->fdc_track_count = 0u;
+      comp->fdc_sector_size_code = 1u;
   callback_handlers:
     load_media: |
       const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
@@ -156,6 +162,7 @@ behavior:
           uint64_t packed_geometry = cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "query_geometry", NULL, 0u);
           comp->fdc_sectors_per_track = (uint8_t)(packed_geometry & 0xFFu);
           comp->fdc_track_count = (uint16_t)((packed_geometry >> 8u) & 0xFFFFu);
+          comp->fdc_sector_size_code = (uint8_t)((packed_geometry >> 32u) & 0xFFu);
       }
       comp->fdc_media_loaded = 1u;
       comp->fdc_track = 0u;
@@ -175,11 +182,12 @@ behavior:
       comp->fdc_media_loaded = 0u;
       comp->fdc_sectors_per_track = 10u;
       comp->fdc_track_count = 0u;
+      comp->fdc_sector_size_code = 1u;
       comp->fdc_track = 0u;
       comp->fdc_sector = 1u;
       comp->fdc_nmi_mask = 0u;
       if (comp->fdc_sector_buffer != NULL) {
-          memset(comp->fdc_sector_buffer, 0, 256u);
+          memset(comp->fdc_sector_buffer, 0, 1024u);
       }
       return 1u;
     query_drive_activity: |
@@ -211,26 +219,34 @@ behavior:
           if (comp->fdc_drq == 0u) value |= 0x40u;
           if (comp->fdc_irq_pending == 0u) value |= 0x80u;
       } else if (p == 0xF0u) {
-          if (comp->fdc_cmd_pending != 0u &&
-              (comp->fdc_drive_select & 0x40u) != 0u &&
-              cpu->total_cycles < comp->fdc_deadline) {
-              uint64_t step_args[1] = { cpu->total_cycles };
-              comp->fdc_deadline = cpu->total_cycles;
-              (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_step_tick", step_args, 1);
+          if (comp->fdc_cmd_pending != 0u) {
+              uint8_t motor_on = (uint8_t)(((comp->fdc_drive_select & 0x40u) != 0u) ? 1u : 0u);
+              if (cpu->total_cycles >= comp->fdc_deadline ||
+                  (motor_on != 0u && cpu->total_cycles < comp->fdc_deadline)) {
+                  uint64_t step_args[1] = { cpu->total_cycles };
+                  if (cpu->total_cycles < comp->fdc_deadline) {
+                      comp->fdc_deadline = cpu->total_cycles;
+                  }
+                  (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_step_tick", step_args, 1);
+              }
           }
           uint8_t status = (uint8_t)(comp->fdc_status & 0x7Cu);
           uint8_t cmd_class = (uint8_t)(comp->fdc_last_cmd & 0xF0u);
           uint8_t type1_status = ((comp->fdc_last_cmd & 0x80u) == 0u && cmd_class != 0xD0u) ? 1u : 0u;
-          uint8_t drive_selected = ((comp->fdc_drive_select & 0x0Fu) != 0u) ? 1u : 0u;
-          uint8_t media_ready = (drive_selected != 0u && comp->fdc_media_loaded != 0u) ? 1u : 0u;
+          uint8_t selected_drive_mask = (uint8_t)(comp->fdc_drive_select & 0x0Fu);
+          uint8_t drive_selected = (selected_drive_mask != 0u) ? 1u : 0u;
+          uint8_t drive_supported = drive_selected;
+          uint8_t media_ready = (drive_supported != 0u && comp->fdc_media_loaded != 0u) ? 1u : 0u;
           if (comp->fdc_busy != 0u) status |= 0x01u;
           if (type1_status != 0u && media_ready != 0u) {
-              status |= 0x20u;
               uint64_t rev_period = (CPU_SYSTEM_CLOCK_HZ > 0u) ? (CPU_SYSTEM_CLOCK_HZ / 5u) : 800000u;
               uint64_t pulse_width = rev_period / 40u;
               if (rev_period == 0u) rev_period = 800000u;
               if (pulse_width == 0u) pulse_width = 1u;
               if ((cpu->total_cycles % rev_period) < pulse_width) status |= 0x02u;
+          }
+          if (type1_status != 0u && media_ready != 0u && (comp->fdc_last_cmd & 0x08u) != 0u) {
+              status |= 0x20u;
           }
           if (type1_status != 0u && comp->fdc_track == 0u) status |= 0x04u;
           if (comp->fdc_drq != 0u) status |= 0x02u;
@@ -252,7 +268,7 @@ behavior:
       } else if (p == 0xF3u) {
           if (comp->fdc_drq != 0u && comp->fdc_sector_buffer != NULL && comp->fdc_data_count > 0u) {
               uint16_t idx = comp->fdc_data_index;
-              value = comp->fdc_sector_buffer[(idx < 256u) ? idx : 255u];
+              value = comp->fdc_sector_buffer[(idx < 1024u) ? idx : 1023u];
               comp->fdc_data = value;
               comp->fdc_data_index = (uint16_t)(comp->fdc_data_index + 1u);
               comp->fdc_data_count = (uint16_t)(comp->fdc_data_count - 1u);
@@ -449,7 +465,7 @@ behavior:
               }
               if (read_ok == 0u) {
                   comp->fdc_busy = 0u;
-                  memset(comp->fdc_sector_buffer, 0xE5, 256u);
+                  memset(comp->fdc_sector_buffer, 0xE5, 1024u);
                   comp->fdc_status = 0x10u;
                   comp->fdc_irq_pending = 1u;
                   if ((comp->fdc_nmi_mask & 0x80u) != 0u) {
@@ -463,15 +479,18 @@ behavior:
                   }
               }
               if (trace_enabled != 0) {
-                  fprintf(trace_fp, "fdc_read cycle=%llu cmd=%02X track=%u sector=%u ok=%u status=%02X drq=%u count=%u\n",
+                  uint16_t sector_len = (uint16_t)(128u << (comp->fdc_sector_size_code & 0x03u));
+                  fprintf(trace_fp, "fdc_read cycle=%llu cmd=%02X track=%u sector=%u ok=%u status=%02X drq=%u count=%u sizecode=%u\n",
                           (unsigned long long)now, (unsigned)comp->fdc_last_cmd,
                           (unsigned)comp->fdc_track, (unsigned)comp->fdc_sector, (unsigned)read_ok,
-                          (unsigned)comp->fdc_status, 1u, 256u);
+                          (unsigned)comp->fdc_status, 1u, (unsigned)sector_len,
+                          (unsigned)comp->fdc_sector_size_code);
                   fflush(trace_fp);
               }
               if (read_ok != 0u) {
+                  uint16_t sector_len = (uint16_t)(128u << (comp->fdc_sector_size_code & 0x03u));
                   comp->fdc_drq = 1u;
-                  comp->fdc_data_count = 256u;
+                  comp->fdc_data_count = sector_len;
               }
           }
       }

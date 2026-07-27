@@ -1,0 +1,229 @@
+metadata:
+  id: msx_disk_interface
+  type: io_controller
+  model: msx_disk_interface_wd1793
+  version: "1.0"
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+  - name: slot_id
+    type: uint8_t
+    initial: "1"
+  - name: control_reg
+    type: uint8_t
+    initial: "0"
+  - name: rom_loaded_from
+    type: char *
+    initial: "NULL"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: disk_rom_window
+        start: 0x4000
+        size: 0x8000
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      {
+          const char *slot_env = getenv("PASM_MSX_DISK_SLOT");
+          if (slot_env != NULL && slot_env[0] != '\0') {
+              int v = atoi(slot_env);
+              if (v >= 0 && v <= 3) comp->slot_id = (uint8_t)v;
+              else comp->slot_id = 1u;
+          } else {
+              comp->slot_id = 1u;
+          }
+      }
+      if (comp->rom_data == NULL) {
+          const char *disk_rom_path = getenv("PASM_MSX_DISK_ROM");
+          if (disk_rom_path != NULL && disk_rom_path[0] != '\0') {
+              FILE *fp = fopen(disk_rom_path, "rb");
+              if (fp != NULL) {
+                  if (fseek(fp, 0L, SEEK_END) == 0) {
+                      long file_size_long = ftell(fp);
+                      if (file_size_long > 0L && fseek(fp, 0L, SEEK_SET) == 0) {
+                          size_t file_size = (size_t)file_size_long;
+                          uint8_t *rom = (uint8_t *)calloc(file_size, sizeof(uint8_t));
+                          if (rom != NULL) {
+                              if (fread(rom, 1u, file_size, fp) == file_size) {
+                                  if (comp->rom_data != NULL) free(comp->rom_data);
+                                  comp->rom_data = rom;
+                                  comp->rom_size = (uint32_t)file_size;
+                                  if (comp->rom_loaded_from != NULL) free(comp->rom_loaded_from);
+                                  comp->rom_loaded_from = strdup(disk_rom_path);
+                              } else {
+                                  free(rom);
+                              }
+                          }
+                      }
+                  }
+                  fclose(fp);
+              }
+          }
+      }
+    reset: |
+      comp->control_reg = 0u;
+      {
+          const char *slot_env = getenv("PASM_MSX_DISK_SLOT");
+          if (slot_env != NULL && slot_env[0] != '\0') {
+              int v = atoi(slot_env);
+              if (v >= 0 && v <= 3) comp->slot_id = (uint8_t)v;
+          }
+      }
+      {
+          uint8_t slot_id_encoded = (uint8_t)(comp->slot_id & 0x03u);
+          uint16_t exptbl_addr = (uint16_t)(0xFCC1u + (uint16_t)(comp->slot_id & 0x03u));
+          uint8_t exptbl = cpu->memory[exptbl_addr];
+          if ((exptbl & 0x80u) != 0u) {
+              slot_id_encoded |= 0x80u;
+          }
+      cpu->memory[0xFB20u] |= 0x01u;
+      cpu->memory[0xFB21u] = slot_id_encoded;
+      cpu->memory[0xFB22u] = 0x01u;
+      cpu->memory[0xFB23u] = 0x00u;
+      cpu->memory[0xFB24u] = 0x00u;
+      cpu->memory[0xFB25u] = 0x00u;
+      cpu->memory[0xFB26u] = 0x00u;
+      cpu->memory[0xFB27u] = 0x00u;
+      cpu->memory[0xFB28u] = 0x00u;
+      cpu->memory[0xF347u] = 0x01u;
+      cpu->memory[0xF348u] = slot_id_encoded;
+      }
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      if (comp->rom_loaded_from != NULL) {
+          free(comp->rom_loaded_from);
+          comp->rom_loaded_from = NULL;
+      }
+      comp->rom_size = 0u;
+    mem_read_pre: |
+      {
+          uint8_t slotreg = cpu->comp_ppi0.slot_select;
+          uint8_t page = (uint8_t)(addr >> 14);
+          uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+          static int trace_enabled = -1;
+          static FILE *trace_fp = NULL;
+          if (trace_enabled < 0) {
+              const char *env = getenv("PASM_MSX_DISK_TRACE");
+              trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (trace_enabled != 0) {
+                  const char *trace_path = getenv("PASM_MSX_DISK_TRACE_FILE");
+                  if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/msx_disk_trace.log";
+                  trace_fp = fopen(trace_path, "a");
+                  if (trace_fp == NULL) trace_enabled = 0;
+              }
+          }
+          if (page_slot == (uint8_t)(comp->slot_id & 0x03u)) {
+              if (addr >= 0x7FF8u && addr <= 0x7FFFu) {
+                  uint8_t reg = (uint8_t)(addr - 0x7FF8u);
+                  if (cpu->comp_wd1793_fdc.fdc_cmd_pending != 0u) {
+                      uint64_t now = cpu->total_cycles;
+                      uint8_t motor_on = (uint8_t)(((cpu->comp_wd1793_fdc.fdc_drive_select & 0x40u) != 0u) ? 1u : 0u);
+                      if (now >= cpu->comp_wd1793_fdc.fdc_deadline ||
+                          (motor_on != 0u && now < cpu->comp_wd1793_fdc.fdc_deadline)) {
+                          uint64_t step_args[1] = { now };
+                          if (now < cpu->comp_wd1793_fdc.fdc_deadline) {
+                              cpu->comp_wd1793_fdc.fdc_deadline = now;
+                          }
+                          (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_step_tick", step_args, 1u);
+                      }
+                  }
+                  if (trace_enabled != 0 && trace_fp != NULL) {
+                      fprintf(trace_fp, "rd cycle=%llu pc=%04X addr=%04X reg=%u slotreg=%02X ctrl=%02X\n",
+                              (unsigned long long)cpu->total_cycles, (unsigned)cpu->pc, (unsigned)addr,
+                              (unsigned)reg, (unsigned)slotreg, (unsigned)comp->control_reg);
+                      fflush(trace_fp);
+                  }
+                  if (reg <= 3u) {
+                      uint64_t fdc_args[1] = { (uint64_t)(0xF0u + reg) };
+                      return (uint8_t)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_read", fdc_args, 1u);
+                  } else {
+                      uint8_t value = (uint8_t)(0x30u | (comp->control_reg & 0x0Fu));
+                      if ((cpu->comp_wd1793_fdc.fdc_irq_pending & 0x01u) != 0u) value |= 0x80u;
+                      if ((cpu->comp_wd1793_fdc.fdc_drq & 0x01u) != 0u) value |= 0x40u;
+                      return value;
+                  }
+              }
+              if (comp->rom_data != NULL && comp->rom_size > 0u) {
+                  if (addr >= 0x4000u && addr < 0xC000u) {
+                      uint32_t off = (uint32_t)(addr - 0x4000u);
+                      if (comp->rom_size <= 0x4000u) off &= 0x3FFFu;
+                      if (off < comp->rom_size) return comp->rom_data[off];
+                      return 0xFFu;
+                  }
+              }
+          }
+      }
+    mem_write_pre: |
+      {
+          uint8_t slotreg = cpu->comp_ppi0.slot_select;
+          uint8_t page = (uint8_t)(addr >> 14);
+          uint8_t page_slot = (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+          static int trace_enabled = -1;
+          static FILE *trace_fp = NULL;
+          if (trace_enabled < 0) {
+              const char *env = getenv("PASM_MSX_DISK_TRACE");
+              trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (trace_enabled != 0) {
+                  const char *trace_path = getenv("PASM_MSX_DISK_TRACE_FILE");
+                  if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/msx_disk_trace.log";
+                  trace_fp = fopen(trace_path, "a");
+                  if (trace_fp == NULL) trace_enabled = 0;
+              }
+          }
+          if (page_slot == (uint8_t)(comp->slot_id & 0x03u)) {
+              if (addr >= 0x7FF8u && addr <= 0x7FFFu) {
+                  uint8_t reg = (uint8_t)(addr - 0x7FF8u);
+                  if (trace_enabled != 0 && trace_fp != NULL) {
+                      fprintf(trace_fp, "wr cycle=%llu pc=%04X addr=%04X reg=%u val=%02X slotreg=%02X ctrl=%02X\n",
+                              (unsigned long long)cpu->total_cycles, (unsigned)cpu->pc, (unsigned)addr,
+                              (unsigned)reg, (unsigned)value, (unsigned)slotreg, (unsigned)comp->control_reg);
+                      fflush(trace_fp);
+                  }
+                  if (reg <= 3u) {
+                      uint64_t fdc_args[2] = { (uint64_t)(0xF0u + reg), (uint64_t)value };
+                      (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_write", fdc_args, 2u);
+                  } else {
+                      comp->control_reg = value;
+                      {
+                          uint8_t drive_select = 0u;
+                          if ((value & 0x03u) != 0u) drive_select = 0x01u;
+                          if ((value & 0x04u) != 0u) drive_select |= 0x10u;
+                          if ((value & 0x08u) != 0u) drive_select |= 0x40u;
+                          {
+                              uint64_t fdc_sel_args[2] = { 0xF4u, (uint64_t)drive_select };
+                              (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_write", fdc_sel_args, 2u);
+                          }
+                      }
+                  }
+                  return;
+              }
+              if (addr >= 0x4000u && addr < 0xC000u) {
+                  return;
+              }
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

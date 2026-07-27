@@ -181,6 +181,18 @@
           - Remaining failure is firmware-level AMSDOS registration/patching semantics, not image decode or basic FDC sector reads.
         Repo note: debug ledger is in docs/c64_1541_true_drive_debug_ledger.md.
         Next system for floppy integration: BBC Micro, using the existing target that already exposes SSD/DSD/ADL media config but still points the floppy slot at `bbc_micro_crtc_6845` instead of a real FDC/drive device.
+
+☐ Parked: MSX1 floppy integration now boots into Disk BASIC and mounts `.dsk` media, but `FILES` still reports `Disk offline`.
+        Files: examples/ics/msx1/msx_disk_interface_wd1793.yaml, examples/ics/msx1/msx1_psg_ay8910.yaml, examples/systems/msx1/msx1_floppy_default.yaml, examples/systems/msx1/msx1_floppy_interactive.yaml, scripts/run_msx_debugger.sh, scripts/run_msx_no_tui.sh
+        Test ROMs/images: examples/roms/msx1/mfd-001.rom, examples/roms/msx1/TDC600.rom, examples/floppies/msx1/Head over Heels (1987)(Ocean Software).dsk
+        Current evidence:
+          - The active implementation now exposes Philips-style memory-mapped WD1793 registers in the Disk ROM slot window at `0x7FF8-0x7FFF`, with the ROM window mapped at `0x4000-0xBFFF`.
+          - The raw sector backend now detects 720 KB MSX `.dsk` images correctly as `80 tracks / 2 sides / 9 sectors / 512-byte sectors`, and no-TUI traces confirm real reads of sectors 1 and 2 from the test image.
+          - `TDC600.rom` is not compatible with the current controller model; it targets different hardware and freezes at the HotBit logo.
+          - `mfd-001.rom` now reaches Disk BASIC reliably, but runtime file commands still fail with `Disk offline`, which leaves the remaining fault in the MSX disk-interface/ROM contract rather than media insertion or basic FDC read commands.
+          - Attempts so far covered drive-select collapsing (`0x01`/`0x02` -> single drive A), `0x7FFC` latch readback changes, and seeding MSX disk work-area variables (`DRVTBL`, `NMBDRV`, `MASTERS`) including encoded slot IDs from `EXPTBL`; none were sufficient to satisfy this ROM.
+          - The debugger/TUI wrapper is also unusable for this target in the current environment (`No such device or address (os error 6)`), so validation currently depends on the generated no-TUI runner plus user-side interactive testing.
+        Next system for floppy integration: choose another already-implemented target without floppy support before returning to MSX1.
             elif kind == "signed16":
                 lines.append(
                     f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%+d", (int)((int16_t)(((uint32_t){field_ref}) & 0x{mask:X}u)));'

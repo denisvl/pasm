@@ -510,8 +510,8 @@ behavior:
 
 coding:
   headers:
-    - stdio.h
-    - stdlib.h
+    - <stdio.h>
+    - <stdlib.h>
   include_paths: []
   linked_libraries: []
   library_paths: []
