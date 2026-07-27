@@ -557,7 +557,7 @@ behavior:
                   uint8_t sprite_h = ((io->ppu_ctrl & 0x20u) != 0u) ? 16u : 8u;
                   for (uint16_t si = 0u; si < 64u; ++si) {
                       uint8_t sy = io->oam[(uint16_t)(si * 4u)];
-                      int top = (int)sy;
+                      int top = (int)sy + 1;
                       if ((int)scanline >= top && (int)scanline < (top + (int)sprite_h)) {
                           if (si == 0u) {
                               static int ppu_status_trace_enabled = -1;
@@ -665,7 +665,7 @@ behavior:
                       uint8_t sx = io->oam[(uint16_t)(base + 3u)];
                       if (x < sx || x >= (uint16_t)(sx + 8u)) continue;
                       uint8_t sprite_h = (spr_8x16 != 0u) ? 16u : 8u;
-                      uint8_t row = (uint8_t)(y - (uint16_t)sy);
+                      uint8_t row = (uint8_t)(y - ((uint16_t)sy + 1u));
                       if (row >= sprite_h) continue;
                       if ((attr & 0x80u) != 0u) {
                           row = (uint8_t)(sprite_h - 1u - row);

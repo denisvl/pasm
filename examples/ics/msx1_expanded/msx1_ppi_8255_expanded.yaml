@@ -1,0 +1,151 @@
+metadata:
+  id: ppi0_expanded
+  type: io_controller
+  model: i8255_msx_expanded
+  version: "1.0"
+
+state:
+  - name: slot_select
+    type: uint8_t
+    initial: "0xF5"
+  - name: keyboard_row
+    type: uint8_t
+    initial: "0"
+  - name: port_c
+    type: uint8_t
+    initial: "0x0F"
+  - name: control_reg
+    type: uint8_t
+    initial: "0x82"
+  - name: prev_port_c_hi
+    type: uint8_t
+    initial: "0x00"
+
+interfaces:
+  callbacks:
+    - name: keyboard_read_row
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals:
+    - name: cassette_write
+      args: [u8, u64]
+
+maps:
+  ports:
+    read:
+      - name: ppi_port_a_read
+        mask: 0x00FF
+        value: 0x00A8
+      - name: ppi_port_b_read
+        mask: 0x00FF
+        value: 0x00A9
+      - name: ppi_port_c_read
+        mask: 0x00FF
+        value: 0x00AA
+      - name: ppi_ctrl_read
+        mask: 0x00FF
+        value: 0x00AB
+    write:
+      - name: ppi_port_a_write
+        mask: 0x00FF
+        value: 0x00A8
+      - name: ppi_port_c_write
+        mask: 0x00FF
+        value: 0x00AA
+      - name: ppi_ctrl_write
+        mask: 0x00FF
+        value: 0x00AB
+
+behavior:
+  snippets:
+    port_read_post: |
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
+      if (p == 0xA8u) {
+          value = comp->slot_select;
+      } else if (p == 0xA9u) {
+          uint64_t cb_args[1] = { (uint64_t)comp->keyboard_row };
+          value = (uint8_t)cpu_component_call(cpu, "ppi0_expanded", "keyboard_read_row", cb_args, 1);
+      } else if (p == 0xAAu) {
+          value = comp->port_c;
+      } else if (p == 0xABu) {
+          value = comp->control_reg;
+      }
+    port_write_pre: |
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
+      if (p == 0xA8u) {
+          comp->slot_select = value;
+          /* Update primary slot mapping in expanded slot controller */
+          {
+              uint64_t args[2] = { (uint64_t)((comp->slot_select >> 0) & 0x03u), (uint64_t)((comp->slot_select >> 2) & 0x03u) };
+              (void)cpu_component_dispatch_callback(cpu, "msx1_expanded_slot_controller", "set_primary_slot", args, 2);
+              args[0] = (uint64_t)((comp->slot_select >> 4) & 0x03u);
+              args[1] = (uint64_t)((comp->slot_select >> 6) & 0x03u);
+              (void)cpu_component_dispatch_callback(cpu, "msx1_expanded_slot_controller", "set_primary_slot", args, 2);
+          }
+      } else if (p == 0xAAu) {
+          uint8_t new_port_c = (uint8_t)value;
+          uint8_t lo = (uint8_t)(new_port_c & 0x0Fu);
+          uint8_t hi = (uint8_t)((new_port_c >> 4) & 0x0Fu);
+          uint8_t prev_hi = (uint8_t)(comp->prev_port_c_hi & 0x0Fu);
+          comp->port_c = new_port_c;
+          if (lo <= 10u) {
+              comp->keyboard_row = lo;
+          } else if (hi <= 10u) {
+              comp->keyboard_row = hi;
+          } else {
+              comp->keyboard_row = lo;
+          }
+          if (((prev_hi ^ hi) & 0x01u) != 0u) {
+              uint64_t motor_args[1] = { (uint64_t)((hi & 0x01u) == 0u) };
+              (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_motor", motor_args, 1);
+          }
+          if (((prev_hi ^ hi) & 0x02u) != 0u) {
+              uint64_t sig_args[2] = { (uint64_t)((hi & 0x02u) != 0u), cpu->total_cycles };
+              cpu_component_emit_signal(cpu, "ppi0_expanded", "cassette_write", sig_args, 2);
+          }
+          comp->prev_port_c_hi = hi;
+      } else if (p == 0xABu) {
+          if ((value & 0x80u) != 0u) {
+              comp->control_reg = value;
+          } else {
+              uint8_t bit = (uint8_t)((value >> 1) & 0x07u);
+              uint8_t mask = (uint8_t)(1u << bit);
+              uint8_t next_port_c = comp->port_c;
+              if ((value & 0x01u) != 0u) {
+                  next_port_c = (uint8_t)(next_port_c | mask);
+              } else {
+                  next_port_c = (uint8_t)(next_port_c & (uint8_t)~mask);
+              }
+              {
+                  uint8_t lo = (uint8_t)(next_port_c & 0x0Fu);
+                  uint8_t hi = (uint8_t)((next_port_c >> 4) & 0x0Fu);
+                  uint8_t prev_hi = (uint8_t)(comp->prev_port_c_hi & 0x0Fu);
+                  comp->port_c = next_port_c;
+                  if (lo <= 10u) {
+                      comp->keyboard_row = lo;
+                  } else if (hi <= 10u) {
+                      comp->keyboard_row = hi;
+                  } else {
+                      comp->keyboard_row = lo;
+                  }
+                  if (((prev_hi ^ hi) & 0x01u) != 0u) {
+                      uint64_t motor_args[1] = { (uint64_t)((hi & 0x01u) == 0u) };
+                      (void)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_motor", motor_args, 1);
+                  }
+                  if (((prev_hi ^ hi) & 0x02u) != 0u) {
+                      uint64_t sig_args[2] = { (uint64_t)((hi & 0x02u) != 0u), cpu->total_cycles };
+                      cpu_component_emit_signal(cpu, "ppi0_expanded", "cassette_write", sig_args, 2);
+                  }
+                  comp->prev_port_c_hi = hi;
+              }
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

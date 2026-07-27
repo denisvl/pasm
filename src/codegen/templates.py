@@ -205,6 +205,9 @@ CPU_IMPL_TEMPLATE = (
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_MSC_VER)
+#define strtok_r strtok_s
+#endif
 #include "{cpu_name}.h"
 #include "{cpu_name}_decoder.h"
 {coding_includes}
@@ -381,28 +384,6 @@ void {cpu_prefix}_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {{
         return;
     }}
 {memory_write_guard}
-    if (__trace_mem_write_addr_state > 0 && __trace_mem_write_fp != NULL) {{
-        size_t __trace_idx;
-        for (__trace_idx = 0u; __trace_idx < __trace_mem_write_addr_count; ++__trace_idx) {{
-            if (addr == __trace_mem_write_addrs[__trace_idx]) {{
-                uint8_t __old_value = cpu->memory[addr];
-                fprintf(__trace_mem_write_fp,
-                        "mem_write cycle=%llu pc=%04X addr=%04X old=%02X new=%02X a=%02X x=%02X y=%02X sp=%02X p=%02X\\n",
-                        (unsigned long long)cpu->total_cycles,
-                        (unsigned int)cpu->pc,
-                        (unsigned int)addr,
-                        (unsigned int)__old_value,
-                        (unsigned int)value,
-                        (unsigned int)cpu->registers[REG_A],
-                        (unsigned int)cpu->registers[REG_X],
-                        (unsigned int)cpu->registers[REG_Y],
-                        (unsigned int)cpu->sp,
-                        (unsigned int)cpu->flags.raw);
-                fflush(__trace_mem_write_fp);
-                break;
-            }}
-        }}
-    }}
     cpu->memory[addr] = value;
 }}
 

@@ -1,0 +1,321 @@
+metadata:
+  id: msx_cart0_expanded
+  type: cartridge_mapper
+  model: msx_mapper_konami
+  version: "1.1"
+
+allowed_extensions:
+  - rom
+  - bin
+  - mx1
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+
+  - name: primary_slot_id
+    type: uint8_t
+    initial: "1"
+
+  - name: secondary_slot_id
+    type: uint8_t
+    initial: "0"
+
+  - name: bank_6000
+    type: uint8_t
+    initial: "1"
+
+  - name: bank_8000
+    type: uint8_t
+    initial: "2"
+
+  - name: bank_a000
+    type: uint8_t
+    initial: "3"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cart_window
+        start: 0x4000
+        size: 0x8000
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      {
+          const char *slot_env = getenv("PASM_MSX_CART_SLOT");
+          if (slot_env != NULL && slot_env[0] != '\0') {
+              int v = atoi(slot_env);
+              if (v >= 0 && v <= 3) {
+                  comp->primary_slot_id = (uint8_t)v;
+              } else {
+                  comp->primary_slot_id = 1u;
+              }
+          } else {
+              comp->primary_slot_id = 1u;
+          }
+
+          const char *subslot_env = getenv("PASM_MSX_CART_SUBSLOT");
+          if (subslot_env != NULL && subslot_env[0] != '\0') {
+              int v = atoi(subslot_env);
+              if (v >= 0 && v <= 3) {
+                  comp->secondary_slot_id = (uint8_t)v;
+              } else {
+                  comp->secondary_slot_id = 0u;
+              }
+          } else {
+              comp->secondary_slot_id = 0u;
+          }
+
+          comp->bank_6000 = 1u;
+          comp->bank_8000 = 2u;
+          comp->bank_a000 = 3u;
+      }
+
+    reset: |
+      {
+          const char *slot_env = getenv("PASM_MSX_CART_SLOT");
+          if (slot_env != NULL && slot_env[0] != '\0') {
+              int v = atoi(slot_env);
+              if (v >= 0 && v <= 3) {
+                  comp->primary_slot_id = (uint8_t)v;
+              } else {
+                  comp->primary_slot_id = 1u;
+              }
+          } else {
+              comp->primary_slot_id = 1u;
+          }
+
+          const char *subslot_env = getenv("PASM_MSX_CART_SUBSLOT");
+          if (subslot_env != NULL && subslot_env[0] != '\0') {
+              int v = atoi(subslot_env);
+              if (v >= 0 && v <= 3) {
+                  comp->secondary_slot_id = (uint8_t)v;
+              } else {
+                  comp->secondary_slot_id = 0u;
+              }
+          } else {
+              comp->secondary_slot_id = 0u;
+          }
+
+          comp->bank_6000 = 1u;
+          comp->bank_8000 = 2u;
+          comp->bank_a000 = 3u;
+      }
+
+    destroy: |
+      {
+          if (comp->rom_data != NULL) {
+              free(comp->rom_data);
+              comp->rom_data = NULL;
+          }
+
+          comp->rom_size = 0u;
+      }
+
+    mem_read_pre: |
+      {
+          if (comp->rom_data != NULL && comp->rom_size > 0u) {
+              const uint32_t bank_size = 0x2000u;
+              const uint32_t bank_count = comp->rom_size / bank_size;
+
+              if (bank_count == 0u) {
+                  return 0xFFu;
+              }
+
+              uint8_t slotreg = cpu->comp_ppi0_expanded.slot_select;
+              uint8_t page = (uint8_t)(addr >> 14);
+              uint8_t selected_primary =
+                  (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+              uint8_t cartridge_visible = 0u;
+
+              if (selected_primary ==
+                  (uint8_t)(comp->primary_slot_id & 0x03u)) {
+                  uint64_t expanded_args[1] = {
+                      (uint64_t)selected_primary
+                  };
+
+                  uint64_t expanded =
+                      cpu_component_dispatch_callback(
+                          cpu,
+                          "msx1_expanded_slot_controller",
+                          "is_slot_expanded",
+                          expanded_args,
+                          1
+                      );
+
+                  if (expanded != 0u) {
+                      uint64_t map_args[1] = {
+                          (uint64_t)addr
+                      };
+
+                      uint8_t selected_secondary =
+                          (uint8_t)cpu_component_dispatch_callback(
+                              cpu,
+                              "msx1_expanded_slot_controller",
+                              "get_memory_map",
+                              map_args,
+                              1
+                          );
+
+                      if (selected_secondary ==
+                          (uint8_t)(comp->secondary_slot_id & 0x03u)) {
+                          cartridge_visible = 1u;
+                      }
+                  } else {
+                      cartridge_visible = 1u;
+                  }
+              }
+
+              if (cartridge_visible != 0u) {
+                  if (addr >= 0x4000u && addr < 0x6000u) {
+                      uint32_t offset = (uint32_t)(addr - 0x4000u);
+
+                      if (offset < comp->rom_size) {
+                          return comp->rom_data[offset];
+                      }
+
+                      return 0xFFu;
+                  }
+
+                  if (addr >= 0x6000u && addr < 0x8000u) {
+                      uint32_t bank =
+                          (uint32_t)(comp->bank_6000 % bank_count);
+                      uint32_t offset =
+                          bank * bank_size +
+                          (uint32_t)(addr - 0x6000u);
+
+                      if (offset < comp->rom_size) {
+                          return comp->rom_data[offset];
+                      }
+
+                      return 0xFFu;
+                  }
+
+                  if (addr >= 0x8000u && addr < 0xA000u) {
+                      uint32_t bank =
+                          (uint32_t)(comp->bank_8000 % bank_count);
+                      uint32_t offset =
+                          bank * bank_size +
+                          (uint32_t)(addr - 0x8000u);
+
+                      if (offset < comp->rom_size) {
+                          return comp->rom_data[offset];
+                      }
+
+                      return 0xFFu;
+                  }
+
+                  if (addr >= 0xA000u && addr < 0xC000u) {
+                      uint32_t bank =
+                          (uint32_t)(comp->bank_a000 % bank_count);
+                      uint32_t offset =
+                          bank * bank_size +
+                          (uint32_t)(addr - 0xA000u);
+
+                      if (offset < comp->rom_size) {
+                          return comp->rom_data[offset];
+                      }
+
+                      return 0xFFu;
+                  }
+              }
+          }
+      }
+
+    mem_write_pre: |
+      {
+          if (comp->rom_data != NULL && comp->rom_size > 0u) {
+              const uint32_t bank_size = 0x2000u;
+              const uint32_t bank_count = comp->rom_size / bank_size;
+
+              if (bank_count == 0u) {
+                  return 0u;
+              }
+
+              uint8_t slotreg = cpu->comp_ppi0_expanded.slot_select;
+              uint8_t page = (uint8_t)(addr >> 14);
+              uint8_t selected_primary =
+                  (uint8_t)((slotreg >> (page * 2u)) & 0x03u);
+              uint8_t cartridge_visible = 0u;
+
+              if (selected_primary ==
+                  (uint8_t)(comp->primary_slot_id & 0x03u)) {
+                  uint64_t expanded_args[1] = {
+                      (uint64_t)selected_primary
+                  };
+
+                  uint64_t expanded =
+                      cpu_component_dispatch_callback(
+                          cpu,
+                          "msx1_expanded_slot_controller",
+                          "is_slot_expanded",
+                          expanded_args,
+                          1
+                      );
+
+                  if (expanded != 0u) {
+                      uint64_t map_args[1] = {
+                          (uint64_t)addr
+                      };
+
+                      uint8_t selected_secondary =
+                          (uint8_t)cpu_component_dispatch_callback(
+                              cpu,
+                              "msx1_expanded_slot_controller",
+                              "get_memory_map",
+                              map_args,
+                              1
+                          );
+
+                      if (selected_secondary ==
+                          (uint8_t)(comp->secondary_slot_id & 0x03u)) {
+                          cartridge_visible = 1u;
+                      }
+                  } else {
+                      cartridge_visible = 1u;
+                  }
+              }
+
+              if (cartridge_visible != 0u) {
+                  if (addr >= 0x6000u && addr < 0x8000u) {
+                      comp->bank_6000 =
+                          (uint8_t)((uint32_t)value % bank_count);
+                      return 1u;
+                  }
+
+                  if (addr >= 0x8000u && addr < 0xA000u) {
+                      comp->bank_8000 =
+                          (uint8_t)((uint32_t)value % bank_count);
+                      return 1u;
+                  }
+
+                  if (addr >= 0xA000u && addr < 0xC000u) {
+                      comp->bank_a000 =
+                          (uint8_t)((uint32_t)value % bank_count);
+                      return 1u;
+                  }
+              }
+          }
+      }
+
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

@@ -16,3 +16,5 @@ Note: this file tracks the current post-implementation backlog (not historical t
 - ☐ Relative branch rendering should include computed target address.
 - ☐ Disassembly navigation should pan continuously beyond a single backend window using arrows/page keys.
 - ☐ Step-over semantics for block/repeat instructions (example: `LDDR`) must match debugger expectations.
+- ☐ **Famicom carrier sprite rendering bug**: In 1942 (Japan, USA).nes, the carrier (large multi-sprite object) only renders the first row of sprites. Other sprites (planes, bullets, explosions) render correctly. Root cause unknown — OAM DMA fix and sprite y-offset fix applied but issue persists. Need to investigate sprite evaluation/rendering pipeline for multi-sprite objects.
+- ☐ **MSX1 Expanded black screen**: Emulator boots but shows black screen. Cartridge mapper (Konami) and expanded slot controller (sub-slot register 0xFFFF) need debugging. PPI slot_select initialized to 0xF5, expanded slot controller marks slot 1 as expanded, cartridge mapper uses primary_slot_id/secondary_slot_id with bank defaults 1,2,3. Need to debug cartridge mapping at boot and VDP initialization.

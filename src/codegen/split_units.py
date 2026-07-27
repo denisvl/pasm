@@ -699,45 +699,61 @@ def generate_host_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         + "#define CPU_HOST_HAT_LEFT 0x08u\n"
         + "\n"
     )
-    has_picker = (
-        bool(isa_data.get("cartridge"))
-        or bool(isa_data.get("cassette"))
-        or bool(isa_data.get("floppy"))
-    )
+    has_cartridge = bool(isa_data.get("cartridge"))
+    has_cassette = bool(isa_data.get("cassette"))
+    has_floppy = bool(isa_data.get("floppy"))
+    has_picker = has_cartridge or has_cassette or has_floppy
     if has_picker:
+        extern_lines: list[str] = []
+        active_terms: list[str] = []
+        step_lines: list[str] = []
+        overlay_lines: list[str] = []
+        if has_cartridge:
+            extern_lines.append("extern uint8_t cpu_component_cartridge_picker_is_active(void);\n")
+            extern_lines.append("extern uint8_t cpu_component_cartridge_picker_blocks_input(void);\n")
+            extern_lines.append("extern void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus);\n")
+            extern_lines.append("extern void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n")
+            active_terms.append("cpu_component_cartridge_picker_blocks_input() != 0u")
+            step_lines.append("    cpu_component_cartridge_picker_update(cpu, has_focus);\n")
+            overlay_lines.append("    cpu_component_cartridge_picker_draw_overlay(cpu, pixels, w, h);\n")
+        if has_cassette:
+            extern_lines.append("extern uint8_t cpu_component_cassette_picker_blocks_input(void);\n")
+            extern_lines.append("extern void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus);\n")
+            extern_lines.append("extern void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n")
+            active_terms.append("cpu_component_cassette_picker_blocks_input() != 0u")
+            step_lines.append("    cpu_component_cassette_picker_update(cpu, has_focus);\n")
+            overlay_lines.append("    cpu_component_cassette_picker_draw_overlay(cpu, pixels, w, h);\n")
+        if has_floppy:
+            extern_lines.append("extern uint8_t cpu_component_floppy_picker_blocks_input(void);\n")
+            extern_lines.append("extern void cpu_component_floppy_picker_update(CPUState *cpu, uint8_t has_focus);\n")
+            extern_lines.append("extern void cpu_component_floppy_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n")
+            active_terms.append("cpu_component_floppy_picker_blocks_input() != 0u")
+            step_lines.append("    cpu_component_floppy_picker_update(cpu, has_focus);\n")
+            overlay_lines.append("    cpu_component_floppy_picker_draw_overlay(cpu, pixels, w, h);\n")
+        extern_block = "".join(extern_lines)
+        active_expr = " || ".join(active_terms) if active_terms else "0u"
+        step_block = "".join(step_lines)
+        overlay_block = "".join(overlay_lines)
         return (
             "/* Auto-generated split unit: host-side glue ownership. */\n"
             f'#include "{cpu_name}.h"\n\n'
             + host_hal_prelude
             + host_hal_impl
             + "\n"
-            "extern uint8_t cpu_component_cartridge_picker_is_active(void);\n"
-            "extern uint8_t cpu_component_cartridge_picker_blocks_input(void);\n"
-            "extern uint8_t cpu_component_cassette_picker_blocks_input(void);\n"
-            "extern uint8_t cpu_component_floppy_picker_blocks_input(void);\n"
-            "extern void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus);\n"
-            "extern void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus);\n"
-            "extern void cpu_component_floppy_picker_update(CPUState *cpu, uint8_t has_focus);\n"
-            "extern void cpu_component_cartridge_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
-            "extern void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
-            "extern void cpu_component_floppy_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n"
-            "int cpu_component_host_picker_set_dir(const char *path) {\n"
+            + extern_block
+            + "int cpu_component_host_picker_set_dir(const char *path) {\n"
             "    (void)path;\n"
             "    return 0;\n"
             "}\n\n"
             "uint8_t cpu_component_host_picker_is_active(void) {\n"
-            "    return (uint8_t)(cpu_component_cartridge_picker_blocks_input() != 0u || cpu_component_cassette_picker_blocks_input() != 0u || cpu_component_floppy_picker_blocks_input() != 0u);\n"
+            f"    return (uint8_t)({active_expr});\n"
             "}\n\n"
             "void cpu_component_host_picker_step(CPUState *cpu, uint8_t has_focus) {\n"
-            "    cpu_component_cartridge_picker_update(cpu, has_focus);\n"
-            "    cpu_component_cassette_picker_update(cpu, has_focus);\n"
-            "    cpu_component_floppy_picker_update(cpu, has_focus);\n"
-            "}\n\n"
+            + step_block
+            + "}\n\n"
             "void cpu_component_host_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {\n"
-            "    cpu_component_cartridge_picker_draw_overlay(cpu, pixels, w, h);\n"
-            "    cpu_component_cassette_picker_draw_overlay(cpu, pixels, w, h);\n"
-            "    cpu_component_floppy_picker_draw_overlay(cpu, pixels, w, h);\n"
-            "}\n"
+            + overlay_block
+            + "}\n"
         )
     return (
         "/* Auto-generated split unit: host-side glue ownership. */\n"

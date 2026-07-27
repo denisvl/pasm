@@ -1,0 +1,179 @@
+metadata:
+  id: msx1_expanded_slot_controller
+  type: memory_controller
+  model: msx_expanded_slot_controller
+  version: "1.0"
+
+state:
+  - name: primary_slots
+    type: uint8_t *
+    initial: "NULL"
+  - name: sub_slots
+    type: uint8_t *
+    initial: "NULL"
+  - name: slot_expanded
+    type: uint8_t *
+    initial: "NULL"
+  - name: sub_slot_register
+    type: uint8_t
+    initial: "0"
+  - name: sub_slot_reg_mirror
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: get_primary_slot
+      args: [u8]
+      returns: u8
+    - name: get_sub_slot
+      args: [u8, u8]
+      returns: u8
+    - name: set_primary_slot
+      args: [u8, u8]
+      returns: void
+    - name: set_sub_slot
+      args: [u8, u8]
+      returns: void
+    - name: is_slot_expanded
+      args: [u8]
+      returns: u8
+    - name: get_memory_map
+      args: [u16]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: sub_slot_reg_read
+        start: 65535
+        size: 1
+        access: ["read"]
+      - name: sub_slot_reg_write
+        start: 65535
+        size: 1
+        access: ["write"]
+
+behavior:
+  snippets:
+    init: |
+      /* Allocate arrays for slot mapping */
+      comp->primary_slots = (uint8_t *)calloc(4u, sizeof(uint8_t));
+      comp->sub_slots = (uint8_t *)calloc(16u, sizeof(uint8_t));
+      comp->slot_expanded = (uint8_t *)calloc(4u, sizeof(uint8_t));
+      /* Initialize primary slots to identity mapping */
+      for (int i = 0; i < 4; ++i) {
+          comp->primary_slots[i] = (uint8_t)i;
+          comp->slot_expanded[i] = 0u;
+          for (int j = 0; j < 4; ++j) {
+              comp->sub_slots[i * 4 + j] = (uint8_t)j;
+          }
+      }
+      /* Mark slot 1 (cartridge) as expanded for MSX1 Expanded */
+      comp->slot_expanded[1] = 1u;
+      comp->sub_slot_register = 0u;
+      comp->sub_slot_reg_mirror = 0u;
+    reset: |
+      for (int i = 0; i < 4; ++i) {
+          comp->primary_slots[i] = (uint8_t)i;
+          comp->slot_expanded[i] = 0u;
+          for (int j = 0; j < 4; ++j) {
+              comp->sub_slots[i * 4 + j] = (uint8_t)j;
+          }
+      }
+      /* Mark slot 1 (cartridge) as expanded for MSX1 Expanded */
+      comp->slot_expanded[1] = 1u;
+      comp->sub_slot_register = 0u;
+      comp->sub_slot_reg_mirror = 0u;
+    destroy: |
+      if (comp->primary_slots != NULL) {
+          free(comp->primary_slots);
+          comp->primary_slots = NULL;
+      }
+      if (comp->sub_slots != NULL) {
+          free(comp->sub_slots);
+          comp->sub_slots = NULL;
+      }
+      if (comp->slot_expanded != NULL) {
+          free(comp->slot_expanded);
+          comp->slot_expanded = NULL;
+      }
+    memory_read: |
+      uint16_t addr = (uint16_t)address;
+      if (addr == 0xFFFFu) {
+          /* Reading from 0xFFFF returns one's complement of sub-slot register */
+          value = (uint8_t)(~comp->sub_slot_register);
+          handled = 1u;
+      }
+    memory_write: |
+      uint16_t addr = (uint16_t)address;
+      if (addr == 0xFFFFu) {
+          /* Writing to 0xFFFF sets the sub-slot register for page 3 (C000-FFFF) */
+          comp->sub_slot_register = value;
+          comp->sub_slot_reg_mirror = value;
+          handled = 1u;
+      }
+  callback_handlers:
+    get_primary_slot: |
+      if (argc >= 1u) {
+          uint8_t page = (uint8_t)(args[0] & 0x03u);
+          return (uint64_t)comp->primary_slots[page];
+      }
+      return 0u;
+    get_sub_slot: |
+      if (argc >= 2u) {
+          uint8_t primary = (uint8_t)(args[0] & 0x03u);
+          uint8_t page = (uint8_t)(args[1] & 0x03u);
+          if (comp->slot_expanded[primary] != 0u) {
+              return (uint64_t)comp->sub_slots[primary * 4 + page];
+          }
+          return (uint64_t)comp->primary_slots[page];
+      }
+      return 0u;
+    set_primary_slot: |
+      if (argc >= 2u) {
+          uint8_t page = (uint8_t)(args[0] & 0x03u);
+          uint8_t slot = (uint8_t)(args[1] & 0x03u);
+          comp->primary_slots[page] = slot;
+      }
+    set_sub_slot: |
+      if (argc >= 2u) {
+          uint8_t primary = (uint8_t)(args[0] & 0x03u);
+          uint8_t sub_slot = (uint8_t)(args[1] & 0x03u);
+          /* Set sub-slot for page 3 (C000-FFFF) of the given primary slot */
+          if (comp->slot_expanded[primary] != 0u) {
+              comp->sub_slots[primary * 4 + 3] = sub_slot;
+          }
+      }
+    is_slot_expanded: |
+      if (argc >= 1u) {
+          uint8_t primary = (uint8_t)(args[0] & 0x03u);
+          return (uint64_t)comp->slot_expanded[primary];
+      }
+      return 0u;
+    get_memory_map: |
+      if (argc >= 1u) {
+          uint16_t addr = (uint16_t)(args[0] & 0xFFFFu);
+          uint8_t page = (uint8_t)(addr >> 14);
+          uint8_t primary = comp->primary_slots[page];
+          if (comp->slot_expanded[primary] != 0u) {
+              /* For page 3, use sub-slot register; for others, use sub_slots table */
+              if (page == 3u) {
+                  return (uint64_t)((comp->sub_slot_register >> 6) & 0x03u);
+              } else {
+                  return (uint64_t)comp->sub_slots[primary * 4 + page];
+              }
+          }
+          return (uint64_t)primary;
+      }
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers:
+    - <stdlib.h>
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

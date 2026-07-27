@@ -1,15 +1,15 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-rem One-shot helper: generate + build + run PASM Rust debugger for MSX.
+rem One-shot helper: generate + build + run PASM Rust debugger for MSX1 Expanded.
 rem
 rem Usage:
-rem   scripts\run_msx_debugger.bat [interactive^|default]
+rem   scripts\run_msx1_expanded_debugger.bat [interactive|default]
 rem
 rem Optional env overrides:
 rem   START_PC=0x0000
 rem   MEMORY_SIZE=65536
-rem   OUTPUT_DIR=generated/z80_msx1_sdl
+rem   OUTPUT_DIR=generated/z80_msx1_expanded_interactive
 rem   EXTRA_CARGO_ARGS=--release
 rem   USE_CARTRIDGE=1|0
 rem   CARTRIDGE_MAP=examples/cartridges/msx1/msx_mapper_konami.yaml
@@ -19,7 +19,7 @@ rem   EXTRA_CMAKE_ARGS=-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpk
 rem   VCPKG_ROOT=D:\Development\vcpkg
 rem   VCPKG_TARGET_TRIPLET=x64-windows
 rem   PASM_SDL_DEBUG=1
-rem   PASM_SDL_LOGFILE=%TEMP%\msx_sdl.log
+rem   PASM_SDL_LOGFILE=%TEMP%\msx1_expanded_sdl.log
 rem   PASM_SDL_AUDIO=1|0
 rem   PASM_MSX_JOY_BUTTONS=1|2   (1=KP0/KP_ENTER, 2=KP1/KP2)
 rem   HOST_BACKEND=glfw|sdl2|stub
@@ -37,7 +37,7 @@ if not defined EXTRA_CARGO_ARGS set "EXTRA_CARGO_ARGS="
 if not defined EXTRA_CMAKE_ARGS set "EXTRA_CMAKE_ARGS="
 if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
 if not defined PASM_SDL_DEBUG set "PASM_SDL_DEBUG=0"
-if not defined PASM_SDL_LOGFILE set "PASM_SDL_LOGFILE=%TEMP%\msx_sdl.log"
+if not defined PASM_SDL_LOGFILE set "PASM_SDL_LOGFILE=%TEMP%\msx1_expanded_sdl.log"
 if not defined PASM_SDL_AUDIO set "PASM_SDL_AUDIO=1"
 if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=%PASM_SDL_AUDIO%"
 if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
@@ -46,7 +46,7 @@ if not defined CONTROLLER_MAP set "CONTROLLER_MAP=examples/hosts/msx1/host_contr
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
 if not defined USE_CARTRIDGE set "USE_CARTRIDGE=1"
-if not defined CARTRIDGE_MAP set "CARTRIDGE_MAP=examples/cartridges/msx1/msx_mapper_konami.yaml"
+if not defined CARTRIDGE_MAP set "CARTRIDGE_MAP=examples/cartridges/msx1_expanded/msx_mapper_konami_expanded.yaml"
 if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN=../../roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
 if not defined BOOT_CARTRIDGE set "BOOT_CARTRIDGE=0"
 
@@ -59,33 +59,34 @@ if not defined CARTRIDGE_ROM_RUNTIME set "CARTRIDGE_ROM_RUNTIME=%REPO_ROOT%\exam
 
 set "PROCESSOR=examples/processors/z80.yaml"
 set "IC_VDP=examples/ics/msx1/msx1_vdp_tms9918a.yaml"
-set "IC_PPI=examples/ics/msx1/msx1_ppi_8255.yaml"
+set "IC_PPI=examples/ics/msx1_expanded/msx1_ppi_8255_expanded.yaml"
 set "IC_PSG=examples/ics/msx1/msx1_psg_ay8910.yaml"
 set "IC_MAIN_RAM=examples/ics/msx1/msx1_main_ram.yaml"
+set "IC_EXPANDED_SLOT=examples/ics/msx1_expanded/msx1_expanded_slot_controller.yaml"
 set "DEVICE_KB=examples/devices/msx1/msx_keyboard.yaml"
 set "DEVICE_CTRL=examples/devices/msx1/msx_controller.yaml"
 set "DEVICE_VIDEO=examples/devices/msx1/msx_video.yaml"
 set "DEVICE_SPK=examples/devices/msx1/msx_speaker.yaml"
 set "DEVICE_CASSETTE=examples/devices/common/cassette_transport.yaml"
 set "DEVICE_TV=examples/devices/common/tv_crt_mono.yaml"
-set "SYSTEM_DIR=examples/systems/msx1"
+set "SYSTEM_DIR=examples/systems/msx1_expanded"
 
 if /I "%PROFILE%"=="default" (
   if "%USE_CARTRIDGE%"=="0" (
-    set "SYSTEM=examples/systems/msx1/msx1_default.yaml"
+    set "SYSTEM=examples/systems/msx1_expanded/msx1_expanded_default.yaml"
   ) else (
-    set "SYSTEM=examples/systems/msx1/msx1_cartridge_default.yaml"
+    set "SYSTEM=examples/systems/msx1_expanded/msx1_expanded_cartridge_default.yaml"
   )
   set "HOST=examples/hosts/msx1/msx_host_stub.yaml"
-  set "DEFAULT_OUTPUT=generated/z80_msx1"
+  set "DEFAULT_OUTPUT=generated/z80_msx1_expanded_default"
 ) else if /I "%PROFILE%"=="interactive" (
   if "%USE_CARTRIDGE%"=="0" (
-    set "SYSTEM=examples/systems/msx1/msx1_interactive.yaml"
+    set "SYSTEM=examples/systems/msx1_expanded/msx1_expanded_interactive.yaml"
   ) else (
-    set "SYSTEM=examples/systems/msx1/msx1_cartridge_interactive.yaml"
+    set "SYSTEM=examples/systems/msx1_expanded/msx1_expanded_cartridge_interactive.yaml"
   )
   set "HOST=examples/hosts/msx1/msx_host_hal_interactive.yaml"
-  set "DEFAULT_OUTPUT=generated/z80_msx1_sdl"
+  set "DEFAULT_OUTPUT=generated/z80_msx1_expanded_interactive"
 ) else (
   >&2 echo Unsupported profile: %PROFILE%
   >&2 echo Use: default ^| interactive
@@ -162,12 +163,13 @@ if "%USE_CARTRIDGE%"=="0" (
     --ic "%IC_PPI%" ^
     --ic "%IC_PSG%" ^
     --ic "%IC_MAIN_RAM%" ^
+    --ic "%IC_EXPANDED_SLOT%" ^
     --device "%DEVICE_KB%" ^
     --device "%DEVICE_CTRL%" ^
     --device "%DEVICE_VIDEO%" ^
     --device "%DEVICE_SPK%" ^
     --device "%DEVICE_CASSETTE%" ^
-    --device "%DEVICE_TV%" ^    
+    --device "%DEVICE_TV%" ^
     --host "%HOST%" ^
     --host-backend "%HOST_BACKEND%" ^
     --output "%OUTPUT_DIR%"
@@ -179,6 +181,7 @@ if "%USE_CARTRIDGE%"=="0" (
     --ic "%IC_PPI%" ^
     --ic "%IC_PSG%" ^
     --ic "%IC_MAIN_RAM%" ^
+    --ic "%IC_EXPANDED_SLOT%" ^
     --device "%DEVICE_KB%" ^
     --device "%DEVICE_CTRL%" ^
     --device "%DEVICE_VIDEO%" ^
