@@ -10,6 +10,8 @@ if not defined EXTRA_CARGO_ARGS set "EXTRA_CARGO_ARGS=--release"
 if not defined CMAKE_BUILD_TYPE set "CMAKE_BUILD_TYPE=Release"
 if not defined RUN_SPEED set "RUN_SPEED=realtime"
 if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=1"
+if not defined FLOPPY set "FLOPPY="
+if not defined DISK_ROM set "DISK_ROM="
 if not defined USE_CARTRIDGE set "USE_CARTRIDGE=0"
 if not defined CARTRIDGE_MAP set "CARTRIDGE_MAP="
 if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN="
@@ -35,10 +37,13 @@ set "IC_PIA1=examples/ics/coco1/coco1_pia1_6821.yaml"
 set "IC_VDG=examples/ics/coco1/coco1_vdg_6847.yaml"
 set "IC_CART_EXP=examples/ics/coco1/coco1_cart_expansion.yaml"
 set "IC_MAIN_RAM=examples/ics/coco1/coco1_main_ram.yaml"
+set "IC_FDC=examples/ics/common/wd1793.yaml"
 set "DEVICE_KB=examples/devices/coco1/coco_keyboard.yaml"
 set "DEVICE_GP=examples/devices/coco1/coco_gameport.yaml"
 set "DEVICE_VIDEO=examples/devices/coco1/coco_video.yaml"
 set "DEVICE_SPK=examples/devices/coco1/coco_speaker.yaml"
+set "DEVICE_CASS=examples/devices/common/cassette_transport.yaml"
+set "DEVICE_FLOPPY_BACKEND=examples/devices/common/trs80_floppy_image_backend.yaml"
 set "SYSTEM_DIR=examples/systems/coco1"
 
 if /I "%PROFILE%"=="default" (
@@ -64,6 +69,13 @@ for %%I in ("%CMAKE_CONFIG_BUILD_DIR%") do set "CMAKE_CONFIG_BUILD_DIR_ABS=%%~fI
 for %%I in ("%SYSTEM%") do set "SYSTEM_DIR_ABS=%%~dpI"
 if "%SYSTEM_DIR_ABS:~-1%"=="\" set "SYSTEM_DIR_ABS=%SYSTEM_DIR_ABS:~0,-1%"
 if not defined CARTRIDGE_DIR set "CARTRIDGE_DIR=%REPO_ROOT%\examples\roms\coco1"
+
+if not "%DISK_ROM%"=="" (
+  set "USE_CARTRIDGE=1"
+  if "%CARTRIDGE_MAP%"=="" set "CARTRIDGE_MAP=examples/cartridges/coco1/coco_mapper_none.yaml"
+  if "%CARTRIDGE_ROM_RUN%"=="" set "CARTRIDGE_ROM_RUN=%DISK_ROM%"
+  if "%BOOT_CARTRIDGE%"=="0" set "BOOT_CARTRIDGE=1"
+)
 
 if "%USE_CARTRIDGE%"=="0" (
   if not "%CARTRIDGE_MAP%"=="" set "USE_CARTRIDGE=1"
@@ -101,10 +113,13 @@ uv run python -m src.main generate ^
   --ic "%IC_VDG%" ^
   --ic "%IC_CART_EXP%" ^
   --ic "%IC_MAIN_RAM%" ^
+  --ic "%IC_FDC%" ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_GP%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
+  --device "%DEVICE_CASS%" ^
+  --device "%DEVICE_FLOPPY_BACKEND%" ^
   --host "%HOST%" ^
   --host-backend "%HOST_BACKEND%" ^
   --output "%OUTPUT_DIR%"
@@ -123,10 +138,13 @@ uv run python -m src.main generate ^
   --ic "%IC_VDG%" ^
   --ic "%IC_CART_EXP%" ^
   --ic "%IC_MAIN_RAM%" ^
+  --ic "%IC_FDC%" ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_GP%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
+  --device "%DEVICE_CASS%" ^
+  --device "%DEVICE_FLOPPY_BACKEND%" ^
   --host "%HOST%" ^
   --host-backend "%HOST_BACKEND%" ^
   --cartridge-map "%CARTRIDGE_MAP%" ^
@@ -161,6 +179,7 @@ cargo run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --fea
   --memory-size "%MEMORY_SIZE%" ^
   --system-dir "%SYSTEM_DIR%" ^
   --keyboard-map "%KEYBOARD_MAP%" ^
+  --floppy "%FLOPPY%" ^
   --cartridge-dir "%CARTRIDGE_DIR%" ^
   --start-pc "%START_PC%" ^
   --run-speed "%RUN_SPEED%"
@@ -172,6 +191,7 @@ cargo run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --fea
   --memory-size "%MEMORY_SIZE%" ^
   --system-dir "%SYSTEM_DIR%" ^
   --keyboard-map "%KEYBOARD_MAP%" ^
+  --floppy "%FLOPPY%" ^
   --cartridge-dir "%CARTRIDGE_DIR%" ^
   --cart-rom "%CARTRIDGE_ROM_RUNTIME%" ^
   --start-pc "%START_PC%" ^
@@ -186,6 +206,7 @@ cargo run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --fea
   --system-dir "%SYSTEM_DIR%" ^
   --keyboard-map "%KEYBOARD_MAP%" ^
   --controller-map "%CONTROLLER_MAP%" ^
+  --floppy "%FLOPPY%" ^
   --cartridge-dir "%CARTRIDGE_DIR%" ^
   --start-pc "%START_PC%" ^
   --run-speed "%RUN_SPEED%"
@@ -198,6 +219,7 @@ cargo run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --fea
   --system-dir "%SYSTEM_DIR%" ^
   --keyboard-map "%KEYBOARD_MAP%" ^
   --controller-map "%CONTROLLER_MAP%" ^
+  --floppy "%FLOPPY%" ^
   --cartridge-dir "%CARTRIDGE_DIR%" ^
   --cart-rom "%CARTRIDGE_ROM_RUNTIME%" ^
   --start-pc "%START_PC%" ^

@@ -1,0 +1,1014 @@
+metadata:
+  id: c64_1541_dos
+  type: io_controller
+  model: commodore_1541_dos
+  version: "1.0"
+
+state:
+  - name: media_component
+    type: char *
+    initial: "\"c64_1541_media\""
+  - name: command_mode
+    type: uint8_t
+    initial: "0"
+  - name: listen_active
+    type: uint8_t
+    initial: "0"
+  - name: talk_active
+    type: uint8_t
+    initial: "0"
+  - name: last_secondary
+    type: uint8_t
+    initial: "0"
+  - name: open_channel
+    type: uint8_t
+    initial: "0xFF"
+  - name: write_channel
+    type: uint8_t
+    initial: "0xFF"
+  - name: talk_channel
+    type: uint8_t
+    initial: "0xFF"
+  - name: pending_name_len
+    type: uint8_t
+    initial: "0"
+  - name: pending_name
+    type: char *
+    initial: "NULL"
+  - name: current_name_channel
+    type: uint8_t
+    initial: "0xFF"
+  - name: current_name_len
+    type: uint8_t
+    initial: "0"
+  - name: current_name
+    type: char *
+    initial: "NULL"
+  - name: read_buffer
+    type: uint8_t *
+    initial: "NULL"
+  - name: read_size
+    type: uint32_t
+    initial: "0"
+  - name: read_pos
+    type: uint32_t
+    initial: "0"
+  - name: status_code
+    type: uint8_t
+    initial: "0"
+  - name: status_track
+    type: uint8_t
+    initial: "0"
+  - name: status_sector
+    type: uint8_t
+    initial: "0"
+  - name: status_message
+    type: char *
+    initial: "NULL"
+  - name: status_buffer
+    type: char *
+    initial: "NULL"
+  - name: status_size
+    type: uint32_t
+    initial: "0"
+  - name: status_pos
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: kernal_load
+      args: []
+      returns: u8
+    - name: kernal_iec_trap
+      args: [u16]
+      returns: u8
+    - name: kernal_file_trap
+      args: [u16]
+      returns: u8
+    - name: handle_iec_byte
+      args: [u8, u8]
+      returns: u8
+    - name: query_talk_active
+      args: []
+      returns: u8
+    - name: read_talk_byte
+      args: []
+      returns: u16
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->command_mode = 0u;
+      comp->listen_active = 0u;
+      comp->talk_active = 0u;
+      comp->last_secondary = 0u;
+      comp->open_channel = 0xFFu;
+      comp->write_channel = 0xFFu;
+      comp->talk_channel = 0xFFu;
+      comp->pending_name_len = 0u;
+      if (comp->pending_name == NULL) comp->pending_name = (char *)calloc(64u, 1u);
+      else memset(comp->pending_name, 0, 64u);
+      comp->current_name_channel = 0xFFu;
+      comp->current_name_len = 0u;
+      if (comp->current_name == NULL) comp->current_name = (char *)calloc(64u, 1u);
+      else memset(comp->current_name, 0, 64u);
+      if (comp->read_buffer != NULL) {
+          free(comp->read_buffer);
+          comp->read_buffer = NULL;
+      }
+      comp->read_size = 0u;
+      comp->read_pos = 0u;
+      comp->status_code = 0u;
+      comp->status_track = 0u;
+      comp->status_sector = 0u;
+      if (comp->status_message == NULL) comp->status_message = (char *)calloc(32u, 1u);
+      if (comp->status_buffer == NULL) comp->status_buffer = (char *)calloc(96u, 1u);
+      if (comp->status_message != NULL) snprintf(comp->status_message, 32u, "OK");
+      if (comp->status_buffer != NULL) memset(comp->status_buffer, 0, 96u);
+      comp->status_size = 0u;
+      comp->status_pos = 0u;
+    destroy: |
+      if (comp->read_buffer != NULL) {
+          free(comp->read_buffer);
+          comp->read_buffer = NULL;
+      }
+      if (comp->pending_name != NULL) {
+          free(comp->pending_name);
+          comp->pending_name = NULL;
+      }
+      if (comp->current_name != NULL) {
+          free(comp->current_name);
+          comp->current_name = NULL;
+      }
+      if (comp->status_message != NULL) {
+          free(comp->status_message);
+          comp->status_message = NULL;
+      }
+      if (comp->status_buffer != NULL) {
+          free(comp->status_buffer);
+          comp->status_buffer = NULL;
+      }
+  callback_handlers:
+    kernal_load: |
+      const uint8_t *image = NULL;
+      uint32_t image_size = 0u;
+      uint8_t track_count = 0u;
+      uint8_t fn_len;
+      uint8_t file_num;
+      uint8_t secondary;
+      uint8_t device;
+      uint16_t fn_ptr;
+      uint16_t load_addr;
+      uint16_t end_addr = 0u;
+      uint8_t verify_flag;
+      uint8_t status_code = 0u;
+      uint8_t success = 0u;
+      uint8_t is_directory = 0u;
+      static const uint8_t spt_table[42] = {
+          0u,
+          21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,
+          19u,19u,19u,19u,19u,19u,19u,
+          18u,18u,18u,18u,18u,18u,
+          17u,17u,17u,17u,17u,17u,17u,17u,17u,17u,17u
+      };
+      uint32_t cumulative[43];
+      uint8_t name_buf[17];
+      uint8_t i;
+      uint8_t dir_name[17];
+      uint8_t dir_id[6];
+      uint16_t basic_start;
+      uint16_t memtop;
+      uint8_t *ram;
+      uint16_t txttab;
+      uint16_t varptr;
+      uint16_t line_addr;
+      uint16_t loaded_start = 0u;
+      uint8_t sp8;
+      uint16_t ret_addr;
+      FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_C64_LOAD_TRACE");
+      if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+          const char *trace_path = getenv("PASM_C64_LOAD_TRACE_FILE");
+          if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/c64_load_trace.log";
+          trace_fp = fopen(trace_path, "a");
+      }
+      if (cpu_component_dispatch_callback(cpu, comp->media_component, "query_media_loaded", NULL, 0u) == 0u) {
+          if (trace_fp != NULL) {
+              fprintf(trace_fp, "load_early media_loaded=0 media_component=%s\n",
+                      (comp->media_component != NULL) ? comp->media_component : "<null>");
+              fclose(trace_fp);
+          }
+          return 0u;
+      }
+      image = (const uint8_t *)(uintptr_t)cpu_component_dispatch_callback(cpu, comp->media_component, "query_image_data", NULL, 0u);
+      image_size = (uint32_t)cpu_component_dispatch_callback(cpu, comp->media_component, "query_image_size", NULL, 0u);
+      track_count = (uint8_t)cpu_component_dispatch_callback(cpu, comp->media_component, "query_track_count", NULL, 0u);
+      if (image == NULL || image_size == 0u || track_count == 0u) {
+          if (trace_fp != NULL) {
+              fprintf(trace_fp, "load_early image=%p size=%u tracks=%u media_component=%s\n",
+                      (void *)image,
+                      (unsigned)image_size,
+                      (unsigned)track_count,
+                      (comp->media_component != NULL) ? comp->media_component : "<null>");
+              fclose(trace_fp);
+          }
+          return 0u;
+      }
+      cumulative[0] = 0u;
+      for (i = 1u; i <= track_count && i < 43u; ++i) {
+          cumulative[i] = cumulative[i - 1u] + (uint32_t)spt_table[i];
+      }
+      fn_len = mos6510_read_byte(cpu, 0x00B7u);
+      file_num = mos6510_read_byte(cpu, 0x00B8u);
+      secondary = mos6510_read_byte(cpu, 0x00B9u);
+      device = mos6510_read_byte(cpu, 0x00BAu);
+      fn_ptr = (uint16_t)mos6510_read_byte(cpu, 0x00BBu) | (uint16_t)((uint16_t)mos6510_read_byte(cpu, 0x00BCu) << 8u);
+      verify_flag = cpu->registers[REG_A];
+      load_addr = (uint16_t)cpu->registers[REG_X] | (uint16_t)((uint16_t)cpu->registers[REG_Y] << 8u);
+      txttab = (uint16_t)mos6510_read_byte(cpu, 0x002Bu) | (uint16_t)((uint16_t)mos6510_read_byte(cpu, 0x002Cu) << 8u);
+      memtop = (uint16_t)mos6510_read_byte(cpu, 0x0037u) | (uint16_t)((uint16_t)mos6510_read_byte(cpu, 0x0038u) << 8u);
+      ram = cpu->memory;
+      (void)file_num;
+      if (device == 1u && cpu_component_dispatch_callback(cpu, comp->media_component, "query_media_loaded", NULL, 0u) != 0u) {
+          device = 8u;
+          mos6510_write_byte(cpu, 0x00BAu, 8u);
+      }
+      if (trace_fp != NULL) {
+          fprintf(trace_fp,
+                  "load_enter pc=%04X a=%02X x=%02X y=%02X sp=%02X fnlen=%u lfn=%u sa=%u dev=%u fnptr=%04X txttab=%04X memtop=%04X loaded=%u media_component=%s\n",
+                  (unsigned)cpu->pc,
+                  (unsigned)cpu->registers[REG_A],
+                  (unsigned)cpu->registers[REG_X],
+                  (unsigned)cpu->registers[REG_Y],
+                  (unsigned)cpu->sp,
+                  (unsigned)fn_len,
+                  (unsigned)file_num,
+                  (unsigned)secondary,
+                  (unsigned)device,
+                  (unsigned)fn_ptr,
+                  (unsigned)txttab,
+                  (unsigned)memtop,
+                  (unsigned)cpu_component_dispatch_callback(cpu, comp->media_component, "query_media_loaded", NULL, 0u),
+                  (comp->media_component != NULL) ? comp->media_component : "<null>");
+          if (fn_len != 0u) {
+              uint8_t ti;
+              fputs("load_name bytes=", trace_fp);
+              for (ti = 0u; ti < fn_len && ti < 32u; ++ti) {
+                  fprintf(trace_fp, "%02X", (unsigned)mos6510_read_byte(cpu, (uint16_t)(fn_ptr + ti)));
+                  if ((ti + 1u) < fn_len && ti < 31u) fputc(' ', trace_fp);
+              }
+              fputc('\n', trace_fp);
+          }
+          fflush(trace_fp);
+      }
+      if (device != 8u) return 0u;
+      if (verify_flag != 0u) {
+          status_code = 0x1Cu;
+          goto load_done;
+      }
+      if (ram == NULL || cpu->memory_size < 0x10000u) {
+          status_code = 0x05u;
+          goto load_done;
+      }
+      for (i = 0u; i < 16u; ++i) name_buf[i] = 0u;
+      for (i = 0u; i < fn_len && i < 16u; ++i) {
+          uint8_t c = mos6510_read_byte(cpu, (uint16_t)(fn_ptr + i));
+          if (c >= 0x61u && c <= 0x7Au) c = (uint8_t)(c - 0x20u);
+          else if (c >= 0xC1u && c <= 0xDAu) c = (uint8_t)(c - 0x80u);
+          else if (c >= 0x41u && c <= 0x5Au) c = c;
+          else if (c >= 0x30u && c <= 0x39u) c = c;
+          else if (c == 0xA0u) c = ' ';
+          name_buf[i] = c;
+      }
+      if (fn_len == 0u || name_buf[0] == '$') {
+          is_directory = 1u;
+      }
+      if (is_directory != 0u) {
+          uint32_t bam_off;
+          uint32_t dir_off;
+          uint8_t next_track;
+          uint8_t next_sector;
+          uint16_t blocks_free = 0u;
+          uint8_t disk_name_len = 0u;
+          uint8_t disk_id_len = 0u;
+          uint8_t line_no;
+          if (track_count < 18u) {
+              status_code = 0x04u;
+              goto load_done;
+          }
+          bam_off = (cumulative[17u] + 0u) * 256u;
+          dir_off = (cumulative[17u] + 1u) * 256u;
+          if ((bam_off + 256u) > image_size || (dir_off + 256u) > image_size) {
+              status_code = 0x04u;
+              goto load_done;
+          }
+          for (i = 0u; i < 16u; ++i) {
+              uint8_t c = image[bam_off + 144u + i];
+              if (c == 0xA0u || c == 0u) break;
+              if (c >= 0xC1u && c <= 0xDAu) c = (uint8_t)(c - 0x80u);
+              dir_name[disk_name_len++] = c;
+          }
+          dir_name[disk_name_len] = 0u;
+          for (i = 0u; i < 2u; ++i) {
+              uint8_t c = image[bam_off + 162u + i];
+              if (c == 0xA0u || c == 0u) break;
+              if (c >= 0xC1u && c <= 0xDAu) c = (uint8_t)(c - 0x80u);
+              dir_id[disk_id_len++] = c;
+          }
+          dir_id[disk_id_len] = 0u;
+          for (i = 1u; i <= track_count; ++i) {
+              if ((4u * (uint32_t)(i - 1u) + 4u) < 256u) {
+                  blocks_free = (uint16_t)(blocks_free + image[bam_off + 4u + 4u * (uint32_t)(i - 1u)]);
+              }
+          }
+          basic_start = 0x0801u;
+          line_addr = basic_start;
+          cpu->memory[line_addr + 0u] = 0u;
+          cpu->memory[line_addr + 1u] = 0u;
+          cpu->memory[line_addr + 2u] = 0u;
+          cpu->memory[line_addr + 3u] = 0u;
+          {
+              uint8_t pos = 4u;
+              cpu->memory[line_addr + pos++] = '"';
+              for (i = 0u; i < disk_name_len && pos < 250u; ++i) cpu->memory[line_addr + pos++] = dir_name[i];
+              cpu->memory[line_addr + pos++] = '"';
+              if (disk_id_len != 0u) {
+                  cpu->memory[line_addr + pos++] = ' ';
+                  for (i = 0u; i < disk_id_len && pos < 250u; ++i) cpu->memory[line_addr + pos++] = dir_id[i];
+              }
+              cpu->memory[line_addr + pos++] = 0u;
+              end_addr = (uint16_t)(line_addr + pos);
+              cpu->memory[line_addr + 0u] = (uint8_t)(end_addr & 0xFFu);
+              cpu->memory[line_addr + 1u] = (uint8_t)((end_addr >> 8u) & 0xFFu);
+          }
+          next_track = image[dir_off + 0u];
+          next_sector = image[dir_off + 1u];
+          while (1) {
+              uint8_t entry;
+              for (entry = 0u; entry < 8u; ++entry) {
+                  uint32_t ent = dir_off + 2u + (uint32_t)entry * 32u;
+                  uint8_t file_type = image[ent + 0u];
+                  uint8_t blocks_lo = image[ent + 28u];
+                  uint8_t blocks_hi = image[ent + 29u];
+                  uint16_t blocks = (uint16_t)blocks_lo | (uint16_t)((uint16_t)blocks_hi << 8u);
+                  uint8_t file_name_len = 0u;
+                  uint8_t file_name[17];
+                  const char *type_name = "DEL";
+                  if ((file_type & 0x07u) == 0u) continue;
+                  if ((file_type & 0x07u) == 1u) type_name = "SEQ";
+                  else if ((file_type & 0x07u) == 2u) type_name = "PRG";
+                  else if ((file_type & 0x07u) == 3u) type_name = "USR";
+                  else if ((file_type & 0x07u) == 4u) type_name = "REL";
+                  for (i = 0u; i < 16u; ++i) {
+                      uint8_t c = image[ent + 3u + i];
+                      if (c == 0xA0u || c == 0u) break;
+                      if (c >= 0xC1u && c <= 0xDAu) c = (uint8_t)(c - 0x80u);
+                      file_name[file_name_len++] = c;
+                  }
+                  file_name[file_name_len] = 0u;
+                  line_addr = end_addr;
+                  line_no = (uint8_t)(blocks & 0xFFu);
+                  cpu->memory[line_addr + 2u] = line_no;
+                  cpu->memory[line_addr + 3u] = (uint8_t)((blocks >> 8u) & 0xFFu);
+                  {
+                      uint8_t pos = 4u;
+                      uint8_t space_count = 0u;
+                      if (blocks < 10u) space_count = 3u;
+                      else if (blocks < 100u) space_count = 2u;
+                      else if (blocks < 1000u) space_count = 1u;
+                      while (space_count-- != 0u && pos < 250u) cpu->memory[line_addr + pos++] = ' ';
+                      cpu->memory[line_addr + pos++] = '"';
+                      for (i = 0u; i < file_name_len && pos < 250u; ++i) cpu->memory[line_addr + pos++] = file_name[i];
+                      cpu->memory[line_addr + pos++] = '"';
+                      cpu->memory[line_addr + pos++] = ' ';
+                      while (*type_name != '\0' && pos < 250u) cpu->memory[line_addr + pos++] = (uint8_t)*type_name++;
+                      cpu->memory[line_addr + pos++] = 0u;
+                      end_addr = (uint16_t)(line_addr + pos);
+                      cpu->memory[line_addr + 0u] = (uint8_t)(end_addr & 0xFFu);
+                      cpu->memory[line_addr + 1u] = (uint8_t)((end_addr >> 8u) & 0xFFu);
+                  }
+              }
+              if (next_track == 0u) break;
+              if (next_track > track_count || next_sector >= spt_table[next_track]) break;
+              dir_off = (cumulative[next_track - 1u] + (uint32_t)next_sector) * 256u;
+              if ((dir_off + 256u) > image_size) break;
+              next_track = image[dir_off + 0u];
+              next_sector = image[dir_off + 1u];
+          }
+          line_addr = end_addr;
+          cpu->memory[line_addr + 2u] = (uint8_t)(blocks_free & 0xFFu);
+          cpu->memory[line_addr + 3u] = (uint8_t)((blocks_free >> 8u) & 0xFFu);
+          {
+              static const char tail[] = "BLOCKS FREE.";
+              uint8_t pos = 4u;
+              for (i = 0u; i < sizeof(tail) - 1u && pos < 250u; ++i) cpu->memory[line_addr + pos++] = (uint8_t)tail[i];
+              cpu->memory[line_addr + pos++] = 0u;
+              end_addr = (uint16_t)(line_addr + pos);
+              cpu->memory[line_addr + 0u] = 0u;
+              cpu->memory[line_addr + 1u] = 0u;
+              cpu->memory[end_addr + 0u] = 0u;
+              cpu->memory[end_addr + 1u] = 0u;
+          }
+          varptr = end_addr;
+          mos6510_write_byte(cpu, 0x002Bu, (uint8_t)(basic_start & 0xFFu));
+          mos6510_write_byte(cpu, 0x002Cu, (uint8_t)((basic_start >> 8u) & 0xFFu));
+          mos6510_write_byte(cpu, 0x002Du, (uint8_t)(varptr & 0xFFu));
+          mos6510_write_byte(cpu, 0x002Eu, (uint8_t)((varptr >> 8u) & 0xFFu));
+          mos6510_write_byte(cpu, 0x002Fu, (uint8_t)(varptr & 0xFFu));
+          mos6510_write_byte(cpu, 0x0030u, (uint8_t)((varptr >> 8u) & 0xFFu));
+          mos6510_write_byte(cpu, 0x0031u, (uint8_t)(varptr & 0xFFu));
+          mos6510_write_byte(cpu, 0x0032u, (uint8_t)((varptr >> 8u) & 0xFFu));
+          mos6510_write_byte(cpu, 0x0033u, (uint8_t)(memtop & 0xFFu));
+          mos6510_write_byte(cpu, 0x0034u, (uint8_t)((memtop >> 8u) & 0xFFu));
+          end_addr = varptr;
+          success = 1u;
+          goto load_done;
+      }
+      {
+          uint8_t match_found = 0u;
+          uint8_t file_track = 0u;
+          uint8_t file_sector = 0u;
+          uint8_t wanted_type = 2u;
+          uint32_t dir_off = (cumulative[17u] + 1u) * 256u;
+          uint8_t next_track = (dir_off + 1u < image_size) ? image[dir_off + 0u] : 0u;
+          uint8_t next_sector = (dir_off + 1u < image_size) ? image[dir_off + 1u] : 0u;
+          while (dir_off + 256u <= image_size) {
+              uint8_t entry;
+              for (entry = 0u; entry < 8u; ++entry) {
+                  uint32_t ent = dir_off + 2u + (uint32_t)entry * 32u;
+                  uint8_t file_type = image[ent + 0u];
+                  uint8_t entry_name[17];
+                  uint8_t entry_len = 0u;
+                  uint8_t j;
+                  uint8_t matched = 1u;
+                  uint8_t wildcard = 0u;
+                  if ((file_type & 0x07u) != wanted_type) continue;
+                  for (j = 0u; j < 16u; ++j) {
+                      uint8_t c = image[ent + 3u + j];
+                      if (c == 0xA0u || c == 0u) break;
+                      if (c >= 0xC1u && c <= 0xDAu) c = (uint8_t)(c - 0x80u);
+                      entry_name[entry_len++] = c;
+                  }
+                  entry_name[entry_len] = 0u;
+                  if (fn_len == 1u && name_buf[0] == '*') {
+                      matched = 1u;
+                  } else {
+                      for (j = 0u; j < fn_len && j < 16u; ++j) {
+                          uint8_t p = name_buf[j];
+                          uint8_t e = (j < entry_len) ? entry_name[j] : 0u;
+                          if (p == '*') { wildcard = 1u; break; }
+                          if (p == '?') continue;
+                          if (p != e) { matched = 0u; break; }
+                      }
+                      if (matched != 0u && wildcard == 0u && fn_len != entry_len) matched = 0u;
+                  }
+                  if (matched == 0u) continue;
+                  file_track = image[ent + 1u];
+                  file_sector = image[ent + 2u];
+                  match_found = 1u;
+                  break;
+              }
+              if (match_found != 0u) break;
+              if (next_track == 0u) break;
+              if (next_track > track_count || next_sector >= spt_table[next_track]) break;
+              dir_off = (cumulative[next_track - 1u] + (uint32_t)next_sector) * 256u;
+              if ((dir_off + 256u) > image_size) break;
+              next_track = image[dir_off + 0u];
+              next_sector = image[dir_off + 1u];
+          }
+          if (match_found == 0u) {
+              status_code = 0x04u;
+              goto load_done;
+          }
+          {
+              uint8_t first = 1u;
+              uint16_t dst = load_addr;
+              while (file_track != 0u) {
+                  uint32_t off;
+                  uint8_t next_t;
+                  uint8_t next_s;
+                  uint16_t count;
+                  uint16_t start_index;
+                  if (file_track > track_count || file_sector >= spt_table[file_track]) {
+                      status_code = 0x04u;
+                      goto load_done;
+                  }
+                  off = (cumulative[file_track - 1u] + (uint32_t)file_sector) * 256u;
+                  if ((off + 256u) > image_size) {
+                      status_code = 0x04u;
+                      goto load_done;
+                  }
+                  next_t = image[off + 0u];
+                  next_s = image[off + 1u];
+                  start_index = 2u;
+                  if (first != 0u) {
+                      uint16_t file_load_addr = (uint16_t)image[off + 2u] | (uint16_t)((uint16_t)image[off + 3u] << 8u);
+                      if (secondary != 0u) dst = file_load_addr;
+                      loaded_start = dst;
+                      start_index = 4u;
+                      first = 0u;
+                  }
+                  if (next_t == 0u) {
+                      if (next_s == 0u) count = 0u;
+                      else count = (uint16_t)(next_s - 1u);
+                      if (count < (start_index - 2u)) count = 0u;
+                      else count = (uint16_t)(count - (start_index - 2u));
+                  } else {
+                      count = (uint16_t)(256u - start_index);
+                  }
+                  if (count > cpu->memory_size) {
+                      status_code = 0x09u;
+                      goto load_done;
+                  }
+                  for (uint16_t copy_i = 0u; copy_i < count; ++copy_i) {
+                      uint16_t write_addr = (uint16_t)(dst + copy_i);
+                      if ((uint32_t)write_addr >= cpu->memory_size) {
+                          status_code = 0x09u;
+                          goto load_done;
+                      }
+                      mos6510_write_byte(cpu, write_addr, image[off + start_index + copy_i]);
+                  }
+                  dst = (uint16_t)(dst + count);
+                  file_track = next_t;
+                  file_sector = next_s;
+              }
+              end_addr = dst;
+              if ((secondary == 0u && load_addr == txttab) || loaded_start == txttab) {
+                  varptr = end_addr;
+                  mos6510_write_byte(cpu, 0x002Du, (uint8_t)(varptr & 0xFFu));
+                  mos6510_write_byte(cpu, 0x002Eu, (uint8_t)((varptr >> 8u) & 0xFFu));
+                  mos6510_write_byte(cpu, 0x002Fu, (uint8_t)(varptr & 0xFFu));
+                  mos6510_write_byte(cpu, 0x0030u, (uint8_t)((varptr >> 8u) & 0xFFu));
+                  mos6510_write_byte(cpu, 0x0031u, (uint8_t)(varptr & 0xFFu));
+                  mos6510_write_byte(cpu, 0x0032u, (uint8_t)((varptr >> 8u) & 0xFFu));
+                  mos6510_write_byte(cpu, 0x0033u, (uint8_t)(memtop & 0xFFu));
+                  mos6510_write_byte(cpu, 0x0034u, (uint8_t)((memtop >> 8u) & 0xFFu));
+              }
+              if (trace_fp != NULL) {
+                  fprintf(trace_fp,
+                          "load_prg_done start=%04X end=%04X txttab=%04X ptrs=%02X%02X/%02X%02X/%02X%02X/%02X%02X bytes0801=%02X %02X %02X %02X %02X %02X %02X %02X\n",
+                          (unsigned)loaded_start,
+                          (unsigned)end_addr,
+                          (unsigned)txttab,
+                          (unsigned)mos6510_read_byte(cpu, 0x002Eu),
+                          (unsigned)mos6510_read_byte(cpu, 0x002Du),
+                          (unsigned)mos6510_read_byte(cpu, 0x0030u),
+                          (unsigned)mos6510_read_byte(cpu, 0x002Fu),
+                          (unsigned)mos6510_read_byte(cpu, 0x0032u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0031u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0034u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0033u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0801u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0802u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0803u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0804u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0805u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0806u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0807u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0808u));
+              }
+              success = 1u;
+          }
+      }
+      load_done:
+      mos6510_write_byte(cpu, 0x0090u, status_code);
+      if (success != 0u) {
+          cpu->flags.C = 0u;
+          cpu->registers[REG_A] = 0u;
+          cpu->registers[REG_X] = (uint8_t)(end_addr & 0xFFu);
+          cpu->registers[REG_Y] = (uint8_t)((end_addr >> 8u) & 0xFFu);
+      } else {
+          cpu->flags.C = 1u;
+          cpu->registers[REG_A] = status_code;
+      }
+      sp8 = cpu->sp;
+      ret_addr = (uint16_t)mos6510_read_byte(cpu, (uint16_t)(0x0100u | (uint8_t)(sp8 + 1u)));
+      ret_addr |= (uint16_t)((uint16_t)mos6510_read_byte(cpu, (uint16_t)(0x0100u | (uint8_t)(sp8 + 2u))) << 8u);
+      cpu->sp = (uint8_t)(sp8 + 2u);
+      cpu->pc = (uint16_t)(ret_addr + 1u);
+      if (trace_fp != NULL) {
+          fprintf(trace_fp,
+                  "load_exit success=%u status=%02X end=%04X ret=%04X newpc=%04X carry=%u a=%02X x=%02X y=%02X\n",
+                  (unsigned)success,
+                  (unsigned)status_code,
+                  (unsigned)end_addr,
+                  (unsigned)ret_addr,
+                  (unsigned)cpu->pc,
+                  (unsigned)(cpu->flags.C ? 1u : 0u),
+                  (unsigned)cpu->registers[REG_A],
+                  (unsigned)cpu->registers[REG_X],
+                  (unsigned)cpu->registers[REG_Y]);
+          fclose(trace_fp);
+      }
+      return 1u;
+    kernal_iec_trap: |
+      uint16_t pc = (argc > 0u) ? (uint16_t)(args[0] & 0xFFFFu) : 0u;
+      uint8_t a = cpu->registers[REG_A];
+      uint8_t handled = 1u;
+      uint8_t sp8 = cpu->sp;
+      uint16_t ret_addr = (uint16_t)mos6510_read_byte(cpu, (uint16_t)(0x0100u | (uint8_t)(sp8 + 1u)));
+      ret_addr |= (uint16_t)((uint16_t)mos6510_read_byte(cpu, (uint16_t)(0x0100u | (uint8_t)(sp8 + 2u))) << 8u);
+      FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_C64_IEC_TRAP_TRACE");
+      if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+          const char *trace_path = getenv("PASM_C64_IEC_TRAP_TRACE_FILE");
+          if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/c64_iec_trap_trace.log";
+          trace_fp = fopen(trace_path, "a");
+      }
+      #define PASM_C64_IEC_RETURN() do { cpu->sp = (uint8_t)(sp8 + 2u); cpu->pc = (uint16_t)(ret_addr + 1u); return 1u; } while (0)
+      #define PASM_C64_SET_STATUS(code__, msg__) \
+      do { \
+          comp->status_code = (uint8_t)(code__); \
+          comp->status_track = 0u; \
+          comp->status_sector = 0u; \
+          if (comp->status_message != NULL) snprintf(comp->status_message, 32u, "%s", (msg__)); \
+      } while (0)
+      if (cpu_component_dispatch_callback(cpu, comp->media_component, "query_media_loaded", NULL, 0u) == 0u) {
+          if (trace_fp != NULL) {
+              fprintf(trace_fp, "iec_trap pc=%04X a=%02X media=0 media_component=%s\n",
+                      (unsigned)pc,
+                      (unsigned)a,
+                      (comp->media_component != NULL) ? comp->media_component : "<null>");
+              fclose(trace_fp);
+          }
+          PASM_C64_SET_STATUS(74u, "DRIVE NOT READY");
+          cpu->flags.C = 1u;
+          cpu->registers[REG_A] = 0x05u;
+          mos6510_write_byte(cpu, 0x0090u, 0x05u);
+          PASM_C64_IEC_RETURN();
+      }
+      if (trace_fp != NULL) {
+          fprintf(trace_fp,
+                  "iec_trap enter pc=%04X a=%02X x=%02X y=%02X sp=%02X listen=%u talk=%u cmd=%u open=%u write=%u talkch=%u cur=%u name=%s\n",
+                  (unsigned)pc,
+                  (unsigned)cpu->registers[REG_A],
+                  (unsigned)cpu->registers[REG_X],
+                  (unsigned)cpu->registers[REG_Y],
+                  (unsigned)cpu->sp,
+                  (unsigned)comp->listen_active,
+                  (unsigned)comp->talk_active,
+                  (unsigned)comp->command_mode,
+                  (unsigned)comp->open_channel,
+                  (unsigned)comp->write_channel,
+                  (unsigned)comp->talk_channel,
+                  (unsigned)comp->current_name_channel,
+                  (comp->current_name != NULL) ? comp->current_name : "<null>");
+          fflush(trace_fp);
+      }
+      switch (pc) {
+          case 0xFFB1u:
+          case 0xED0Cu:
+              comp->command_mode = 1u;
+              comp->listen_active = (uint8_t)((a == 8u) ? 1u : 0u);
+              comp->talk_active = 0u;
+              comp->write_channel = 0xFFu;
+              cpu->flags.C = 0u;
+              mos6510_write_byte(cpu, 0x0090u, 0u);
+              PASM_C64_IEC_RETURN();
+          case 0xFFB4u:
+          case 0xED09u:
+              comp->command_mode = 1u;
+              comp->talk_active = (uint8_t)((a == 8u) ? 1u : 0u);
+              comp->listen_active = 0u;
+              comp->talk_channel = 0xFFu;
+              cpu->flags.C = 0u;
+              mos6510_write_byte(cpu, 0x0090u, 0u);
+              PASM_C64_IEC_RETURN();
+          case 0xFFAEu:
+          case 0xEDFEu:
+              if (comp->open_channel < 16u) {
+                  comp->current_name_channel = comp->open_channel;
+                  comp->current_name_len = comp->pending_name_len;
+                  if (comp->current_name != NULL && comp->pending_name != NULL) {
+                      snprintf(comp->current_name, 64u, "%s", comp->pending_name);
+                  }
+              }
+              comp->command_mode = 0u;
+              comp->listen_active = 0u;
+              comp->open_channel = 0xFFu;
+              comp->write_channel = 0xFFu;
+              comp->pending_name_len = 0u;
+              if (comp->pending_name != NULL) memset(comp->pending_name, 0, 64u);
+              cpu->flags.C = 0u;
+              mos6510_write_byte(cpu, 0x0090u, 0u);
+              PASM_C64_IEC_RETURN();
+          case 0xFFABu:
+          case 0xEDEFu:
+              comp->command_mode = 0u;
+              comp->talk_active = 0u;
+              comp->talk_channel = 0xFFu;
+              cpu->flags.C = 0u;
+              mos6510_write_byte(cpu, 0x0090u, 0u);
+              PASM_C64_IEC_RETURN();
+          case 0xFF93u:
+          case 0xEDB9u:
+          case 0xFF96u:
+          case 0xEDC7u:
+              comp->last_secondary = (uint8_t)(a & 0x0Fu);
+              if (comp->listen_active != 0u) comp->write_channel = comp->last_secondary;
+              else if (comp->talk_active != 0u) comp->talk_channel = comp->last_secondary;
+              cpu->flags.C = 0u;
+              mos6510_write_byte(cpu, 0x0090u, 0u);
+              PASM_C64_IEC_RETURN();
+          default:
+              handled = 0u;
+              break;
+      }
+      if (trace_fp != NULL) fclose(trace_fp);
+      #undef PASM_C64_SET_STATUS
+      #undef PASM_C64_IEC_RETURN
+      return (uint64_t)handled;
+    kernal_file_trap: |
+      uint16_t pc = (argc > 0u) ? (uint16_t)(args[0] & 0xFFFFu) : 0u;
+      uint8_t handled = 1u;
+      uint8_t sp8 = cpu->sp;
+      uint16_t ret_addr = (uint16_t)mos6510_read_byte(cpu, (uint16_t)(0x0100u | (uint8_t)(sp8 + 1u)));
+      ret_addr |= (uint16_t)((uint16_t)mos6510_read_byte(cpu, (uint16_t)(0x0100u | (uint8_t)(sp8 + 2u))) << 8u);
+      FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_C64_FILE_TRAP_TRACE");
+      if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+          const char *trace_path = getenv("PASM_C64_FILE_TRAP_TRACE_FILE");
+          if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/c64_file_trap_trace.log";
+          trace_fp = fopen(trace_path, "a");
+      }
+      #define PASM_C64_FILE_RETURN() do { cpu->sp = (uint8_t)(sp8 + 2u); cpu->pc = (uint16_t)(ret_addr + 1u); return 1u; } while (0)
+      if (trace_fp != NULL) {
+          fprintf(trace_fp,
+                  "file_trap enter pc=%04X a=%02X x=%02X y=%02X sp=%02X b7=%02X b8=%02X b9=%02X ba=%02X bb=%02X bc=%02X 99=%02X\n",
+                  (unsigned)pc,
+                  (unsigned)cpu->registers[REG_A],
+                  (unsigned)cpu->registers[REG_X],
+                  (unsigned)cpu->registers[REG_Y],
+                  (unsigned)cpu->sp,
+                  (unsigned)mos6510_read_byte(cpu, 0x00B7u),
+                  (unsigned)mos6510_read_byte(cpu, 0x00B8u),
+                  (unsigned)mos6510_read_byte(cpu, 0x00B9u),
+                  (unsigned)mos6510_read_byte(cpu, 0x00BAu),
+                  (unsigned)mos6510_read_byte(cpu, 0x00BBu),
+                  (unsigned)mos6510_read_byte(cpu, 0x00BCu),
+                  (unsigned)mos6510_read_byte(cpu, 0x0099u));
+          fflush(trace_fp);
+      }
+      switch (pc) {
+          case 0xFFC0u:
+          case 0xFFC3u:
+              cpu->flags.C = 0u;
+              mos6510_write_byte(cpu, 0x0090u, 0u);
+              PASM_C64_FILE_RETURN();
+          case 0xFFC6u:
+          case 0xFFC9u:
+          case 0xFFCCu:
+              cpu->flags.C = 0u;
+              mos6510_write_byte(cpu, 0x0090u, 0u);
+              PASM_C64_FILE_RETURN();
+          default:
+              handled = 0u;
+              break;
+      }
+      if (trace_fp != NULL) fclose(trace_fp);
+      #undef PASM_C64_FILE_RETURN
+      return (uint64_t)handled;
+    handle_iec_byte: |
+      uint8_t raw = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t atn = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t nib = (uint8_t)(raw & 0x0Fu);
+      #define PASM_C64_DOS_STATUS(code__, msg__) \
+      do { \
+          comp->status_code = (uint8_t)(code__); \
+          comp->status_track = 0u; \
+          comp->status_sector = 0u; \
+          if (comp->status_message != NULL) snprintf(comp->status_message, 32u, "%s", (msg__)); \
+      } while (0)
+      if (atn != 0u) {
+          if (raw == 0x3Fu) {
+              if (comp->open_channel < 16u) {
+                  comp->current_name_channel = comp->open_channel;
+                  comp->current_name_len = comp->pending_name_len;
+                  if (comp->current_name != NULL && comp->pending_name != NULL) {
+                      snprintf(comp->current_name, 64u, "%s", comp->pending_name);
+                  }
+              }
+              comp->command_mode = 0u;
+              comp->listen_active = 0u;
+              comp->open_channel = 0xFFu;
+              comp->write_channel = 0xFFu;
+              comp->pending_name_len = 0u;
+              if (comp->pending_name != NULL) memset(comp->pending_name, 0, 64u);
+          } else if (raw == 0x5Fu) {
+              comp->command_mode = 0u;
+              comp->talk_active = 0u;
+              comp->talk_channel = 0xFFu;
+          } else if ((raw & 0xE0u) == 0x20u) {
+              comp->command_mode = 1u;
+              comp->listen_active = (uint8_t)(nib == 8u ? 1u : 0u);
+              comp->talk_active = 0u;
+              comp->write_channel = 0xFFu;
+              comp->talk_channel = 0xFFu;
+          } else if ((raw & 0xE0u) == 0x40u) {
+              comp->command_mode = 1u;
+              comp->talk_active = (uint8_t)(nib == 8u ? 1u : 0u);
+              comp->listen_active = 0u;
+              comp->talk_channel = 0xFFu;
+          } else {
+              comp->last_secondary = nib;
+              if (comp->listen_active != 0u) {
+                  if ((raw & 0xF0u) == 0xF0u) {
+                      comp->open_channel = nib;
+                      comp->pending_name_len = 0u;
+                      if (comp->pending_name != NULL) memset(comp->pending_name, 0, 64u);
+                  } else if ((raw & 0xF0u) == 0xE0u) {
+                      if (nib == comp->current_name_channel) {
+                          comp->current_name_channel = 0xFFu;
+                          comp->current_name_len = 0u;
+                          if (comp->current_name != NULL) memset(comp->current_name, 0, 64u);
+                      }
+                  } else if ((raw & 0xE0u) == 0x60u) {
+                      comp->write_channel = nib;
+                      comp->command_mode = 0u;
+                  }
+              } else if (comp->talk_active != 0u) {
+                  comp->talk_channel = nib;
+                  comp->command_mode = 0u;
+              }
+          }
+      } else if (comp->listen_active != 0u) {
+          if (comp->open_channel < 16u) {
+              if (comp->pending_name != NULL && comp->pending_name_len + 1u < 64u) {
+                  comp->pending_name[comp->pending_name_len++] = (char)raw;
+                  comp->pending_name[comp->pending_name_len] = '\0';
+              }
+          } else if (comp->write_channel == 15u) {
+              if (raw == 'I' || raw == 'i') {
+                  PASM_C64_DOS_STATUS(0u, "OK");
+              }
+          }
+      }
+      #undef PASM_C64_DOS_STATUS
+      return 1u;
+    query_talk_active: |
+      return (uint64_t)(comp->talk_active != 0u ? 1u : 0u);
+    read_talk_byte: |
+      if (comp->talk_active == 0u || comp->talk_channel == 0xFFu) {
+          return 0x100u;
+      }
+      if (comp->talk_channel == 15u) {
+          if (comp->status_pos >= comp->status_size) {
+              if (comp->status_buffer == NULL || comp->status_message == NULL) {
+                  comp->talk_active = 0u;
+                  comp->talk_channel = 0xFFu;
+                  return 0x100u;
+              }
+              snprintf(comp->status_buffer, 96u, "%02u,%s,%02u,%02u\r",
+                       (unsigned)comp->status_code,
+                       comp->status_message,
+                       (unsigned)comp->status_track,
+                       (unsigned)comp->status_sector);
+              comp->status_size = (uint32_t)strlen(comp->status_buffer);
+              comp->status_pos = 0u;
+          }
+          if (comp->status_pos < comp->status_size) {
+              return (uint64_t)(uint8_t)comp->status_buffer[comp->status_pos++];
+          }
+          comp->talk_active = 0u;
+          comp->talk_channel = 0xFFu;
+          return 0x100u;
+      }
+      if (comp->read_buffer == NULL || comp->read_pos >= comp->read_size) {
+          const uint8_t *image = (const uint8_t *)(uintptr_t)cpu_component_dispatch_callback(cpu, comp->media_component, "query_image_data", NULL, 0u);
+          uint32_t image_size = (uint32_t)cpu_component_dispatch_callback(cpu, comp->media_component, "query_image_size", NULL, 0u);
+          uint8_t track_count = (uint8_t)cpu_component_dispatch_callback(cpu, comp->media_component, "query_track_count", NULL, 0u);
+          static const uint8_t spt_table[42] = {
+              0u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,21u,
+              19u,19u,19u,19u,19u,19u,19u,18u,18u,18u,18u,18u,18u,17u,17u,17u,17u,17u,17u,17u,17u,17u,17u,17u
+          };
+          uint32_t cumulative[43];
+          uint8_t name_len = (comp->talk_channel == comp->current_name_channel) ? comp->current_name_len : 0u;
+          const char *name = (comp->talk_channel == comp->current_name_channel) ? comp->current_name : NULL;
+          uint32_t dir_off;
+          uint8_t next_track;
+          uint8_t next_sector;
+          uint8_t match_found = 0u;
+          uint8_t file_track = 0u;
+          uint8_t file_sector = 0u;
+          uint8_t i;
+          if (comp->read_buffer != NULL) {
+              free(comp->read_buffer);
+              comp->read_buffer = NULL;
+          }
+          comp->read_size = 0u;
+          comp->read_pos = 0u;
+          if (image == NULL || image_size == 0u || track_count < 18u || name == NULL || name_len == 0u) {
+              comp->talk_active = 0u;
+              comp->talk_channel = 0xFFu;
+              return 0x100u;
+          }
+          cumulative[0] = 0u;
+          for (i = 1u; i <= track_count && i < 43u; ++i) cumulative[i] = cumulative[i - 1u] + (uint32_t)spt_table[i];
+          dir_off = (cumulative[17u] + 1u) * 256u;
+          next_track = image[dir_off + 0u];
+          next_sector = image[dir_off + 1u];
+          while (dir_off + 256u <= image_size) {
+              uint8_t entry;
+              for (entry = 0u; entry < 8u; ++entry) {
+                  uint32_t ent = dir_off + 2u + (uint32_t)entry * 32u;
+                  uint8_t file_type = image[ent + 0u];
+                  uint8_t matched = 1u;
+                  uint8_t wildcard = 0u;
+                  uint8_t entry_name[17];
+                  uint8_t entry_len = 0u;
+                  uint8_t j;
+                  if ((file_type & 0x07u) != 2u) continue;
+                  for (j = 0u; j < 16u; ++j) {
+                      uint8_t c = image[ent + 3u + j];
+                      if (c == 0xA0u || c == 0u) break;
+                      if (c >= 0xC1u && c <= 0xDAu) c = (uint8_t)(c - 0x80u);
+                      entry_name[entry_len++] = c;
+                  }
+                  entry_name[entry_len] = 0u;
+                  if (name_len == 1u && name[0] == '*') matched = 1u;
+                  else {
+                      for (j = 0u; j < name_len && j < 16u; ++j) {
+                          uint8_t p = (uint8_t)name[j];
+                          uint8_t e = (j < entry_len) ? entry_name[j] : 0u;
+                          if (p >= 0x61u && p <= 0x7Au) p = (uint8_t)(p - 0x20u);
+                          if (p == '*') { wildcard = 1u; break; }
+                          if (p == '?') continue;
+                          if (p != e) { matched = 0u; break; }
+                      }
+                      if (matched != 0u && wildcard == 0u && name_len != entry_len) matched = 0u;
+                  }
+                  if (matched == 0u) continue;
+                  file_track = image[ent + 1u];
+                  file_sector = image[ent + 2u];
+                  match_found = 1u;
+                  break;
+              }
+              if (match_found != 0u) break;
+              if (next_track == 0u) break;
+              if (next_track > track_count || next_sector >= spt_table[next_track]) break;
+              dir_off = (cumulative[next_track - 1u] + (uint32_t)next_sector) * 256u;
+              if ((dir_off + 256u) > image_size) break;
+              next_track = image[dir_off + 0u];
+              next_sector = image[dir_off + 1u];
+          }
+          if (match_found == 0u) {
+              comp->talk_active = 0u;
+              comp->talk_channel = 0xFFu;
+              return 0x100u;
+          }
+          {
+              uint32_t total = 0u;
+              uint8_t t = file_track;
+              uint8_t s = file_sector;
+              while (t != 0u) {
+                  uint32_t off = (cumulative[t - 1u] + (uint32_t)s) * 256u;
+                  uint8_t nt = image[off + 0u];
+                  uint8_t ns = image[off + 1u];
+                  uint16_t start_index = 2u;
+                  uint16_t count = (nt == 0u) ? (uint16_t)((ns > 0u) ? (ns - 1u) : 0u) : (uint16_t)(256u - start_index);
+                  total += count;
+                  t = nt;
+                  s = ns;
+              }
+              comp->read_buffer = (uint8_t *)malloc(total != 0u ? total : 1u);
+              if (comp->read_buffer == NULL) {
+                  comp->talk_active = 0u;
+                  comp->talk_channel = 0xFFu;
+                  return 0x100u;
+              }
+              comp->read_size = total;
+              comp->read_pos = 0u;
+              t = file_track;
+              s = file_sector;
+              while (t != 0u) {
+                  uint32_t off = (cumulative[t - 1u] + (uint32_t)s) * 256u;
+                  uint8_t nt = image[off + 0u];
+                  uint8_t ns = image[off + 1u];
+                  uint16_t start_index = 2u;
+                  uint16_t count = (nt == 0u) ? (uint16_t)((ns > 0u) ? (ns - 1u) : 0u) : (uint16_t)(256u - start_index);
+                  memcpy(comp->read_buffer + comp->read_pos, image + off + start_index, count);
+                  comp->read_pos += count;
+                  t = nt;
+                  s = ns;
+              }
+              comp->read_pos = 0u;
+          }
+      }
+      if (comp->read_buffer != NULL && comp->read_pos < comp->read_size) {
+          return (uint64_t)comp->read_buffer[comp->read_pos++];
+      }
+      comp->talk_active = 0u;
+      comp->talk_channel = 0xFFu;
+      return 0x100u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

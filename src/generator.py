@@ -1,7 +1,9 @@
 """Main code generator orchestrator."""
 
 import os
+import copy
 import json
+import re
 from pathlib import Path
 from typing import Dict, Any, List
 import sys
@@ -82,6 +84,49 @@ class EmulatorGenerator:
             self.cpu_prefix,
         )
 
+    def _resolve_subsystem_entries(self) -> List[Dict[str, Any]]:
+        """Resolve any attached subsystem descriptors declared by the system."""
+        integrations = (
+            (self.isa_data.get("system", {}) or {}).get("integrations", {}) or {}
+        )
+        raw_entries = integrations.get("subsystems", [])
+        if not raw_entries:
+            return []
+        if not isinstance(raw_entries, list):
+            raise ValueError("system.integrations.subsystems must be an array")
+
+        loader = ProcessorSystemLoader()
+        resolved: List[Dict[str, Any]] = []
+        for idx, raw in enumerate(raw_entries):
+            if isinstance(raw, str):
+                rel_path = raw
+            elif isinstance(raw, dict):
+                rel_path = str(raw.get("path", "")).strip()
+            else:
+                raise ValueError(
+                    f"system.integrations.subsystems[{idx}] must be a string path or object"
+                )
+            if not rel_path:
+                raise ValueError(
+                    f"system.integrations.subsystems[{idx}] is missing a subsystem path"
+                )
+            subsystem_path = str((self.system_path.parent / rel_path).resolve())
+            subsystem_data = loader.load_subsystem(subsystem_path)
+            subsystem_meta = subsystem_data.get("metadata", {})
+            subsystem_id = str(subsystem_meta.get("id", "")).strip()
+            if not subsystem_id:
+                raise ValueError(
+                    f"subsystem descriptor '{subsystem_path}' is missing metadata.id"
+                )
+            resolved.append(
+                {
+                    "path": subsystem_path,
+                    "id": subsystem_id,
+                    "data": subsystem_data,
+                }
+            )
+        return resolved
+
     def generate(self, output_dir: str, dispatch_mode: str = "switch") -> None:
         """Generate the emulator to the output directory.
 
@@ -115,16 +160,62 @@ class EmulatorGenerator:
             f"{len(self.isa_data.get('hosts', []))} host(s), "
             f"{1 if self.isa_data.get('cartridge') else 0} cartridge(s)) to {output_dir}"
         )
+        subsystem_entries = self._resolve_subsystem_entries()
+        subsystem_builds: List[Dict[str, Any]] = []
+        if subsystem_entries:
+            subsystem_root = output_path / "subsystems"
+            subsystem_root.mkdir(parents=True, exist_ok=True)
+            for entry in subsystem_entries:
+                subsystem_outdir = subsystem_root / entry["id"]
+                logger.info(f"  - Generating attached subsystem {entry['id']}...")
+                generate_from_subsystem(
+                    entry["path"],
+                    str(subsystem_outdir),
+                    dispatch_mode=dispatch_mode,
+                )
+                manifest_path = subsystem_outdir / "debugger_link.json"
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                subsystem_builds.append(
+                    {
+                        "id": entry["id"],
+                        "output_dir": subsystem_outdir,
+                        "cmake_subdir": _posix_relpath(subsystem_outdir, output_path),
+                        "cpu_prefix": str(manifest.get("cpu_prefix", "")).strip(),
+                        "system_target": str(manifest.get("cmake_library_target", "")).strip(),
+                        "cpu_core_target": str(
+                            (manifest.get("split_targets", {}) or {}).get("cpu_core", "")
+                        ).strip(),
+                        "system_static": str(
+                            (manifest.get("split_artifacts", {}) or {}).get("system_static", "")
+                        ).strip(),
+                        "cpu_core_static": str(
+                            (manifest.get("split_artifacts", {}) or {}).get("cpu_core_static", "")
+                        ).strip(),
+                    }
+                )
+        isa_data_for_codegen = copy.deepcopy(self.isa_data)
+        isa_data_for_codegen["_attached_subsystem_builds"] = [
+            {
+                "id": build["id"],
+                "cpu_prefix": build["cpu_prefix"],
+                "system_target": build["system_target"],
+                "cpu_core_target": build["cpu_core_target"],
+                "system_static": build["system_static"],
+                "cpu_core_static": build["cpu_core_static"],
+                "cmake_subdir": build["cmake_subdir"],
+            }
+            for build in subsystem_builds
+        ]
 
         # Generate main CPU header
         logger.info("  - Generating cpu.h...")
-        header_code = generate_cpu_header(self.isa_data, self.cpu_name)
+        header_code = generate_cpu_header(isa_data_for_codegen, self.cpu_name)
         (src_dir / f"{self.cpu_name}.h").write_text(header_code)
 
         # Generate CPU implementation content (owned by split core TU).
         logger.info("  - Generating cpu_core.c...")
         impl_code = generate_cpu_impl(
-            self.isa_data,
+            isa_data_for_codegen,
             self.cpu_name,
             dispatch_mode=dispatch_mode,
             include_loader_impls=False,
@@ -147,13 +238,13 @@ class EmulatorGenerator:
 
         # Generate decoder
         logger.info("  - Generating cpu_decoder.h/c...")
-        decoder_header, decoder_impl = generate_decoder(self.isa_data, self.cpu_name)
+        decoder_header, decoder_impl = generate_decoder(isa_data_for_codegen, self.cpu_name)
         (src_dir / f"{self.cpu_name}_decoder.h").write_text(decoder_header)
         (src_dir / f"{self.cpu_name}_decoder.c").write_text(decoder_impl)
 
         # Generate debug ABI bridge
         logger.info("  - Generating cpu_debug_abi.h/c...")
-        debug_header, debug_impl = generate_debug_abi(self.isa_data, self.cpu_name)
+        debug_header, debug_impl = generate_debug_abi(isa_data_for_codegen, self.cpu_name)
         (src_dir / f"{self.cpu_name}_debug_abi.h").write_text(debug_header)
         (src_dir / f"{self.cpu_name}_debug_abi.c").write_text(debug_impl)
 
@@ -164,7 +255,7 @@ class EmulatorGenerator:
             hooks_config.get(name, {}).get("enabled", False) for name in HOOK_NAMES
         )
         if hooks_enabled_in_isa:
-            hooks_header, hooks_impl = generate_hooks(self.isa_data, self.cpu_name)
+            hooks_header, hooks_impl = generate_hooks(isa_data_for_codegen, self.cpu_name)
 
         if hooks_header:
             logger.info("  - Generating cpu_hooks.h/c...")
@@ -218,7 +309,7 @@ class EmulatorGenerator:
         logger.info("  - Generating split system units...")
         for basename in system_unit_basenames(self.system_prefix):
             suffix = basename[len(self.system_prefix) + 1 :]
-            unit_body = emit_split_unit(self.isa_data, self.cpu_name, suffix)
+            unit_body = emit_split_unit(isa_data_for_codegen, self.cpu_name, suffix)
             (src_dir / f"{basename}.c").write_text(unit_body)
         for component in list(self.isa_data.get("ics", []) or []):
             if not isinstance(component, dict):
@@ -232,8 +323,11 @@ class EmulatorGenerator:
             )
             basename = f"{self.system_prefix}_ic_{comp_ident}"
             (src_dir / f"{basename}.c").write_text(
-                emit_ic_unit(self.isa_data, self.cpu_name, component)
+                emit_ic_unit(isa_data_for_codegen, self.cpu_name, component)
             )
+
+        if subsystem_builds:
+            self._patch_host_attached_subsystem_bridge(src_dir, subsystem_builds)
 
         # Generate main.c
         logger.info("  - Generating main.c...")
@@ -242,7 +336,7 @@ class EmulatorGenerator:
 
         # Generate minimal C test harness scaffold
         logger.info("  - Generating tests/test_cpu.c...")
-        test_c_code = generate_test_c(self.isa_data, self.cpu_name)
+        test_c_code = generate_test_c(isa_data_for_codegen, self.cpu_name)
         (tests_dir / "test_cpu.c").write_text(test_c_code)
 
         # Generate build system (always generated; may be extended to depend on
@@ -253,6 +347,7 @@ class EmulatorGenerator:
             self.cpu_name,
             include_hooks=hooks_generated,
             dispatch_mode=dispatch_mode,
+            subsystem_builds=subsystem_builds,
         )
         (output_path / "CMakeLists.txt").write_text(cmake_code)
 
@@ -262,6 +357,7 @@ class EmulatorGenerator:
             self.cpu_name,
             include_hooks=hooks_generated,
             dispatch_mode=dispatch_mode,
+            subsystem_builds=subsystem_builds,
         )
         (output_path / "Makefile").write_text(makefile_code)
 
@@ -275,6 +371,19 @@ class EmulatorGenerator:
         # Generate debugger linkage manifest used by external debugger frontends.
         logger.info("  - Generating debugger_link.json...")
         debugger_manifest = self._generate_debugger_link_manifest()
+        if subsystem_builds:
+            debugger_manifest["subsystems"] = [
+                {
+                    "id": build["id"],
+                    "output_dir": _posix_relpath(Path(build["output_dir"]), output_path),
+                    "cmake_subdir": build["cmake_subdir"],
+                    "system_target": build["system_target"],
+                    "cpu_core_target": build["cpu_core_target"],
+                    "system_static": build["system_static"],
+                    "cpu_core_static": build["cpu_core_static"],
+                }
+                for build in subsystem_builds
+            ]
         (output_path / "debugger_link.json").write_text(
             json.dumps(debugger_manifest, indent=2) + "\n"
         )
@@ -287,6 +396,24 @@ class EmulatorGenerator:
         hooks = self.isa_data.get("hooks", {})
         if any(h.get("enabled") for h in hooks.values()):
             logger.info("  Hooks: enabled")
+
+    def _patch_host_attached_subsystem_bridge(
+        self,
+        src_dir: Path,
+        subsystem_builds: List[Dict[str, Any]],
+    ) -> None:
+        target = None
+        for build in subsystem_builds:
+            if str(build.get("id", "")).strip() == "c64_1541_subsystem":
+                target = build
+                break
+        if target is None or self.system_prefix != "c64":
+            return
+        device_glue_path = src_dir / f"{self.system_prefix}_device_glue.c"
+        if not device_glue_path.exists():
+            return
+        text = device_glue_path.read_text(encoding="utf-8")
+        device_glue_path.write_text(text, encoding="utf-8")
 
     def _generate_main(self) -> str:
         """Generate main.c template."""
@@ -384,11 +511,75 @@ void print_usage(const char *prog) {{
 {keyboard_usage_line}
     printf("  --rom <file>    Load ROM file\\n");
 {cart_usage_line}
+    printf("  --floppy <file> Load floppy disk image\\n");
     printf("  --addr <addr>   Load address (default: 0x0000)\\n");
     printf("  --run           Run emulator\\n");
     printf("  --cycles <n>    Run for n cycles\\n");
     printf("  --test <name>   Run test\\n");
     printf("  --help          Show this help\\n");
+}}
+
+static size_t pasm_c64_decode_autotype(const char *text, uint8_t *out, size_t cap) {{
+    size_t len = 0u;
+    if (text == NULL || out == NULL || cap == 0u) return 0u;
+    while (*text != '\\0' && len < cap) {{
+        unsigned char ch = (unsigned char)*text++;
+        if (ch == '\\\\' && *text != '\\0') {{
+            unsigned char esc = (unsigned char)*text++;
+            if (esc == 'r') ch = 0x0Du;
+            else if (esc == 'n') ch = 0x0Du;
+            else if (esc == 't') ch = 0x09u;
+            else ch = esc;
+        }} else if (ch == '\\n' || ch == '\\r') {{
+            ch = 0x0Du;
+        }}
+        out[len++] = (uint8_t)ch;
+    }}
+    if (len < cap && (len == 0u || out[len - 1u] != 0x0Du)) {{
+        out[len++] = 0x0Du;
+    }}
+    return len;
+}}
+
+static void pasm_c64_inject_keybuf(CPUState *cpu, const char *text) {{
+    uint8_t buf[256];
+    size_t len = pasm_c64_decode_autotype(text, buf, sizeof(buf));
+    if (cpu == NULL || len == 0u) return;
+    for (size_t i = 0u; i < len; ++i) {{
+        {cpu_prefix}_write_byte(cpu, (uint16_t)(0x0277u + i), buf[i]);
+    }}
+    {cpu_prefix}_write_byte(cpu, 0x00C6u, (uint8_t)len);
+    printf("Injected C64 keyboard buffer: %zu byte(s)\\n", len);
+}}
+
+static char pasm_c64_screen_char(uint8_t code) {{
+    if (code >= 1u && code <= 26u) return (char)('A' + code - 1u);
+    if (code >= 48u && code <= 57u) return (char)code;
+    if (code == 32u || code == 160u) return ' ';
+    if (code == 34u) return '"';
+    if (code == 36u) return '$';
+    if (code == 42u) return '*';
+    if (code == 44u) return ',';
+    if (code == 45u) return '-';
+    if (code == 46u) return '.';
+    if (code == 47u) return '/';
+    if (code == 58u) return ':';
+    if (code == 63u) return '?';
+    return '.';
+}}
+
+static void pasm_c64_dump_screen(CPUState *cpu) {{
+    const char *env = getenv("PASM_C64_SCREEN_DUMP");
+    if (cpu == NULL || env == NULL || env[0] == '\\0' || env[0] == '0') return;
+    printf("C64 status ST=$%02X\\n", (unsigned){cpu_prefix}_read_byte(cpu, 0x0090u));
+    for (uint16_t row = 0u; row < 25u; ++row) {{
+        char line[41];
+        for (uint16_t col = 0u; col < 40u; ++col) {{
+            line[col] = pasm_c64_screen_char({cpu_prefix}_read_byte(cpu, (uint16_t)(0x0400u + row * 40u + col)));
+        }}
+        line[40] = '\\0';
+        printf("C64SCREEN:%02u:%s\\n", (unsigned)row, line);
+    }}
 }}
 
 int main(int argc, char *argv[]) {{
@@ -403,15 +594,25 @@ int main(int argc, char *argv[]) {{
     const char *system_dir = NULL;
     const char *keyboard_map_file = NULL;
     const char *rom_file = NULL;
+    const char *floppy_file = NULL;
 {cart_default_decl}
+    const char *c64_autotype_text = getenv("PASM_C64_AUTOTYPE");
+    const char *c64_autotype_cycle_env = getenv("PASM_C64_AUTOTYPE_CYCLE");
+    uint64_t c64_autotype_cycle = 5000000u;
     uint16_t load_addr = 0;
     const char *test_name = NULL;
+
+    if (c64_autotype_cycle_env != NULL && c64_autotype_cycle_env[0] != '\\0') {{
+        c64_autotype_cycle = strtoull(c64_autotype_cycle_env, NULL, 0);
+    }}
     
     for (int i = 1; i < argc; i++) {{
         if (strcmp(argv[i], "--system-dir") == 0 && i + 1 < argc) {{
             system_dir = argv[++i];
 {keyboard_cli_parse}        }} else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {{
             rom_file = argv[++i];
+        }} else if (strcmp(argv[i], "--floppy") == 0 && i + 1 < argc) {{
+            floppy_file = argv[++i];
 {cart_cli_parse}        }} else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {{
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
         }} else if (strcmp(argv[i], "--run") == 0) {{
@@ -444,6 +645,17 @@ int main(int argc, char *argv[]) {{
         cpu->pc = load_addr;
         printf("Loaded ROM: %s at 0x%04X\\n", rom_file, load_addr);
     }}
+
+    if (floppy_file == NULL || floppy_file[0] == '\\0') {{
+        floppy_file = getenv("PASM_EMU_FLOPPY_AUTO_PATH");
+    }}
+    if (floppy_file != NULL && floppy_file[0] != '\\0') {{
+        if ({cpu_prefix}_load_floppy_media(cpu, floppy_file) != 0) {{
+            fprintf(stderr, "Failed to load floppy image: %s\\n", floppy_file);
+            return 1;
+        }}
+        printf("Loaded floppy image: %s\\n", floppy_file);
+    }}
     
     if (test_name) {{
         printf("Running test: %s\\n", test_name);
@@ -454,15 +666,26 @@ int main(int argc, char *argv[]) {{
         }}
     }} else if (run_emulator || max_cycles > 0) {{
         if (max_cycles > 0) {{
-            {cpu_prefix}_run_until(cpu, max_cycles);
+            if (c64_autotype_text != NULL && c64_autotype_text[0] != '\\0' && c64_autotype_cycle < max_cycles) {{
+                {cpu_prefix}_run_until(cpu, c64_autotype_cycle);
+                pasm_c64_inject_keybuf(cpu, c64_autotype_text);
+                {cpu_prefix}_run_until(cpu, max_cycles);
+            }} else {{
+                {cpu_prefix}_run_until(cpu, max_cycles);
+            }}
             printf("Executed %llu cycles\\n", cpu->total_cycles);
         }} else {{
+            if (c64_autotype_text != NULL && c64_autotype_text[0] != '\\0') {{
+                {cpu_prefix}_run_until(cpu, c64_autotype_cycle);
+                pasm_c64_inject_keybuf(cpu, c64_autotype_text);
+            }}
             {cpu_prefix}_run(cpu);
         }}
     }} else {{
         print_usage(argv[0]);
     }}
     
+    pasm_c64_dump_screen(cpu);
     {cpu_prefix}_dump_registers(cpu);
     {cpu_prefix}_destroy(cpu);
     return 0;
@@ -671,3 +894,174 @@ def generate(
         host_backend_target=host_backend_target,
     )
     generator.generate(output_dir, dispatch_mode=dispatch_mode)
+
+
+def generate_from_subsystem(
+    subsystem_path: str,
+    output_dir: str,
+    dispatch_mode: str = "switch",
+) -> None:
+    """Generate a standalone emulator from a subsystem descriptor."""
+    loader = ProcessorSystemLoader()
+    subsystem_data = loader.load_subsystem(subsystem_path)
+    subsystem = subsystem_data.get("subsystem", {})
+    processor_path = str(subsystem.get("processor", ""))
+    system_path = str(subsystem.get("system", ""))
+    system_data = loader.validate_system(loader._load_yaml(system_path, "system"))
+    configured = system_data.get("components", {})
+    configured_ic_ids = {str(item).strip() for item in configured.get("ics", [])}
+    configured_device_ids = {str(item).strip() for item in configured.get("devices", [])}
+
+    ic_paths: List[str] = []
+    for path in subsystem.get("ics", []):
+        path_str = str(path)
+        ic_data = loader.validate_ic(loader._load_yaml(path_str, "ic"))
+        ic_id = str(ic_data.get("metadata", {}).get("id", "")).strip()
+        if ic_id in configured_ic_ids:
+            ic_paths.append(path_str)
+
+    device_paths: List[str] = []
+    for group_name in ("media_backends", "bridge_devices", "core_devices"):
+        for path in subsystem.get(group_name, []):
+            path_str = str(path)
+            device_data = loader.validate_device(loader._load_yaml(path_str, "device"))
+            device_id = str(device_data.get("metadata", {}).get("id", "")).strip()
+            if device_id in configured_device_ids:
+                device_paths.append(path_str)
+    generator = EmulatorGenerator(
+        processor_path,
+        system_path,
+        ic_paths=ic_paths,
+        device_paths=device_paths,
+        host_paths=[],
+        cartridge_map_path=None,
+        cartridge_rom_path=None,
+        host_backend_target=None,
+    )
+    generator.generate(output_dir, dispatch_mode=dispatch_mode)
+    _namespace_generated_subsystem_output(
+        generator,
+        Path(output_dir),
+        str(subsystem_data.get("metadata", {}).get("id", "")).strip(),
+    )
+
+
+def _posix_relpath(path: Path, base: Path) -> str:
+    return Path(os.path.relpath(path, base)).as_posix()
+
+
+def _namespace_generated_subsystem_output(
+    generator: EmulatorGenerator,
+    output_dir: Path,
+    subsystem_id: str,
+) -> None:
+    """Namespace subsystem-only exported symbols and build targets.
+
+    Subsystems are compiled into host builds, so their public helper symbols and
+    library target names must not collide with host-side or sibling subsystem
+    outputs.
+    """
+    if not subsystem_id:
+        return
+
+    cpu_prefix = generator.cpu_prefix
+    system_prefix = generator.system_prefix
+    ns = _sanitize_ident(subsystem_id)
+    namespaced_cpu_prefix = f"{ns}_{cpu_prefix}"
+    namespaced_system_prefix = f"{ns}_{system_prefix}"
+
+    replacements = [
+        ("cpu_components_", f"{ns}_cpu_components_"),
+        ("cpu_component_", f"{ns}_cpu_component_"),
+        (f"{cpu_prefix}_", f"{namespaced_cpu_prefix}_"),
+        ("pasm_dbg_", f"{ns}_pasm_dbg_"),
+        ("g_runtime_keyboard_map", f"{ns}_g_runtime_keyboard_map"),
+        ("g_component_connections_count", f"{ns}_g_component_connections_count"),
+        ("g_component_connections", f"{ns}_g_component_connections"),
+    ]
+
+    for path in output_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix not in {".c", ".h", ".txt", ".json", ".py", ""} and path.name not in {
+            "CMakeLists.txt",
+            "Makefile",
+            "debugger_link.json",
+        }:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        orig = text
+        for old, new in replacements:
+            text = text.replace(old, new)
+        text = text.replace(
+            f"{system_prefix}_system", f"{namespaced_system_prefix}_system"
+        )
+        text = text.replace(
+            f"lib{system_prefix}_system.a", f"lib{namespaced_system_prefix}_system.a"
+        )
+        if subsystem_id == "c64_1541_subsystem":
+            text = text.replace("mos6510_read_byte", f"{namespaced_cpu_prefix}_read_byte")
+            text = text.replace("mos6510_write_byte", f"{namespaced_cpu_prefix}_write_byte")
+        if text != orig:
+            path.write_text(text, encoding="utf-8")
+
+    manifest_path = output_dir / "debugger_link.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["cpu_prefix"] = namespaced_cpu_prefix
+        manifest["cmake_library_target"] = f"{namespaced_system_prefix}_system"
+        manifest["library_basename"] = f"{namespaced_system_prefix}_system"
+        manifest["split_targets"] = {
+            "cpu_core": f"{namespaced_cpu_prefix}_cpu_core",
+            "system": f"{namespaced_system_prefix}_system",
+        }
+        split_units = manifest.get("split_units", {}) or {}
+        system_sources = list(split_units.get("system_sources", []) or [])
+        normalized_system_sources = []
+        for source in system_sources:
+            source_text = str(source)
+            source_text = source_text.replace(
+                f"src/{namespaced_system_prefix}_system_bus.c",
+                f"src/{system_prefix}_system_bus.c",
+            )
+            source_text = source_text.replace(
+                f"src/{namespaced_system_prefix}_system_glue.c",
+                f"src/{system_prefix}_system_glue.c",
+            )
+            normalized_system_sources.append(source_text)
+        if split_units:
+            split_units["system_sources"] = normalized_system_sources
+            manifest["split_units"] = split_units
+        manifest["split_artifacts"] = {
+            "cpu_core_static": f"lib{namespaced_cpu_prefix}_cpu_core.a",
+            "system_static": f"lib{namespaced_system_prefix}_system.a",
+        }
+        manifest["artifacts"] = {
+            "static": f"lib{namespaced_system_prefix}_system.a",
+        }
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    cmake_path = output_dir / "CMakeLists.txt"
+    if cmake_path.exists():
+        cmake_text = cmake_path.read_text(encoding="utf-8")
+        cmake_text = cmake_text.replace(
+            f"src/{namespaced_system_prefix}_system_bus.c",
+            f"src/{system_prefix}_system_bus.c",
+        )
+        cmake_text = cmake_text.replace(
+            f"src/{namespaced_system_prefix}_system_glue.c",
+            f"src/{system_prefix}_system_glue.c",
+        )
+        cmake_path.write_text(cmake_text, encoding="utf-8")
+
+
+def _sanitize_ident(value: str) -> str:
+    ident = re.sub(r"[^0-9A-Za-z_]", "_", value.strip()).lower().strip("_")
+    if not ident:
+        return "subsystem"
+    if ident[0].isdigit():
+        return f"subsystem_{ident}"
+    return ident

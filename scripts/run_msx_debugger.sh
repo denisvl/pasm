@@ -12,6 +12,10 @@ set -euo pipefail
 #   OUTPUT_DIR=generated/z80_msx1_sdl
 #   EXTRA_CARGO_ARGS="--release"
 #   USE_CARTRIDGE=1|0
+#   USE_FLOPPY=1|0
+#   FLOPPY=/abs/path/to/disk.dsk
+#   DISK_ROM=/abs/path/to/disk.rom
+#   DISK_DIR=/abs/path/to/msx1/floppies
 #   CARTRIDGE_MAP=examples/cartridges/msx1/msx_mapper_konami.yaml
 #   CARTRIDGE_ROM_GEN="../../roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom"
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/rom.rom
@@ -36,10 +40,14 @@ RUN_SPEED="${RUN_SPEED:-realtime}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/msx1/host_keyboard_msx.yaml}"
 CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/msx1/host_controller_msx1.yaml}"
 USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
+USE_FLOPPY="${USE_FLOPPY:-0}"
+FLOPPY="${FLOPPY:-}"
+DISK_ROM="${DISK_ROM:-}"
 CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/msx1/msx_mapper_konami.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
+DISK_DIR="${DISK_DIR:-}"
 BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-0}"
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
 
@@ -59,10 +67,22 @@ DEVICE_CTRL="examples/devices/msx1/msx_controller.yaml"
 DEVICE_VIDEO="examples/devices/msx1/msx_video.yaml"
 DEVICE_SPK="examples/devices/msx1/msx_speaker.yaml"
 DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
+IC_FDC="examples/ics/common/wd1793.yaml"
+IC_DISK="examples/ics/msx1/msx_disk_interface_wd1793.yaml"
+DEVICE_FLOPPY_BACKEND="examples/devices/common/floppy_raw_sector_image_backend.yaml"
+
+if [[ "${USE_FLOPPY}" == "0" && ( -n "${FLOPPY}" || -n "${DISK_ROM}" ) ]]; then
+  USE_FLOPPY=1
+fi
+if [[ "${USE_FLOPPY}" != "0" ]]; then
+  USE_CARTRIDGE=0
+fi
 
 case "${PROFILE}" in
   default)
-    if [[ "${USE_CARTRIDGE}" != "0" ]]; then
+    if [[ "${USE_FLOPPY}" != "0" ]]; then
+      SYSTEM="examples/systems/msx1/msx1_floppy_default.yaml"
+    elif [[ "${USE_CARTRIDGE}" != "0" ]]; then
       SYSTEM="examples/systems/msx1/msx1_cartridge_default.yaml"
     else
       SYSTEM="examples/systems/msx1/msx1_default.yaml"
@@ -71,7 +91,9 @@ case "${PROFILE}" in
     DEFAULT_OUTPUT="generated/z80_msx1"
     ;;
   interactive)
-    if [[ "${USE_CARTRIDGE}" != "0" ]]; then
+    if [[ "${USE_FLOPPY}" != "0" ]]; then
+      SYSTEM="examples/systems/msx1/msx1_floppy_interactive.yaml"
+    elif [[ "${USE_CARTRIDGE}" != "0" ]]; then
       SYSTEM="examples/systems/msx1/msx1_cartridge_interactive.yaml"
     else
       SYSTEM="examples/systems/msx1/msx1_interactive.yaml"
@@ -101,6 +123,18 @@ fi
 if [[ -z "${CARTRIDGE_DIR}" ]]; then
   CARTRIDGE_DIR="${REPO_ROOT}/examples/roms/msx1"
 fi
+if [[ -z "${DISK_DIR}" ]]; then
+  DISK_DIR="${REPO_ROOT}/examples/floppies/msx1"
+fi
+
+if [[ "${USE_FLOPPY}" != "0" && -n "${DISK_ROM}" && ! -f "${DISK_ROM}" ]]; then
+  echo "Disk ROM not found: ${DISK_ROM}" >&2
+  exit 4
+fi
+if [[ "${USE_FLOPPY}" != "0" && -n "${FLOPPY}" && ! -f "${FLOPPY}" ]]; then
+  echo "Floppy image not found: ${FLOPPY}" >&2
+  exit 4
+fi
 
 echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 GEN_ARGS=(
@@ -126,6 +160,12 @@ RUN_ARGS=(
   --start-pc "${START_PC}"
   --run-speed "${RUN_SPEED}"
 )
+if [[ "${USE_FLOPPY}" != "0" ]]; then
+  GEN_ARGS+=(--ic "${IC_FDC}" --ic "${IC_DISK}" --device "${DEVICE_FLOPPY_BACKEND}")
+  if [[ -n "${FLOPPY}" ]]; then
+    RUN_ARGS+=(--floppy "${FLOPPY}")
+  fi
+fi
 if [[ "${USE_CARTRIDGE}" != "0" ]]; then
   GEN_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_GEN}")
   if [[ "${BOOT_CARTRIDGE}" != "0" ]]; then
@@ -154,6 +194,11 @@ cmake --build "${BUILD_DIR}"
 
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED}"
+if [[ "${USE_FLOPPY}" != "0" ]]; then
+  echo "    floppy=${FLOPPY:-<none>}"
+  echo "    disk_rom=${DISK_ROM:-<none>}"
+  echo "    disk_dir=${DISK_DIR}"
+fi
 if [[ "${USE_CARTRIDGE}" != "0" ]]; then
   echo "    cartridge_map=${CARTRIDGE_MAP}"
   echo "    cartridge_rom_gen=${CARTRIDGE_ROM_GEN}"
@@ -171,6 +216,7 @@ PASM_SYSTEM_DIR="${SYSTEM_DIR_ABS}" \
 PASM_HOST_DEBUG="${PASM_HOST_DEBUG}" \
 PASM_HOST_LOGFILE="${PASM_HOST_LOGFILE}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
+PASM_MSX_DISK_ROM="${DISK_ROM}" \
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   "${RUN_ARGS[@]}"

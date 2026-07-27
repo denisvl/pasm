@@ -260,7 +260,11 @@ def klaus65_runtime_assets(tmp_path_factory):
         generated_sources = [
             str(path)
             for path in sorted((outdir / "src").glob("*.c"))
-            if path.name != "main.c" and not path.name.endswith("debug_abi.c")
+            if (
+                path.name != "main.c"
+                and not path.name.endswith("debug_abi.c")
+                and not path.name.endswith("_picker_glue.c")
+            )
         ]
         subprocess.check_call(
             [

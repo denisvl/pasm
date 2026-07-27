@@ -23,6 +23,12 @@ state:
   - name: sector_number_base
     type: uint8_t
     initial: "1"
+  - name: sector_size_code
+    type: uint8_t
+    initial: "1"
+  - name: sector_size_bytes
+    type: uint16_t
+    initial: "256"
   - name: address_track
     type: uint8_t
     initial: "0"
@@ -78,6 +84,8 @@ behavior:
       comp->side_count = 0u;
       comp->track_count = 0u;
       comp->sector_number_base = 1u;
+      comp->sector_size_code = 1u;
+      comp->sector_size_bytes = 256u;
       comp->address_track = 0u;
       comp->address_side = 0u;
       comp->address_sector_index = 0u;
@@ -97,6 +105,8 @@ behavior:
       uint8_t side_count = 0u;
       uint16_t track_count = 0u;
       uint8_t sector_number_base = 1u;
+      uint8_t sector_size_code = 1u;
+      uint16_t sector_size_bytes = 256u;
       static int trace_enabled = -1;
       static FILE *trace_fp = NULL;
       if (trace_enabled < 0) {
@@ -135,7 +145,29 @@ behavior:
           }
       }
       ext[ext_len] = '\0';
-      if ((strcmp(ext, "jv1") == 0 || strcmp(ext, "dsk") == 0) && (file_size % 256u) == 0u) {
+      if (strcmp(ext, "dsk") == 0 && (file_size % 512u) == 0u) {
+          size_t sector_count = file_size / 512u;
+          if (sector_count == 1440u) {
+              sectors_per_track = 9u;
+              side_count = 2u;
+              track_count = 80u;
+              sector_size_code = 2u;
+              sector_size_bytes = 512u;
+          } else if (sector_count == 720u) {
+              sectors_per_track = 9u;
+              side_count = 2u;
+              track_count = 40u;
+              sector_size_code = 2u;
+              sector_size_bytes = 512u;
+          } else if (sector_count == 360u) {
+              sectors_per_track = 9u;
+              side_count = 1u;
+              track_count = 40u;
+              sector_size_code = 2u;
+              sector_size_bytes = 512u;
+          }
+      }
+      if ((strcmp(ext, "jv1") == 0 || (strcmp(ext, "dsk") == 0 && sectors_per_track == 0u)) && (file_size % 256u) == 0u) {
           size_t sector_count = file_size / 256u;
           if ((sector_count % 10u) == 0u) {
               sectors_per_track = 10u;
@@ -150,6 +182,8 @@ behavior:
               side_count = 1u;
               track_count = (uint16_t)(sector_count / 10u);
               sector_number_base = 0u;
+              sector_size_code = 1u;
+              sector_size_bytes = 256u;
           }
       }
       if (strcmp(ext, "dsd") == 0 && (file_size % 256u) == 0u) {
@@ -159,6 +193,8 @@ behavior:
               side_count = 2u;
               track_count = (uint16_t)(sector_count / 20u);
               sector_number_base = 0u;
+              sector_size_code = 1u;
+              sector_size_bytes = 256u;
           }
       }
       if (strcmp(ext, "adl") == 0 && (file_size % 256u) == 0u) {
@@ -168,6 +204,8 @@ behavior:
               side_count = 2u;
               track_count = (uint16_t)(sector_count / 32u);
               sector_number_base = 0u;
+              sector_size_code = 1u;
+              sector_size_bytes = 256u;
           }
       }
       if (sectors_per_track == 0u || side_count == 0u || track_count == 0u) {
@@ -184,15 +222,18 @@ behavior:
       comp->side_count = side_count;
       comp->track_count = track_count;
       comp->sector_number_base = sector_number_base;
+      comp->sector_size_code = sector_size_code;
+      comp->sector_size_bytes = sector_size_bytes;
       comp->address_track = 0u;
       comp->address_side = 0u;
       comp->address_sector_index = 0u;
       comp->activity_flags = 0u;
       if (trace_enabled != 0 && trace_fp != NULL) {
-          fprintf(trace_fp, "load_media path=%s size=%u spt=%u sides=%u tracks=%u secbase=%u\n",
+          fprintf(trace_fp, "load_media path=%s size=%u spt=%u sides=%u tracks=%u secbase=%u secsize=%u code=%u\n",
                   path, (unsigned)comp->image_size, (unsigned)comp->sectors_per_track,
                   (unsigned)comp->side_count, (unsigned)comp->track_count,
-                  (unsigned)comp->sector_number_base);
+                  (unsigned)comp->sector_number_base, (unsigned)comp->sector_size_bytes,
+                  (unsigned)comp->sector_size_code);
           fflush(trace_fp);
       }
       return 1u;
@@ -206,6 +247,8 @@ behavior:
       comp->side_count = 0u;
       comp->track_count = 0u;
       comp->sector_number_base = 1u;
+      comp->sector_size_code = 1u;
+      comp->sector_size_bytes = 256u;
       comp->address_track = 0u;
       comp->address_side = 0u;
       comp->address_sector_index = 0u;
@@ -218,7 +261,8 @@ behavior:
     query_geometry: |
       uint64_t packed = ((uint64_t)comp->sectors_per_track & 0xFFu) |
                         ((((uint64_t)comp->track_count) & 0xFFFFu) << 8u) |
-                        ((((uint64_t)comp->side_count) & 0xFFu) << 24u);
+                        ((((uint64_t)comp->side_count) & 0xFFu) << 24u) |
+                        ((((uint64_t)comp->sector_size_code) & 0xFFu) << 32u);
       return packed;
     query_track_present: |
       uint8_t target_track = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
@@ -246,7 +290,7 @@ behavior:
           dst[2] = (uint8_t)(comp->sector_number_base != 0u ?
               (uint8_t)(comp->address_sector_index + 1u) :
               comp->address_sector_index);
-          dst[3] = 1u;
+          dst[3] = comp->sector_size_code;
           dst[4] = 0u;
           dst[5] = 0u;
           comp->address_sector_index = (uint8_t)(comp->address_sector_index + 1u);
@@ -293,9 +337,9 @@ behavior:
           if (sector_index < comp->sectors_per_track) {
               uint32_t lba = ((((uint32_t)target_track * (uint32_t)comp->side_count) + (uint32_t)target_side) *
                               (uint32_t)comp->sectors_per_track) + (uint32_t)sector_index;
-              uint32_t offset = lba * 256u;
-              if (offset + 256u <= comp->image_size) {
-                  memcpy(dst, comp->image_data + offset, 256u);
+              uint32_t offset = lba * (uint32_t)comp->sector_size_bytes;
+              if (offset + (uint32_t)comp->sector_size_bytes <= comp->image_size) {
+                  memcpy(dst, comp->image_data + offset, comp->sector_size_bytes);
                   result = 0x01u;
               }
           }
@@ -307,12 +351,13 @@ behavior:
           }
           uint32_t lba = ((((uint32_t)target_track * (uint32_t)comp->side_count) + (uint32_t)target_side) *
                           (uint32_t)comp->sectors_per_track) + (uint32_t)sector_index;
-          uint32_t offset = lba * 256u;
-          fprintf(trace_fp, "read_sector track=%u sec=%u side=%u secbase=%u secidx=%u spt=%u sides=%u tracks=%u offset=%u ok=%u first=%02X second=%02X\n",
+          uint32_t offset = lba * (uint32_t)comp->sector_size_bytes;
+          fprintf(trace_fp, "read_sector track=%u sec=%u side=%u secbase=%u secidx=%u spt=%u sides=%u tracks=%u secsize=%u offset=%u ok=%u first=%02X second=%02X\n",
                   (unsigned)target_track, (unsigned)target_sector, (unsigned)target_side,
                   (unsigned)comp->sector_number_base, (unsigned)sector_index,
                   (unsigned)comp->sectors_per_track, (unsigned)comp->side_count,
-                  (unsigned)comp->track_count, (unsigned)offset, (unsigned)result,
+                  (unsigned)comp->track_count, (unsigned)comp->sector_size_bytes,
+                  (unsigned)offset, (unsigned)result,
                   (unsigned)(result != 0u ? dst[0] : 0u), (unsigned)(result != 0u ? dst[1] : 0u));
           fflush(trace_fp);
       }

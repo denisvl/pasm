@@ -1,0 +1,135 @@
+metadata:
+  id: atari_1050_sio
+  type: floppy_drive
+  model: atari_1050_sio
+  version: "1.0"
+
+state:
+  - name: backend_component
+    type: char *
+    initial: "NULL"
+  - name: media_loaded
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr, u8, ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
+      returns: u8
+    - name: query_media_loaded
+      args: []
+      returns: u8
+    - name: query_geometry
+      args: []
+      returns: u64
+    - name: read_sector
+      args: [u16, ptr]
+      returns: u64
+    - name: sio_command
+      args: [u8, u8, u8, u8, ptr, u16]
+      returns: u64
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      if (comp->backend_component != NULL) {
+          if (comp->backend_component[0] != '\0') {
+              (void)cpu_component_dispatch_callback(cpu, comp->backend_component, "unload_media", NULL, 0u);
+          }
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+      }
+      comp->media_loaded = 0u;
+  callback_handlers:
+    load_media: |
+      const char *backend_component = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : "atari_atr_image_backend";
+      if (backend_component == NULL || backend_component[0] == '\0') return 0u;
+      if (comp->backend_component != NULL) {
+          if (comp->backend_component[0] != '\0') {
+              (void)cpu_component_dispatch_callback(cpu, comp->backend_component, "unload_media", NULL, 0u);
+          }
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+      }
+      comp->backend_component = strdup(backend_component);
+      if (comp->backend_component == NULL) return 0u;
+      if (cpu_component_dispatch_callback(cpu, comp->backend_component, "load_media", args, 1u) == 0u) {
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+          comp->media_loaded = 0u;
+          return 0u;
+      }
+      comp->media_loaded = 1u;
+      return 1u;
+    unload_media: |
+      if (comp->backend_component != NULL) {
+          if (comp->backend_component[0] != '\0') {
+              (void)cpu_component_dispatch_callback(cpu, comp->backend_component, "unload_media", NULL, 0u);
+          }
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+      }
+      comp->media_loaded = 0u;
+      return 1u;
+    query_drive_activity: |
+      if (comp->media_loaded == 0u || comp->backend_component == NULL || comp->backend_component[0] == '\0') return 0u;
+      return cpu_component_dispatch_callback(cpu, comp->backend_component, "query_drive_activity", NULL, 0u);
+    query_media_loaded: |
+      return (uint64_t)comp->media_loaded;
+    query_geometry: |
+      if (comp->media_loaded == 0u || comp->backend_component == NULL || comp->backend_component[0] == '\0') return 0u;
+      return cpu_component_dispatch_callback(cpu, comp->backend_component, "query_geometry", NULL, 0u);
+    read_sector: |
+      uint16_t sector = (argc > 0u) ? (uint16_t)(args[0] & 0xFFFFu) : 0u;
+      uint8_t *dst = (argc > 1u && args[1] != 0u) ? (uint8_t *)(uintptr_t)args[1] : NULL;
+      uint64_t read_args[2];
+      if (comp->media_loaded == 0u || comp->backend_component == NULL || comp->backend_component[0] == '\0') return 0u;
+      if (sector == 0u || dst == NULL) return 0u;
+      read_args[0] = sector;
+      read_args[1] = (uint64_t)(uintptr_t)dst;
+      return cpu_component_dispatch_callback(cpu, comp->backend_component, "read_atr_sector", read_args, 2u);
+    sio_command: |
+      uint8_t device = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t command = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t aux1 = (argc > 2u) ? (uint8_t)(args[2] & 0xFFu) : 0u;
+      uint8_t aux2 = (argc > 3u) ? (uint8_t)(args[3] & 0xFFu) : 0u;
+      uint8_t *dst = (argc > 4u && args[4] != 0u) ? (uint8_t *)(uintptr_t)args[4] : NULL;
+      uint16_t max_len = (argc > 5u) ? (uint16_t)(args[5] & 0xFFFFu) : 0u;
+      uint16_t sector;
+      uint64_t bytes;
+      if (device != 0x31u || comp->media_loaded == 0u) return 0u;
+      if (command == 0x53u) {
+          if (dst == NULL || max_len < 4u) return 0u;
+          dst[0] = 0x10u;
+          dst[1] = 0xFFu;
+          dst[2] = 0xE0u;
+          dst[3] = 0x00u;
+          return 4u;
+      }
+      if (command != 0x52u) return 0u;
+      sector = (uint16_t)aux1 | (uint16_t)((uint16_t)aux2 << 8u);
+      if (dst == NULL || max_len == 0u) return 0u;
+      bytes = cpu_component_dispatch_callback(cpu, "atari_1050_sio", "read_sector",
+                                              (uint64_t[]){ sector, (uint64_t)(uintptr_t)dst }, 2u);
+      if (bytes > (uint64_t)max_len) return 0u;
+      return bytes;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

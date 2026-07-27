@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PASM Drive Subsystem Definition",
+  "description": "Schema for reusable drive-side subsystem descriptors.",
+  "type": "object",
+  "required": [
+    "metadata",
+    "subsystem"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "model"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "drive_subsystem"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "subsystem": {
+      "type": "object",
+      "required": [
+        "processor",
+        "system",
+        "execution_model",
+        "bus"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "processor": {
+          "type": "string"
+        },
+        "system": {
+          "type": "string"
+        },
+        "ics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "media_backends": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bridge_devices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "core_devices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "execution_model": {
+          "type": "string"
+        },
+        "bus": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

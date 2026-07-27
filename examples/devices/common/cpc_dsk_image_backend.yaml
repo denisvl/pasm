@@ -1,0 +1,316 @@
+metadata:
+  id: cpc_dsk_image_backend
+  type: floppy_image_backend
+  model: cpc_dsk_image_backend
+  version: "1.0"
+
+state:
+  - name: image_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: image_size
+    type: uint32_t
+    initial: "0"
+  - name: track_count
+    type: uint16_t
+    initial: "0"
+  - name: side_count
+    type: uint8_t
+    initial: "0"
+  - name: sectors_per_track_max
+    type: uint8_t
+    initial: "0"
+  - name: track_offsets
+    type: uint32_t *
+    initial: "NULL"
+  - name: track_sizes
+    type: uint16_t *
+    initial: "NULL"
+  - name: activity_flags
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
+      returns: u8
+    - name: query_geometry
+      args: []
+      returns: u64
+    - name: query_track_present
+      args: [u8, u8, u8]
+      returns: u8
+    - name: read_sector
+      args: [u8, u8, u8, ptr]
+      returns: u64
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->activity_flags = 0u;
+    destroy: |
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      if (comp->track_offsets != NULL) {
+          free(comp->track_offsets);
+          comp->track_offsets = NULL;
+      }
+      if (comp->track_sizes != NULL) {
+          free(comp->track_sizes);
+          comp->track_sizes = NULL;
+      }
+      comp->image_size = 0u;
+      comp->track_count = 0u;
+      comp->side_count = 0u;
+      comp->sectors_per_track_max = 0u;
+      comp->activity_flags = 0u;
+      (void)cpu;
+  callback_handlers:
+    load_media: |
+      const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+      FILE *fp;
+      uint8_t *image = NULL;
+      uint32_t *track_offsets = NULL;
+      uint16_t *track_sizes = NULL;
+      long file_size_long;
+      size_t file_size;
+      uint16_t track_count = 0u;
+      uint8_t side_count = 0u;
+      uint8_t sectors_per_track_max = 0u;
+      uint8_t extended = 0u;
+      uint32_t track_total;
+      uint32_t offset;
+      uint32_t i;
+      if (path == NULL || path[0] == '\0') return 0u;
+      fp = fopen(path, "rb");
+      if (fp == NULL) return 0u;
+      if (fseek(fp, 0L, SEEK_END) != 0) { fclose(fp); return 0u; }
+      file_size_long = ftell(fp);
+      if (file_size_long <= 0L) { fclose(fp); return 0u; }
+      if (fseek(fp, 0L, SEEK_SET) != 0) { fclose(fp); return 0u; }
+      file_size = (size_t)file_size_long;
+      if (file_size < 0x100u) { fclose(fp); return 0u; }
+      image = (uint8_t *)malloc(file_size);
+      if (image == NULL) { fclose(fp); return 0u; }
+      if (fread(image, 1u, file_size, fp) != file_size) {
+          fclose(fp);
+          free(image);
+          return 0u;
+      }
+      fclose(fp);
+
+      if (memcmp(image, "MV - CPCEMU Disk-File\r\nDisk-Info\r\n", 34u) == 0) {
+          extended = 0u;
+      } else if (memcmp(image, "EXTENDED CPC DSK File\r\nDisk-Info\r\n", 34u) == 0) {
+          extended = 1u;
+      } else {
+          free(image);
+          return 0u;
+      }
+
+      track_count = image[0x30u];
+      side_count = image[0x31u];
+      if (track_count == 0u || side_count == 0u) {
+          free(image);
+          return 0u;
+      }
+      track_total = (uint32_t)track_count * (uint32_t)side_count;
+      track_offsets = (uint32_t *)calloc(track_total, sizeof(uint32_t));
+      track_sizes = (uint16_t *)calloc(track_total, sizeof(uint16_t));
+      if (track_offsets == NULL || track_sizes == NULL) {
+          free(image);
+          free(track_offsets);
+          free(track_sizes);
+          return 0u;
+      }
+
+      offset = 0x100u;
+      if (extended == 0u) {
+          uint16_t track_size = (uint16_t)image[0x32u] | (uint16_t)((uint16_t)image[0x33u] << 8u);
+          if (track_size < 0x100u) {
+              free(image);
+              free(track_offsets);
+              free(track_sizes);
+              return 0u;
+          }
+          for (i = 0u; i < track_total; ++i) {
+              if (offset + track_size > (uint32_t)file_size) {
+                  free(image);
+                  free(track_offsets);
+                  free(track_sizes);
+                  return 0u;
+              }
+              track_offsets[i] = offset;
+              track_sizes[i] = track_size;
+              offset += track_size;
+          }
+      } else {
+          for (i = 0u; i < track_total; ++i) {
+              uint16_t track_size = (uint16_t)image[0x34u + i] << 8u;
+              if (track_size == 0u) {
+                  track_offsets[i] = 0u;
+                  track_sizes[i] = 0u;
+                  continue;
+              }
+              if (track_size < 0x100u || offset + track_size > (uint32_t)file_size) {
+                  free(image);
+                  free(track_offsets);
+                  free(track_sizes);
+                  return 0u;
+              }
+              track_offsets[i] = offset;
+              track_sizes[i] = track_size;
+              offset += track_size;
+          }
+      }
+
+      for (i = 0u; i < track_total; ++i) {
+          uint32_t track_offset = track_offsets[i];
+          uint16_t track_size = track_sizes[i];
+          uint8_t count;
+          if (track_size == 0u) continue;
+          if (track_offset + 0x18u > (uint32_t)file_size) {
+              free(image);
+              free(track_offsets);
+              free(track_sizes);
+              return 0u;
+          }
+          if (memcmp(image + track_offset, "Track-Info\r\n", 12u) != 0) {
+              free(image);
+              free(track_offsets);
+              free(track_sizes);
+              return 0u;
+          }
+          count = image[track_offset + 0x15u];
+          if (count > sectors_per_track_max) sectors_per_track_max = count;
+      }
+
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      if (comp->track_offsets != NULL) {
+          free(comp->track_offsets);
+          comp->track_offsets = NULL;
+      }
+      if (comp->track_sizes != NULL) {
+          free(comp->track_sizes);
+          comp->track_sizes = NULL;
+      }
+      comp->image_data = image;
+      comp->image_size = (uint32_t)file_size;
+      comp->track_offsets = track_offsets;
+      comp->track_sizes = track_sizes;
+      comp->track_count = track_count;
+      comp->side_count = side_count;
+      comp->sectors_per_track_max = sectors_per_track_max;
+      comp->activity_flags = 0u;
+      return 1u;
+    unload_media: |
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      if (comp->track_offsets != NULL) {
+          free(comp->track_offsets);
+          comp->track_offsets = NULL;
+      }
+      if (comp->track_sizes != NULL) {
+          free(comp->track_sizes);
+          comp->track_sizes = NULL;
+      }
+      comp->image_size = 0u;
+      comp->track_count = 0u;
+      comp->side_count = 0u;
+      comp->sectors_per_track_max = 0u;
+      comp->activity_flags = 0u;
+      return 1u;
+    query_drive_activity: |
+      uint8_t flags = comp->activity_flags;
+      comp->activity_flags = 0u;
+      return (uint64_t)flags;
+    query_geometry: |
+      return ((uint64_t)comp->sectors_per_track_max & 0xFFu) |
+             ((((uint64_t)comp->track_count) & 0xFFFFu) << 8u) |
+             ((((uint64_t)comp->side_count) & 0xFFu) << 24u);
+    query_track_present: |
+      uint8_t target_track = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_side = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint32_t index;
+      (void)args;
+      if (comp->image_data == NULL || comp->track_offsets == NULL || comp->track_sizes == NULL) return 0u;
+      if (target_track >= comp->track_count || target_side >= comp->side_count) return 0u;
+      index = ((uint32_t)target_track * (uint32_t)comp->side_count) + (uint32_t)target_side;
+      return (uint64_t)((comp->track_sizes[index] != 0u) ? 1u : 0u);
+    read_sector: |
+      uint8_t target_track = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t target_sector = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t target_side = (argc > 2u) ? (uint8_t)(args[2] & 0xFFu) : 0u;
+      uint8_t *dst = (argc > 3u && args[3] != 0u) ? (uint8_t *)(uintptr_t)args[3] : NULL;
+      uint32_t index;
+      uint32_t track_offset;
+      uint8_t sector_count;
+      uint8_t track_size_code;
+      uint8_t s;
+      if (dst == NULL || comp->image_data == NULL || comp->track_offsets == NULL || comp->track_sizes == NULL) return 0u;
+      if (target_track >= comp->track_count || target_side >= comp->side_count) return 0u;
+      index = ((uint32_t)target_track * (uint32_t)comp->side_count) + (uint32_t)target_side;
+      if (comp->track_sizes[index] == 0u) return 0u;
+      track_offset = comp->track_offsets[index];
+      sector_count = comp->image_data[track_offset + 0x15u];
+      track_size_code = comp->image_data[track_offset + 0x14u];
+      for (s = 0u; s < sector_count; ++s) {
+          uint32_t info_offset = track_offset + 0x18u + ((uint32_t)s * 8u);
+          uint32_t data_offset;
+          uint32_t data_size;
+          uint8_t sector_id;
+          uint8_t sector_size_code;
+          uint16_t stored_size;
+          if (info_offset + 8u > comp->image_size) return 0u;
+          sector_id = comp->image_data[info_offset + 2u];
+          sector_size_code = comp->image_data[info_offset + 3u];
+          stored_size = (uint16_t)comp->image_data[info_offset + 6u] |
+                        (uint16_t)((uint16_t)comp->image_data[info_offset + 7u] << 8u);
+          data_size = (stored_size != 0u) ? (uint32_t)stored_size : ((uint32_t)128u << sector_size_code);
+          if (sector_id != target_sector) continue;
+          data_offset = track_offset + 0x100u;
+          {
+              uint8_t j;
+              for (j = 0u; j < s; ++j) {
+                  uint32_t prev_info = track_offset + 0x18u + ((uint32_t)j * 8u);
+                  uint8_t prev_size_code = comp->image_data[prev_info + 3u];
+                  uint16_t prev_stored_size = (uint16_t)comp->image_data[prev_info + 6u] |
+                                              (uint16_t)((uint16_t)comp->image_data[prev_info + 7u] << 8u);
+                  uint32_t prev_size = (prev_stored_size != 0u) ? (uint32_t)prev_stored_size : ((uint32_t)128u << prev_size_code);
+                  data_offset += prev_size;
+              }
+          }
+          if (track_size_code != 0u && data_size == 0u) {
+              data_size = (uint32_t)128u << track_size_code;
+          }
+          if (data_offset + data_size > comp->image_size) return 0u;
+          memcpy(dst, comp->image_data + data_offset, data_size);
+          comp->activity_flags |= 0x01u;
+          return (uint64_t)data_size;
+      }
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

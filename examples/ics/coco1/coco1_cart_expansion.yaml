@@ -11,6 +11,9 @@ state:
   - name: last_route_enabled
     type: uint8_t
     initial: "0"
+  - name: boot_latch_seen
+    type: uint8_t
+    initial: "0"
 
 interfaces:
   callbacks:
@@ -29,6 +32,7 @@ behavior:
     reset: |
       comp->firq_armed = 0u;
       comp->last_route_enabled = 0u;
+      comp->boot_latch_seen = 0u;
   callback_handlers:
     firq_route_eval: |
       if (argc < 4u) return 0ull;
@@ -40,11 +44,13 @@ behavior:
       uint8_t should_fire = 0u;
       uint8_t irq1_out = irq1_latched;
 
-      if (cart_present != 0u && irq1_out == 0u) {
-          irq1_out = 0x80u;
+      if (cart_present == 0u) {
+          comp->boot_latch_seen = 0u;
       }
-      if (cart_present != 0u && irq1_out != 0u) {
+      if (cart_present != 0u && comp->boot_latch_seen == 0u) {
+          irq1_out = 0x80u;
           comp->firq_armed = 1u;
+          comp->boot_latch_seen = 1u;
       }
       if (write_edge != 0u && route_enabled != 0u && irq1_out != 0u) {
           comp->firq_armed = 1u;
@@ -54,6 +60,28 @@ behavior:
           comp->firq_armed = 0u;
       }
       comp->last_route_enabled = route_enabled;
+      {
+          const char *env = getenv("PASM_COCO_CART_TRACE");
+          if (env != NULL && env[0] != '\0' && env[0] != '0') {
+              const char *trace_path = getenv("PASM_COCO_CART_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/coco_cart_trace.log";
+              FILE *trace = fopen(trace_path, "a");
+              if (trace != NULL) {
+                  fprintf(
+                      trace,
+                      "cart_firq_eval crb=%02X irq1_in=%02X cart=%u edge=%u armed=%u -> irq1_out=%02X fire=%u\n",
+                      (unsigned)(crb & 0xFFu),
+                      (unsigned)(irq1_latched & 0xFFu),
+                      (unsigned)(cart_present & 0x01u),
+                      (unsigned)(write_edge & 0x01u),
+                      (unsigned)(comp->firq_armed & 0x01u),
+                      (unsigned)(irq1_out & 0xFFu),
+                      (unsigned)(should_fire & 0x01u)
+                  );
+                  fclose(trace);
+              }
+          }
+      }
 
       return ((uint64_t)irq1_out) | (((uint64_t)should_fire) << 8u);
   handler_bodies: {}

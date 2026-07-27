@@ -98,3 +98,80 @@ def test_codegen_has_no_cpu_name_substring_heuristics():
             offenders.append(f"{py_file}:{match.start()}")
     assert offenders == []
 
+
+def test_generate_c64_1541_subsystem_descriptor(tmp_path):
+    subsystem_path = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "examples"
+        / "subsystems"
+        / "c64_1541_subsystem.yaml"
+    )
+    outdir = tmp_path / "c64_1541_subsystem"
+
+    gen_mod.generate_from_subsystem(str(subsystem_path), str(outdir))
+
+    src_dir = outdir / "src"
+    assert (src_dir / "MOS6502_core.c").exists()
+    assert (src_dir / "MOS6502.h").exists()
+    assert (src_dir / "MOS6502_decoder.c").exists()
+    assert (src_dir / "c1541_runtime.c").exists()
+    assert (src_dir / "c1541_system_glue.c").exists()
+    assert (outdir / "CMakeLists.txt").exists()
+    assert (outdir / "Makefile").exists()
+
+
+def test_generate_c64_with_attached_1541_subsystem_build(tmp_path):
+    root = pathlib.Path(__file__).resolve().parents[1]
+    processor_path = root / "examples" / "processors" / "mos6510.yaml"
+    system_path = root / "examples" / "systems" / "c64" / "c64_interactive.yaml"
+    outdir = tmp_path / "c64_with_subsystem"
+    examples_dir = root / "examples"
+
+    ic_paths = [
+        str(examples_dir / "ics" / "c64" / "c64_pla_906114.yaml"),
+        str(examples_dir / "ics" / "c64" / "c64_vic_ii_6569.yaml"),
+        str(examples_dir / "ics" / "c64" / "c64_sid_6581.yaml"),
+        str(examples_dir / "ics" / "c64" / "c64_cia1_6526.yaml"),
+        str(examples_dir / "ics" / "c64" / "c64_cia2_6526.yaml"),
+        str(examples_dir / "ics" / "c64" / "c64_color_ram_2114.yaml"),
+        str(examples_dir / "ics" / "c64" / "c64_main_ram.yaml"),
+    ]
+    device_paths = [
+        str(examples_dir / "devices" / "c64" / "c64_datasette.yaml"),
+        str(examples_dir / "devices" / "c64" / "c64_iec_bus.yaml"),
+        str(examples_dir / "devices" / "c64" / "c64_1541.yaml"),
+        str(examples_dir / "devices" / "c64" / "c64_1541_media.yaml"),
+        str(examples_dir / "devices" / "c64" / "c64_1541_dos.yaml"),
+        str(examples_dir / "devices" / "c64" / "c64_1541_core.yaml"),
+        str(examples_dir / "devices" / "common" / "c64_d64_image_backend.yaml"),
+        str(examples_dir / "devices" / "c64" / "c64_keyboard.yaml"),
+        str(examples_dir / "devices" / "c64" / "c64_joystick.yaml"),
+        str(examples_dir / "devices" / "c64" / "c64_video.yaml"),
+        str(examples_dir / "devices" / "common" / "tv_crt_mono.yaml"),
+    ]
+    host_paths = [
+        str(examples_dir / "hosts" / "c64" / "c64_host_hal_interactive.yaml"),
+    ]
+
+    gen_mod.generate(
+        str(processor_path),
+        str(system_path),
+        str(outdir),
+        ic_paths=ic_paths,
+        device_paths=device_paths,
+        host_paths=host_paths,
+    )
+
+    subsystem_dir = outdir / "subsystems" / "c64_1541_subsystem"
+    assert (subsystem_dir / "src" / "MOS6502_core.c").exists()
+    assert (subsystem_dir / "debugger_link.json").exists()
+
+    cmake_text = (outdir / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert 'add_subdirectory("subsystems/c64_1541_subsystem")' in cmake_text
+    assert "target_link_libraries(c64_system PUBLIC" in cmake_text
+    assert "c1541_system" in cmake_text
+
+    manifest = (outdir / "debugger_link.json").read_text(encoding="utf-8")
+    assert '"subsystems"' in manifest
+    assert '"id": "c64_1541_subsystem"' in manifest
+

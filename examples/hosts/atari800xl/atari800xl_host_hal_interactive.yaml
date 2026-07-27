@@ -118,6 +118,9 @@ state:
 - name: break_pressed
   type: uint8_t
   initial: '0'
+- name: auto_boot_space_pending
+  type: uint8_t
+  initial: '0'
 - name: last_event_poll_cycle
   type: uint64_t
   initial: 0u
@@ -250,7 +253,7 @@ behavior:
       \ = 0u;\ncomp->audio_ring_fill = 0u;\ncomp->key_ascii = 0u;\ncomp->key_mods = 0u;\nif (comp->key_queue != NULL) {\n    memset(comp->key_queue,\
       \ 0, 16u * sizeof(uint8_t));\n}\ncomp->key_q_read_idx = 0u;\ncomp->key_q_write_idx = 0u;\ncomp->consol_state = 0x07u;\n\
       comp->joy0_state = 0x0Fu;\ncomp->joy1_state = 0x0Fu;\ncomp->trig0 = 1u;\ncomp->trig1 = 1u;\ncomp->trig2 = 1u;\ncomp->trig3\
-      \ = 1u;\ncomp->last_event_poll_cycle = 0u;\ncomp->overlay_last_ms = 0u;\ncomp->overlay_last_frame_count = 0u;\ncomp->overlay_last_cycle_count\
+      \ = 1u;\ncomp->auto_boot_space_pending = 0u;\ncomp->last_event_poll_cycle = 0u;\ncomp->overlay_last_ms = 0u;\ncomp->overlay_last_frame_count = 0u;\ncomp->overlay_last_cycle_count\
       \ = 0u;\ncomp->overlay_fps_x100 = 0u;\ncomp->overlay_cpu_hz = 0u;\ncomp->overlay_cpu_pct_x10 = 0u;\nif (comp->audio_out_dev\
       \ != 0u) {\n    cpu_host_hal_audio_clear(comp->audio_out_dev);\n}\n"
     step_post: "if (comp->host_inited == 0u) return;\n{\n    uint64_t now = cpu->total_cycles;\n    if ((now - comp->last_event_poll_cycle)\
@@ -353,27 +356,13 @@ behavior:
       \ = 0u;\n}\n"
   callback_handlers:
     keyboard_ascii: '{
-      static uint32_t auto_boot_last_return_frame = 0u;
-      static uint32_t auto_boot_last_space_frame = 0u;
       uint8_t queued = cpu_component_keyboard_ascii_queue_pop();
-      const char *auto_boot = cpu_host_hal_getenv("PASM_CASSETTE_AUTO_BOOT");
-      if (comp->frame_count == 0u) {
-          auto_boot_last_return_frame = 0u;
-          auto_boot_last_space_frame = 0u;
-      }
-      if (auto_boot != NULL && auto_boot[0] == ''1'') {
-          if (comp->frame_count >= 1u && (auto_boot_last_return_frame == 0u || (comp->frame_count - auto_boot_last_return_frame) >= 24u) && comp->frame_count <= 240u) {
-              cpu_component_keyboard_ascii_queue_push(13u); /* RETURN KBCODE+1 */
-              auto_boot_last_return_frame = comp->frame_count;
-          }
-          if (comp->frame_count >= 48u && (auto_boot_last_space_frame == 0u || (comp->frame_count - auto_boot_last_space_frame) >= 48u) && comp->frame_count <= 240u) {
-              cpu_component_keyboard_ascii_queue_push(34u); /* SPACE KBCODE+1 */
-              auto_boot_last_space_frame = comp->frame_count;
-          }
-          queued = cpu_component_keyboard_ascii_queue_pop();
+      if (queued == 0u && comp->auto_boot_space_pending != 0u) {
+          comp->auto_boot_space_pending = 0u;
+          queued = 12u; /* RETURN KBCODE+1 */
       }
       if (queued != 0u) return (uint64_t)queued;
-      return (uint64_t)comp->key_ascii;
+      return 0u;
       }
 
       '
@@ -391,7 +380,10 @@ behavior:
       uint8_t result;
       const char *auto_boot = cpu_host_hal_getenv("PASM_CASSETTE_AUTO_BOOT");
       const char *auto_start = cpu_host_hal_getenv("PASM_ATARI800XL_AUTO_START");
-      if (comp->frame_count == 0u) auto_boot_reads = 0u;
+      if (comp->frame_count == 0u) {
+          auto_boot_reads = 0u;
+          comp->auto_boot_space_pending = 0u;
+      }
       if (trace_init < 0) {
           const char *env = cpu_host_hal_getenv("PASM_ATARI800XL_BOOT_TRACE");
           trace_init = (env != NULL && env[0] != ''\0'' && env[0] != ''0'') ? 1 : 0;
@@ -401,10 +393,21 @@ behavior:
               if (trace_fp == NULL) trace_fp = stderr;
           }
       }
-      if (auto_boot != NULL && auto_boot[0] == ''1'' && auto_boot_reads < 8u) {
+      if (
+          auto_boot != NULL &&
+          auto_boot[0] == ''1'' &&
+          cpu->pc >= 0xC000u &&
+          auto_boot_reads < 8u
+      ) {
           auto_boot_reads += 1u;
-          result = 0x02u; /* hold OPTION+START low across early OS console reads */
-      } else if (auto_start != NULL && auto_start[0] == ''1'' && auto_boot_reads < 6u) {
+          if (auto_boot_reads == 8u) comp->auto_boot_space_pending = 1u;
+          result = 0x06u; /* hold START low across the early OS console reads, then queue SPACE */
+      } else if (
+          auto_start != NULL &&
+          auto_start[0] == ''1'' &&
+          cpu->pc >= 0xC000u &&
+          auto_boot_reads < 6u
+      ) {
           auto_boot_reads += 1u;
           result = 0x06u; /* hold START low across the early OS console reads */
       } else {
@@ -413,12 +416,14 @@ behavior:
       if (trace_init != 0 && trace_count < 32u) {
           fprintf(
               trace_fp,
-              "boot_trace consol frame=%u read=%u auto_boot=%c auto_start=%c result=%02X\n",
+              "boot_trace consol frame=%u pc=%04X read=%u auto_boot=%c auto_start=%c result=%02X pending_space=%u\n",
               (unsigned)comp->frame_count,
+              (unsigned)cpu->pc,
               (unsigned)auto_boot_reads,
               (auto_boot != NULL && auto_boot[0] != ''\0'') ? auto_boot[0] : ''-'',
               (auto_start != NULL && auto_start[0] != ''\0'') ? auto_start[0] : ''-'',
-              (unsigned)result
+              (unsigned)result,
+              (unsigned)comp->auto_boot_space_pending
           );
           fflush(trace_fp);
           trace_count += 1u;

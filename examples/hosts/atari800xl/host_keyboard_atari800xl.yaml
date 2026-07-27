@@ -256,7 +256,7 @@ keyboard:
     ascii: 0
     ascii_shift: 0
     ascii_ctrl: 0
-  - host_scancode: 76
+  - host_scancode: DELETE
     mapper_key_id: key_break
     ascii: 0
     ascii_shift: 0

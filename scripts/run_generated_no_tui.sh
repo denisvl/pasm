@@ -9,6 +9,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-generated/apple2_interactive}"
 SYSTEM_DIR="${SYSTEM_DIR:-examples/systems/apple2}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/apple2/host_keyboard_apple2.yaml}"
 CONTROLLER_MAP="${CONTROLLER_MAP:-}"
+FLOPPY="${FLOPPY:-}"
 BIN="${BIN:-${OUTPUT_DIR}/build/mos6502_test}"
 ROM_FILE="${ROM_FILE:-}"
 LOAD_ADDR="${LOAD_ADDR:-0x0000}"
@@ -31,6 +32,13 @@ if [[ -n "${CONTROLLER_MAP}" ]]; then
 fi
 if [[ -n "${ROM_FILE}" ]]; then
   ARGS+=(--rom "${ROM_FILE}" --addr "${LOAD_ADDR}")
+fi
+if [[ -n "${FLOPPY}" ]]; then
+  if "${BIN}" --help 2>/dev/null | grep -Fq -- "--floppy"; then
+    ARGS+=(--floppy "${FLOPPY}")
+  else
+    echo "warning: ${BIN} does not accept --floppy; relying on PASM_EMU_FLOPPY_AUTO_PATH if supported" >&2
+  fi
 fi
 if [[ -n "${TEST_NAME}" ]]; then
   ARGS+=(--test "${TEST_NAME}")

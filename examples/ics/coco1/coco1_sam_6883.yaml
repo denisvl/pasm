@@ -140,6 +140,9 @@ state:
   - name: sam_rom_shadow_ready
     type: uint8_t
     initial: "0"
+  - name: fdc_irq_seen
+    type: uint8_t
+    initial: "0"
 
 interfaces:
   callbacks:
@@ -264,6 +267,7 @@ behavior:
       comp->sam_map_type = 0u;
       comp->sam_all_ram = 0u;
       comp->sam_ram_limit = 65536u;
+      comp->fdc_irq_seen = 0u;
       if (
           comp->sam_rom_shadow_ready != 0u &&
           comp->sam_rom_a000 != NULL &&
@@ -338,7 +342,64 @@ behavior:
           comp->pia1_cra_irq2 = (uint8_t)((packed >> 16u) & 0xFFu);
           comp->pia1_crb_irq1 = (uint8_t)((packed >> 24u) & 0xFFu);
           comp->pia1_crb_irq2 = (uint8_t)((packed >> 32u) & 0xFFu);
-          return (uint8_t)(packed & 0xFFu);
+          {
+              uint8_t result = (uint8_t)(packed & 0xFFu);
+              {
+                  const char *env = getenv("PASM_COCO_PIA1_TRACE");
+                  if (env != NULL && env[0] != '\0' && env[0] != '0') {
+                      const char *trace_path = getenv("PASM_COCO_PIA1_TRACE_FILE");
+                      if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/coco_pia1_trace.log";
+                      FILE *trace = fopen(trace_path, "a");
+                      if (trace != NULL) {
+                          fprintf(
+                              trace,
+                              "read %04X reg=%u -> %02X cra=%02X crb=%02X ora=%02X orb=%02X ddra=%02X ddrb=%02X cyc=%llu\n",
+                              (unsigned)addr,
+                              (unsigned)reg,
+                              (unsigned)(result & 0xFFu),
+                              (unsigned)(comp->pia1_cra & 0xFFu),
+                              (unsigned)(comp->pia1_crb & 0xFFu),
+                              (unsigned)(comp->pia1_ora & 0xFFu),
+                              (unsigned)(comp->pia1_orb & 0xFFu),
+                              (unsigned)(comp->pia1_ddra & 0xFFu),
+                              (unsigned)(comp->pia1_ddrb & 0xFFu),
+                              (unsigned long long)cpu->total_cycles
+                          );
+                          fclose(trace);
+                      }
+                  }
+              }
+              if (addr == 0xFF23u) {
+                  const char *env = getenv("PASM_COCO_CART_TRACE");
+                  if (env != NULL && env[0] != '\0' && env[0] != '0') {
+                      const char *trace_path = getenv("PASM_COCO_CART_TRACE_FILE");
+                      if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/coco_cart_trace.log";
+                      FILE *trace = fopen(trace_path, "a");
+                      if (trace != NULL) {
+                          fprintf(
+                              trace,
+                              "read FF23 -> %02X crb=%02X irq1=%02X irq2=%02X cycles=%llu\n",
+                              (unsigned)(result & 0xFFu),
+                              (unsigned)(comp->pia1_crb & 0xFFu),
+                              (unsigned)(comp->pia1_crb_irq1 & 0xFFu),
+                              (unsigned)(comp->pia1_crb_irq2 & 0xFFu),
+                              (unsigned long long)cpu->total_cycles
+                          );
+                          fclose(trace);
+                      }
+                  }
+                  comp->pia1_crb_irq1 = 0u;
+              }
+              return result;
+          }
+      }
+      if (addr >= 0xFF48u && addr <= 0xFF4Bu) {
+          uint8_t reg = (uint8_t)(0xF0u + (addr - 0xFF48u));
+          uint64_t fdc_args[1] = { (uint64_t)reg };
+          return (uint8_t)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_read", fdc_args, 1u);
+      }
+      if (addr >= 0xFF40u && addr <= 0xFF47u) {
+          return 0xFFu;
       }
       /*
        * MC6883/SAM memory decode (CoCo wiring model):
@@ -463,6 +524,11 @@ behavior:
       if (addr >= 0xFF20u && addr <= 0xFF23u) {
           uint8_t reg = (uint8_t)(addr & 0x03u);
           uint8_t old_pia1_crb = comp->pia1_crb;
+          uint8_t old_pia1_cra = comp->pia1_cra;
+          uint8_t old_pia1_ora = comp->pia1_ora;
+          uint8_t old_pia1_orb = comp->pia1_orb;
+          uint8_t old_pia1_ddra = comp->pia1_ddra;
+          uint8_t old_pia1_ddrb = comp->pia1_ddrb;
           {
               uint64_t cb_args[12] = {
                   (uint64_t)(reg & 0xFFu),
@@ -538,9 +604,9 @@ behavior:
           }
       #endif
           {
-              {
-                  uint64_t cb_args[6] = {
-                      (uint64_t)(comp->pia1_ora & 0xFFu),
+          {
+              uint64_t cb_args[6] = {
+                  (uint64_t)(comp->pia1_ora & 0xFFu),
                       (uint64_t)(comp->pia1_ddra & 0xFFu),
                       (uint64_t)(comp->pia1_orb & 0xFFu),
                       (uint64_t)(comp->pia1_ddrb & 0xFFu),
@@ -550,6 +616,88 @@ behavior:
                   comp->audio_level = (uint8_t)(cpu_component_call(cpu, "coco1_sam_6883", "pia1_compute_audio", cb_args, 6) & 0xFFu);
               }
           }
+          {
+              const char *env = getenv("PASM_COCO_PIA1_TRACE");
+              if (env != NULL && env[0] != '\0' && env[0] != '0') {
+                  const char *trace_path = getenv("PASM_COCO_PIA1_TRACE_FILE");
+                  if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/coco_pia1_trace.log";
+                  FILE *trace = fopen(trace_path, "a");
+                  if (trace != NULL) {
+                      fprintf(
+                          trace,
+                          "write %04X reg=%u val=%02X cra:%02X->%02X crb:%02X->%02X ora:%02X->%02X orb:%02X->%02X ddra:%02X->%02X ddrb:%02X->%02X cyc=%llu\n",
+                          (unsigned)addr,
+                          (unsigned)reg,
+                          (unsigned)(value & 0xFFu),
+                          (unsigned)(old_pia1_cra & 0xFFu),
+                          (unsigned)(comp->pia1_cra & 0xFFu),
+                          (unsigned)(old_pia1_crb & 0xFFu),
+                          (unsigned)(comp->pia1_crb & 0xFFu),
+                          (unsigned)(old_pia1_ora & 0xFFu),
+                          (unsigned)(comp->pia1_ora & 0xFFu),
+                          (unsigned)(old_pia1_orb & 0xFFu),
+                          (unsigned)(comp->pia1_orb & 0xFFu),
+                          (unsigned)(old_pia1_ddra & 0xFFu),
+                          (unsigned)(comp->pia1_ddra & 0xFFu),
+                          (unsigned)(old_pia1_ddrb & 0xFFu),
+                          (unsigned)(comp->pia1_ddrb & 0xFFu),
+                          (unsigned long long)cpu->total_cycles
+                      );
+                      fclose(trace);
+                  }
+              }
+          }
+          if (addr == 0xFF23u) {
+              const char *env = getenv("PASM_COCO_CART_TRACE");
+              if (env != NULL && env[0] != '\0' && env[0] != '0') {
+                  const char *trace_path = getenv("PASM_COCO_CART_TRACE_FILE");
+                  if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/coco_cart_trace.log";
+                  FILE *trace = fopen(trace_path, "a");
+                  if (trace != NULL) {
+                      fprintf(
+                          trace,
+                          "write FF23=%02X old_crb=%02X new_crb=%02X irq1=%02X irq2=%02X cycles=%llu\n",
+                          (unsigned)(value & 0xFFu),
+                          (unsigned)(old_pia1_crb & 0xFFu),
+                          (unsigned)(comp->pia1_crb & 0xFFu),
+                          (unsigned)(comp->pia1_crb_irq1 & 0xFFu),
+                          (unsigned)(comp->pia1_crb_irq2 & 0xFFu),
+                          (unsigned long long)cpu->total_cycles
+                      );
+                      fclose(trace);
+                  }
+              }
+          }
+          return;
+      }
+      if (addr >= 0xFF40u && addr <= 0xFF47u) {
+          /*
+           * CoCo disk controller latch:
+           * - bits 0..2: drive select 0..2
+           * - bit 6: side select / drive-select-3 line
+           * - bit 5: density select
+           * - bit 7: enable FDC INTRQ -> CPU NMI routing
+           *
+           * Our shared WD1793 model expects:
+           * - F4 bit4 = side select
+           * - F4 bit7 = density select
+           * - E4 bit7 = NMI enable mask
+           */
+          uint8_t drive_bits = (uint8_t)(value & 0x07u);
+          uint8_t side_bit = (uint8_t)((value & 0x40u) != 0u ? 0x10u : 0x00u);
+          uint8_t density_bit = (uint8_t)((value & 0x20u) != 0u ? 0x80u : 0x00u);
+          uint8_t translated = (uint8_t)(drive_bits | side_bit | density_bit);
+          uint8_t nmi_mask = (uint8_t)((value & 0x80u) != 0u ? 0x80u : 0x00u);
+          uint64_t ctrl_args[2] = { 0xF4u, (uint64_t)translated };
+          uint64_t nmi_args[2] = { 0xE4u, (uint64_t)nmi_mask };
+          (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_write", ctrl_args, 2u);
+          (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_write", nmi_args, 2u);
+          return;
+      }
+      if (addr >= 0xFF48u && addr <= 0xFF4Bu) {
+          uint8_t reg = (uint8_t)(0xF0u + (addr - 0xFF48u));
+          uint64_t fdc_args[2] = { (uint64_t)reg, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_write", fdc_args, 2u);
           return;
       }
       if (addr >= 0xFF00u) {
@@ -561,6 +709,26 @@ behavior:
       uint64_t hsync_tstates = frame_tstates / 262u;
       if (frame_tstates == 0u) frame_tstates = 14915u;
       if (hsync_tstates == 0u) hsync_tstates = 57u;
+
+      {
+          uint64_t fdc_tick_args[1] = { now };
+          (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_step_tick", fdc_tick_args, 1u);
+      }
+      {
+          uint64_t irq_state = cpu_component_dispatch_callback(cpu, "wd1793_fdc", "query_irq_state", NULL, 0u);
+          uint8_t irq_pending = (uint8_t)(irq_state & 0x01u);
+          uint8_t nmi_enabled = (uint8_t)((irq_state >> 8u) & 0x01u);
+          uint8_t fire = (uint8_t)(irq_pending != 0u && nmi_enabled != 0u && comp->fdc_irq_seen == 0u);
+          comp->fdc_irq_seen = irq_pending;
+          if (fire != 0u) {
+              uint64_t irq_args[1] = { 1u };
+              (void)cpu_component_call(cpu, "coco1_sam_6883", "raise_interrupt", irq_args, 1);
+              {
+                  uint64_t sig_args[1] = { 1u };
+                  cpu_component_emit_signal(cpu, "coco1_sam_6883", "irq_edge", sig_args, 1);
+              }
+          }
+      }
 
       /* Keep cartridge FIRQ wiring live independently of frame cadence. */
       #if CPU_CARTRIDGE_COUNT > 0

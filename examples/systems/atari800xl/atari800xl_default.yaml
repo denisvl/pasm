@@ -82,10 +82,15 @@ components:
   - speaker
   - atari800xl_cassette_adapter
   - cassette_transport
+  - atari_atr_image_backend
+  - atari_1050_sio
   - tv
   hosts:
   - host_atari800xl
   cassette: atari800xl_cassette_adapter
+  floppy: atari_1050_sio
+media_picker:
+  open_action_id: EMU_MEDIA_PICKER
 cassette:
   component: atari800xl_cassette_adapter
   directory: examples/cassettes/atari800xl
@@ -117,6 +122,21 @@ cassette:
     bass_down_action_id: EMU_CASSETTE_BASS_DOWN
     treble_up_action_id: EMU_CASSETTE_TREBLE_UP
     treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+floppy:
+  directory: examples/floppies/atari800xl
+  sources:
+    - kind: file
+      source_type: ../../floppy_sources/atr_file.yaml
+      source_component: atari_atr_image_backend
+      label: Atari ATR Disk
+      allowed_extensions: [atr]
+  drives:
+    - slot: 0
+      label: Drive 1
+      drive_type: ../../floppy_drives/atari_1050.yaml
+      component: atari_1050_sio
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
 connections:
 - from:
     component: atari800xl_antic

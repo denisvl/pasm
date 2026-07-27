@@ -1,0 +1,26 @@
+metadata:
+  id: c64_1541_subsystem
+  type: drive_subsystem
+  model: commodore_1541_subsystem
+  version: "1.0"
+  title: Commodore 1541 Drive-Side Subsystem
+
+subsystem:
+  processor: ../processors/mos6502.yaml
+  system: ../systems/c1541/c1541_default.yaml
+  ics:
+    - ../ics/common/mos6522_via1.yaml
+    - ../ics/common/mos6522_via2.yaml
+  media_backends:
+    - ../devices/common/c64_d64_image_backend.yaml
+  bridge_devices:
+    - ../devices/c64/c64_1541.yaml
+  core_devices:
+    - ../devices/c64/c64_1541_media.yaml
+    - ../devices/c64/c64_1541_dos.yaml
+    - ../devices/c64/c64_1541_subsystem_core.yaml
+  execution_model: drive_side_cpu
+  bus: iec_serial
+  notes:
+    - "This is the real 1541 subsystem path."
+    - "The current C64 runtime still uses the bridge device until nested multi-CPU execution is available."

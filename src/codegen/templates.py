@@ -612,10 +612,13 @@ target_include_directories({cpu_core_target} PUBLIC include src)
 add_library({system_target} STATIC ${{SYSTEM_SOURCES}})
 target_include_directories({system_target} PUBLIC include src)
 target_link_libraries({system_target} PUBLIC {cpu_core_target})
+{subsystem_add_subdirs}
+{subsystem_system_link_block}
 
 # CLI test executable
 add_executable({project_name}_test src/main.c)
 target_link_libraries({project_name}_test PRIVATE {cpu_core_target} {system_target} {cpu_core_target})
+{subsystem_test_link_block}
 target_include_directories({project_name}_test PRIVATE include src)
 {auto_dependency_setup}
 {extra_include_dirs}

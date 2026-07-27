@@ -104,6 +104,39 @@ def main():
         help="Verbose output",
     )
 
+    gen_subsystem_parser = subparsers.add_parser(
+        "generate-subsystem",
+        help="Generate standalone emulator from a subsystem descriptor",
+        aliases=["gen-subsystem"],
+    )
+    gen_subsystem_parser.add_argument(
+        "--subsystem",
+        required=True,
+        help="Input YAML subsystem descriptor file",
+    )
+    gen_subsystem_parser.add_argument(
+        "--output",
+        "-o",
+        help="Output directory (default: ./generated/<subsystem_id>)",
+    )
+    gen_subsystem_parser.add_argument(
+        "--dispatch",
+        choices=["switch", "threaded", "both"],
+        default="switch",
+        help="Dispatch strategy (default: switch)",
+    )
+    gen_subsystem_parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="Validate subsystem descriptor and exit without generating",
+    )
+    gen_subsystem_parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Verbose output",
+    )
+
     # Validate command
     val_parser = subparsers.add_parser(
         "validate",
@@ -157,6 +190,22 @@ def main():
         help="Verbose output",
     )
 
+    val_subsystem_parser = subparsers.add_parser(
+        "validate-subsystem",
+        help="Validate subsystem descriptor without generating",
+    )
+    val_subsystem_parser.add_argument(
+        "--subsystem",
+        required=True,
+        help="Input YAML subsystem descriptor file",
+    )
+    val_subsystem_parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Verbose output",
+    )
+
     # Info command
     info_parser = subparsers.add_parser(
         "info",
@@ -204,6 +253,16 @@ def main():
         help="Cartridge ROM binary path (required when --cartridge-map is used)",
     )
 
+    info_subsystem_parser = subparsers.add_parser(
+        "info-subsystem",
+        help="Show subsystem descriptor summary",
+    )
+    info_subsystem_parser.add_argument(
+        "--subsystem",
+        required=True,
+        help="Input YAML subsystem descriptor file",
+    )
+
     args = parser.parse_args()
     configure_logging(verbose=bool(getattr(args, "verbose", False)))
 
@@ -214,10 +273,16 @@ def main():
     try:
         if args.command == "generate" or args.command == "gen":
             return generate_command(args)
+        elif args.command == "generate-subsystem" or args.command == "gen-subsystem":
+            return generate_subsystem_command(args)
         elif args.command == "validate":
             return validate_command(args)
+        elif args.command == "validate-subsystem":
+            return validate_subsystem_command(args)
         elif args.command == "info":
             return info_command(args)
+        elif args.command == "info-subsystem":
+            return info_subsystem_command(args)
     except Exception as e:
         logger.error(f"Error: {e}")
         if args.verbose:
@@ -389,6 +454,52 @@ def validate_command(args):
         return 1
 
 
+def generate_subsystem_command(args):
+    """Handle generate-subsystem command."""
+    subsystem_path = args.subsystem
+    if not os.path.exists(subsystem_path):
+        logger.error(f"Error: Subsystem file not found: {subsystem_path}")
+        return 1
+
+    loader = src.parser.yaml_loader.ProcessorSystemLoader()
+    try:
+        subsystem_data = loader.load_subsystem(subsystem_path)
+    except Exception as e:
+        logger.error(f"Error loading subsystem descriptor: {e}")
+        return 1
+
+    if getattr(args, "validate_only", False):
+        if args.verbose:
+            logger.info(f"Subsystem descriptor is valid: {subsystem_path}")
+        return 0
+
+    subsystem_id = str(subsystem_data.get("metadata", {}).get("id", "subsystem")).strip() or "subsystem"
+    output_dir = args.output or f"./generated/{subsystem_id.lower()}"
+    src.generator.generate_from_subsystem(
+        subsystem_path,
+        output_dir,
+        dispatch_mode=args.dispatch,
+    )
+    return 0
+
+
+def validate_subsystem_command(args):
+    """Handle validate-subsystem command."""
+    subsystem_path = args.subsystem
+    if not os.path.exists(subsystem_path):
+        logger.error(f"Error: Subsystem file not found: {subsystem_path}")
+        return 1
+    try:
+        loader = src.parser.yaml_loader.ProcessorSystemLoader()
+        loader.load_subsystem(subsystem_path)
+        if args.verbose:
+            logger.info(f"Subsystem descriptor is valid: {subsystem_path}")
+        return 0
+    except Exception as e:
+        logger.error(f"Validation failed: {e}")
+        return 1
+
+
 def info_command(args):
     """Handle info command."""
 
@@ -482,6 +593,34 @@ def info_command(args):
                     desc = hook_data.get("description", "")
                     logger.info(f"  - {hook_name}: {desc}")
 
+        return 0
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        return 1
+
+
+def info_subsystem_command(args):
+    """Handle info-subsystem command."""
+    subsystem_path = args.subsystem
+    if not os.path.exists(subsystem_path):
+        logger.error(f"Error: Subsystem file not found: {subsystem_path}")
+        return 1
+    try:
+        loader = src.parser.yaml_loader.ProcessorSystemLoader()
+        data = loader.load_subsystem(subsystem_path)
+        meta = data.get("metadata", {})
+        subsystem = data.get("subsystem", {})
+        logger.info(f"=== {meta.get('id', 'subsystem')} Summary ===")
+        logger.info(f"Model: {meta.get('model', '')}")
+        logger.info(f"Type: {meta.get('type', '')}")
+        logger.info(f"Processor: {subsystem.get('processor', '')}")
+        logger.info(f"System: {subsystem.get('system', '')}")
+        logger.info(f"Execution model: {subsystem.get('execution_model', '')}")
+        logger.info(f"Bus: {subsystem.get('bus', '')}")
+        logger.info(f"ICs: {len(subsystem.get('ics', []))}")
+        logger.info(f"Media backends: {len(subsystem.get('media_backends', []))}")
+        logger.info(f"Bridge devices: {len(subsystem.get('bridge_devices', []))}")
+        logger.info(f"Core devices: {len(subsystem.get('core_devices', []))}")
         return 0
     except Exception as e:
         logger.error(f"Error: {e}")

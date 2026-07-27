@@ -1,0 +1,93 @@
+metadata:
+  name: C1541DefaultSystem
+  version: "1.0"
+
+clock_hz: 1000000
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: DRIVE_RAM
+      start: 0x0000
+      size: 0x0800
+      read_write: true
+    - name: VIA1_IO
+      start: 0x1800
+      size: 0x0010
+      read_write: true
+    - name: VIA2_IO
+      start: 0x1C00
+      size: 0x0010
+      read_write: true
+    - name: DOS_ROM_HI_8000
+      start: 0x8000
+      size: 0x2000
+      read_only: true
+    - name: DOS_ROM_LO_A000
+      start: 0xA000
+      size: 0x2000
+      read_only: true
+    - name: DOS_ROM_LO_C000
+      start: 0xC000
+      size: 0x2000
+      read_only: true
+    - name: DOS_ROM_HI_E000
+      start: 0xE000
+      size: 0x2000
+      read_only: true
+  rom_images:
+    - name: c1541_dos_rom_lo_a000
+      file: ../../roms/c64/1541-c000.325302-01.bin
+      target_region: DOS_ROM_LO_A000
+      offset: 0x0000
+    - name: c1541_dos_rom_lo_c000
+      file: ../../roms/c64/1541-c000.325302-01.bin
+      target_region: DOS_ROM_LO_C000
+      offset: 0x0000
+    - name: c1541_dos_rom_hi_8000
+      file: ../../roms/c64/1541-e000.901229-01.bin
+      target_region: DOS_ROM_HI_8000
+      offset: 0x0000
+    - name: c1541_dos_rom_hi_e000
+      file: ../../roms/c64/1541-e000.901229-01.bin
+      target_region: DOS_ROM_HI_E000
+      offset: 0x0000
+
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+
+components:
+  ics:
+    - mos6522_via1
+    - mos6522_via2
+  devices:
+    - c64_1541
+    - c64_1541_core
+    - c64_1541_media
+    - c64_1541_dos
+    - c64_d64_image_backend
+  hosts: []
+
+connections: []
+
+integrations:
+  profile: c1541_default
+  notes:
+    - "Standalone Commodore 1541 drive-side subsystem scaffold."
+    - "Intended to evolve into a real 6502 + dual 6522 IEC drive execution path."
+    - "Original 1541 uses two 8KB DOS ROM halves: 325302-01 at C000-DFFF and 901229-xx at E000-FFFF."
+    - "Low ROM is mirrored at A000-BFFF and high ROM is mirrored at 8000-9FFF."

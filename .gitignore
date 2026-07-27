@@ -10,6 +10,7 @@ pasm.egg-info/
 
 examples/roms/
 examples/cassettes/
+examples/floppies/
 
 # Transients
 generated/

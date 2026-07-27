@@ -228,7 +228,15 @@ behavior:
           if ((pia1_crb & 0x04u) == 0u) {
               value = pia1_ddrb;
           } else {
-              uint8_t in_b = 0xFFu;
+              /*
+               * CoCo PIA1 port B low inputs are not floating-high:
+               * - bit 0: serial/printer input, observed idle-low when no device is attached
+               * - bit 1: single-bit sound sense
+               * - bit 2: RAM-size jumper sense
+               * The disk ROM probes these bits during cartridge boot, and hardwiring them
+               * high leaves the ROM in its pre-FDC polling path.
+               */
+              uint8_t in_b = 0x00u;
               pia1_crb_irq1 = 0u;
               pia1_crb_irq2 = 0u;
               value = (uint8_t)((pia1_orb & pia1_ddrb) | (in_b & (uint8_t)(~pia1_ddrb)));

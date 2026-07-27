@@ -14,6 +14,7 @@ set -euo pipefail
 #   CMAKE_BUILD_TYPE=Release
 #   RUN_SPEED=realtime|max
 #   PASM_HOST_AUDIO=1|0
+#   DISK_ROM=/abs/path/to/amsdos.rom
 
 PROFILE="${1:-interactive}"
 START_PC="${START_PC:-0x0000}"
@@ -27,6 +28,7 @@ CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/cpc464/host_controller_cpc464.y
 PASM_CPC_KB_TRACE="${PASM_CPC_KB_TRACE:-0}"
 PASM_CPC_HOST_KB_TRACE="${PASM_CPC_HOST_KB_TRACE:-0}"
 PASM_CPC_IRQ_TRACE="${PASM_CPC_IRQ_TRACE:-0}"
+DISK_ROM="${DISK_ROM:-examples/roms/cpc464/amsdos.rom}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -44,8 +46,11 @@ DEVICE_KB="examples/devices/cpc464/cpc_keyboard.yaml"
 DEVICE_GP="examples/devices/cpc464/cpc_gameport.yaml"
 DEVICE_VIDEO="examples/devices/cpc464/cpc_video.yaml"
 DEVICE_SPK="examples/devices/cpc464/cpc_speaker.yaml"
+DEVICE_FLOPPY="examples/devices/cpc464/cpc_floppy_stub.yaml"
+DEVICE_FLOPPY_BACKEND="examples/devices/common/cpc_dsk_image_backend.yaml"
 DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
 SYSTEM_DIR="examples/systems/cpc464"
+RUN_FLOPPY_ARGS=()
 
 case "${PROFILE}" in
   default)
@@ -75,6 +80,10 @@ if [[ "${CLEAN_GENERATED}" == "1" ]]; then
   rm -rf "${OUTPUT_DIR}"
 fi
 
+if [[ -n "${FLOPPY:-}" ]]; then
+  RUN_FLOPPY_ARGS+=(--floppy "${FLOPPY}")
+fi
+
 echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
@@ -88,6 +97,8 @@ uv run python -m src.main generate \
   --device "${DEVICE_GP}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
+  --device "${DEVICE_FLOPPY}" \
+  --device "${DEVICE_FLOPPY_BACKEND}" \
   --device "${DEVICE_CASS}" \
   --host "${HOST}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
@@ -100,6 +111,9 @@ cmake --build "${BUILD_DIR}"
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
 echo "    expected_roms: examples/roms/cpc464/OS_464.ROM and examples/roms/cpc464/BASIC_1.0.ROM"
+if [[ -n "${DISK_ROM}" && ! -f "${DISK_ROM}" ]]; then
+  echo "Warning: DISK_ROM not found (${DISK_ROM}). Disk ROM support will stay disabled." >&2
+fi
 mkdir -p log
 rm -f log/cpc_host_kb_trace.log log/cpc_kb_trace.log log/cpc_ppi_trace.log log/cpc_ay_trace.log
 rm -f log/cpc_irq_trace.log
@@ -115,11 +129,13 @@ if [[ "${PROFILE}" == "interactive" ]]; then
   RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
   RUN_ARGS+=(--controller-map "${CONTROLLER_MAP}")
 fi
+RUN_ARGS+=("${RUN_FLOPPY_ARGS[@]}")
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_HOST_AUDIO="${PASM_HOST_AUDIO}" \
 PASM_CPC_KB_TRACE="${PASM_CPC_KB_TRACE}" \
 PASM_CPC_HOST_KB_TRACE="${PASM_CPC_HOST_KB_TRACE}" \
 PASM_CPC_IRQ_TRACE="${PASM_CPC_IRQ_TRACE}" \
+PASM_CPC_DISK_ROM="${DISK_ROM}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   "${RUN_ARGS[@]}"

@@ -1,0 +1,350 @@
+metadata:
+  id: cpc_floppy_stub
+  type: floppy_drive
+  model: amstrad_cpc_floppy_stub
+  version: "1.0"
+
+state:
+  - name: backend_component
+    type: char *
+    initial: "NULL"
+  - name: media_loaded
+    type: uint8_t
+    initial: "0"
+  - name: motor_on
+    type: uint8_t
+    initial: "0"
+  - name: current_track
+    type: uint8_t
+    initial: "0"
+  - name: current_side
+    type: uint8_t
+    initial: "0"
+  - name: interrupt_pending
+    type: uint8_t
+    initial: "0"
+  - name: command_buf
+    type: uint8_t *
+    initial: "NULL"
+  - name: command_len
+    type: uint8_t
+    initial: "0"
+  - name: command_index
+    type: uint8_t
+    initial: "0"
+  - name: result_buf
+    type: uint8_t *
+    initial: "NULL"
+  - name: result_len
+    type: uint8_t
+    initial: "0"
+  - name: result_index
+    type: uint8_t
+    initial: "0"
+  - name: data_buf
+    type: uint8_t *
+    initial: "NULL"
+  - name: data_len
+    type: uint16_t
+    initial: "0"
+  - name: data_index
+    type: uint16_t
+    initial: "0"
+  - name: phase
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr, u8, ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
+      returns: u8
+    - name: query_media_loaded
+      args: []
+      returns: u8
+    - name: query_geometry
+      args: []
+      returns: u64
+    - name: read_sector
+      args: [u8, u8, u8, ptr]
+      returns: u64
+    - name: fdc_motor_write
+      args: [u8]
+      returns: u8
+    - name: fdc_status_read
+      args: []
+      returns: u8
+    - name: fdc_data_read
+      args: []
+      returns: u8
+    - name: fdc_data_write
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      if (comp->command_buf == NULL) {
+          comp->command_buf = (uint8_t *)calloc(16u, sizeof(uint8_t));
+      }
+      if (comp->result_buf == NULL) {
+          comp->result_buf = (uint8_t *)calloc(16u, sizeof(uint8_t));
+      }
+      if (comp->data_buf == NULL) {
+          comp->data_buf = (uint8_t *)calloc(2048u, sizeof(uint8_t));
+      }
+    reset: |
+      comp->motor_on = 0u;
+      comp->current_track = 0u;
+      comp->current_side = 0u;
+      comp->interrupt_pending = 0u;
+      comp->command_len = 0u;
+      comp->command_index = 0u;
+      comp->result_len = 0u;
+      comp->result_index = 0u;
+      comp->data_len = 0u;
+      comp->data_index = 0u;
+      comp->phase = 0u;
+    destroy: |
+      if (comp->backend_component != NULL) {
+          if (comp->backend_component[0] != '\0') {
+              (void)cpu_component_dispatch_callback(cpu, comp->backend_component, "unload_media", NULL, 0u);
+          }
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+      }
+      if (comp->command_buf != NULL) {
+          free(comp->command_buf);
+          comp->command_buf = NULL;
+      }
+      if (comp->result_buf != NULL) {
+          free(comp->result_buf);
+          comp->result_buf = NULL;
+      }
+      if (comp->data_buf != NULL) {
+          free(comp->data_buf);
+          comp->data_buf = NULL;
+      }
+      comp->media_loaded = 0u;
+  callback_handlers:
+    load_media: |
+      const char *backend_component = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : "cpc_dsk_image_backend";
+      if (backend_component == NULL || backend_component[0] == '\0') return 0u;
+      if (comp->backend_component != NULL) {
+          if (comp->backend_component[0] != '\0') {
+              (void)cpu_component_dispatch_callback(cpu, comp->backend_component, "unload_media", NULL, 0u);
+          }
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+      }
+      comp->backend_component = strdup(backend_component);
+      if (comp->backend_component == NULL) return 0u;
+      if (cpu_component_dispatch_callback(cpu, comp->backend_component, "load_media", args, 1u) == 0u) {
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+          comp->media_loaded = 0u;
+          return 0u;
+      }
+      comp->media_loaded = 1u;
+      comp->current_track = 0u;
+      comp->current_side = 0u;
+      comp->interrupt_pending = 1u;
+      comp->command_len = 0u;
+      comp->command_index = 0u;
+      comp->result_len = 0u;
+      comp->result_index = 0u;
+      comp->data_len = 0u;
+      comp->data_index = 0u;
+      comp->phase = 0u;
+      return 1u;
+    unload_media: |
+      if (comp->backend_component != NULL) {
+          if (comp->backend_component[0] != '\0') {
+              (void)cpu_component_dispatch_callback(cpu, comp->backend_component, "unload_media", NULL, 0u);
+          }
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+      }
+      comp->media_loaded = 0u;
+      comp->interrupt_pending = 0u;
+      comp->command_len = 0u;
+      comp->command_index = 0u;
+      comp->result_len = 0u;
+      comp->result_index = 0u;
+      comp->data_len = 0u;
+      comp->data_index = 0u;
+      comp->phase = 0u;
+      return 1u;
+    query_drive_activity: |
+      if (comp->media_loaded == 0u || comp->backend_component == NULL || comp->backend_component[0] == '\0') return 0u;
+      return cpu_component_dispatch_callback(cpu, comp->backend_component, "query_drive_activity", NULL, 0u);
+    query_media_loaded: |
+      return (uint64_t)comp->media_loaded;
+    query_geometry: |
+      if (comp->media_loaded == 0u || comp->backend_component == NULL || comp->backend_component[0] == '\0') return 0u;
+      return cpu_component_dispatch_callback(cpu, comp->backend_component, "query_geometry", NULL, 0u);
+    read_sector: |
+      uint8_t track = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t sector = (argc > 1u) ? (uint8_t)(args[1] & 0xFFu) : 0u;
+      uint8_t side = (argc > 2u) ? (uint8_t)(args[2] & 0xFFu) : 0u;
+      uint8_t *dst = (argc > 3u && args[3] != 0u) ? (uint8_t *)(uintptr_t)args[3] : NULL;
+      uint64_t read_args[4];
+      if (comp->media_loaded == 0u || comp->backend_component == NULL || comp->backend_component[0] == '\0') return 0u;
+      if (dst == NULL) return 0u;
+      read_args[0] = (uint64_t)track;
+      read_args[1] = (uint64_t)sector;
+      read_args[2] = (uint64_t)side;
+      read_args[3] = (uint64_t)(uintptr_t)dst;
+      return cpu_component_dispatch_callback(cpu, comp->backend_component, "read_sector", read_args, 4u);
+    fdc_motor_write: |
+      comp->motor_on = (argc > 0u && (args[0] & 0xFFu) != 0u) ? 1u : 0u;
+      return comp->motor_on;
+    fdc_status_read: |
+      uint8_t status = 0x80u;
+      if (comp->phase == 2u || comp->phase == 3u) status = 0xC0u;
+      if (comp->phase != 0u) status |= 0x10u;
+      return status;
+    fdc_data_read: |
+      uint8_t value = 0xFFu;
+      if (comp->phase == 2u && comp->data_index < comp->data_len) {
+          value = comp->data_buf[comp->data_index++];
+          if (comp->data_index >= comp->data_len) {
+              comp->phase = (comp->result_len != 0u) ? 3u : 0u;
+              comp->data_len = 0u;
+              comp->data_index = 0u;
+          }
+          return value;
+      }
+      if (comp->phase == 3u && comp->result_index < comp->result_len) {
+          value = comp->result_buf[comp->result_index++];
+          if (comp->result_index >= comp->result_len) {
+              comp->phase = 0u;
+              comp->result_len = 0u;
+              comp->result_index = 0u;
+          }
+          return value;
+      }
+      return value;
+    fdc_data_write: |
+      uint8_t v = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      uint8_t cmd;
+      if (comp->phase != 0u && comp->phase != 1u) return 0u;
+      if (comp->command_buf == NULL || comp->result_buf == NULL || comp->data_buf == NULL) return 0u;
+      if (comp->command_index == 0u) {
+          comp->command_buf[0] = v;
+          comp->command_index = 1u;
+          comp->phase = 1u;
+          switch (v & 0x1Fu) {
+              case 0x03u: comp->command_len = 3u; break; /* Specify */
+              case 0x04u: comp->command_len = 2u; break; /* Sense drive status */
+              case 0x06u: comp->command_len = 9u; break; /* Read data */
+              case 0x07u: comp->command_len = 2u; break; /* Recalibrate */
+              case 0x08u: comp->command_len = 1u; break; /* Sense interrupt */
+              case 0x0Au: comp->command_len = 1u; break; /* Read ID */
+              case 0x0Fu: comp->command_len = 3u; break; /* Seek */
+              default: comp->command_len = 1u; break;
+          }
+      } else if (comp->command_index < 16u) {
+          comp->command_buf[comp->command_index++] = v;
+      }
+      if (comp->command_index < comp->command_len) return 1u;
+
+      cmd = (uint8_t)(comp->command_buf[0] & 0x1Fu);
+      comp->result_len = 0u;
+      comp->result_index = 0u;
+      comp->data_len = 0u;
+      comp->data_index = 0u;
+      comp->phase = 0u;
+
+      if (cmd == 0x03u) {
+          /* Specify */
+      } else if (cmd == 0x04u) {
+          comp->result_buf[0] = (uint8_t)((comp->media_loaded != 0u ? 0x20u : 0x00u) |
+                                          (comp->motor_on != 0u ? 0x08u : 0x00u) |
+                                          (comp->current_track == 0u ? 0x10u : 0x00u));
+          comp->result_len = 1u;
+          comp->phase = 3u;
+      } else if (cmd == 0x07u) {
+          comp->current_track = 0u;
+          comp->interrupt_pending = 1u;
+      } else if (cmd == 0x08u) {
+          comp->result_buf[0] = (uint8_t)((comp->interrupt_pending != 0u) ? 0x20u : 0x80u);
+          comp->result_buf[1] = comp->current_track;
+          comp->interrupt_pending = 0u;
+          comp->result_len = 2u;
+          comp->phase = 3u;
+      } else if (cmd == 0x0Fu) {
+          comp->current_track = comp->command_buf[2];
+          comp->current_side = 0u;
+          comp->interrupt_pending = 1u;
+      } else if (cmd == 0x0Au) {
+          comp->result_buf[0] = 0x00u;
+          comp->result_buf[1] = 0x00u;
+          comp->result_buf[2] = 0x00u;
+          comp->result_buf[3] = comp->current_track;
+          comp->result_buf[4] = comp->current_side;
+          comp->result_buf[5] = 0xC1u;
+          comp->result_buf[6] = 0x02u;
+          comp->result_len = 7u;
+          comp->phase = 3u;
+      } else if (cmd == 0x06u) {
+          uint8_t c = comp->command_buf[1];
+          uint8_t h = comp->command_buf[2];
+          uint8_t r = comp->command_buf[3];
+          uint8_t n = comp->command_buf[4];
+          uint16_t expected_len = (uint16_t)(128u << (n & 0x07u));
+          uint64_t read_args[4];
+          uint64_t bytes;
+          read_args[0] = c;
+          read_args[1] = r;
+          read_args[2] = h;
+          read_args[3] = (uint64_t)(uintptr_t)comp->data_buf;
+          bytes = cpu_component_dispatch_callback(cpu, "cpc_floppy_stub", "read_sector", read_args, 4u);
+          if (bytes != 0u) {
+              comp->current_track = c;
+              comp->current_side = h;
+              comp->data_len = (uint16_t)((bytes < expected_len) ? bytes : expected_len);
+              comp->result_buf[0] = 0x00u;
+              comp->result_buf[1] = 0x00u;
+              comp->result_buf[2] = 0x00u;
+              comp->result_buf[3] = c;
+              comp->result_buf[4] = h;
+              comp->result_buf[5] = r;
+              comp->result_buf[6] = n;
+              comp->result_len = 7u;
+              comp->phase = 2u;
+          } else {
+              comp->result_buf[0] = 0x40u;
+              comp->result_buf[1] = 0x04u;
+              comp->result_buf[2] = 0x00u;
+              comp->result_buf[3] = c;
+              comp->result_buf[4] = h;
+              comp->result_buf[5] = r;
+              comp->result_buf[6] = n;
+              comp->result_len = 7u;
+              comp->phase = 3u;
+          }
+      } else {
+          comp->result_buf[0] = 0x80u;
+          comp->result_len = 1u;
+          comp->phase = 3u;
+      }
+
+      comp->command_len = 0u;
+      comp->command_index = 0u;
+      return 1u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

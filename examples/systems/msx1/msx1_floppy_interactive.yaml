@@ -1,0 +1,248 @@
+metadata:
+  name: Z80MSX1FloppyInteractiveSystem
+  title: PASM MSX1 Floppy
+  version: '0.1'
+clock_hz: 3579545
+reset_delay_seconds: 0
+memory:
+  default_size: 65536
+  regions:
+  - name: BIOS_32K
+    start: 0
+    size: 32768
+    read_only: true
+  - name: RAM_MAIN
+    start: 32768
+    size: 32768
+    read_write: true
+  rom_images:
+  - name: msx_bios_32k
+    file: ../../roms/msx1/msx.rom
+    target_region: BIOS_32K
+    offset: 0
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+components:
+  ics:
+  - vdp0
+  - ppi0
+  - psg0
+  - msx1_main_ram
+  - wd1793_fdc
+  - msx_disk_interface
+  devices:
+  - keyboard_msx
+  - controller_msx
+  - video_msx
+  - speaker
+  - cassette_transport
+  - floppy_raw_sector_image_backend
+  - tv
+  hosts:
+  - host_msx
+  cassette: cassette_transport
+  floppy: wd1793_fdc
+media_picker:
+  open_action_id: EMU_MEDIA_PICKER
+cassette:
+  component: cassette_transport
+  directory: examples/cassettes/msx1
+  allowed_extensions: [yaml, wav, cas, tsx]
+  sources:
+    - kind: line_in
+      source_type: ../../cassette_sources/line_in.yaml
+      component: cassette_transport
+      label: Line In
+    - kind: file
+      source_type: ../../cassette_sources/wav_file.yaml
+      component: cassette_transport
+      label: Tape File
+      allowed_extensions: [yaml, wav]
+    - kind: file
+      source_type: ../../cassette_sources/msx_cas_file.yaml
+      component: cassette_transport
+      label: MSX CAS Tape
+      allowed_extensions: [cas]
+    - kind: file
+      source_type: ../../cassette_sources/msx_tsx_file.yaml
+      component: cassette_transport
+      label: MSX TSX Tape
+      allowed_extensions: [tsx]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+floppy:
+  directory: examples/floppies/msx1
+  sources:
+    - kind: file
+      source_type: ../../floppy_sources/dsk_file.yaml
+      source_component: floppy_raw_sector_image_backend
+      label: MSX DSK Disk
+      allowed_extensions: [dsk]
+  drives:
+    - slot: 0
+      label: Drive A
+      drive_type: ../../floppy_drives/msx_3_5_dd.yaml
+      component: wd1793_fdc
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
+connections:
+- from:
+    component: ppi0
+    kind: callback
+    name: keyboard_read_row
+  to:
+    component: keyboard_msx
+    kind: callback
+    name: read_row
+- from:
+    component: keyboard_msx
+    kind: callback
+    name: host_matrix
+  to:
+    component: host_msx
+    kind: callback
+    name: keyboard_matrix
+- from:
+    component: psg0
+    kind: callback
+    name: joy_read
+  to:
+    component: controller_msx
+    kind: callback
+    name: read_state
+- from:
+    component: psg0
+    kind: callback
+    name: cassette_read
+  to:
+    component: cassette_transport
+    kind: callback
+    name: sample_input
+- from:
+    component: controller_msx
+    kind: callback
+    name: host_state
+  to:
+    component: host_msx
+    kind: callback
+    name: joystick_state
+- from:
+    component: vdp0
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_msx
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_msx
+    kind: signal
+    name: frame_present
+  to:
+    component: tv
+    kind: handler
+    name: on_frame_present
+- from:
+    component: vdp0
+    kind: signal
+    name: irq_edge
+  to:
+    component: host_msx
+    kind: handler
+    name: irq_edge
+- from:
+    component: psg0
+    kind: signal
+    name: audio_level
+  to:
+    component: speaker
+    kind: handler
+    name: on_audio_level
+- from:
+    component: ppi0
+    kind: signal
+    name: cassette_write
+  to:
+    component: cassette_transport
+    kind: handler
+    name: on_output_sample
+- from:
+    component: cassette_transport
+    kind: signal
+    name: transport_state
+  to:
+    component: speaker
+    kind: handler
+    name: on_transport_state
+- from:
+    component: speaker
+    kind: signal
+    name: pcm_sample
+  to:
+    component: tv
+    kind: handler
+    name: on_audio_level
+- from:
+    component: tv
+    kind: signal
+    name: frame_present
+  to:
+    component: host_msx
+    kind: handler
+    name: video_frame
+- from:
+    component: tv
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_msx
+    kind: handler
+    name: audio_pcm
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+integrations:
+  profile: msx1_floppy_interactive
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

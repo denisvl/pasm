@@ -19,6 +19,7 @@ set -euo pipefail
 #   BOOT_CARTRIDGE=0|1
 #   USE_CARTRIDGE_SYSTEM=0|1
 #   PASM_EMU_CART_PICKER_RAW_KEYS=0|1
+#   FLOPPY=/abs/path/to/disk.d64
 
 PROFILE="${1:-interactive}"
 START_PC="${START_PC:-0xFCE2}"
@@ -35,6 +36,7 @@ CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
 BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-0}"
 USE_CARTRIDGE_SYSTEM="${USE_CARTRIDGE_SYSTEM:-0}"
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
+FLOPPY="${FLOPPY:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -57,6 +59,12 @@ DEVICE_KB="examples/devices/c64/c64_keyboard.yaml"
 DEVICE_JOY="examples/devices/c64/c64_joystick.yaml"
 DEVICE_VIDEO="examples/devices/c64/c64_video.yaml"
 DEVICE_DATASETTE="examples/devices/c64/c64_datasette.yaml"
+DEVICE_IEC_BUS="examples/devices/c64/c64_iec_bus.yaml"
+DEVICE_1541="examples/devices/c64/c64_1541.yaml"
+DEVICE_1541_MEDIA="examples/devices/c64/c64_1541_media.yaml"
+DEVICE_1541_DOS="examples/devices/c64/c64_1541_dos.yaml"
+DEVICE_1541_CORE="examples/devices/c64/c64_1541_core.yaml"
+DEVICE_D64_BACKEND="examples/devices/common/c64_d64_image_backend.yaml"
 DEVICE_TV="examples/devices/common/tv_crt_mono.yaml"
 HOST_INTERACTIVE="examples/hosts/c64/c64_host_hal_interactive.yaml"
 
@@ -101,17 +109,16 @@ elif command -v readlink >/dev/null 2>&1; then
 else
   ROM_RUNTIME="${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}"
 fi
-# Cartridge args are only needed for the interactive profile (runtime cartridge
-# picker). The default profile boots the bare system without a cartridge.
-GEN_CARTRIDGE_ARGS=()
-if [[ "${PROFILE}" == "interactive" ]]; then
+if [[ "${USE_CARTRIDGE_SYSTEM}" != "0" ]]; then
   GEN_CARTRIDGE_ARGS+=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${CARTRIDGE_ROM_GEN}")
 fi
 if [[ ! -d "${CARTRIDGE_DIR}" ]]; then
   echo "warning: CARTRIDGE_DIR does not exist: ${CARTRIDGE_DIR}" >&2
   echo "         picker hotkey will appear to do nothing until this is fixed." >&2
 fi
-RUN_CARTRIDGE_ARGS+=(--cartridge-dir "${CARTRIDGE_DIR}")
+if [[ "${USE_CARTRIDGE_SYSTEM}" != "0" ]]; then
+  RUN_CARTRIDGE_ARGS+=(--cartridge-dir "${CARTRIDGE_DIR}")
+fi
 if [[ "${BOOT_CARTRIDGE}" != "0" ]]; then
   RUN_CARTRIDGE_ARGS+=(--cart-rom "${ROM_RUNTIME}")
 fi
@@ -138,6 +145,12 @@ if [[ "${PROFILE}" == "interactive" ]]; then
     --device "${DEVICE_JOY}" \
     --device "${DEVICE_VIDEO}" \
     --device "${DEVICE_DATASETTE}" \
+    --device "${DEVICE_IEC_BUS}" \
+    --device "${DEVICE_1541}" \
+    --device "${DEVICE_1541_MEDIA}" \
+    --device "${DEVICE_1541_DOS}" \
+    --device "${DEVICE_1541_CORE}" \
+    --device "${DEVICE_D64_BACKEND}" \
     --device "${DEVICE_TV}" \
     --host "${HOST_INTERACTIVE}" \
     --host-backend "${HOST_BACKEND:-glfw}" \
@@ -167,6 +180,9 @@ echo "    cartridge_rom_runtime=${ROM_RUNTIME}"
 echo "    cartridge_dir=${CARTRIDGE_DIR}"
 echo "    boot_cartridge=${BOOT_CARTRIDGE}"
 echo "    cart_picker_raw_keys=${PASM_EMU_CART_PICKER_RAW_KEYS}"
+if [[ -n "${FLOPPY}" ]]; then
+  echo "    floppy=${FLOPPY}"
+fi
 
 RUN_ARGS=(
   --backend linked
@@ -179,11 +195,15 @@ if [[ "${PROFILE}" == "interactive" ]]; then
   RUN_ARGS+=(--keyboard-map "${KEYBOARD_MAP}")
   RUN_ARGS+=(--controller-map "${CONTROLLER_MAP}")
 fi
+if [[ -n "${FLOPPY}" ]]; then
+  RUN_ARGS+=(--floppy "${FLOPPY}")
+fi
 RUN_ARGS+=("${RUN_CARTRIDGE_ARGS[@]}")
 
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_EMU_BUILD_DIR="${PASM_EMU_BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS}" \
+PASM_EMU_FLOPPY_AUTO_PATH="${FLOPPY}" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   "${RUN_ARGS[@]}"
