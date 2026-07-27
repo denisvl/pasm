@@ -387,15 +387,12 @@ void {cpu_prefix}_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {{
             if (addr == __trace_mem_write_addrs[__trace_idx]) {{
                 uint8_t __old_value = cpu->memory[addr];
                 fprintf(__trace_mem_write_fp,
-                        "mem_write cycle=%llu pc=%04X addr=%04X old=%02X new=%02X a=%02X x=%02X y=%02X sp=%02X p=%02X\\n",
+                        "mem_write cycle=%llu pc=%04X addr=%04X old=%02X new=%02X sp=%04X flags=%02X\\n",
                         (unsigned long long)cpu->total_cycles,
                         (unsigned int)cpu->pc,
                         (unsigned int)addr,
                         (unsigned int)__old_value,
                         (unsigned int)value,
-                        (unsigned int)cpu->registers[REG_A],
-                        (unsigned int)cpu->registers[REG_X],
-                        (unsigned int)cpu->registers[REG_Y],
                         (unsigned int)cpu->sp,
                         (unsigned int)cpu->flags.raw);
                 fflush(__trace_mem_write_fp);
@@ -631,10 +628,13 @@ target_include_directories({cpu_core_target} PUBLIC include src)
 add_library({system_target} STATIC ${{SYSTEM_SOURCES}})
 target_include_directories({system_target} PUBLIC include src)
 target_link_libraries({system_target} PUBLIC {cpu_core_target})
+{subsystem_add_subdirs}
+{subsystem_system_link_block}
 
 # CLI test executable
 add_executable({project_name}_test src/main.c)
 target_link_libraries({project_name}_test PRIVATE {cpu_core_target} {system_target} {cpu_core_target})
+{subsystem_test_link_block}
 target_include_directories({project_name}_test PRIVATE include src)
 {auto_dependency_setup}
 {extra_include_dirs}

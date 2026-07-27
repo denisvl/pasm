@@ -160,8 +160,34 @@ behavior:
           uint8_t hiram = (uint8_t)((effective >> 1u) & 0x01u);
           uint8_t charen = (uint8_t)((effective >> 2u) & 0x01u);
           if (addr >= 0xA000u && addr <= 0xBFFFu) {
-              if (loram != 0u && hiram != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
-              return (comp->ram_a000 != NULL) ? comp->ram_a000[addr - 0xA000u] : 0xFFu;
+              static int aseg_trace = -1;
+              static FILE *aseg_trace_fp = NULL;
+              uint8_t value;
+              if (aseg_trace < 0) {
+                  const char *env = getenv("PASM_C64_ASEG_TRACE");
+                  aseg_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                  if (aseg_trace != 0) {
+                      const char *path = getenv("PASM_C64_ASEG_TRACE_FILE");
+                      if (path == NULL || path[0] == '\0') path = "/tmp/c64_aseg_trace.log";
+                      aseg_trace_fp = fopen(path, "a");
+                      if (aseg_trace_fp == NULL) aseg_trace = 0;
+                  }
+              }
+              if (loram != 0u && hiram != 0u) value = ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+              else value = (comp->ram_a000 != NULL) ? comp->ram_a000[addr - 0xA000u] : 0xFFu;
+              if (aseg_trace != 0 && aseg_trace_fp != NULL && addr >= 0xA5C0u && addr <= 0xA770u) {
+                  fprintf(aseg_trace_fp,
+                          "aseg_read cycle=%llu pc=%04X addr=%04X val=%02X loram=%u hiram=%u charen=%u\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)addr,
+                          (unsigned)value,
+                          (unsigned)loram,
+                          (unsigned)hiram,
+                          (unsigned)charen);
+                  fflush(aseg_trace_fp);
+              }
+              return value;
           }
           if (addr >= 0xD000u && addr <= 0xDFFFu) {
               uint16_t off = (uint16_t)(addr - 0xD000u);
@@ -169,9 +195,11 @@ behavior:
               if (off >= 0x0E00u) {
                   /* fallthrough so cartridge mapper can handle it */
               } else {
-              if (charen == 0u) {
-                  if ((loram | hiram) != 0u) return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+              if ((loram | hiram) == 0u) {
                   return (comp->ram_d000 != NULL) ? comp->ram_d000[off] : 0xFFu;
+              }
+              if (charen == 0u) {
+                  return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
               }
               if (off < 0x0400u) {
                   uint8_t r = (uint8_t)(off & 0x3Fu);
@@ -232,7 +260,12 @@ behavior:
               }
               if (off < 0x0E00u) {
                   uint8_t r=(uint8_t)(off & 0x0Fu);
-                  if (r == 0x00u) return (uint8_t)((cpu->comp_c64_cia2.pra & cpu->comp_c64_cia2.ddra) | (uint8_t)(~cpu->comp_c64_cia2.ddra));
+                  if (r == 0x00u) {
+                      uint8_t out = (uint8_t)((cpu->comp_c64_cia2.pra & cpu->comp_c64_cia2.ddra) | (uint8_t)(~cpu->comp_c64_cia2.ddra));
+                      uint8_t iec = (uint8_t)cpu_component_dispatch_callback(cpu, "c64_iec_bus", "iec_porta_read", NULL, 0u);
+                      out = (uint8_t)((out & 0x3Fu) | (iec & 0xC0u));
+                      return out;
+                  }
                   if (r == 0x01u) return (uint8_t)((cpu->comp_c64_cia2.prb & cpu->comp_c64_cia2.ddrb) | (uint8_t)(~cpu->comp_c64_cia2.ddrb));
                   if (r == 0x02u) return cpu->comp_c64_cia2.ddra;
                   if (r == 0x03u) return cpu->comp_c64_cia2.ddrb;
@@ -304,6 +337,33 @@ behavior:
           }
           comp->io_data = (uint8_t)(value & 0x3Fu);
           cpu->registers[REG_IO_DATA] = (uint8_t)(comp->io_data | 0xC0u);
+          {
+              static int run_trace_init = -1;
+              static FILE *run_trace_fp = NULL;
+              if (run_trace_init < 0) {
+                  const char *env = getenv("PASM_C64_RUN_TRACE");
+                  run_trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                  if (run_trace_init != 0) {
+                      const char *path = getenv("PASM_C64_RUN_TRACE_FILE");
+                      if (path == NULL || path[0] == '\0') path = "/tmp/c64_run_trace.log";
+                      run_trace_fp = fopen(path, "a");
+                      if (run_trace_fp == NULL) run_trace_init = 0;
+                  }
+              }
+              if (run_trace_init != 0 && run_trace_fp != NULL) {
+                  fprintf(run_trace_fp,
+                          "write0001 cycle=%llu pc=%04X value=%02X ddr=%02X effective=%02X loram=%u hiram=%u charen=%u\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)new_data,
+                          (unsigned)comp->io_ddr,
+                          (unsigned)effective,
+                          (unsigned)(effective & 0x01u),
+                          (unsigned)((effective >> 1u) & 0x01u),
+                          (unsigned)((effective >> 2u) & 0x01u));
+                  fflush(run_trace_fp);
+              }
+          }
           if (tape_io_trace != 0 && tape_io_trace_fp != NULL) {
               fprintf(tape_io_trace_fp,
                       "write0001 cycle=%llu value=%02X effective=%02X motor=%llu out=%llu\n",
@@ -318,17 +378,83 @@ behavior:
           (void)cpu_component_dispatch_callback(cpu, "datasette_c64", "push_output_sample", tape_out_args, 2u);
           return;
       }
+      if (addr >= 0xC000u && addr <= 0xC0FFu) {
+          static int c000_trace_init = -1;
+          static FILE *c000_trace_fp = NULL;
+          if (c000_trace_init < 0) {
+              const char *env = getenv("PASM_C64_C000_TRACE");
+              c000_trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (c000_trace_init != 0) {
+                  const char *path = getenv("PASM_C64_C000_TRACE_FILE");
+                  if (path == NULL || path[0] == '\0') path = "/tmp/c64_c000_trace.log";
+                  c000_trace_fp = fopen(path, "a");
+                  if (c000_trace_fp == NULL) c000_trace_init = 0;
+              }
+          }
+          if (c000_trace_init != 0 && c000_trace_fp != NULL) {
+              fprintf(c000_trace_fp,
+                      "write%04X cycle=%llu pc=%04X value=%02X a=%02X x=%02X y=%02X p=%02X fb=%02X%02X fd=%02X%02X port=%02X ddr=%02X\n",
+                      (unsigned)addr,
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)cpu->pc,
+                      (unsigned)value,
+                      (unsigned)cpu->registers[REG_A],
+                      (unsigned)cpu->registers[REG_X],
+                      (unsigned)cpu->registers[REG_Y],
+                      (unsigned)((cpu->flags.N ? 0x80u : 0u) |
+                                 (cpu->flags.V ? 0x40u : 0u) |
+                                 0x20u |
+                                 (cpu->flags.B ? 0x10u : 0u) |
+                                 (cpu->flags.D ? 0x08u : 0u) |
+                                 (cpu->flags.I ? 0x04u : 0u) |
+                                 (cpu->flags.Z ? 0x02u : 0u) |
+                                 (cpu->flags.C ? 0x01u : 0u)),
+                      (unsigned)mos6510_read_byte(cpu, 0x00FCu),
+                      (unsigned)mos6510_read_byte(cpu, 0x00FBu),
+                      (unsigned)mos6510_read_byte(cpu, 0x00FEu),
+                      (unsigned)mos6510_read_byte(cpu, 0x00FDu),
+                      (unsigned)mos6510_read_byte(cpu, 0x0001u),
+                      (unsigned)mos6510_read_byte(cpu, 0x0000u));
+              fflush(c000_trace_fp);
+          }
+      }
       {
           uint8_t effective = (uint8_t)(((comp->io_data & comp->io_ddr) | (uint8_t)(~comp->io_ddr)) | 0xC0u);
           uint8_t charen = (uint8_t)((effective >> 2u) & 0x01u);
-          if (addr >= 0xA000u && addr <= 0xBFFFu) { if (comp->ram_a000 != NULL) comp->ram_a000[addr - 0xA000u] = value; return; }
+          if (addr >= 0xA000u && addr <= 0xBFFFu) {
+              static int aseg_trace = -1;
+              static FILE *aseg_trace_fp = NULL;
+              if (aseg_trace < 0) {
+                  const char *env = getenv("PASM_C64_ASEG_TRACE");
+                  aseg_trace = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                  if (aseg_trace != 0) {
+                      const char *path = getenv("PASM_C64_ASEG_TRACE_FILE");
+                      if (path == NULL || path[0] == '\0') path = "/tmp/c64_aseg_trace.log";
+                      aseg_trace_fp = fopen(path, "a");
+                      if (aseg_trace_fp == NULL) aseg_trace = 0;
+                  }
+              }
+              if (comp->ram_a000 != NULL) comp->ram_a000[addr - 0xA000u] = value;
+              if (aseg_trace != 0 && aseg_trace_fp != NULL && addr >= 0xA5C0u && addr <= 0xA770u) {
+                  fprintf(aseg_trace_fp,
+                          "aseg_write cycle=%llu pc=%04X addr=%04X val=%02X effective=%02X charen=%u\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)addr,
+                          (unsigned)value,
+                          (unsigned)effective,
+                          (unsigned)charen);
+                  fflush(aseg_trace_fp);
+              }
+              return;
+          }
           if (addr >= 0xD000u && addr <= 0xDFFFu) {
               uint16_t off=(uint16_t)(addr - 0xD000u);
               /* IO1/IO2 ($DE00-$DFFF) are cartridge space; do not consume here. */
               if (off >= 0x0E00u) {
                   /* fallthrough so cartridge mapper can handle it */
               } else {
-              if (charen == 0u) { if (comp->ram_d000 != NULL) comp->ram_d000[off] = value; return; }
+              if ((effective & 0x03u) == 0u || charen == 0u) { if (comp->ram_d000 != NULL) comp->ram_d000[off] = value; return; }
               if (off < 0x0400u) {
                   if (cpu->comp_c64_vic_ii.vic_regs == NULL) cpu->comp_c64_vic_ii.vic_regs = (uint8_t *)calloc(0x40u, 1u);
                   if (cpu->comp_c64_vic_ii.vic_regs == NULL) return;
@@ -487,9 +613,50 @@ behavior:
                   if (cpu->comp_c64_cia2.regs == NULL) cpu->comp_c64_cia2.regs = (uint8_t *)calloc(0x10u, 1u);
                   if (cpu->comp_c64_cia2.regs == NULL) return;
                   uint8_t r=(uint8_t)(off & 0x0Fu); cpu->comp_c64_cia2.regs[r] = value;
-                  if (r == 0x00u) { cpu->comp_c64_cia2.pra = value; return; }
+                  if (r == 0x00u || r == 0x02u || r == 0x0Du || r == 0x0Eu || r == 0x0Fu) {
+                      static int cia2_trace_init = -1;
+                      static FILE *cia2_trace_fp = NULL;
+                      if (cia2_trace_init < 0) {
+                          const char *env = getenv("PASM_C64_CIA2_TRACE");
+                          cia2_trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                          if (cia2_trace_init != 0) {
+                              const char *path = getenv("PASM_C64_CIA2_TRACE_FILE");
+                              if (path == NULL || path[0] == '\0') path = "/tmp/c64_cia2_trace.log";
+                              cia2_trace_fp = fopen(path, "a");
+                              if (cia2_trace_fp == NULL) cia2_trace_init = 0;
+                          }
+                      }
+                      if (cia2_trace_init != 0 && cia2_trace_fp != NULL) {
+                          fprintf(cia2_trace_fp,
+                                  "writeDD%02X cycle=%llu pc=%04X value=%02X pra=%02X ddra=%02X pre_status=%02X pre_mask=%02X cra=%02X crb=%02X ta=%u tb=%u\n",
+                                  (unsigned)r,
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)cpu->pc,
+                                  (unsigned)value,
+                                  (unsigned)cpu->comp_c64_cia2.pra,
+                                  (unsigned)cpu->comp_c64_cia2.ddra,
+                                  (unsigned)cpu->comp_c64_cia2.icr_status,
+                                  (unsigned)cpu->comp_c64_cia2.icr_mask,
+                                  (unsigned)cpu->comp_c64_cia2.regs[0x0Eu],
+                                  (unsigned)cpu->comp_c64_cia2.regs[0x0Fu],
+                                  (unsigned)cpu->comp_c64_cia2.ta_counter,
+                                  (unsigned)cpu->comp_c64_cia2.tb_counter);
+                          fflush(cia2_trace_fp);
+                      }
+                  }
+                  if (r == 0x00u) {
+                      uint64_t iec_args[2] = { value, cpu->comp_c64_cia2.ddra };
+                      cpu->comp_c64_cia2.pra = value;
+                      (void)cpu_component_dispatch_callback(cpu, "c64_iec_bus", "iec_porta_write", iec_args, 2u);
+                      return;
+                  }
                   if (r == 0x01u) { cpu->comp_c64_cia2.prb = value; return; }
-                  if (r == 0x02u) { cpu->comp_c64_cia2.ddra = value; return; }
+                  if (r == 0x02u) {
+                      uint64_t iec_args[2] = { cpu->comp_c64_cia2.pra, value };
+                      cpu->comp_c64_cia2.ddra = value;
+                      (void)cpu_component_dispatch_callback(cpu, "c64_iec_bus", "iec_porta_write", iec_args, 2u);
+                      return;
+                  }
                   if (r == 0x03u) { cpu->comp_c64_cia2.ddrb = value; return; }
                   if (r == 0x04u) { cpu->comp_c64_cia2.ta_latch = (uint16_t)((cpu->comp_c64_cia2.ta_latch & 0xFF00u) | value); return; }
                   if (r == 0x05u) { cpu->comp_c64_cia2.ta_latch = (uint16_t)((cpu->comp_c64_cia2.ta_latch & 0x00FFu) | ((uint16_t)value << 8u)); if ((cpu->comp_c64_cia2.regs[0x0Eu] & 0x01u) == 0u) cpu->comp_c64_cia2.ta_counter = cpu->comp_c64_cia2.ta_latch; return; }
@@ -505,6 +672,250 @@ behavior:
           if (addr >= 0xE000u && addr <= 0xFFFFu) { if (comp->ram_e000 != NULL) comp->ram_e000[addr - 0xE000u] = value; return; }
       }
     step_post: |
+      {
+          const char *trap_env = getenv("PASM_C64_LOAD_TRAP_TRACE");
+          FILE *trap_fp = NULL;
+          uint8_t true_drive_active = (uint8_t)cpu_component_dispatch_callback(cpu, "c64_iec_bus", "query_true_drive_active", NULL, 0u);
+          uint8_t serial_dev = mos6510_read_byte(cpu, 0x00BAu);
+          if (trap_env != NULL && trap_env[0] != '\0' && trap_env[0] != '0') {
+              const char *trap_path = getenv("PASM_C64_LOAD_TRAP_TRACE_FILE");
+              if (trap_path == NULL || trap_path[0] == '\0') trap_path = "/tmp/c64_load_trap_trace.log";
+              trap_fp = fopen(trap_path, "a");
+          }
+          if (true_drive_active == 0u &&
+              (cpu->pc == 0xFFD5u || cpu->pc == 0xF49Eu)) {
+              if (trap_fp != NULL) {
+                  fprintf(trap_fp,
+                          "trap_seen pc=%04X a=%02X x=%02X y=%02X sp=%02X b7=%02X b8=%02X b9=%02X ba=%02X bb=%02X bc=%02X\n",
+                          (unsigned)cpu->pc,
+                          (unsigned)cpu->registers[REG_A],
+                          (unsigned)cpu->registers[REG_X],
+                          (unsigned)cpu->registers[REG_Y],
+                          (unsigned)cpu->sp,
+                          (unsigned)mos6510_read_byte(cpu, 0x00B7u),
+                          (unsigned)mos6510_read_byte(cpu, 0x00B8u),
+                          (unsigned)mos6510_read_byte(cpu, 0x00B9u),
+                          (unsigned)mos6510_read_byte(cpu, 0x00BAu),
+                          (unsigned)mos6510_read_byte(cpu, 0x00BBu),
+                          (unsigned)mos6510_read_byte(cpu, 0x00BCu));
+                  fflush(trap_fp);
+              }
+              {
+                  uint64_t handled = cpu_component_dispatch_callback(cpu, "c64_iec_bus", "kernal_load", NULL, 0u);
+                  if (trap_fp != NULL) {
+                      fprintf(trap_fp,
+                              "trap_dispatch handled=%u pc=%04X carry=%u a=%02X x=%02X y=%02X\n",
+                              (unsigned)handled,
+                              (unsigned)cpu->pc,
+                              (unsigned)(cpu->flags.C ? 1u : 0u),
+                              (unsigned)cpu->registers[REG_A],
+                              (unsigned)cpu->registers[REG_X],
+                              (unsigned)cpu->registers[REG_Y]);
+                      fclose(trap_fp);
+                      trap_fp = NULL;
+                  }
+                  if (handled != 0u) {
+                      return;
+                  }
+              }
+          }
+          if (true_drive_active == 0u &&
+              (cpu->pc == 0xFFB1u || cpu->pc == 0xFFB4u || cpu->pc == 0xFFAEu || cpu->pc == 0xFFABu ||
+              cpu->pc == 0xFF93u || cpu->pc == 0xFF96u || cpu->pc == 0xFFA8u || cpu->pc == 0xFFA5u ||
+              cpu->pc == 0xED09u || cpu->pc == 0xED0Cu || cpu->pc == 0xEDB9u || cpu->pc == 0xEDC7u ||
+              cpu->pc == 0xEDDDu || cpu->pc == 0xEDEFu || cpu->pc == 0xEDFEu || cpu->pc == 0xEE13u)) {
+              uint64_t trap_args[1] = { cpu->pc };
+              uint64_t handled = cpu_component_dispatch_callback(cpu, "c64_iec_bus", "kernal_iec_trap", trap_args, 1u);
+              if (handled != 0u) {
+                  if (trap_fp != NULL) fclose(trap_fp);
+                  return;
+              }
+          }
+          if (true_drive_active == 0u &&
+              (cpu->pc == 0xFFC0u || cpu->pc == 0xFFC3u || cpu->pc == 0xFFC6u || cpu->pc == 0xFFC9u ||
+              cpu->pc == 0xFFCCu)) {
+              uint64_t trap_args[1] = { cpu->pc };
+              uint64_t handled = cpu_component_dispatch_callback(cpu, "c64_iec_bus", "kernal_file_trap", trap_args, 1u);
+              if (handled != 0u) {
+                  if (trap_fp != NULL) fclose(trap_fp);
+                  return;
+              }
+          }
+          if (trap_fp != NULL) fclose(trap_fp);
+      }
+      {
+          static int run_trace_init = -1;
+          static FILE *run_trace_fp = NULL;
+          static uint8_t run_trace_armed = 0u;
+          static uint32_t run_trace_budget = 0u;
+          if (run_trace_init < 0) {
+              const char *env = getenv("PASM_C64_RUN_TRACE");
+              run_trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (run_trace_init != 0) {
+                  const char *path = getenv("PASM_C64_RUN_TRACE_FILE");
+                  if (path == NULL || path[0] == '\0') path = "/tmp/c64_run_trace.log";
+                  run_trace_fp = fopen(path, "a");
+                  if (run_trace_fp == NULL) run_trace_init = 0;
+              }
+          }
+          if (run_trace_init != 0 && run_trace_fp != NULL) {
+              if (cpu->pc == 0xA871u || cpu->pc == 0xA7AEu || cpu->pc == 0xA7E4u ||
+                  cpu->pc == 0x0801u || cpu->pc == 0x0813u || cpu->pc == 0x0816u) {
+                  run_trace_armed = 1u;
+                  run_trace_budget = 65536u;
+                  fprintf(run_trace_fp,
+                          "run_arm cycle=%llu pc=%04X a=%02X x=%02X y=%02X sp=%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)cpu->registers[REG_A],
+                          (unsigned)cpu->registers[REG_X],
+                          (unsigned)cpu->registers[REG_Y],
+                          (unsigned)cpu->sp);
+                  fflush(run_trace_fp);
+              }
+              if (cpu->pc == 0x0337u &&
+                  mos6510_read_byte(cpu, (uint16_t)(cpu->pc + 1u)) == 0xC9u &&
+                  mos6510_read_byte(cpu, (uint16_t)(cpu->pc + 2u)) == 0x27u &&
+                  cpu->registers[REG_Y] == 0x00u) {
+                  run_trace_armed = 1u;
+                  run_trace_budget = 1048576u;
+                  fprintf(run_trace_fp,
+                          "run_rearm cycle=%llu pc=%04X a=%02X x=%02X y=%02X sp=%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)cpu->registers[REG_A],
+                          (unsigned)cpu->registers[REG_X],
+                          (unsigned)cpu->registers[REG_Y],
+                          (unsigned)cpu->sp);
+                  fflush(run_trace_fp);
+              }
+              if (cpu->pc == 0x0190u || cpu->pc == 0x019Bu || cpu->pc == 0x01A0u) {
+                  run_trace_armed = 1u;
+                  run_trace_budget = 8192u;
+                  fprintf(run_trace_fp,
+                          "run_rearm_low cycle=%llu pc=%04X a=%02X x=%02X y=%02X sp=%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)cpu->registers[REG_A],
+                          (unsigned)cpu->registers[REG_X],
+                          (unsigned)cpu->registers[REG_Y],
+                          (unsigned)cpu->sp);
+                  fflush(run_trace_fp);
+              }
+              if (run_trace_armed != 0u && run_trace_budget != 0u) {
+                  uint8_t op = mos6510_read_byte(cpu, cpu->pc);
+                  uint8_t op1 = mos6510_read_byte(cpu, (uint16_t)(cpu->pc + 1u));
+                  uint8_t op2 = mos6510_read_byte(cpu, (uint16_t)(cpu->pc + 2u));
+                  uint16_t src_ptr = 0u;
+                  uint8_t src_val = 0u;
+                  uint16_t dst_ptr = 0u;
+                  if (op == 0xB1u) {
+                      src_ptr = (uint16_t)mos6510_read_byte(cpu, (uint16_t)op1) |
+                                (uint16_t)((uint16_t)mos6510_read_byte(cpu, (uint16_t)((uint8_t)(op1 + 1u))) << 8u);
+                      src_val = mos6510_read_byte(cpu, (uint16_t)(src_ptr + cpu->registers[REG_Y]));
+                      src_ptr = (uint16_t)(src_ptr + cpu->registers[REG_Y]);
+                  }
+                  if (op == 0xB9u) {
+                      src_ptr = (uint16_t)(((uint16_t)op2 << 8u) | (uint16_t)op1);
+                      src_ptr = (uint16_t)(src_ptr + cpu->registers[REG_Y]);
+                      src_val = mos6510_read_byte(cpu, src_ptr);
+                  }
+                  if (op == 0x99u) {
+                      dst_ptr = (uint16_t)(((uint16_t)op2 << 8u) | (uint16_t)op1);
+                      dst_ptr = (uint16_t)(dst_ptr + cpu->registers[REG_Y]);
+                  }
+                  if (op == 0x91u) {
+                      dst_ptr = (uint16_t)mos6510_read_byte(cpu, (uint16_t)op1) |
+                                (uint16_t)((uint16_t)mos6510_read_byte(cpu, (uint16_t)((uint8_t)(op1 + 1u))) << 8u);
+                      dst_ptr = (uint16_t)(dst_ptr + cpu->registers[REG_Y]);
+                  }
+                  fprintf(run_trace_fp,
+                          "run_pc cycle=%llu pc=%04X op=%02X %02X %02X a=%02X x=%02X y=%02X sp=%02X p=%02X b7=%02X b8=%02X b9=%02X ba=%02X 2d=%02X%02X 2f=%02X%02X 39=%02X fb=%02X%02X fd=%02X%02X 99=%02X port=%02X ddr=%02X src=%04X srcv=%02X dst=%04X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)op,
+                          (unsigned)op1,
+                          (unsigned)op2,
+                          (unsigned)cpu->registers[REG_A],
+                          (unsigned)cpu->registers[REG_X],
+                          (unsigned)cpu->registers[REG_Y],
+                          (unsigned)cpu->sp,
+                          (unsigned)((cpu->flags.N ? 0x80u : 0u) |
+                                     (cpu->flags.V ? 0x40u : 0u) |
+                                     0x20u |
+                                     (cpu->flags.B ? 0x10u : 0u) |
+                                     (cpu->flags.D ? 0x08u : 0u) |
+                                     (cpu->flags.I ? 0x04u : 0u) |
+                                     (cpu->flags.Z ? 0x02u : 0u) |
+                                     (cpu->flags.C ? 0x01u : 0u)),
+                          (unsigned)mos6510_read_byte(cpu, 0x00B7u),
+                          (unsigned)mos6510_read_byte(cpu, 0x00B8u),
+                          (unsigned)mos6510_read_byte(cpu, 0x00B9u),
+                          (unsigned)mos6510_read_byte(cpu, 0x00BAu),
+                          (unsigned)mos6510_read_byte(cpu, 0x002Eu),
+                          (unsigned)mos6510_read_byte(cpu, 0x002Du),
+                          (unsigned)mos6510_read_byte(cpu, 0x0030u),
+                          (unsigned)mos6510_read_byte(cpu, 0x002Fu),
+                          (unsigned)mos6510_read_byte(cpu, 0x0039u),
+                          (unsigned)mos6510_read_byte(cpu, 0x00FCu),
+                          (unsigned)mos6510_read_byte(cpu, 0x00FBu),
+                          (unsigned)mos6510_read_byte(cpu, 0x00FEu),
+                          (unsigned)mos6510_read_byte(cpu, 0x00FDu),
+                          (unsigned)mos6510_read_byte(cpu, 0x0099u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0001u),
+                          (unsigned)mos6510_read_byte(cpu, 0x0000u),
+                          (unsigned)src_ptr,
+                          (unsigned)src_val,
+                          (unsigned)dst_ptr);
+                  run_trace_budget -= 1u;
+                  if (cpu->pc == 0xFCE2u || cpu->pc == 0xFCE7u || cpu->pc == 0xF4A5u) {
+                      fprintf(run_trace_fp,
+                              "run_sink cycle=%llu pc=%04X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc);
+                      run_trace_budget = 0u;
+                  }
+                  if (cpu->pc >= 0xFE00u) {
+                      fprintf(run_trace_fp,
+                              "run_high cycle=%llu pc=%04X op=%02X %02X %02X a=%02X x=%02X y=%02X sp=%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc,
+                              (unsigned)op,
+                              (unsigned)op1,
+                              (unsigned)op2,
+                              (unsigned)cpu->registers[REG_A],
+                              (unsigned)cpu->registers[REG_X],
+                              (unsigned)cpu->registers[REG_Y],
+                              (unsigned)cpu->sp);
+                  }
+                  if (cpu->pc < 0x0100u) {
+                      fprintf(run_trace_fp,
+                              "run_low cycle=%llu pc=%04X op=%02X %02X %02X a=%02X x=%02X y=%02X sp=%02X p=%02X port=%02X ddr=%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc,
+                              (unsigned)op,
+                              (unsigned)op1,
+                              (unsigned)op2,
+                              (unsigned)cpu->registers[REG_A],
+                              (unsigned)cpu->registers[REG_X],
+                              (unsigned)cpu->registers[REG_Y],
+                              (unsigned)cpu->sp,
+                              (unsigned)((cpu->flags.N ? 0x80u : 0u) |
+                                         (cpu->flags.V ? 0x40u : 0u) |
+                                         0x20u |
+                                         (cpu->flags.B ? 0x10u : 0u) |
+                                         (cpu->flags.D ? 0x08u : 0u) |
+                                         (cpu->flags.I ? 0x04u : 0u) |
+                                         (cpu->flags.Z ? 0x02u : 0u) |
+                                         (cpu->flags.C ? 0x01u : 0u)),
+                              (unsigned)mos6510_read_byte(cpu, 0x0001u),
+                              (unsigned)mos6510_read_byte(cpu, 0x0000u));
+                      run_trace_budget = 0u;
+                  }
+                  fflush(run_trace_fp);
+              }
+          }
+      }
       uint64_t delta_cycles = cpu->total_cycles - comp->last_step_cycle;
       comp->last_step_cycle = cpu->total_cycles;
       if (cpu->comp_c64_vic_ii.vic_regs == NULL) {
@@ -555,10 +966,9 @@ behavior:
                       uint32_t chr_base = 0xD000u + (uint32_t)(ca & 0x07FFu);
                       if ((chr_base + 2048u) <= cpu->memory_size) cp = &cpu->memory[chr_base];
                   }
-                  if (cp == NULL && (0xD000u + 2048u) <= cpu->memory_size) cp = &cpu->memory[0xD000u];
                   uint8_t *bp = (((uint32_t)ba + 8000u) <= cpu->memory_size) ? &cpu->memory[ba] : ((cpu->memory_size >= 0x3F40u) ? &cpu->memory[0x2000u] : NULL);
                   if (sp == NULL && cpu->memory_size >= 0x0800u) sp = &cpu->memory[0x0400u];
-                  if (cp == NULL && cpu->memory_size >= 0xD800u) cp = &cpu->memory[0xD000u];
+                  if (cp == NULL && (0xD000u + 2048u) <= cpu->memory_size) cp = &cpu->memory[0xD000u];
                   if (bp == NULL && cpu->memory_size >= 0x3F40u) bp = &cpu->memory[0x2000u];
                   uint32_t mf = 0u;
                   cpu->comp_c64_vic_ii.vic_raster_line = 0u;
@@ -712,7 +1122,40 @@ behavior:
           #undef PASM_APPLY_C64_FLAG
           #undef PASM_ADVANCE_C64_CIAS
           if ((cpu->comp_c64_cia1.icr_status & cpu->comp_c64_cia1.icr_mask & 0x1Fu) != 0u) { cpu->comp_c64_cia1.icr_status = (uint8_t)((cpu->comp_c64_cia1.icr_status & 0x1Fu) | 0x80u); if (cpu->comp_c64_cia1.irq_asserted == 0u) { mos6510_interrupt(cpu, 0u); cpu->comp_c64_cia1.irq_asserted = 1u; } } else { cpu->comp_c64_cia1.icr_status = (uint8_t)(cpu->comp_c64_cia1.icr_status & 0x1Fu); cpu->comp_c64_cia1.irq_asserted = 0u; }
-          if ((cpu->comp_c64_cia2.icr_status & cpu->comp_c64_cia2.icr_mask & 0x1Fu) != 0u) { cpu->comp_c64_cia2.icr_status = (uint8_t)((cpu->comp_c64_cia2.icr_status & 0x1Fu) | 0x80u); if (cpu->comp_c64_cia2.nmi_asserted == 0u) { mos6510_interrupt(cpu, 0xFFu); cpu->comp_c64_cia2.nmi_asserted = 1u; } } else { cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status & 0x1Fu); cpu->comp_c64_cia2.nmi_asserted = 0u; }
+          if ((cpu->comp_c64_cia2.icr_status & cpu->comp_c64_cia2.icr_mask & 0x1Fu) != 0u) {
+              cpu->comp_c64_cia2.icr_status = (uint8_t)((cpu->comp_c64_cia2.icr_status & 0x1Fu) | 0x80u);
+              if (cpu->comp_c64_cia2.nmi_asserted == 0u) {
+                  static int cia2_trace_init = -1;
+                  static FILE *cia2_trace_fp = NULL;
+                  if (cia2_trace_init < 0) {
+                      const char *env = getenv("PASM_C64_CIA2_TRACE");
+                      cia2_trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (cia2_trace_init != 0) {
+                          const char *path = getenv("PASM_C64_CIA2_TRACE_FILE");
+                          if (path == NULL || path[0] == '\0') path = "/tmp/c64_cia2_trace.log";
+                          cia2_trace_fp = fopen(path, "a");
+                          if (cia2_trace_fp == NULL) cia2_trace_init = 0;
+                      }
+                  }
+                  if (cia2_trace_init != 0 && cia2_trace_fp != NULL) {
+                      fprintf(cia2_trace_fp,
+                              "assertNMI cycle=%llu pc=%04X status=%02X mask=%02X cra=%02X crb=%02X ta=%u tb=%u port=%02X ddr=%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc,
+                              (unsigned)cpu->comp_c64_cia2.icr_status,
+                              (unsigned)cpu->comp_c64_cia2.icr_mask,
+                              (unsigned)cpu->comp_c64_cia2.regs[0x0Eu],
+                              (unsigned)cpu->comp_c64_cia2.regs[0x0Fu],
+                              (unsigned)cpu->comp_c64_cia2.ta_counter,
+                              (unsigned)cpu->comp_c64_cia2.tb_counter,
+                              (unsigned)mos6510_read_byte(cpu, 0x0001u),
+                              (unsigned)mos6510_read_byte(cpu, 0x0000u));
+                      fflush(cia2_trace_fp);
+                  }
+                  mos6510_interrupt(cpu, 0xFFu);
+                  cpu->comp_c64_cia2.nmi_asserted = 1u;
+              }
+          } else { cpu->comp_c64_cia2.icr_status = (uint8_t)(cpu->comp_c64_cia2.icr_status & 0x1Fu); cpu->comp_c64_cia2.nmi_asserted = 0u; }
       }
 
       {

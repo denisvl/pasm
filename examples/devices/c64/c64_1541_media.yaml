@@ -1,0 +1,164 @@
+metadata:
+  id: c64_1541_media
+  type: io_backend
+  model: commodore_1541_media
+  version: "1.0"
+
+state:
+  - name: backend_component
+    type: char *
+    initial: "NULL"
+  - name: media_loaded
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr, u8, ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
+      returns: u8
+    - name: query_media_loaded
+      args: []
+      returns: u8
+    - name: query_image_data
+      args: []
+      returns: ptr
+    - name: query_image_size
+      args: []
+      returns: u32
+    - name: query_track_count
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      if (comp->backend_component != NULL) {
+          if (comp->backend_component[0] != '\0') {
+              (void)cpu_component_dispatch_callback(cpu, comp->backend_component, "unload_media", NULL, 0u);
+          }
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+      }
+      comp->media_loaded = 0u;
+  callback_handlers:
+    load_media: |
+      {
+          const char *trace_env = getenv("PASM_C64_LOAD_TRACE");
+          if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+              const char *trace_path = getenv("PASM_C64_LOAD_TRACE_FILE");
+              FILE *fp;
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/c64_load_trace.log";
+              fp = fopen(trace_path, "a");
+              if (fp != NULL) {
+                  fprintf(fp, "drive_load argc=%u arg0=%p arg1=%llu arg2=%p\n",
+                          (unsigned)argc,
+                          (void *)(uintptr_t)((argc > 0u) ? args[0] : 0u),
+                          (unsigned long long)((argc > 1u) ? args[1] : 0u),
+                          (void *)(uintptr_t)((argc > 2u) ? args[2] : 0u));
+                  fclose(fp);
+              }
+          }
+      }
+      const char *backend_component = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : NULL;
+      if (backend_component == NULL || backend_component[0] == '\0') return 0u;
+      if (comp->backend_component != NULL) {
+          if (comp->backend_component[0] != '\0') {
+              (void)cpu_component_dispatch_callback(cpu, comp->backend_component, "unload_media", NULL, 0u);
+          }
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+      }
+      comp->backend_component = strdup(backend_component);
+      if (comp->backend_component == NULL) return 0u;
+      if (cpu_component_dispatch_callback(cpu, comp->backend_component, "load_media", args, 1u) == 0u) {
+          const char *trace_env = getenv("PASM_C64_LOAD_TRACE");
+          if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+              const char *trace_path = getenv("PASM_C64_LOAD_TRACE_FILE");
+              FILE *fp;
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/c64_load_trace.log";
+              fp = fopen(trace_path, "a");
+              if (fp != NULL) {
+                  fprintf(fp, "drive_load backend_fail backend=%s\n", comp->backend_component);
+                  fclose(fp);
+              }
+          }
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+          comp->media_loaded = 0u;
+          return 0u;
+      }
+      comp->media_loaded = 1u;
+      {
+          const char *trace_env = getenv("PASM_C64_LOAD_TRACE");
+          if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+              const char *trace_path = getenv("PASM_C64_LOAD_TRACE_FILE");
+              FILE *fp;
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/c64_load_trace.log";
+              fp = fopen(trace_path, "a");
+              if (fp != NULL) {
+                  fprintf(fp, "drive_load ok backend=%s\n", comp->backend_component);
+                  fclose(fp);
+              }
+          }
+      }
+      return 1u;
+    unload_media: |
+      {
+          const char *trace_env = getenv("PASM_C64_LOAD_TRACE");
+          if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+              const char *trace_path = getenv("PASM_C64_LOAD_TRACE_FILE");
+              FILE *fp;
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/c64_load_trace.log";
+              fp = fopen(trace_path, "a");
+              if (fp != NULL) {
+                  fprintf(fp, "drive_unload backend=%s\n",
+                          (comp->backend_component != NULL) ? comp->backend_component : "<null>");
+                  fclose(fp);
+              }
+          }
+      }
+      if (comp->backend_component != NULL) {
+          if (comp->backend_component[0] != '\0') {
+              (void)cpu_component_dispatch_callback(cpu, comp->backend_component, "unload_media", NULL, 0u);
+          }
+          free(comp->backend_component);
+          comp->backend_component = NULL;
+      }
+      comp->media_loaded = 0u;
+      return 1u;
+    query_drive_activity: |
+      if (comp->backend_component != NULL && comp->backend_component[0] != '\0') {
+          return cpu_component_dispatch_callback(cpu, comp->backend_component, "query_drive_activity", NULL, 0u);
+      }
+      return 0u;
+    query_media_loaded: |
+      return (uint64_t)comp->media_loaded;
+    query_image_data: |
+      if (comp->media_loaded == 0u || comp->backend_component == NULL || comp->backend_component[0] == '\0') return 0u;
+      return cpu_component_dispatch_callback(cpu, comp->backend_component, "query_image_data", NULL, 0u);
+    query_image_size: |
+      if (comp->media_loaded == 0u || comp->backend_component == NULL || comp->backend_component[0] == '\0') return 0u;
+      return cpu_component_dispatch_callback(cpu, comp->backend_component, "query_image_size", NULL, 0u);
+    query_track_count: |
+      if (comp->media_loaded == 0u || comp->backend_component == NULL || comp->backend_component[0] == '\0') return 0u;
+      return cpu_component_dispatch_callback(cpu, comp->backend_component, "query_track_count", NULL, 0u);
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

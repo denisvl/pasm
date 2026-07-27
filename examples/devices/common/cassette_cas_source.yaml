@@ -301,11 +301,15 @@ behavior:
       {
           uint64_t packed = (uint64_t)comp->transport_mode;
           uint64_t current_secs = 0u;
+          uint64_t total_secs = 0u;
           if (comp->motor_on != 0u) packed |= (1ull << 8);
           if (comp->media_loaded != 0u) packed |= (1ull << 9);
           if (comp->signal_sample_rate != 0u) current_secs = comp->playhead_samples / (uint64_t)comp->signal_sample_rate;
+          if (comp->signal_sample_rate != 0u) total_secs = comp->total_samples / (uint64_t)comp->signal_sample_rate;
           if (current_secs > 0xFFFFu) current_secs = 0xFFFFu;
+          if (total_secs > 0xFFFFu) total_secs = 0xFFFFu;
           packed |= (current_secs & 0xFFFFu) << 16u;
+          packed |= (total_secs & 0xFFFFu) << 32u;
           packed |= ((uint64_t)comp->volume_percent & 0xFFull) << 48u;
           return packed;
       }

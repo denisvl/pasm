@@ -1,6 +1,5 @@
 metadata:
   name: MC6809CoCo1InteractiveSystem
-  title: PASM TRS-80 Color Computer 1
   version: '0.1'
 clock_hz: 894886
 reset_delay_seconds: 0
@@ -55,17 +54,22 @@ components:
   - coco1_vdg_6847
   - coco1_cart_expansion
   - coco1_main_ram
+  - wd1793_fdc
   devices:
   - keyboard_coco
   - gameport_coco
   - video_coco
   - speaker
   - cassette_transport
+  - trs80_floppy_image_backend
   - tv
   hosts:
   - host_coco
   cartridge: coco_cart0
   cassette: cassette_transport
+  floppy: wd1793_fdc
+media_picker:
+  open_action_id: EMU_MEDIA_PICKER
 cassette:
   component: cassette_transport
   directory: examples/cassettes/coco1
@@ -98,6 +102,36 @@ cassette:
     bass_down_action_id: EMU_CASSETTE_BASS_DOWN
     treble_up_action_id: EMU_CASSETTE_TREBLE_UP
     treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+floppy:
+  directory: examples/floppies/coco1
+  sources:
+    - kind: file
+      source_type: ../../floppy_sources/jv1_file.yaml
+      source_component: trs80_floppy_image_backend
+      label: CoCo JV1 Disk
+      allowed_extensions: [jv1]
+    - kind: file
+      source_type: ../../floppy_sources/jv3_file.yaml
+      source_component: trs80_floppy_image_backend
+      label: CoCo JV3 Disk
+      allowed_extensions: [jv3]
+    - kind: file
+      source_type: ../../floppy_sources/dmk_file.yaml
+      source_component: trs80_floppy_image_backend
+      label: CoCo DMK Disk
+      allowed_extensions: [dmk]
+    - kind: file
+      source_type: ../../floppy_sources/dsk_file.yaml
+      source_component: trs80_floppy_image_backend
+      label: CoCo DSK Disk
+      allowed_extensions: [dsk]
+  drives:
+    - slot: 0
+      label: Drive 0
+      drive_type: ../../floppy_drives/coco_fd501.yaml
+      component: wd1793_fdc
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
 connections:
 - from:
     component: coco1_sam_6883

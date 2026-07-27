@@ -909,12 +909,14 @@ def generate_device_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         else ""
     )
     component_includes = _generate_component_coding_includes(device_owned_components)
+    subsystem_bridge = _generate_attached_subsystem_bridge_glue(isa_data)
     return (
         "/* Auto-generated split unit: device/runtime ownership. */\n"
         f'#include "{cpu_name}.h"\n\n'
         + overlay_include
         + component_includes
         + host_hal_support
+        + subsystem_bridge
         + "int cpu_component_cartridge_picker_apply_pending_swap(CPUState *cpu);\n"
         + "uint8_t cpu_component_cartridge_picker_is_active(void);\n"
         + "void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus);\n"
@@ -935,6 +937,161 @@ def generate_device_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
         + component_runtime
         + "\n"
     )
+
+
+def _generate_attached_subsystem_bridge_glue(isa_data: Dict[str, Any]) -> str:
+    builds = list(isa_data.get("_attached_subsystem_builds", []) or [])
+    target = None
+    for build in builds:
+        if str(build.get("id", "")).strip() == "c64_1541_subsystem":
+            target = build
+            break
+    if target is None:
+        return ""
+    cpu_prefix = str(target.get("cpu_prefix", "")).strip()
+    subsystem_id = str(target.get("id", "")).strip()
+    if not cpu_prefix or not subsystem_id:
+        return ""
+    dispatch_prefix = _to_ident(subsystem_id)
+    lines = [
+        "typedef void PASMSubsystemOpaqueCPU;",
+        f"extern PASMSubsystemOpaqueCPU *{cpu_prefix}_create(size_t memory_size);",
+        f"extern void {cpu_prefix}_destroy(PASMSubsystemOpaqueCPU *cpu);",
+        f"extern void {cpu_prefix}_reset(PASMSubsystemOpaqueCPU *cpu);",
+        f"extern int {cpu_prefix}_load_system_roms(PASMSubsystemOpaqueCPU *cpu, const char *system_base_dir);",
+        f"extern uint8_t {cpu_prefix}_read_byte(PASMSubsystemOpaqueCPU *cpu, uint16_t addr);",
+        f"extern int {cpu_prefix}_step(PASMSubsystemOpaqueCPU *cpu);",
+        f"extern int {cpu_prefix}_dbg_run_for_cycles(PASMSubsystemOpaqueCPU *cpu, uint64_t max_cycles, uint8_t *out_mode);",
+        f"extern uint64_t {dispatch_prefix}_cpu_component_dispatch_callback(",
+        "    PASMSubsystemOpaqueCPU *cpu,",
+        "    const char *component_id,",
+        "    const char *callback_name,",
+        "    const uint64_t *args,",
+        "    uint8_t argc",
+        ");",
+        "",
+        "static PASMSubsystemOpaqueCPU *g_pasm_c64_1541_subsystem_cpu = NULL;",
+        "static uint64_t g_pasm_c64_1541_subsystem_host_cycles = 0u;",
+        "",
+        "static PASMSubsystemOpaqueCPU *pasm_c64_1541_subsystem_ensure(void) {",
+        "    if (g_pasm_c64_1541_subsystem_cpu != NULL) {",
+        "        return g_pasm_c64_1541_subsystem_cpu;",
+        "    }",
+        f"    g_pasm_c64_1541_subsystem_cpu = {cpu_prefix}_create(65536u);",
+        "    if (g_pasm_c64_1541_subsystem_cpu == NULL) {",
+        "        return NULL;",
+        "    }",
+        f"    if ({cpu_prefix}_load_system_roms(g_pasm_c64_1541_subsystem_cpu, \"examples/systems/c1541\") != 0) {{",
+        f"        {cpu_prefix}_destroy(g_pasm_c64_1541_subsystem_cpu);",
+        "        g_pasm_c64_1541_subsystem_cpu = NULL;",
+        "        return NULL;",
+        "    }",
+        f"    {cpu_prefix}_reset(g_pasm_c64_1541_subsystem_cpu);",
+        "    {",
+        "        const char *env = getenv(\"PASM_C64_TRUE_DRIVE_TRACE\");",
+        "        if (env != NULL && env[0] != '\\0' && env[0] != '0') {",
+        "            const char *path = getenv(\"PASM_C64_TRUE_DRIVE_TRACE_FILE\");",
+        "            FILE *fp;",
+        "            uint8_t vec_lo = 0u;",
+        "            uint8_t vec_hi = 0u;",
+        "            if (path == NULL || path[0] == '\\0') path = \"/tmp/c64_true_drive_trace.log\";",
+        "            vec_lo = " + cpu_prefix + "_read_byte(g_pasm_c64_1541_subsystem_cpu, 0xFFFCu);",
+        "            vec_hi = " + cpu_prefix + "_read_byte(g_pasm_c64_1541_subsystem_cpu, 0xFFFDu);",
+        "            fp = fopen(path, \"a\");",
+        "            if (fp != NULL) {",
+        "                fprintf(fp,",
+        "                        \"subsystem_ensure rom_loaded=1 vec=%02X%02X\\n\",",
+        "                        (unsigned)vec_hi,",
+        "                        (unsigned)vec_lo);",
+        "                fclose(fp);",
+        "            }",
+        "        }",
+        "    }",
+        "    g_pasm_c64_1541_subsystem_host_cycles = 0u;",
+        "    return g_pasm_c64_1541_subsystem_cpu;",
+        "}",
+        "",
+        "void pasm_c64_1541_subsystem_reset(void) {",
+        "    PASMSubsystemOpaqueCPU *subcpu = pasm_c64_1541_subsystem_ensure();",
+        "    if (subcpu != NULL) {",
+        f"        {cpu_prefix}_reset(subcpu);",
+        "        g_pasm_c64_1541_subsystem_host_cycles = 0u;",
+        "    }",
+        "}",
+        "",
+        "void pasm_c64_1541_subsystem_destroy(void) {",
+        "    if (g_pasm_c64_1541_subsystem_cpu != NULL) {",
+        f"        {cpu_prefix}_destroy(g_pasm_c64_1541_subsystem_cpu);",
+        "        g_pasm_c64_1541_subsystem_cpu = NULL;",
+        "        g_pasm_c64_1541_subsystem_host_cycles = 0u;",
+        "    }",
+        "}",
+        "",
+        "uint64_t pasm_c64_1541_subsystem_call(",
+        "    const char *component_id,",
+        "    const char *callback_name,",
+        "    const uint64_t *args,",
+        "    uint8_t argc",
+        ") {",
+        "    PASMSubsystemOpaqueCPU *subcpu = pasm_c64_1541_subsystem_ensure();",
+        "    if (subcpu == NULL || component_id == NULL || callback_name == NULL) {",
+        "        return 0u;",
+        "    }",
+        f"    return {dispatch_prefix}_cpu_component_dispatch_callback(subcpu, component_id, callback_name, args, argc);",
+        "}",
+        "",
+        "int pasm_c64_1541_subsystem_step(uint32_t max_steps) {",
+        "    PASMSubsystemOpaqueCPU *subcpu = pasm_c64_1541_subsystem_ensure();",
+        "    uint32_t i;",
+        "    if (subcpu == NULL) {",
+        "        return -1;",
+        "    }",
+        "    if (max_steps == 0u) {",
+        "        max_steps = 1u;",
+        "    }",
+        "    for (i = 0u; i < max_steps; ++i) {",
+        f"        if ({cpu_prefix}_step(subcpu) != 0) {{",
+        "            break;",
+        "        }",
+        "    }",
+        "    return 0;",
+        "}",
+        "",
+        "int pasm_c64_1541_subsystem_sync_to(uint64_t host_cycles) {",
+        "    PASMSubsystemOpaqueCPU *subcpu = pasm_c64_1541_subsystem_ensure();",
+        "    uint64_t delta_cycles;",
+        "    uint64_t start_cycles;",
+        "    uint8_t mode = 0u;",
+        "    if (subcpu == NULL) {",
+        "        return -1;",
+        "    }",
+        "    if (host_cycles <= g_pasm_c64_1541_subsystem_host_cycles) {",
+        "        return 0;",
+        "    }",
+        "    if (" + dispatch_prefix + "_cpu_component_dispatch_callback(subcpu, \"c64_1541_core\", \"sync_barrier_active\", NULL, 0u) != 0u) {",
+        "        return 0;",
+        "    }",
+        "    delta_cycles = host_cycles - g_pasm_c64_1541_subsystem_host_cycles;",
+        "    start_cycles = g_pasm_c64_1541_subsystem_host_cycles;",
+        "    while (delta_cycles != 0u) {",
+        f"        if ({cpu_prefix}_step(subcpu) != 0) {{",
+        "            return -1;",
+        "        }",
+        "        if (" + dispatch_prefix + "_cpu_component_dispatch_callback(subcpu, \"c64_1541_core\", \"sync_barrier_active\", NULL, 0u) != 0u) {",
+        "            break;",
+        "        }",
+        "        if (delta_cycles <= 8u) {",
+        "            delta_cycles = 0u;",
+        "        } else {",
+        "            delta_cycles -= 8u;",
+        "        }",
+        "    }",
+        "    g_pasm_c64_1541_subsystem_host_cycles = (delta_cycles == 0u) ? host_cycles : start_cycles;",
+        "    return 0;",
+        "}",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def generate_component_lifecycle_dispatch_glue(isa_data: Dict[str, Any]) -> str:
@@ -1123,6 +1280,19 @@ def generate_component_runtime_dispatch_glue(isa_data: Dict[str, Any]) -> str:
                 "    runtime_rc = cpu_component_floppy_picker_apply_pending_load(cpu);",
                 "    if (runtime_rc < 0) {",
                 "        return -1;",
+                "    }",
+            ]
+        )
+    if "c64_1541_subsystem" in {str(build.get("id", "")).strip() for build in list(isa_data.get("_attached_subsystem_builds", []) or [])}:
+        lines.extend(
+            [
+                "    {",
+                "        uint64_t true_drive = cpu_component_dispatch_callback(cpu, \"c64_iec_bus\", \"query_true_drive_active\", NULL, 0u);",
+                "        if (true_drive != 0u) {",
+                "            if (pasm_c64_1541_subsystem_sync_to(cpu->total_cycles) < 0) {",
+                "                return -1;",
+                "            }",
+                "        }",
                 "    }",
             ]
         )

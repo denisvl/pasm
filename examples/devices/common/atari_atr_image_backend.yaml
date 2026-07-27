@@ -1,0 +1,194 @@
+metadata:
+  id: atari_atr_image_backend
+  type: floppy_image_backend
+  model: atari_atr_image_backend
+  version: "1.0"
+
+state:
+  - name: image_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: image_size
+    type: uint32_t
+    initial: "0"
+  - name: payload_offset
+    type: uint32_t
+    initial: "16"
+  - name: sector_size
+    type: uint16_t
+    initial: "128"
+  - name: sector_count
+    type: uint16_t
+    initial: "0"
+  - name: sectors_per_track
+    type: uint8_t
+    initial: "18"
+  - name: track_count
+    type: uint16_t
+    initial: "0"
+  - name: activity_flags
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
+      returns: u8
+    - name: query_geometry
+      args: []
+      returns: u64
+    - name: query_sector_size
+      args: [u16]
+      returns: u64
+    - name: read_atr_sector
+      args: [u16, ptr]
+      returns: u64
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->activity_flags = 0u;
+    destroy: |
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_size = 0u;
+      comp->sector_count = 0u;
+      comp->track_count = 0u;
+      comp->activity_flags = 0u;
+      (void)cpu;
+  callback_handlers:
+    load_media: |
+      const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+      FILE *fp;
+      uint8_t *image = NULL;
+      long file_size_long;
+      size_t file_size;
+      uint16_t sector_size;
+      size_t payload_size;
+      uint16_t sector_count = 0u;
+      if (path == NULL || path[0] == '\0') return 0u;
+      fp = fopen(path, "rb");
+      if (fp == NULL) return 0u;
+      if (fseek(fp, 0L, SEEK_END) != 0) { fclose(fp); return 0u; }
+      file_size_long = ftell(fp);
+      if (file_size_long <= 16L) { fclose(fp); return 0u; }
+      if (fseek(fp, 0L, SEEK_SET) != 0) { fclose(fp); return 0u; }
+      file_size = (size_t)file_size_long;
+      image = (uint8_t *)malloc(file_size);
+      if (image == NULL) { fclose(fp); return 0u; }
+      if (fread(image, 1u, file_size, fp) != file_size) {
+          fclose(fp);
+          free(image);
+          return 0u;
+      }
+      fclose(fp);
+      if (image[0] != 0x96u || image[1] != 0x02u) {
+          free(image);
+          return 0u;
+      }
+      sector_size = (uint16_t)image[4] | (uint16_t)((uint16_t)image[5] << 8u);
+      if (sector_size == 0u) sector_size = 128u;
+      if (sector_size != 128u && sector_size != 256u) {
+          free(image);
+          return 0u;
+      }
+      payload_size = file_size - 16u;
+      if (sector_size == 256u) {
+          if (payload_size < 384u || ((payload_size - 384u) % 256u) != 0u) {
+              free(image);
+              return 0u;
+          }
+          sector_count = (uint16_t)(3u + ((payload_size - 384u) / 256u));
+      } else {
+          if ((payload_size % 128u) != 0u) {
+              free(image);
+              return 0u;
+          }
+          sector_count = (uint16_t)(payload_size / 128u);
+      }
+      if (sector_count == 0u) {
+          free(image);
+          return 0u;
+      }
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_data = image;
+      comp->image_size = (uint32_t)file_size;
+      comp->payload_offset = 16u;
+      comp->sector_size = sector_size;
+      comp->sector_count = sector_count;
+      comp->sectors_per_track = 18u;
+      comp->track_count = (uint16_t)((sector_count + 17u) / 18u);
+      comp->activity_flags = 0u;
+      return 1u;
+    unload_media: |
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_size = 0u;
+      comp->payload_offset = 16u;
+      comp->sector_size = 128u;
+      comp->sector_count = 0u;
+      comp->sectors_per_track = 18u;
+      comp->track_count = 0u;
+      comp->activity_flags = 0u;
+      return 1u;
+    query_drive_activity: |
+      uint8_t flags = comp->activity_flags;
+      comp->activity_flags = 0u;
+      return (uint64_t)flags;
+    query_geometry: |
+      return ((uint64_t)comp->sectors_per_track & 0xFFu) |
+             ((((uint64_t)comp->track_count) & 0xFFFFu) << 8u) |
+             ((((uint64_t)comp->sector_size) & 0xFFFFu) << 24u) |
+             ((((uint64_t)comp->sector_count) & 0xFFFFu) << 40u);
+    query_sector_size: |
+      uint16_t sector = (argc > 0u) ? (uint16_t)(args[0] & 0xFFFFu) : 0u;
+      if (comp->image_data == NULL || sector == 0u || sector > comp->sector_count) return 0u;
+      if (comp->sector_size == 256u && sector <= 3u) return 128u;
+      return (uint64_t)comp->sector_size;
+    read_atr_sector: |
+      uint16_t sector = (argc > 0u) ? (uint16_t)(args[0] & 0xFFFFu) : 0u;
+      uint8_t *dst = (argc > 1u && args[1] != 0u) ? (uint8_t *)(uintptr_t)args[1] : NULL;
+      uint32_t offset;
+      uint16_t bytes;
+      if (dst == NULL || comp->image_data == NULL || sector == 0u || sector > comp->sector_count) return 0u;
+      if (comp->sector_size == 256u) {
+          if (sector <= 3u) {
+              offset = comp->payload_offset + ((uint32_t)(sector - 1u) * 128u);
+              bytes = 128u;
+          } else {
+              offset = comp->payload_offset + 384u + ((uint32_t)(sector - 4u) * 256u);
+              bytes = 256u;
+          }
+      } else {
+          offset = comp->payload_offset + ((uint32_t)(sector - 1u) * 128u);
+          bytes = 128u;
+      }
+      if (offset + bytes > comp->image_size) return 0u;
+      memcpy(dst, comp->image_data + offset, bytes);
+      comp->activity_flags |= 0x01u;
+      return (uint64_t)bytes;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

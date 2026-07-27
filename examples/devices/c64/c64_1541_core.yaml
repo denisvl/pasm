@@ -1,0 +1,354 @@
+metadata:
+  id: c64_1541_core
+  type: floppy_drive
+  model: commodore_1541_core
+  version: "1.0"
+
+state:
+  - name: media_component
+    type: char *
+    initial: "\"c64_1541_media\""
+  - name: dos_component
+    type: char *
+    initial: "\"c64_1541_dos\""
+  - name: host_pra
+    type: uint8_t
+    initial: "0xFF"
+  - name: host_ddra
+    type: uint8_t
+    initial: "0x00"
+  - name: host_atn_out
+    type: uint8_t
+    initial: "1"
+  - name: host_clk_out
+    type: uint8_t
+    initial: "1"
+  - name: host_data_out
+    type: uint8_t
+    initial: "1"
+  - name: drive_clk_out
+    type: uint8_t
+    initial: "1"
+  - name: drive_data_out
+    type: uint8_t
+    initial: "1"
+  - name: bus_clk_in
+    type: uint8_t
+    initial: "1"
+  - name: bus_data_in
+    type: uint8_t
+    initial: "1"
+  - name: activity_flags
+    type: uint8_t
+    initial: "0"
+  - name: prev_host_atn_out
+    type: uint8_t
+    initial: "1"
+  - name: prev_host_clk_out
+    type: uint8_t
+    initial: "1"
+  - name: prev_host_data_out
+    type: uint8_t
+    initial: "1"
+  - name: iec_rx_active
+    type: uint8_t
+    initial: "0"
+  - name: iec_rx_bits
+    type: uint8_t
+    initial: "0"
+  - name: iec_rx_byte
+    type: uint8_t
+    initial: "0"
+  - name: iec_rx_atn
+    type: uint8_t
+    initial: "0"
+  - name: iec_rx_ack
+    type: uint8_t
+    initial: "0"
+  - name: iec_tx_active
+    type: uint8_t
+    initial: "0"
+  - name: iec_tx_bits
+    type: uint8_t
+    initial: "0"
+  - name: iec_tx_byte
+    type: uint8_t
+    initial: "0"
+  - name: iec_tx_phase
+    type: uint8_t
+    initial: "0"
+  - name: iec_tx_wait_ack
+    type: uint8_t
+    initial: "0"
+  - name: true_drive_enabled
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr, u8, ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
+      returns: u8
+    - name: iec_porta_write
+      args: [u8, u8]
+      returns: u8
+    - name: iec_porta_read
+      args: []
+      returns: u8
+    - name: query_media_loaded
+      args: []
+      returns: u8
+    - name: query_true_drive_active
+      args: []
+      returns: u8
+    - name: kernal_load
+      args: []
+      returns: u8
+    - name: kernal_iec_trap
+      args: [u16]
+      returns: u8
+    - name: kernal_file_trap
+      args: [u16]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->host_pra = 0xFFu;
+      comp->host_ddra = 0x00u;
+      comp->host_atn_out = 1u;
+      comp->host_clk_out = 1u;
+      comp->host_data_out = 1u;
+      comp->drive_clk_out = 1u;
+      comp->drive_data_out = 1u;
+      comp->bus_clk_in = 1u;
+      comp->bus_data_in = 1u;
+      comp->activity_flags = 0u;
+      comp->prev_host_atn_out = 1u;
+      comp->prev_host_clk_out = 1u;
+      comp->prev_host_data_out = 1u;
+      comp->iec_rx_active = 0u;
+      comp->iec_rx_bits = 0u;
+      comp->iec_rx_byte = 0u;
+      comp->iec_rx_atn = 0u;
+      comp->iec_rx_ack = 0u;
+      comp->iec_tx_active = 0u;
+      comp->iec_tx_bits = 0u;
+      comp->iec_tx_byte = 0u;
+      comp->iec_tx_phase = 0u;
+      comp->iec_tx_wait_ack = 0u;
+      {
+          const char *env = getenv("PASM_C64_TRUE_DRIVE");
+          comp->true_drive_enabled = (env != NULL && env[0] == '1') ? 1u : 0u;
+      }
+      if (comp->true_drive_enabled != 0u) {
+          pasm_c64_1541_subsystem_reset();
+      }
+    destroy: |
+      comp->activity_flags = 0u;
+  callback_handlers:
+    load_media: |
+      comp->activity_flags = 0u;
+      if (comp->true_drive_enabled != 0u) {
+          (void)pasm_c64_1541_subsystem_call("c64_1541_media", "load_media", args, argc);
+      }
+      return cpu_component_dispatch_callback(cpu, comp->media_component, "load_media", args, argc);
+    unload_media: |
+      comp->activity_flags = 0u;
+      if (comp->true_drive_enabled != 0u) {
+          (void)pasm_c64_1541_subsystem_call("c64_1541_media", "unload_media", NULL, 0u);
+      }
+      return cpu_component_dispatch_callback(cpu, comp->media_component, "unload_media", args, argc);
+    query_drive_activity: |
+      uint8_t flags = (uint8_t)cpu_component_dispatch_callback(cpu, comp->media_component, "query_drive_activity", NULL, 0u);
+      comp->activity_flags = 0u;
+      return (uint64_t)flags;
+    iec_porta_write: |
+      if (argc > 0u) comp->host_pra = (uint8_t)(args[0] & 0xFFu);
+      if (argc > 1u) comp->host_ddra = (uint8_t)(args[1] & 0xFFu);
+      {
+          const char *env = getenv("PASM_C64_TRUE_DRIVE_TRACE");
+          if (env != NULL && env[0] != '\0' && env[0] != '0') {
+              const char *path = getenv("PASM_C64_TRUE_DRIVE_TRACE_FILE");
+              FILE *fp;
+              if (path == NULL || path[0] == '\0') path = "/tmp/c64_true_drive_trace.log";
+              fp = fopen(path, "a");
+              if (fp != NULL) {
+                  fprintf(fp,
+                          "host_iec_write cycle=%llu pc=%04X a=%02X x=%02X y=%02X pra=%02X ddra=%02X true=%u\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)cpu->registers[REG_A],
+                          (unsigned)cpu->registers[REG_X],
+                          (unsigned)cpu->registers[REG_Y],
+                          (unsigned)comp->host_pra,
+                          (unsigned)comp->host_ddra,
+                          (unsigned)comp->true_drive_enabled);
+                  fclose(fp);
+              }
+          }
+      }
+      {
+          const char *serial_env = getenv("PASM_C64_1541_SERIAL_TRACE");
+          if (serial_env != NULL && serial_env[0] != '\0' && serial_env[0] != '0' &&
+              (cpu->pc == 0xED33u || cpu->pc == 0xED36u || cpu->pc == 0xED64u ||
+               cpu->pc == 0xED6Cu || cpu->pc == 0xED74u || cpu->pc == 0xED7Cu ||
+               cpu->pc == 0xED88u || cpu->pc == 0xEE8Au || cpu->pc == 0xEE93u ||
+               cpu->pc == 0xEE97u || cpu->pc == 0xEE9Cu || cpu->pc == 0xEEA0u ||
+               cpu->pc == 0xEEA5u || cpu->pc == 0xEEA9u || cpu->pc == 0xEEACu)) {
+              static FILE *serial_fp = NULL;
+              static uint32_t host_serial_lines_left = 0u;
+              static uint8_t host_serial_lines_init = 0u;
+              if (host_serial_lines_init == 0u) {
+                  host_serial_lines_left = 512u;
+                  host_serial_lines_init = 1u;
+              }
+              if (serial_fp == NULL) {
+                  const char *serial_path = getenv("PASM_C64_1541_SERIAL_TRACE_FILE");
+                  if (serial_path == NULL || serial_path[0] == '\0') serial_path = "/tmp/c64_1541_serial_trace.log";
+                  serial_fp = fopen(serial_path, "a");
+              }
+              if (serial_fp != NULL && host_serial_lines_left > 0u) {
+                  uint8_t st = mos6510_read_byte(cpu, 0x0090u);
+                  uint8_t byte = mos6510_read_byte(cpu, 0x0095u);
+                  uint8_t cnt = mos6510_read_byte(cpu, 0x00A5u);
+                  fprintf(serial_fp,
+                          "host_serial_write cycle=%llu pc=%04X a=%02X x=%02X y=%02X p=%02X pra=%02X ddra=%02X st=%02X byte95=%02X cntA5=%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)cpu->registers[REG_A],
+                          (unsigned)cpu->registers[REG_X],
+                          (unsigned)cpu->registers[REG_Y],
+                          (unsigned)cpu->flags.raw,
+                          (unsigned)comp->host_pra,
+                          (unsigned)comp->host_ddra,
+                          (unsigned)st,
+                          (unsigned)byte,
+                          (unsigned)cnt);
+                  fflush(serial_fp);
+                  host_serial_lines_left -= 1u;
+              }
+          }
+      }
+      if (comp->true_drive_enabled != 0u) {
+          uint64_t sub_args[3];
+          sub_args[0] = (uint64_t)comp->host_pra;
+          sub_args[1] = (uint64_t)comp->host_ddra;
+          sub_args[2] = (uint64_t)(cpu->pc & 0xFFFFu);
+          (void)pasm_c64_1541_subsystem_sync_to(cpu->total_cycles);
+          (void)pasm_c64_1541_subsystem_call("c64_1541_core", "iec_porta_write", sub_args, 3u);
+          (void)pasm_c64_1541_subsystem_step(192u);
+      }
+      return 1u;
+    iec_porta_read: |
+      if (comp->true_drive_enabled != 0u) {
+          uint64_t sub_args[2];
+          uint8_t stack_lo = mos6510_read_byte(cpu, (uint16_t)(0x0100u | (uint8_t)(cpu->sp + 1u)));
+          uint8_t stack_hi = mos6510_read_byte(cpu, (uint16_t)(0x0100u | (uint8_t)(cpu->sp + 2u)));
+          sub_args[0] = (uint64_t)(cpu->pc & 0xFFFFu);
+          sub_args[1] = (uint64_t)(((uint16_t)stack_lo | ((uint16_t)stack_hi << 8)) & 0xFFFFu);
+          (void)pasm_c64_1541_subsystem_sync_to(cpu->total_cycles);
+          (void)pasm_c64_1541_subsystem_step(16u);
+          uint64_t value = pasm_c64_1541_subsystem_call("c64_1541_core", "iec_porta_read", sub_args, 2u);
+          if ((cpu->pc == 0xED66u || cpu->pc == 0xED69u) &&
+              (mos6510_read_byte(cpu, 0x00A5u) != 0x00u) &&
+              (((uint8_t)value) & 0x40u) == 0u) {
+              value = (uint64_t)(((uint8_t)value) | 0x80u);
+          }
+          if ((cpu->pc == 0xEEA9u || cpu->pc == 0xEEACu) &&
+              (mos6510_read_byte(cpu, 0x00A5u) == 0x00u) &&
+              (mos6510_read_byte(cpu, 0x0090u) == 0x00u) &&
+              ((((uint8_t)value) & 0x80u) != 0u) &&
+              ((((uint8_t)value) & 0x40u) == 0u)) {
+              value = (uint64_t)(((uint8_t)value) | 0x40u);
+          }
+          {
+              const char *serial_env = getenv("PASM_C64_1541_SERIAL_TRACE");
+              if (serial_env != NULL && serial_env[0] != '\0' && serial_env[0] != '0') {
+                  static FILE *serial_fp = NULL;
+                  static uint32_t serial_lines_left = 0u;
+                  static uint8_t serial_lines_init = 0u;
+                  if (serial_lines_init == 0u) {
+                      serial_lines_left = 512u;
+                      serial_lines_init = 1u;
+                  }
+                  if (serial_fp == NULL) {
+                      const char *serial_path = getenv("PASM_C64_1541_SERIAL_TRACE_FILE");
+                      if (serial_path == NULL || serial_path[0] == '\0') serial_path = "/tmp/c64_1541_serial_trace.log";
+                      serial_fp = fopen(serial_path, "a");
+                  }
+                  if (serial_fp != NULL && serial_lines_left > 0u &&
+                      (cpu->pc == 0xED66u || cpu->pc == 0xED69u ||
+                       cpu->pc == 0xEEA9u || cpu->pc == 0xEEACu)) {
+                      fprintf(serial_fp,
+                              "host_serial_read cycle=%llu pc=%04X ret=%04X value=%02X st=%02X byte95=%02X cntA5=%02X\n",
+                              (unsigned long long)cpu->total_cycles,
+                              (unsigned)cpu->pc,
+                              (unsigned)sub_args[1],
+                              (unsigned)((uint8_t)value),
+                              (unsigned)mos6510_read_byte(cpu, 0x0090u),
+                              (unsigned)mos6510_read_byte(cpu, 0x0095u),
+                              (unsigned)mos6510_read_byte(cpu, 0x00A5u));
+                      fflush(serial_fp);
+                      serial_lines_left -= 1u;
+                  }
+              }
+          }
+          const char *env = getenv("PASM_C64_TRUE_DRIVE_TRACE");
+          if (env != NULL && env[0] != '\0' && env[0] != '0') {
+              const char *path = getenv("PASM_C64_TRUE_DRIVE_TRACE_FILE");
+              FILE *fp;
+              if (path == NULL || path[0] == '\0') path = "/tmp/c64_true_drive_trace.log";
+              fp = fopen(path, "a");
+              if (fp != NULL) {
+                  fprintf(fp,
+                          "host_iec_read cycle=%llu pc=%04X a=%02X x=%02X y=%02X value=%02X true=%u\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)cpu->registers[REG_A],
+                          (unsigned)cpu->registers[REG_X],
+                          (unsigned)cpu->registers[REG_Y],
+                          (unsigned)((uint8_t)value),
+                          (unsigned)comp->true_drive_enabled);
+                  fclose(fp);
+              }
+          }
+          return value;
+      }
+      return (uint64_t)(comp->host_pra | (uint8_t)(~comp->host_ddra));
+    query_media_loaded: |
+      return cpu_component_dispatch_callback(cpu, comp->media_component, "query_media_loaded", NULL, 0u);
+    query_true_drive_active: |
+      return (uint64_t)(comp->true_drive_enabled != 0u ? 1u : 0u);
+    kernal_iec_trap: |
+      if (comp->true_drive_enabled != 0u) {
+          return 0u;
+      }
+      return cpu_component_dispatch_callback(cpu, comp->dos_component, "kernal_iec_trap", args, argc);
+    kernal_file_trap: |
+      if (comp->true_drive_enabled != 0u) {
+          return 0u;
+      }
+      return cpu_component_dispatch_callback(cpu, comp->dos_component, "kernal_file_trap", args, argc);
+    kernal_load: |
+      if (comp->true_drive_enabled != 0u) {
+          return 0u;
+      }
+      return cpu_component_dispatch_callback(cpu, comp->dos_component, "kernal_load", args, argc);
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

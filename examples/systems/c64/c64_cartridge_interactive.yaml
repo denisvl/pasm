@@ -1,6 +1,5 @@
 metadata:
   name: C64InteractiveSystem
-  title: PASM Commodore 64
   version: '1.0'
 clock_hz: 1022727
 reset_delay_seconds: 0
@@ -70,6 +69,12 @@ components:
   - c64_main_ram
   devices:
   - datasette_c64
+  - c64_iec_bus
+  - c64_1541
+  - c64_1541_media
+  - c64_1541_dos
+  - c64_1541_core
+  - c64_d64_image_backend
   - keyboard_c64
   - joystick_c64
   - video_c64
@@ -78,6 +83,9 @@ components:
   - host_c64_sdl2
   cartridge: c64_cart0
   cassette: datasette_c64
+  floppy: c64_1541
+media_picker:
+  open_action_id: EMU_MEDIA_PICKER
 cassette:
   component: datasette_c64
   directory: examples/cassettes/c64
@@ -110,6 +118,21 @@ cassette:
     treble_up_action_id: EMU_CASSETTE_TREBLE_UP
     treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
     play_sets_motor: false
+floppy:
+  directory: examples/floppies/c64
+  sources:
+    - kind: file
+      source_type: ../../floppy_sources/d64_file.yaml
+      source_component: c64_d64_image_backend
+      label: D64 Disk Image
+      allowed_extensions: [d64]
+  drives:
+    - slot: 0
+      label: Drive 8
+      drive_type: ../../floppy_drives/c64_1541.yaml
+      component: c64_1541
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
 connections:
 - from:
     component: c64_pla

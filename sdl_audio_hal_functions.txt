@@ -1,0 +1,262 @@
+SDL audio HAL functions and backend bodies
+
+Source template:
+src/codegen/cpu_impl.py
+
+cpu_host_audio_spec_zero -> SDL_zero
+
+static void cpu_host_audio_spec_zero(CPUHostAudioSpec *spec) {
+    if (!spec) return;
+    SDL_zero(*spec);
+}
+
+cpu_host_hal_audio_queue -> SDL_QueueAudio
+
+static int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes) {
+    uint64_t need64;
+    uint32_t need;
+    uint32_t new_cap;
+    uint8_t *new_buf;
+    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return -1;
+    if (dev == 0u || !data || len_bytes == 0u || cpu_host_hal_glfw_audio_opened == 0u) return -1;
+#ifdef _WIN32
+    if (cpu_host_hal_glfw_waveout != NULL) {
+        uint32_t tries;
+        for (tries = 0u; tries < 4u; ++tries) {
+            uint32_t idx = (cpu_host_hal_glfw_wave_next + tries) & 3u;
+            WAVEHDR *hdr = &cpu_host_hal_glfw_wave_headers[idx];
+            if ((hdr->dwFlags & WHDR_INQUEUE) != 0u) continue;
+            if ((hdr->dwFlags & WHDR_PREPARED) != 0u) {
+                waveOutUnprepareHeader(cpu_host_hal_glfw_waveout, hdr, sizeof(*hdr));
+                hdr->dwFlags = 0u;
+            }
+            if (len_bytes > cpu_host_hal_glfw_wave_buffer_bytes) return -1;
+            memcpy(cpu_host_hal_glfw_wave_buffers[idx], data, (size_t)len_bytes);
+            memset(hdr, 0, sizeof(*hdr));
+            hdr->lpData = (LPSTR)cpu_host_hal_glfw_wave_buffers[idx];
+            hdr->dwBufferLength = (DWORD)len_bytes;
+            if (waveOutPrepareHeader(cpu_host_hal_glfw_waveout, hdr, sizeof(*hdr)) != MMSYSERR_NOERROR) return -1;
+            if (waveOutWrite(cpu_host_hal_glfw_waveout, hdr, sizeof(*hdr)) != MMSYSERR_NOERROR) {
+                waveOutUnprepareHeader(cpu_host_hal_glfw_waveout, hdr, sizeof(*hdr));
+                return -1;
+            }
+            cpu_host_hal_glfw_wave_next = (idx + 1u) & 3u;
+            return 0;
+        }
+        return 0;
+    }
+#endif
+#ifdef __linux__
+    if (cpu_host_hal_glfw_sdl_audio_dev != 0u) {
+        return SDL_QueueAudio(cpu_host_hal_glfw_sdl_audio_dev, data, len_bytes);
+    }
+    if (cpu_host_hal_glfw_alsa_pcm != NULL) {
+        pthread_mutex_lock(&cpu_host_hal_glfw_audio_mutex);
+        if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) {
+            pthread_mutex_unlock(&cpu_host_hal_glfw_audio_mutex);
+            return -1;
+        }
+        if (cpu_host_hal_glfw_audio_cap != 0u && cpu_host_hal_glfw_audio_buf == NULL) {
+            pthread_mutex_unlock(&cpu_host_hal_glfw_audio_mutex);
+            return -1;
+        }
+        if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) {
+            pthread_mutex_unlock(&cpu_host_hal_glfw_audio_mutex);
+            return -1;
+        }
+        need64 = (uint64_t)cpu_host_hal_glfw_audio_len + (uint64_t)len_bytes;
+        if (need64 == 0u || need64 > 0xFFFFFFFFu || need64 > (uint64_t)SIZE_MAX) {
+            pthread_mutex_unlock(&cpu_host_hal_glfw_audio_mutex);
+            return -1;
+        }
+        need = (uint32_t)need64;
+        if (need > cpu_host_hal_glfw_audio_cap) {
+            new_cap = (cpu_host_hal_glfw_audio_cap == 0u) ? 4096u : cpu_host_hal_glfw_audio_cap;
+            while (new_cap < need) {
+                if (new_cap > 0x7FFFFFFFu) {
+                    new_cap = need;
+                    break;
+                }
+                new_cap <<= 1u;
+            }
+            if (new_cap < need || (uint64_t)new_cap > (uint64_t)SIZE_MAX) {
+                pthread_mutex_unlock(&cpu_host_hal_glfw_audio_mutex);
+                return -1;
+            }
+            new_buf = (uint8_t *)realloc(cpu_host_hal_glfw_audio_buf, (size_t)new_cap);
+            if (!new_buf) {
+                pthread_mutex_unlock(&cpu_host_hal_glfw_audio_mutex);
+                return -1;
+            }
+            cpu_host_hal_glfw_audio_buf = new_buf;
+            cpu_host_hal_glfw_audio_cap = new_cap;
+        }
+        memcpy(
+            cpu_host_hal_glfw_audio_buf + cpu_host_hal_glfw_audio_len,
+            data,
+            (size_t)len_bytes
+        );
+        cpu_host_hal_glfw_audio_len = need;
+        pthread_cond_signal(&cpu_host_hal_glfw_audio_cond);
+        pthread_mutex_unlock(&cpu_host_hal_glfw_audio_mutex);
+        return 0;
+    }
+#endif
+    if (cpu_host_hal_glfw_audio_len > cpu_host_hal_glfw_audio_cap) return -1;
+    if (cpu_host_hal_glfw_audio_cap != 0u && cpu_host_hal_glfw_audio_buf == NULL) return -1;
+    if (cpu_host_hal_glfw_audio_len != 0u && cpu_host_hal_glfw_audio_buf == NULL) return -1;
+    need64 = (uint64_t)cpu_host_hal_glfw_audio_len + (uint64_t)len_bytes;
+    if (need64 == 0u || need64 > 0xFFFFFFFFu || need64 > (uint64_t)SIZE_MAX) return -1;
+    need = (uint32_t)need64;
+    if (need > cpu_host_hal_glfw_audio_cap) {
+        new_cap = (cpu_host_hal_glfw_audio_cap == 0u) ? 4096u : cpu_host_hal_glfw_audio_cap;
+        while (new_cap < need) {
+            if (new_cap > 0x7FFFFFFFu) {
+                new_cap = need;
+                break;
+            }
+            new_cap <<= 1u;
+        }
+        if (new_cap < need || (uint64_t)new_cap > (uint64_t)SIZE_MAX) return -1;
+        new_buf = (uint8_t *)realloc(cpu_host_hal_glfw_audio_buf, (size_t)new_cap);
+        if (!new_buf) return -1;
+        cpu_host_hal_glfw_audio_buf = new_buf;
+        cpu_host_hal_glfw_audio_cap = new_cap;
+    }
+    memcpy(
+        cpu_host_hal_glfw_audio_buf + cpu_host_hal_glfw_audio_len,
+        data,
+        (size_t)len_bytes
+    );
+    cpu_host_hal_glfw_audio_len = need;
+    return 0;
+}
+
+cpu_host_hal_audio_queued_bytes -> SDL_GetQueuedAudioSize
+
+static uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev) {
+    uint32_t queued = 0u;
+    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u || cpu_host_hal_glfw_audio_opened == 0u) return 0u;
+#ifdef __linux__
+    if (cpu_host_hal_glfw_sdl_audio_dev != 0u) {
+        return SDL_GetQueuedAudioSize(cpu_host_hal_glfw_sdl_audio_dev);
+    }
+#endif
+#ifdef _WIN32
+    if (cpu_host_hal_glfw_waveout != NULL) {
+        uint32_t i;
+        for (i = 0u; i < 4u; ++i) {
+            if ((cpu_host_hal_glfw_wave_headers[i].dwFlags & WHDR_INQUEUE) != 0u) {
+                queued += (uint32_t)cpu_host_hal_glfw_wave_headers[i].dwBufferLength;
+            }
+        }
+        return queued;
+    }
+#endif
+    if (cpu_host_hal_glfw_sdl_audio_dev != 0u) {
+        SDL_ClearQueuedAudio(cpu_host_hal_glfw_sdl_audio_dev);
+        return;
+    }
+#ifdef __linux__
+    if (cpu_host_hal_glfw_alsa_pcm != NULL) {
+        pthread_mutex_lock(&cpu_host_hal_glfw_audio_mutex);
+        queued = cpu_host_hal_glfw_audio_len;
+        pthread_mutex_unlock(&cpu_host_hal_glfw_audio_mutex);
+        snd_pcm_sframes_t delay = 0;
+        if (snd_pcm_delay(cpu_host_hal_glfw_alsa_pcm, &delay) >= 0 && delay > 0) {
+            queued += (uint32_t)delay;
+            queued *= (uint32_t)(cpu_host_hal_glfw_alsa_channels ? cpu_host_hal_glfw_alsa_channels : 1u);
+            queued *= 2u;
+        }
+        return queued;
+    }
+#endif
+    return cpu_host_hal_glfw_audio_len;
+}
+
+cpu_host_hal_audio_clear -> SDL_ClearQueuedAudio
+
+static void cpu_host_hal_audio_clear(uint32_t dev) {
+    if ((cpu_host_hal_glfw_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u || cpu_host_hal_glfw_audio_opened == 0u) return;
+#ifdef __linux__
+    if (cpu_host_hal_glfw_sdl_audio_dev != 0u) {
+        SDL_ClearQueuedAudio(cpu_host_hal_glfw_sdl_audio_dev);
+        return;
+    }
+#endif
+#ifdef _WIN32
+    if (cpu_host_hal_glfw_waveout != NULL) {
+        uint32_t i;
+        waveOutReset(cpu_host_hal_glfw_waveout);
+        for (i = 0u; i < 4u; ++i) {
+            if ((cpu_host_hal_glfw_wave_headers[i].dwFlags & WHDR_PREPARED) != 0u) {
+                waveOutUnprepareHeader(cpu_host_hal_glfw_waveout, &cpu_host_hal_glfw_wave_headers[i], sizeof(cpu_host_hal_glfw_wave_headers[i]));
+                cpu_host_hal_glfw_wave_headers[i].dwFlags = 0u;
+            }
+        }
+        cpu_host_hal_glfw_wave_next = 0u;
+        return;
+    }
+#endif
+#ifdef __linux__
+    if (cpu_host_hal_glfw_alsa_pcm != NULL) {
+        pthread_mutex_lock(&cpu_host_hal_glfw_audio_mutex);
+        cpu_host_hal_glfw_audio_len = 0u;
+        pthread_cond_signal(&cpu_host_hal_glfw_audio_cond);
+        pthread_mutex_unlock(&cpu_host_hal_glfw_audio_mutex);
+        snd_pcm_drop(cpu_host_hal_glfw_alsa_pcm);
+        snd_pcm_prepare(cpu_host_hal_glfw_alsa_pcm);
+        return;
+    }
+#endif
+    cpu_host_hal_glfw_audio_len = 0u;
+}
+
+cpu_host_hal_audio_close -> SDL_CloseAudioDevice
+
+static void cpu_host_hal_audio_close(uint32_t dev) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_CloseAudioDevice(dev);
+}
+
+cpu_host_hal_audio_open -> SDL_OpenAudioDevice
+
+static uint32_t cpu_host_hal_audio_open(const char *device, int iscapture, const CPUHostAudioSpec *want, CPUHostAudioSpec *have, int allowed_changes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (!want) return 0u;
+    if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;
+#ifdef __linux__
+    cpu_host_hal_glfw_alsa_stderr_redirect();
+    snd_lib_error_set_handler(cpu_host_hal_glfw_alsa_error_handler);
+#endif
+    return SDL_OpenAudioDevice(
+        device,
+        iscapture,
+        (const SDL_AudioSpec *)want,
+        (SDL_AudioSpec *)have,
+        allowed_changes
+    );
+}
+
+cpu_host_hal_audio_pause -> SDL_PauseAudioDevice
+
+static void cpu_host_hal_audio_pause(uint32_t dev, int pause_on) {
+    if (cpu_host_hal_sdl_inited == 0u) return;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return;
+    if (dev == 0u) return;
+    SDL_PauseAudioDevice(dev, pause_on);
+}
+
+cpu_host_hal_audio_dequeue -> SDL_DequeueAudio
+
+static uint32_t cpu_host_hal_audio_dequeue(uint32_t dev, void *data, uint32_t len_bytes) {
+    if (cpu_host_hal_sdl_inited == 0u) return 0u;
+    if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;
+    if (dev == 0u || !data || len_bytes == 0u) return 0u;
+    return SDL_DequeueAudio(dev, data, len_bytes);
+}

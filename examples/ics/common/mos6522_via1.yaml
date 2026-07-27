@@ -1,0 +1,211 @@
+metadata:
+  id: mos6522_via1
+  type: io_controller
+  model: mos_6522_via
+  version: "1.0"
+
+state:
+  - name: pra
+    type: uint8_t
+    initial: "0x00"
+  - name: prb
+    type: uint8_t
+    initial: "0xFF"
+  - name: ddra
+    type: uint8_t
+    initial: "0x00"
+  - name: ddrb
+    type: uint8_t
+    initial: "0x00"
+  - name: acr
+    type: uint8_t
+    initial: "0x00"
+  - name: pcr
+    type: uint8_t
+    initial: "0x00"
+  - name: ifr
+    type: uint8_t
+    initial: "0x00"
+  - name: ier
+    type: uint8_t
+    initial: "0x00"
+  - name: t1c
+    type: uint16_t
+    initial: "0x0000"
+  - name: t1l
+    type: uint16_t
+    initial: "0x0000"
+  - name: t2c
+    type: uint16_t
+    initial: "0x0000"
+  - name: t2l
+    type: uint16_t
+    initial: "0x0000"
+  - name: last_cycle
+    type: uint64_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - start: 0x1800
+        size: 0x0010
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->pra = 0x00u;
+      comp->prb = 0xFFu;
+      comp->ddra = 0x00u;
+      comp->ddrb = 0x00u;
+      comp->acr = 0x00u;
+      comp->pcr = 0x00u;
+      comp->ifr = 0x00u;
+      comp->ier = 0x00u;
+      comp->t1c = 0u;
+      comp->t1l = 0u;
+      comp->t2c = 0u;
+      comp->t2l = 0u;
+      comp->last_cycle = cpu->total_cycles;
+    destroy: |
+      (void)cpu;
+    step_post: |
+      {
+          uint64_t now = cpu->total_cycles;
+          uint64_t delta = now - comp->last_cycle;
+          comp->last_cycle = now;
+          if (delta != 0u) {
+              if (comp->t1c != 0u) {
+                  if (delta >= (uint64_t)comp->t1c) {
+                      comp->t1c = 0u;
+                      comp->ifr = (uint8_t)(comp->ifr | 0x40u);
+                      if ((comp->acr & 0x40u) != 0u) comp->t1c = comp->t1l;
+                  } else {
+                      comp->t1c = (uint16_t)(comp->t1c - (uint16_t)delta);
+                  }
+              }
+              if (comp->t2c != 0u) {
+                  if (delta >= (uint64_t)comp->t2c) {
+                      comp->t2c = 0u;
+                      comp->ifr = (uint8_t)(comp->ifr | 0x20u);
+                  } else {
+                      comp->t2c = (uint16_t)(comp->t2c - (uint16_t)delta);
+                  }
+              }
+              if ((comp->ifr & comp->ier & 0x7Fu) != 0u) comp->ifr = (uint8_t)(comp->ifr | 0x80u);
+              else comp->ifr = (uint8_t)(comp->ifr & 0x7Fu);
+          }
+      }
+    mem_read_pre: |
+      if ((addr & 0xFFF0u) == 0x1800u) {
+          uint8_t reg = (uint8_t)(addr & 0x0Fu);
+          switch (reg) {
+              case 0x0u: {
+                  uint8_t inb = (uint8_t)cpu_component_dispatch_callback(cpu, "c64_1541_core", "via1_prb_read", NULL, 0u);
+                  comp->ifr = (uint8_t)(comp->ifr & (uint8_t)(~0x18u));
+                  if ((comp->ifr & comp->ier & 0x7Fu) != 0u) comp->ifr = (uint8_t)(comp->ifr | 0x80u);
+                  else comp->ifr = (uint8_t)(comp->ifr & 0x7Fu);
+                  return (uint8_t)((comp->prb & comp->ddrb) | (inb & (uint8_t)(~comp->ddrb)));
+              }
+              case 0x1u:
+              case 0xFu:
+                  comp->ifr = (uint8_t)(comp->ifr & (uint8_t)(~0x03u));
+                  if ((comp->ifr & comp->ier & 0x7Fu) != 0u) comp->ifr = (uint8_t)(comp->ifr | 0x80u);
+                  else comp->ifr = (uint8_t)(comp->ifr & 0x7Fu);
+                  return (uint8_t)((comp->pra & comp->ddra) | (uint8_t)(~comp->ddra));
+              case 0x2u: return comp->ddrb;
+              case 0x3u: return comp->ddra;
+              case 0x4u:
+                  comp->ifr = (uint8_t)(comp->ifr & (uint8_t)(~0x40u));
+                  if ((comp->ifr & comp->ier & 0x7Fu) != 0u) comp->ifr = (uint8_t)(comp->ifr | 0x80u);
+                  else comp->ifr = (uint8_t)(comp->ifr & 0x7Fu);
+                  return (uint8_t)(comp->t1c & 0xFFu);
+              case 0x5u: return (uint8_t)((comp->t1c >> 8u) & 0xFFu);
+              case 0x6u: return (uint8_t)(comp->t1l & 0xFFu);
+              case 0x7u: return (uint8_t)((comp->t1l >> 8u) & 0xFFu);
+              case 0x8u:
+                  comp->ifr = (uint8_t)(comp->ifr & (uint8_t)(~0x20u));
+                  if ((comp->ifr & comp->ier & 0x7Fu) != 0u) comp->ifr = (uint8_t)(comp->ifr | 0x80u);
+                  else comp->ifr = (uint8_t)(comp->ifr & 0x7Fu);
+                  return (uint8_t)(comp->t2c & 0xFFu);
+              case 0x9u: return (uint8_t)((comp->t2c >> 8u) & 0xFFu);
+              case 0xAu: return 0x00u;
+              case 0xBu: return comp->acr;
+              case 0xCu: return comp->pcr;
+              case 0xDu: return comp->ifr;
+              case 0xEu: return (uint8_t)(comp->ier | 0x80u);
+              default: return 0xFFu;
+          }
+      }
+    mem_write_pre: |
+      if ((addr & 0xFFF0u) == 0x1800u) {
+          uint8_t reg = (uint8_t)(addr & 0x0Fu);
+          switch (reg) {
+              case 0x0u:
+                  comp->prb = value;
+                  comp->ifr = (uint8_t)(comp->ifr & (uint8_t)(~0x18u));
+                  if ((comp->ifr & comp->ier & 0x7Fu) != 0u) comp->ifr = (uint8_t)(comp->ifr | 0x80u);
+                  else comp->ifr = (uint8_t)(comp->ifr & 0x7Fu);
+                  (void)cpu_component_dispatch_callback(cpu, "c64_1541_core", "via1_prb_write", (uint64_t[]){ value }, 1u);
+                  return;
+              case 0x1u:
+              case 0xFu:
+                  comp->pra = value;
+                  comp->ifr = (uint8_t)(comp->ifr & (uint8_t)(~0x03u));
+                  if ((comp->ifr & comp->ier & 0x7Fu) != 0u) comp->ifr = (uint8_t)(comp->ifr | 0x80u);
+                  else comp->ifr = (uint8_t)(comp->ifr & 0x7Fu);
+                  return;
+              case 0x2u:
+                  comp->ddrb = value;
+                  comp->ifr = (uint8_t)(comp->ifr & (uint8_t)(~0x18u));
+                  if ((comp->ifr & comp->ier & 0x7Fu) != 0u) comp->ifr = (uint8_t)(comp->ifr | 0x80u);
+                  else comp->ifr = (uint8_t)(comp->ifr & 0x7Fu);
+                  (void)cpu_component_dispatch_callback(cpu, "c64_1541_core", "via1_prb_write", (uint64_t[]){ comp->prb }, 1u);
+                  return;
+              case 0x3u: comp->ddra = value; return;
+              case 0x4u: comp->t1l = (uint16_t)((comp->t1l & 0xFF00u) | value); return;
+              case 0x5u:
+                  comp->t1l = (uint16_t)((comp->t1l & 0x00FFu) | ((uint16_t)value << 8u));
+                  comp->t1c = comp->t1l;
+                  comp->ifr = (uint8_t)(comp->ifr & (uint8_t)(~0x40u));
+                  if ((comp->ifr & comp->ier & 0x7Fu) != 0u) comp->ifr = (uint8_t)(comp->ifr | 0x80u);
+                  else comp->ifr = (uint8_t)(comp->ifr & 0x7Fu);
+                  return;
+              case 0x6u: comp->t1l = (uint16_t)((comp->t1l & 0xFF00u) | value); return;
+              case 0x7u: comp->t1l = (uint16_t)((comp->t1l & 0x00FFu) | ((uint16_t)value << 8u)); return;
+              case 0x8u: comp->t2l = (uint16_t)((comp->t2l & 0xFF00u) | value); return;
+              case 0x9u:
+                  comp->t2l = (uint16_t)((comp->t2l & 0x00FFu) | ((uint16_t)value << 8u));
+                  comp->t2c = comp->t2l;
+                  comp->ifr = (uint8_t)(comp->ifr & (uint8_t)(~0x20u));
+                  if ((comp->ifr & comp->ier & 0x7Fu) != 0u) comp->ifr = (uint8_t)(comp->ifr | 0x80u);
+                  else comp->ifr = (uint8_t)(comp->ifr & 0x7Fu);
+                  return;
+              case 0xAu: return;
+              case 0xBu: comp->acr = value; return;
+              case 0xCu: comp->pcr = value; return;
+              case 0xDu: comp->ifr = (uint8_t)(comp->ifr & (uint8_t)(~(value & 0x7Fu))); return;
+              case 0xEu:
+                  if ((value & 0x80u) != 0u) comp->ier = (uint8_t)(comp->ier | (value & 0x7Fu));
+                  else comp->ier = (uint8_t)(comp->ier & (uint8_t)(~(value & 0x7Fu)));
+                  if ((comp->ifr & comp->ier & 0x7Fu) != 0u) comp->ifr = (uint8_t)(comp->ifr | 0x80u);
+                  else comp->ifr = (uint8_t)(comp->ifr & 0x7Fu);
+                  return;
+              default: return;
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

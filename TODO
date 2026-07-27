@@ -155,6 +155,32 @@
                 lines.append(
                     f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%+d", (int)((int8_t)(((uint32_t){field_ref}) & 0x{mask:X}u)));'
                 )
+
+☐ Parked: C64 1541 true-drive D64 loading still fails after media insertion, IEC handoff, motor polarity, stepper direction, sync, and job-status fixes.
+        Ledger: docs/c64_1541_true_drive_debug_ledger.md
+        Current repro: PASM_C64_TRUE_DRIVE=1 + LOAD"*",8,1 on a simple valid D64 still returns ?FILE NOT FOUND / ST=$42.
+        Current evidence: no-TUI now loads the floppy image; 1541 stream rotates on logical track 18; remaining failure is in 1541 DOS directory buffer/job search semantics.
+        Next system for floppy integration: Atari 800XL, using the existing 800XL target and adding Atari 1050/ATR media support before returning to 1541 true-drive.
+
+☐ Parked: Atari 800XL cassette auto-boot reaches the loaded tape code, but the current `.cas` bootstrap path still does not complete into a working title start.
+        Files: examples/ics/atari800xl/atari800xl_antic.yaml, scripts/run_atari800xl_debugger.sh, examples/devices/atari800xl/atari800xl_cassette_adapter.yaml
+        Reference checked: local clone of Atari800 plus local git history before cassette-path changes.
+        Current evidence:
+          - XL cartridge-detect/TRIG3 handling was corrected against Atari800 behavior.
+          - Auto-boot now reaches the tape boot continuation and jumps through the init vector instead of falling back to BASIC.
+          - Trace now enters loaded code at $083E and later lives around $0747, so the remaining failure is in loaded-program/runtime compatibility, not the XL OS cassette boot entry path.
+        Next system for floppy integration: CPC 464, by extending the existing CPC target with disk support rather than introducing a new platform.
+
+☐ Parked: CPC464 floppy integration loads DSK media and maps AMSDOS ROM 7, but BASIC still routes `CAT`/file access to tape (`Press Play then any key`).
+        Files: examples/ics/cpc464/cpc_gate_array_40010.yaml, examples/devices/cpc464/cpc_floppy_stub.yaml, examples/devices/common/cpc_dsk_image_backend.yaml, scripts/run_amstrad_cpc464_debugger.sh
+        Test image: examples/floppies/cpc464/R-Type (1988)(Electric Dreams Software).dsk
+        Current evidence:
+          - DSK backend parses standard CPC DSK images and sector reads work through the floppy stub contract.
+          - AMSDOS ROM is loaded from examples/roms/cpc464/amsdos.rom and ROM bank 7 is visible through upper-ROM selection.
+          - Direct ROM init at `C006` was insufficient; switching to firmware `KL_INIT_BACK` (`BCCE`) still does not make `CAT` leave cassette mode.
+          - Remaining failure is firmware-level AMSDOS registration/patching semantics, not image decode or basic FDC sector reads.
+        Repo note: debug ledger is in docs/c64_1541_true_drive_debug_ledger.md.
+        Next system for floppy integration: BBC Micro, using the existing target that already exposes SSD/DSD/ADL media config but still points the floppy slot at `bbc_micro_crtc_6845` instead of a real FDC/drive device.
             elif kind == "signed16":
                 lines.append(
                     f'{indent}    (void)snprintf({buf_name}, sizeof({buf_name}), "%+d", (int)((int16_t)(((uint32_t){field_ref}) & 0x{mask:X}u)));'

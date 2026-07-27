@@ -23,6 +23,7 @@ set -euo pipefail
 #   CARTRIDGE_DIR=/abs/path/to/atari800xl/roms   (enable runtime cartridge picker list)
 #   PASM_EMU_CART_PICKER_RAW_KEYS=0|1            (default 1; raw picker hotkey F12)
 #   BOOT_CASSETTE=/abs/path/to/tape.wav|.cas     (auto insert cassette, pulse START, auto play)
+#   FLOPPY=/abs/path/to/disk.atr                  (auto insert ATR disk in D1:)
 #   AUTO_START=0|1                               (default 0; forced to 1 by BOOT_CASSETTE)
 #   OS_ROM=../../roms/atari800xl/ATARIXL.ROM
 #   BASIC_ROM=../../roms/atari800xl/BASIC_C.ROM
@@ -113,6 +114,8 @@ DEVICE_VIDEO="examples/devices/atari800xl/atari800xl_video.yaml"
 DEVICE_SPK="examples/devices/atari800xl/atari800xl_speaker.yaml"
 DEVICE_CASS_ADAPTER="examples/devices/atari800xl/atari800xl_cassette_adapter.yaml"
 DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
+DEVICE_ATR_BACKEND="examples/devices/common/atari_atr_image_backend.yaml"
+DEVICE_ATARI_1050_SIO="examples/devices/atari800xl/atari_1050_sio.yaml"
 DEVICE_TV="examples/devices/common/tv_crt_mono.yaml"
 case "${PROFILE}" in
   default)
@@ -151,6 +154,7 @@ SYSTEM_FOR_GEN="${SYSTEM}"
 
 GEN_CARTRIDGE_ARGS=()
 RUN_CARTRIDGE_ARGS=()
+RUN_FLOPPY_ARGS=()
 GEN_CARTRIDGE_ROM="${CARTRIDGE_ROM_GEN}"
 if [[ -n "${CARTRIDGE_ROM_RUNTIME}" ]]; then
   ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME}"
@@ -178,6 +182,9 @@ if [[ "${USE_CARTRIDGE}" != "0" ]]; then
   fi
   GEN_CARTRIDGE_ARGS=(--cartridge-map "${CARTRIDGE_MAP}" --cartridge-rom "${GEN_CARTRIDGE_ROM}")
 fi
+if [[ -n "${FLOPPY:-}" ]]; then
+  RUN_FLOPPY_ARGS+=(--floppy "${FLOPPY}")
+fi
 
 if [[ ! -f "${SYSTEM_DIR_ABS}/${OS_ROM}" && ! -f "${OS_ROM}" ]]; then
   echo "Warning: OS ROM not found (${OS_ROM})." >&2
@@ -203,6 +210,10 @@ fi
 AUTO_CASSETTE_RUNTIME=""
 if [[ -n "${BOOT_CASSETTE}" ]]; then
   AUTO_CASSETTE_RUNTIME="$(resolve_path_for_gen "${BOOT_CASSETTE}")"
+  if [[ ! -f "${AUTO_CASSETTE_RUNTIME}" ]]; then
+    echo "Error: boot cassette not found (${BOOT_CASSETTE} -> ${AUTO_CASSETTE_RUNTIME})." >&2
+    exit 2
+  fi
   AUTO_START="1"
 fi
 
@@ -254,6 +265,8 @@ uv run python -m src.main generate \
   --device "${DEVICE_SPK}" \
   --device "${DEVICE_CASS_ADAPTER}" \
   --device "${DEVICE_CASS}" \
+  --device "${DEVICE_ATR_BACKEND}" \
+  --device "${DEVICE_ATARI_1050_SIO}" \
   --device "${DEVICE_TV}" \
   --host "${HOST}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
@@ -304,8 +317,9 @@ PASM_ATARI800XL_KB_EVENTS="${PASM_ATARI800XL_KB_EVENTS}" \
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS}" \
 PASM_ATARI800XL_AUTO_START="${AUTO_START}" \
 PASM_ATARI800XL_AUTO_CASSETTE_BOOT="$([[ -n "${AUTO_CASSETTE_RUNTIME}" ]] && printf 1 || printf 0)" \
+PASM_CASSETTE_AUTO_BOOT="$([[ -n "${AUTO_CASSETTE_RUNTIME}" ]] && printf 1 || printf 0)" \
 PASM_EMU_CASSETTE_AUTO_PATH="${AUTO_CASSETTE_RUNTIME}" \
-PASM_EMU_CASSETTE_AUTO_PLAY="0" \
+PASM_EMU_CASSETTE_AUTO_PLAY="$([[ -n "${AUTO_CASSETTE_RUNTIME}" ]] && printf 1 || printf 0)" \
 cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --features linked-emulator -- \
   --backend linked \
   --memory-size "${MEMORY_SIZE}" \
@@ -313,5 +327,6 @@ cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --fe
   "${KEYBOARD_ARGS[@]}" \
   "${CONTROLLER_ARGS[@]}" \
   "${RUN_CARTRIDGE_ARGS[@]}" \
+  "${RUN_FLOPPY_ARGS[@]}" \
   "${EXTRA_DEBUGGER_ARGS[@]}" \
   --run-speed "${RUN_SPEED}"

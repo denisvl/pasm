@@ -1,0 +1,68 @@
+metadata:
+  id: c64_iec_bus
+  type: io_bus
+  model: commodore_iec_serial_bus
+  version: "1.0"
+
+state:
+  - name: drive_component
+    type: char *
+    initial: "\"c64_1541_core\""
+
+interfaces:
+  callbacks:
+    - name: iec_porta_write
+      args: [u8, u8]
+      returns: u8
+    - name: iec_porta_read
+      args: []
+      returns: u8
+    - name: query_true_drive_active
+      args: []
+      returns: u8
+    - name: kernal_load
+      args: []
+      returns: u8
+    - name: kernal_iec_trap
+      args: [u16]
+      returns: u8
+    - name: kernal_file_trap
+      args: [u16]
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      (void)cpu;
+  callback_handlers:
+    iec_porta_write: |
+      const char *target = (comp->drive_component != NULL && comp->drive_component[0] != '\0') ? comp->drive_component : "c64_1541_core";
+      return cpu_component_dispatch_callback(cpu, target, "iec_porta_write", args, argc);
+    iec_porta_read: |
+      const char *target = (comp->drive_component != NULL && comp->drive_component[0] != '\0') ? comp->drive_component : "c64_1541_core";
+      return cpu_component_dispatch_callback(cpu, target, "iec_porta_read", args, argc);
+    query_true_drive_active: |
+      const char *target = (comp->drive_component != NULL && comp->drive_component[0] != '\0') ? comp->drive_component : "c64_1541_core";
+      return cpu_component_dispatch_callback(cpu, target, "query_true_drive_active", NULL, 0u);
+    kernal_load: |
+      const char *target = (comp->drive_component != NULL && comp->drive_component[0] != '\0') ? comp->drive_component : "c64_1541_core";
+      return cpu_component_dispatch_callback(cpu, target, "kernal_load", args, argc);
+    kernal_iec_trap: |
+      const char *target = (comp->drive_component != NULL && comp->drive_component[0] != '\0') ? comp->drive_component : "c64_1541_core";
+      return cpu_component_dispatch_callback(cpu, target, "kernal_iec_trap", args, argc);
+    kernal_file_trap: |
+      const char *target = (comp->drive_component != NULL && comp->drive_component[0] != '\0') ? comp->drive_component : "c64_1541_core";
+      return cpu_component_dispatch_callback(cpu, target, "kernal_file_trap", args, argc);
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

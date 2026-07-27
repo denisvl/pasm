@@ -24,10 +24,10 @@ state:
     initial: "0x00"
   - name: pia_cra
     type: uint8_t
-    initial: "0x00"
+    initial: "0x3F"
   - name: pia_crb
     type: uint8_t
-    initial: "0x00"
+    initial: "0x3F"
   - name: keyboard_code
     type: uint8_t
     initial: "0xFF"
@@ -35,6 +35,21 @@ state:
     type: uint8_t
     initial: "0xFF"
   - name: keyboard_sticky
+    type: uint8_t
+    initial: "0"
+  - name: keyboard_hold_frames
+    type: uint8_t
+    initial: "0"
+  - name: auto_boot_return_sent
+    type: uint8_t
+    initial: "0"
+  - name: auto_boot_return_hold_reads
+    type: uint8_t
+    initial: "0"
+  - name: auto_boot_prompt_pending
+    type: uint8_t
+    initial: "0"
+  - name: auto_boot_cassette_fast_boot_done
     type: uint8_t
     initial: "0"
   - name: nmi_enable
@@ -244,6 +259,9 @@ state:
   - name: cassette_serin_pending_byte
     type: uint8_t
     initial: "0xFF"
+  - name: pokey_delayed_serin_irq
+    type: uint8_t
+    initial: "0"
   - name: cassette_scanline_cycle
     type: uint64_t
     initial: "0"
@@ -425,12 +443,17 @@ behavior:
       comp->pia_orb = 0xFFu;
       comp->pia_ddra = 0x00u;
       comp->pia_ddrb = 0x00u;
-      comp->pia_cra = 0x00u;
-      comp->pia_crb = 0x00u;
+      comp->pia_cra = 0x3Fu;
+      comp->pia_crb = 0x3Fu;
       comp->portb = (uint8_t)((comp->pia_orb & comp->pia_ddrb) | (uint8_t)(~comp->pia_ddrb));
       comp->keyboard_code = 0xFFu;
       comp->keyboard_atascii = 0xFFu;
       comp->keyboard_sticky = 0u;
+      comp->keyboard_hold_frames = 0u;
+      comp->auto_boot_return_sent = 0u;
+      comp->auto_boot_return_hold_reads = 0u;
+      comp->auto_boot_prompt_pending = 0u;
+      comp->auto_boot_cassette_fast_boot_done = 0u;
       comp->nmi_enable = 0u;
       comp->nmi_status = 0u;
       comp->antic_dmactl = 0u;
@@ -487,11 +510,11 @@ behavior:
       comp->pokey_out3 = 0u;
       comp->pokey_out4 = 0u;
       comp->pokey_serout = 0u;
-      comp->pokey_serin = 0xFFu;
+      comp->pokey_serin = 0x00u;
       comp->pokey_irqen = 0u;
-      comp->pokey_irqst = 0xF7u;
+      comp->pokey_irqst = 0xFFu;
       comp->pokey_skctl = 0u;
-      comp->pokey_skstat = 0x7Fu;
+      comp->pokey_skstat = 0xEFu;
       comp->pokey_serout_busy = 0u;
       comp->pokey_serout_done_cycle = 0u;
       comp->pokey_serout_done_latch = 0u;
@@ -500,6 +523,7 @@ behavior:
       comp->cassette_line_state = 1u;
       comp->cassette_serin_pending = 0u;
       comp->cassette_serin_pending_byte = 0xFFu;
+      comp->pokey_delayed_serin_irq = 0u;
       comp->cassette_scanline_cycle = cpu->total_cycles;
       comp->speaker_level = 128u;
       comp->pokey_audio_tick_cycle = 0u;
@@ -654,6 +678,31 @@ behavior:
           comp->render_gtia_regs_next_by_line = NULL;
       }
     mem_read_pre: |
+      if (addr == 0x02FCu) {
+          static int trace_init = -1;
+          static FILE *trace_fp = NULL;
+          static uint32_t trace_count = 0u;
+          if (trace_init < 0) {
+              const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+              trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (trace_init != 0) {
+                  const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                  if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                  if (trace_fp == NULL) trace_fp = stderr;
+              }
+          }
+          if (trace_init != 0 && trace_count < 128u && addr < cpu->memory_size) {
+              fprintf(
+                  trace_fp,
+                  "atari_read CH cycle=%llu pc=%04X value=%02X\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)cpu->pc,
+                  (unsigned)cpu->memory[addr]
+              );
+              fflush(trace_fp);
+              trace_count += 1u;
+          }
+      }
       if (addr >= 0x5000u && addr < 0x5800u) {
           if ((comp->portb & 0x80u) == 0u && comp->selftest_rom != NULL) {
               return comp->selftest_rom[(uint16_t)(addr - 0x5000u)];
@@ -729,6 +778,37 @@ behavior:
                   return comp->pia_ddra;
               }
               {
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  static uint32_t trace_count = 0u;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0 && trace_count < 128u) {
+                      fprintf(
+                          trace_fp,
+                          "atari_read PORTA cycle=%llu pc=%04X pactl=%02X ora=%02X ddra=%02X\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
+                          (unsigned)comp->pia_cra,
+                          (unsigned)comp->pia_ora,
+                          (unsigned)comp->pia_ddra
+                      );
+                      fflush(trace_fp);
+                      trace_count += 1u;
+                  }
+                  {
+                      uint8_t ca2_mode = (uint8_t)((comp->pia_cra >> 3u) & 0x07u);
+                      if (ca2_mode == 0x04u || ca2_mode == 0x05u) {
+                          comp->pia_cra = (uint8_t)(comp->pia_cra & 0x3Fu);
+                      }
+                  }
                   uint8_t in_a = (uint8_t)cpu_component_call(cpu, "atari800xl_antic", "joystick_porta", NULL, 0);
                   return (uint8_t)((comp->pia_ora & comp->pia_ddra) | (in_a & (uint8_t)(~comp->pia_ddra)));
               }
@@ -740,6 +820,28 @@ behavior:
               return (uint8_t)((comp->pia_orb & comp->pia_ddrb) | (uint8_t)(~comp->pia_ddrb));
           }
           if (addr == 0xD302u) {
+              static int trace_init = -1;
+              static FILE *trace_fp = NULL;
+              static uint32_t trace_count = 0u;
+              if (trace_init < 0) {
+                  const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+                  trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                  if (trace_init != 0) {
+                      const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                      if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                      if (trace_fp == NULL) trace_fp = stderr;
+                  }
+              }
+              if (trace_init != 0 && trace_count < 128u) {
+                  fprintf(
+                      trace_fp,
+                      "atari_read PACTL cycle=%llu value=%02X\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)comp->pia_cra
+                  );
+                  fflush(trace_fp);
+                  trace_count += 1u;
+              }
               return comp->pia_cra;
           }
           if (addr == 0xD303u) {
@@ -756,9 +858,33 @@ behavior:
           if (addr == 0xD209u) {
               /* POKEY KBCODE (very simplified) */
               uint8_t v = comp->keyboard_code;
+              static int trace_init = -1;
+              static FILE *trace_fp = NULL;
+              static uint32_t trace_count = 0u;
+              if (trace_init < 0) {
+                  const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+                  trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                  if (trace_init != 0) {
+                      const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                      if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                      if (trace_fp == NULL) trace_fp = stderr;
+                  }
+              }
+              if (trace_init != 0 && trace_count < 128u) {
+                  fprintf(
+                      trace_fp,
+                      "atari_read KBCODE cycle=%llu value=%02X sticky=%u irqst=%02X\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)v,
+                      (unsigned)comp->keyboard_sticky,
+                      (unsigned)comp->pokey_irqst
+                  );
+                  fflush(trace_fp);
+                  trace_count += 1u;
+              }
               if (comp->keyboard_sticky != 0u) {
-                  comp->keyboard_sticky = 0u;
-                  /* Keycode acknowledged: clear keyboard IRQ source (bit 6). */
+                  /* Keycode acknowledged: clear keyboard IRQ source (bit 6),
+                     but keep the key-down latch alive briefly so SKSTAT matches. */
                   comp->pokey_irqst = (uint8_t)(comp->pokey_irqst | 0x40u);
               }
               return v;
@@ -767,6 +893,10 @@ behavior:
               /* POKEY SKSTAT */
               {
                   uint8_t value = (uint8_t)((comp->pokey_skstat & (uint8_t)~0x10u) | (uint8_t)((comp->cassette_line_state != 0u) ? 0x10u : 0x00u));
+                  if (comp->auto_boot_return_hold_reads != 0u) {
+                      value = (uint8_t)(value & (uint8_t)~0x04u);
+                      comp->auto_boot_return_hold_reads -= 1u;
+                  }
                   static int trace_init = -1;
                   static FILE *trace_fp = NULL;
                   static uint32_t trace_count = 0u;
@@ -782,8 +912,9 @@ behavior:
                   if (trace_init != 0 && trace_count < 400u) {
                       fprintf(
                           trace_fp,
-                          "atari_read SKSTAT cycle=%llu value=%02X line=%u raw=%02X\n",
+                          "atari_read SKSTAT cycle=%llu pc=%04X value=%02X line=%u raw=%02X\n",
                           (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
                           (unsigned)value,
                           (unsigned)comp->cassette_line_state,
                           (unsigned)comp->pokey_skstat
@@ -813,8 +944,9 @@ behavior:
                   if (trace_init != 0 && trace_count < 400u) {
                       fprintf(
                           trace_fp,
-                          "atari_read SERIN cycle=%llu value=%02X irqen=%02X irqst=%02X skctl=%02X\n",
+                          "atari_read SERIN cycle=%llu pc=%04X value=%02X irqen=%02X irqst=%02X skctl=%02X\n",
                           (unsigned long long)cpu->total_cycles,
+                          (unsigned)cpu->pc,
                           (unsigned)value,
                           (unsigned)comp->pokey_irqen,
                           (unsigned)comp->pokey_irqst,
@@ -873,17 +1005,51 @@ behavior:
           }
           if (addr == 0xD013u) {
               /* GTIA TRIG3 doubles as XL/XE cartridge detect. */
-              uint8_t trig = (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "trigger3", NULL, 0) & 0x01u);
-              /* Match Atari800: a mapped cartridge drives TRIG3 high so the OS enters the cartridge boot path. */
-              if ((cpu_component_call(cpu, "atari800xl_antic", "cart_present", NULL, 0) & 0x01u) != 0u) {
-                  trig = 1u;
-              }
-              return trig;
+              /* On XL/XE machines, TRIG3 reflects cartridge mapping state:
+                 1 when a cartridge is present, 0 when not. */
+              return (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "cart_present", NULL, 0) & 0x01u);
           }
 
           { uint64_t ra[1] = { (uint64_t)addr }; return (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu); }
       }
     mem_write_pre: |
+      if (addr == 0x02FCu) {
+          const char *auto_boot = getenv("PASM_CASSETTE_AUTO_BOOT");
+          static int trace_init = -1;
+          static FILE *trace_fp = NULL;
+          static uint32_t trace_count = 0u;
+          if (trace_init < 0) {
+              const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+              trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (trace_init != 0) {
+                  const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                  if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                  if (trace_fp == NULL) trace_fp = stderr;
+              }
+          }
+          if (trace_init != 0 && trace_count < 128u) {
+              fprintf(
+                  trace_fp,
+                  "atari_write CH cycle=%llu pc=%04X value=%02X\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)cpu->pc,
+                  (unsigned)value
+              );
+              fflush(trace_fp);
+              trace_count += 1u;
+          }
+          if (
+              value == 0xFFu &&
+              (cpu->pc < 0xC2E4u || cpu->pc > 0xC2F9u) &&
+              comp->auto_boot_prompt_pending == 0u &&
+              comp->auto_boot_return_sent == 0u &&
+              comp->auto_boot_return_hold_reads == 0u &&
+              auto_boot != NULL &&
+              auto_boot[0] == '1'
+          ) {
+              comp->auto_boot_prompt_pending = 1u;
+          }
+      }
       if (addr >= 0x5000u && addr < 0x5800u) {
           if ((comp->portb & 0x80u) == 0u) {
               return;
@@ -1063,19 +1229,49 @@ behavior:
               return;
           }
           if (addr == 0xD302u) {
-              comp->pia_cra = value;
+              uint8_t prev_cra = comp->pia_cra;
+              uint8_t motor_on;
+              value &= 0x3Fu;
+              comp->pia_cra = (uint8_t)((comp->pia_cra & 0xC0u) | value);
               {
-                  uint8_t ca2_mode = (uint8_t)((value >> 3u) & 0x07u);
-                  uint8_t motor_on = (uint8_t)(ca2_mode == 0x06u);
+                  /* On Atari, PACTL bit 3 directly drives the cassette motor:
+                     0 = on, 1 = off. */
+                  motor_on = (uint8_t)(((comp->pia_cra & 0x08u) == 0u) ? 1u : 0u);
                   uint64_t motor_args[1] = { (uint64_t)motor_on };
+                  static int trace_init = -1;
+                  static FILE *trace_fp = NULL;
+                  if (trace_init < 0) {
+                      const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+                      trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                      if (trace_init != 0) {
+                          const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                          if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                          if (trace_fp == NULL) trace_fp = stderr;
+                      }
+                  }
+                  if (trace_init != 0) {
+                      fprintf(
+                          trace_fp,
+                          "atari_pia PACTL write cycle=%llu prev=%02X value=%02X motor_bit=%u motor_on=%u irqen_bit=%u status_bit=%u\n",
+                          (unsigned long long)cpu->total_cycles,
+                          (unsigned)prev_cra,
+                          (unsigned)comp->pia_cra,
+                          (unsigned)((comp->pia_cra >> 3u) & 0x01u),
+                          (unsigned)motor_on,
+                          (unsigned)(comp->pia_cra & 0x01u),
+                          (unsigned)((comp->pia_cra >> 7u) & 0x01u)
+                      );
+                      fflush(trace_fp);
+                  }
                   (void)cpu_component_dispatch_callback(cpu, "atari800xl_cassette_adapter", "set_motor", motor_args, 1);
               }
-              { uint64_t wa[2] = { 0xD302u, (uint64_t)value }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
+              { uint64_t wa[2] = { 0xD302u, (uint64_t)comp->pia_cra }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
               return;
           }
           if (addr == 0xD303u) {
-              comp->pia_crb = value;
-              { uint64_t wa[2] = { 0xD303u, (uint64_t)value }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
+              value &= 0x3Fu;
+              comp->pia_crb = (uint8_t)((comp->pia_crb & 0xC0u) | value);
+              { uint64_t wa[2] = { 0xD303u, (uint64_t)comp->pia_crb }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
               return;
           }
 
@@ -1365,6 +1561,7 @@ behavior:
                   comp->pokey_serin = 0xFFu;
                   comp->cassette_serin_pending = 0u;
                   comp->cassette_serin_pending_byte = 0xFFu;
+                  comp->pokey_delayed_serin_irq = 0u;
                   comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x08u);
               }
               comp->pokey_skctl = value;
@@ -1422,25 +1619,149 @@ behavior:
       static uint32_t framebuf[320u * 192u];
       #define ATARI_BUS_READ8(_addr) ((uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", (uint64_t[]){ (uint64_t)(_addr) }, 1) & 0xFFu))
       {
+          /* Trap Atari OS SIOV so the existing 800XL target can talk to the 1050
+             without needing a full wire-level POKEY/SIO handshake yet. */
+          if (cpu->pc == 0xE459u) {
+              uint8_t device = 0x00u;
+              uint8_t command = 0x00u;
+              uint8_t aux1 = 0x00u;
+              uint8_t aux2 = 0x00u;
+              uint16_t buffer_addr = 0x0000u;
+              uint16_t buffer_len = 0x0000u;
+              uint8_t *buffer = NULL;
+              uint64_t result = 0u;
+              uint8_t status = 0x8Au;
+              uint8_t sp8 = (uint8_t)cpu->sp;
+              uint8_t ret_lo = 0u;
+              uint8_t ret_hi = 0u;
+              uint8_t media_loaded = (uint8_t)cpu_component_dispatch_callback(cpu, "atari_1050_sio", "query_media_loaded", NULL, 0u);
+
+              if (media_loaded == 0u) {
+                  goto atari_siov_fallthrough;
+              }
+
+              if (cpu->memory_size > 0x030Bu) {
+                  device = ATARI_BUS_READ8(0x0300u);
+                  command = ATARI_BUS_READ8(0x0302u);
+                  buffer_addr = (uint16_t)ATARI_BUS_READ8(0x0304u) | (uint16_t)((uint16_t)ATARI_BUS_READ8(0x0305u) << 8u);
+                  buffer_len = (uint16_t)ATARI_BUS_READ8(0x0308u) | (uint16_t)((uint16_t)ATARI_BUS_READ8(0x0309u) << 8u);
+                  aux1 = ATARI_BUS_READ8(0x030Au);
+                  aux2 = ATARI_BUS_READ8(0x030Bu);
+              }
+
+              if (device != 0x31u) {
+                  goto atari_siov_fallthrough;
+              }
+
+              if (buffer_len != 0u && (uint32_t)buffer_addr + (uint32_t)buffer_len <= cpu->memory_size) {
+                  buffer = &cpu->memory[buffer_addr];
+              } else if (buffer_len == 0u && buffer_addr < cpu->memory_size) {
+                  buffer = &cpu->memory[buffer_addr];
+              }
+
+              result = cpu_component_dispatch_callback(
+                  cpu,
+                  "atari_1050_sio",
+                  "sio_command",
+                  (uint64_t[]){
+                      device,
+                      command,
+                      aux1,
+                      aux2,
+                      (uint64_t)(uintptr_t)buffer,
+                      buffer_len,
+                  },
+                  6u
+              );
+              if (result != 0u) {
+                  status = 0x01u;
+                  cpu->flags.C = false;
+              } else {
+                  cpu->flags.C = true;
+              }
+              cpu->registers[REG_Y] = status;
+              cpu->registers[REG_A] = status;
+
+              ret_lo = ATARI_BUS_READ8((uint16_t)(0x0100u + (uint16_t)(uint8_t)(sp8 + 1u)));
+              ret_hi = ATARI_BUS_READ8((uint16_t)(0x0100u + (uint16_t)(uint8_t)(sp8 + 2u)));
+              cpu->sp = (uint8_t)(sp8 + 2u);
+              cpu->pc = (uint16_t)(((uint16_t)ret_hi << 8u) | (uint16_t)ret_lo);
+              cpu->pc = (uint16_t)(cpu->pc + 1u);
+              return;
+          }
+      atari_siov_fallthrough:;
+      }
+      {
           const uint64_t scanline_cycles = 114u;
           if (comp->cassette_scanline_cycle == 0u) {
               comp->cassette_scanline_cycle = cpu->total_cycles;
           }
           while ((cpu->total_cycles - comp->cassette_scanline_cycle) >= scanline_cycles) {
               uint64_t cassette_state;
+              uint64_t transport_state;
               comp->cassette_scanline_cycle += scanline_cycles;
-              if (comp->cassette_serin_pending != 0u) {
-                  comp->pokey_serin = comp->cassette_serin_pending_byte;
+              transport_state = cpu_component_dispatch_callback(cpu, "atari800xl_cassette_adapter", "query_transport_state", NULL, 0);
+              if (
+                  (transport_state & (1ull << 8u)) == 0u ||
+                  (transport_state & (1ull << 9u)) == 0u
+              ) {
+                  comp->cassette_line_state = 1u;
                   comp->cassette_serin_pending = 0u;
                   comp->cassette_serin_pending_byte = 0xFFu;
-                  if ((comp->pokey_irqen & 0x20u) != 0u) {
-                      if ((comp->pokey_irqst & 0x20u) != 0u) {
-                          comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x20u);
-                      } else {
-                          comp->pokey_skstat = (uint8_t)(comp->pokey_skstat & (uint8_t)~0x20u);
+                  comp->pokey_delayed_serin_irq = 0u;
+                  continue;
+              }
+              if (comp->pokey_delayed_serin_irq != 0u) {
+                  comp->pokey_delayed_serin_irq = (uint8_t)(comp->pokey_delayed_serin_irq - 1u);
+                  if (comp->pokey_delayed_serin_irq == 0u && comp->cassette_serin_pending != 0u) {
+                      comp->pokey_serin = comp->cassette_serin_pending_byte;
+                      comp->cassette_serin_pending = 0u;
+                      comp->cassette_serin_pending_byte = 0xFFu;
+                      if ((comp->pokey_irqen & 0x20u) != 0u) {
+                          if ((comp->pokey_irqst & 0x20u) != 0u) {
+                              comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x20u);
+                          } else {
+                              comp->pokey_skstat = (uint8_t)(comp->pokey_skstat & (uint8_t)~0x20u);
+                          }
+                          cpu_component_call(cpu, "atari800xl_antic", "request_irq", NULL, 0);
                       }
-                      cpu_component_call(cpu, "atari800xl_antic", "request_irq", NULL, 0);
+                      {
+                          static int trace_init = -1;
+                          static FILE *trace_fp = NULL;
+                          if (trace_init < 0) {
+                              const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+                              trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                              if (trace_init != 0) {
+                                  const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                                  if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                                  if (trace_fp == NULL) trace_fp = stderr;
+                              }
+                          }
+                          if (trace_init != 0) {
+                              fprintf(
+                                  trace_fp,
+                                  "atari_serin deliver cycle=%llu byte=%02X irqen=%02X irqst=%02X skstat=%02X\n",
+                                  (unsigned long long)cpu->total_cycles,
+                                  (unsigned)comp->pokey_serin,
+                                  (unsigned)comp->pokey_irqen,
+                                  (unsigned)comp->pokey_irqst,
+                                  (unsigned)comp->pokey_skstat
+                              );
+                              fflush(trace_fp);
+                          }
+                      }
                   }
+              }
+              if (comp->cassette_serin_pending != 0u) {
+                  continue;
+              }
+              cassette_state = cpu_component_dispatch_callback(cpu, "atari800xl_cassette_adapter", "sample_input", NULL, 0);
+              comp->cassette_line_state = (uint8_t)((cassette_state >> 16u) & 0x01u);
+              if ((cassette_state & 0x01u) != 0u) {
+                  comp->cassette_serin_pending = 1u;
+                  comp->cassette_serin_pending_byte = (uint8_t)((cassette_state >> 8u) & 0xFFu);
+                  comp->pokey_delayed_serin_irq = 1u;
+                  comp->pokey_skstat = (uint8_t)(comp->pokey_skstat | 0x20u);
                   {
                       static int trace_init = -1;
                       static FILE *trace_fp = NULL;
@@ -1456,22 +1777,15 @@ behavior:
                       if (trace_init != 0) {
                           fprintf(
                               trace_fp,
-                              "atari_serin deliver cycle=%llu byte=%02X irqen=%02X irqst=%02X skstat=%02X\n",
+                              "atari_serin pending cycle=%llu byte=%02X line=%u delay=%u\n",
                               (unsigned long long)cpu->total_cycles,
-                              (unsigned)comp->pokey_serin,
-                              (unsigned)comp->pokey_irqen,
-                              (unsigned)comp->pokey_irqst,
-                              (unsigned)comp->pokey_skstat
+                              (unsigned)comp->cassette_serin_pending_byte,
+                              (unsigned)comp->cassette_line_state,
+                              (unsigned)comp->pokey_delayed_serin_irq
                           );
                           fflush(trace_fp);
                       }
                   }
-              }
-              cassette_state = cpu_component_dispatch_callback(cpu, "atari800xl_cassette_adapter", "sample_input", NULL, 0);
-              comp->cassette_line_state = (uint8_t)((cassette_state >> 16u) & 0x01u);
-              if ((cassette_state & 0x01u) != 0u) {
-                  comp->cassette_serin_pending = 1u;
-                  comp->cassette_serin_pending_byte = (uint8_t)((cassette_state >> 8u) & 0xFFu);
               }
           }
       }
@@ -1687,11 +2001,153 @@ behavior:
           }
       }
       {
+          const char *auto_boot = getenv("PASM_CASSETTE_AUTO_BOOT");
+          const char *auto_path = getenv("PASM_EMU_CASSETTE_AUTO_PATH");
+          if (
+              comp->auto_boot_cassette_fast_boot_done == 0u &&
+              comp->auto_boot_return_sent != 0u &&
+              auto_boot != NULL &&
+              auto_boot[0] == '1' &&
+              auto_path != NULL &&
+              auto_path[0] != '\0'
+          ) {
+              FILE *fp = fopen(auto_path, "rb");
+              if (fp != NULL) {
+                  uint8_t chunk_header[8];
+                  uint8_t *boot_bytes = NULL;
+                  uint32_t boot_len = 0u;
+                  uint32_t boot_cap = 0u;
+                  uint8_t boot_started = 0u;
+                  uint32_t target_len = 0u;
+                  while (fread(chunk_header, 1, 8, fp) == 8u) {
+                      uint32_t chunk_len = (uint32_t)chunk_header[4] | ((uint32_t)chunk_header[5] << 8u);
+                      uint8_t *chunk_buf = NULL;
+                      if (chunk_len > 0u) {
+                          chunk_buf = (uint8_t *)malloc((size_t)chunk_len);
+                          if (chunk_buf == NULL) break;
+                          if (fread(chunk_buf, 1, (size_t)chunk_len, fp) != (size_t)chunk_len) {
+                              free(chunk_buf);
+                              break;
+                          }
+                      }
+                      if (memcmp(chunk_header, "data", 4) == 0 && chunk_buf != NULL) {
+                          uint32_t payload_offset = 0u;
+                          uint32_t payload_len = chunk_len;
+                          if (
+                              chunk_len >= 4u &&
+                              chunk_buf[0] == 0x55u &&
+                              chunk_buf[1] == 0x55u
+                          ) {
+                              payload_offset = 3u;
+                              payload_len = chunk_len - 4u;
+                          }
+                          if (payload_len != 0u && payload_offset + payload_len <= chunk_len) {
+                              if (boot_len + payload_len > boot_cap) {
+                                  uint32_t new_cap = boot_len + payload_len;
+                                  uint8_t *new_buf = (uint8_t *)realloc(boot_bytes, (size_t)new_cap);
+                                  if (new_buf == NULL) {
+                                      free(chunk_buf);
+                                      break;
+                                  }
+                                  boot_bytes = new_buf;
+                                  boot_cap = new_cap;
+                              }
+                              memcpy(boot_bytes + boot_len, chunk_buf + payload_offset, (size_t)payload_len);
+                              boot_len += payload_len;
+                              if (boot_started == 0u && boot_len >= 6u && boot_bytes[0] == 0x00u) {
+                                  uint32_t recs = (boot_bytes[1] != 0u) ? (uint32_t)boot_bytes[1] : 256u;
+                                  target_len = recs * 128u;
+                                  boot_started = 1u;
+                              }
+                              if (boot_started != 0u && target_len != 0u && boot_len >= target_len) {
+                                  break;
+                              }
+                          }
+                      } else if (chunk_len > 0u) {
+                          (void)fseek(fp, 0L, SEEK_CUR);
+                      }
+                      if (chunk_buf != NULL) free(chunk_buf);
+                  }
+                  fclose(fp);
+                  if (boot_bytes != NULL && boot_started != 0u && target_len >= 7u && boot_len >= target_len) {
+                      uint16_t load_addr = (uint16_t)boot_bytes[2] | (uint16_t)((uint16_t)boot_bytes[3] << 8u);
+                      uint16_t init_addr = (uint16_t)boot_bytes[4] | (uint16_t)((uint16_t)boot_bytes[5] << 8u);
+                      if ((uint32_t)load_addr + target_len <= cpu->memory_size && load_addr >= 0x0200u) {
+                          memcpy(&cpu->memory[load_addr], boot_bytes, (size_t)target_len);
+                          if (cpu->memory_size > 0x0003u) {
+                              cpu->memory[0x0002u] = (uint8_t)(init_addr & 0xFFu);
+                              cpu->memory[0x0003u] = (uint8_t)(init_addr >> 8u);
+                          }
+                          if (cpu->memory_size > 0x0009u) {
+                              cpu->memory[0x0009u] = 0x02u; /* BOOT? = cassette */
+                          }
+                          if (cpu->memory_size > 0x000Bu) {
+                              cpu->memory[0x000Au] = (uint8_t)(init_addr & 0xFFu);
+                              cpu->memory[0x000Bu] = (uint8_t)(init_addr >> 8u);
+                          }
+                          if (cpu->memory_size > 0x0602u) {
+                              cpu->memory[0x0600u] = 0x6Cu; /* JMP ($000A) */
+                              cpu->memory[0x0601u] = 0x0Au;
+                              cpu->memory[0x0602u] = 0x00u;
+                          }
+                          {
+                              uint8_t sp8 = (uint8_t)cpu->sp;
+                              ATARI_BUS_READ8(0x0000u); /* keep macro referenced in this block */
+                              if (sp8 >= 1u) {
+                                  uint64_t wa_hi[2] = { (uint64_t)(0x0100u + (uint16_t)sp8), 0x05u };
+                                  cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa_hi, 2);
+                                  sp8 = (uint8_t)(sp8 - 1u);
+                                  uint64_t wa_lo[2] = { (uint64_t)(0x0100u + (uint16_t)sp8), 0xFFu };
+                                  cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa_lo, 2);
+                                  sp8 = (uint8_t)(sp8 - 1u);
+                                  cpu->sp = sp8;
+                                  cpu->pc = (uint16_t)(load_addr + 6u);
+                                  comp->auto_boot_cassette_fast_boot_done = 1u;
+                              }
+                          }
+                      }
+                  }
+                  if (boot_bytes != NULL) free(boot_bytes);
+              }
+          }
+      }
+      {
           uint8_t key = (uint8_t)cpu_component_call(cpu, "atari800xl_antic", "keyboard_ascii", NULL, 0);
           uint8_t mods = (uint8_t)cpu_component_call(cpu, "atari800xl_antic", "keyboard_mods", NULL, 0);
+          if (key == 0u && comp->auto_boot_prompt_pending != 0u) {
+              static int trace_init = -1;
+              static FILE *trace_fp = NULL;
+              if (trace_init < 0) {
+                  const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+                  trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+                  if (trace_init != 0) {
+                      const char *path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                      if (path != NULL && path[0] != '\0') trace_fp = fopen(path, "a");
+                      if (trace_fp == NULL) trace_fp = stderr;
+                  }
+              }
+              if (trace_init != 0) {
+                  fprintf(
+                      trace_fp,
+                      "atari_prompt_key cycle=%llu pc=%04X key=%02X\n",
+                      (unsigned long long)cpu->total_cycles,
+                      (unsigned)cpu->pc,
+                      12u
+                  );
+                  fflush(trace_fp);
+              }
+              key = 12u; /* RETURN KBCODE+1 */
+              comp->auto_boot_return_sent = 1u;
+              comp->auto_boot_return_hold_reads = 64u;
+              comp->auto_boot_prompt_pending = 0u;
+          }
           uint8_t shift = (uint8_t)(mods & 0x01u);
           uint8_t ctrl = (uint8_t)((mods & 0x02u) != 0u);
           uint8_t any_key = (uint8_t)((mods & 0x04u) != 0u);
+          if (any_key == 0u && comp->keyboard_hold_frames != 0u) {
+              any_key = 1u;
+              comp->keyboard_hold_frames -= 1u;
+          }
 
           /* Update SKSTAT keyboard bits (active-low).
              - bit 3: SHIFT key (0=pressed)
@@ -1712,15 +2168,28 @@ behavior:
                   comp->keyboard_code = live_code;
                   comp->keyboard_atascii = live_code;
                   comp->keyboard_sticky = 1u;
+                  comp->keyboard_hold_frames = 4u;
+                  if (cpu->memory_size >= 0x02FDu) {
+                      uint64_t wa[2] = { 0x02FCu, (uint64_t)live_code }; /* CH shadow */
+                      cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2);
+                  }
                   comp->pokey_irqst = (uint8_t)(comp->pokey_irqst & (uint8_t)~0x40u);
                   if ((comp->pokey_irqen & 0x40u) != 0u) {
                       cpu_component_call(cpu, "atari800xl_antic", "request_irq", NULL, 0);
                   }
               } else {
                   comp->keyboard_code = live_code;
+                  comp->keyboard_hold_frames = 4u;
               }
           } else {
               comp->keyboard_atascii = 0xFFu;
+              if (
+                  comp->auto_boot_return_sent != 0u &&
+                  comp->keyboard_hold_frames == 0u &&
+                  comp->auto_boot_return_hold_reads == 0u
+              ) {
+                  comp->auto_boot_return_sent = 0u;
+              }
           }
       }
       {

@@ -14,6 +14,9 @@ set -euo pipefail
 #   CMAKE_BUILD_TYPE=Release
 #   RUN_SPEED=realtime|max
 #   PASM_HOST_AUDIO=1
+#   FLOPPY=/abs/path/to/disk.jv1|.jv3|.dmk|.dsk
+#   DISK_ROM=/abs/path/to/disk_basic.rom
+#   ECB_ROM=/abs/path/to/extbasic.rom              (map Extended BASIC at $8000-$9FFF)
 #   USE_CARTRIDGE=0|1
 #   CARTRIDGE_MAP=examples/cartridges/coco1/coco_mapper_none.yaml
 #   CARTRIDGE_ROM_GEN=../../roms/coco1/Downland V1.1 (1983) (26-3046) (Tandy) [a1].ccc
@@ -37,6 +40,8 @@ BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-0}"
 PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/coco1/host_keyboard_coco.yaml}"
 CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/coco1/host_controller_coco.yaml}"
+DISK_ROM="${DISK_ROM:-}"
+ECB_ROM="${ECB_ROM:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -51,11 +56,14 @@ IC_PIA1="examples/ics/coco1/coco1_pia1_6821.yaml"
 IC_VDG="examples/ics/coco1/coco1_vdg_6847.yaml"
 IC_CART_EXP="examples/ics/coco1/coco1_cart_expansion.yaml"
 IC_MAIN_RAM="examples/ics/coco1/coco1_main_ram.yaml"
+IC_FDC="examples/ics/common/wd1793.yaml"
 DEVICE_KB="examples/devices/coco1/coco_keyboard.yaml"
 DEVICE_GP="examples/devices/coco1/coco_gameport.yaml"
 DEVICE_VIDEO="examples/devices/coco1/coco_video.yaml"
 DEVICE_SPK="examples/devices/coco1/coco_speaker.yaml"
 DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
+DEVICE_FLOPPY_BACKEND="examples/devices/common/trs80_floppy_image_backend.yaml"
+RUN_FLOPPY_ARGS=()
 
 case "${PROFILE}" in
   default)
@@ -82,8 +90,87 @@ OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_D
 BUILD_DIR_ABS="$(cd "$(dirname "${BUILD_DIR}")" && pwd)/$(basename "${BUILD_DIR}")"
 SYSTEM_DIR="$(dirname "${SYSTEM}")"
 SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
+TEMP_SYSTEM_FILE=""
 if [[ -z "${CARTRIDGE_DIR}" ]]; then
   CARTRIDGE_DIR="${REPO_ROOT}/examples/roms/coco1"
+fi
+
+if [[ -n "${FLOPPY:-}" ]]; then
+  RUN_FLOPPY_ARGS+=(--floppy "${FLOPPY}")
+fi
+
+if [[ -n "${DISK_ROM}" ]]; then
+  USE_CARTRIDGE=1
+  CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/coco1/coco_mapper_none.yaml}"
+  CARTRIDGE_ROM_RUN="${CARTRIDGE_ROM_RUN:-${DISK_ROM}}"
+  if [[ "${BOOT_CARTRIDGE}" == "0" ]]; then
+    BOOT_CARTRIDGE=1
+  fi
+fi
+
+if [[ -n "${ECB_ROM}" ]]; then
+  if command -v realpath >/dev/null 2>&1; then
+    ECB_ROM_RUNTIME="$(realpath "${ECB_ROM}")"
+  elif command -v readlink >/dev/null 2>&1; then
+    ECB_ROM_RUNTIME="$(readlink -f "${ECB_ROM}")"
+  else
+    ECB_ROM_RUNTIME="${ECB_ROM}"
+  fi
+  if [[ ! -f "${ECB_ROM_RUNTIME}" ]]; then
+    echo "Extended BASIC ROM not found: ${ECB_ROM_RUNTIME}" >&2
+    exit 4
+  fi
+  TEMP_SYSTEM_FILE="${SYSTEM_DIR}/.tmp_$(basename "${SYSTEM}" .yaml)_$$.yaml"
+  ECB_ROM_RUNTIME="${ECB_ROM_RUNTIME}" TEMP_SYSTEM_FILE="${TEMP_SYSTEM_FILE}" SYSTEM="${SYSTEM}" \
+    python3 - <<'PY'
+import os
+from pathlib import Path
+
+system_path = Path(os.environ["SYSTEM"])
+temp_path = Path(os.environ["TEMP_SYSTEM_FILE"])
+ecb_rom = os.environ["ECB_ROM_RUNTIME"]
+text = system_path.read_text(encoding="utf-8")
+old_regions = """  - name: RAM_LOWER
+    start: 0
+    size: 40960
+    read_write: true
+  - name: ROM_COCOROM_A000
+"""
+new_regions = """  - name: RAM_LOWER
+    start: 0
+    size: 32768
+    read_write: true
+  - name: ROM_EXTBASIC_8000
+    start: 32768
+    size: 8192
+    read_only: true
+  - name: ROM_COCOROM_A000
+"""
+if old_regions not in text:
+    raise SystemExit("unexpected CoCo memory layout; cannot inject ECB ROM")
+text = text.replace(old_regions, new_regions, 1)
+old_roms = """  rom_images:
+  - name: coco_rom_primary
+"""
+new_roms = f"""  rom_images:
+  - name: coco_rom_extbasic
+    file: {ecb_rom}
+    target_region: ROM_EXTBASIC_8000
+    offset: 0
+  - name: coco_rom_primary
+"""
+if old_roms not in text:
+    raise SystemExit("unexpected CoCo rom_images layout; cannot inject ECB ROM")
+text = text.replace(old_roms, new_roms, 1)
+temp_path.write_text(text, encoding="utf-8")
+PY
+  SYSTEM="${TEMP_SYSTEM_FILE}"
+  SYSTEM_DIR="$(dirname "${SYSTEM}")"
+  SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
+fi
+
+if [[ -n "${FLOPPY:-}" && -z "${DISK_ROM}" && -z "${CARTRIDGE_ROM_RUN:-}" && -z "${CARTRIDGE_ROM_GEN}" ]]; then
+  echo "warning: FLOPPY is set but no DISK_ROM/cartridge ROM is configured; CoCo Disk BASIC will not be available." >&2
 fi
 
 # Cartridge mode can be enabled explicitly (USE_CARTRIDGE=1) or implicitly by setting any
@@ -127,7 +214,13 @@ fi
 
 if [[ "${USE_CARTRIDGE}" == "1" ]]; then
   if [[ -n "${CARTRIDGE_ROM_RUN:-}" ]]; then
-    CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUN}"
+    if command -v realpath >/dev/null 2>&1; then
+      CARTRIDGE_ROM_RUNTIME="$(realpath "${CARTRIDGE_ROM_RUN}")"
+    elif command -v readlink >/dev/null 2>&1; then
+      CARTRIDGE_ROM_RUNTIME="$(readlink -f "${CARTRIDGE_ROM_RUN}")"
+    else
+      CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUN}"
+    fi
   elif command -v realpath >/dev/null 2>&1; then
     CARTRIDGE_ROM_RUNTIME="$(realpath "${SYSTEM_DIR_ABS}/${CARTRIDGE_ROM_GEN}")"
   elif command -v readlink >/dev/null 2>&1; then
@@ -169,11 +262,13 @@ uv run python -m src.main generate \
   --ic "${IC_VDG}" \
   --ic "${IC_CART_EXP}" \
   --ic "${IC_MAIN_RAM}" \
+  --ic "${IC_FDC}" \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_GP}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --device "${DEVICE_CASS}" \
+  --device "${DEVICE_FLOPPY_BACKEND}" \
   --host "${HOST}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
   "${GEN_CARTRIDGE_ARGS[@]}" \
@@ -197,6 +292,15 @@ fi
 echo "    cartridge_dir=${CARTRIDGE_DIR}"
 echo "    boot_cartridge=${BOOT_CARTRIDGE}"
 echo "    cart_picker_raw_keys=${PASM_EMU_CART_PICKER_RAW_KEYS}"
+if [[ -n "${FLOPPY:-}" ]]; then
+  echo "    floppy=${FLOPPY}"
+fi
+if [[ -n "${DISK_ROM}" ]]; then
+  echo "    disk_rom=${DISK_ROM}"
+fi
+if [[ -n "${ECB_ROM}" ]]; then
+  echo "    ecb_rom=${ECB_ROM_RUNTIME}"
+fi
 PASM_EMU_DIR="${OUTPUT_DIR_ABS}" \
 PASM_EMU_BUILD_DIR="${PASM_EMU_BUILD_DIR}" \
 PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json" \
@@ -208,6 +312,11 @@ cargo run ${EXTRA_CARGO_ARGS} --manifest-path tools/debugger_tui/Cargo.toml --fe
   --memory-size "${MEMORY_SIZE}" \
   --system-dir "${SYSTEM_DIR}" \
   "${KEYBOARD_ARGS[@]}" \
+  "${RUN_FLOPPY_ARGS[@]}" \
   "${RUN_CARTRIDGE_ARGS[@]}" \
   --start-pc "${START_PC}" \
   --run-speed "${RUN_SPEED}"
+
+if [[ -n "${TEMP_SYSTEM_FILE}" ]]; then
+  rm -f "${TEMP_SYSTEM_FILE}"
+fi

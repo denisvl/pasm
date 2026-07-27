@@ -1,0 +1,65 @@
+metadata:
+  id: c64_1541
+  type: floppy_drive
+  model: commodore_1541_facade
+  version: "1.0"
+
+state:
+  - name: core_component
+    type: char *
+    initial: "\"c64_1541_core\""
+  - name: media_component
+    type: char *
+    initial: "\"c64_1541_media\""
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr, u8, ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
+      returns: u8
+    - name: query_media_loaded
+      args: []
+      returns: u8
+    - name: query_true_drive_active
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      (void)cpu;
+  callback_handlers:
+    load_media: |
+      const char *target = (comp->core_component != NULL && comp->core_component[0] != '\0') ? comp->core_component : "c64_1541_core";
+      return cpu_component_dispatch_callback(cpu, target, "load_media", args, argc);
+    unload_media: |
+      const char *target = (comp->core_component != NULL && comp->core_component[0] != '\0') ? comp->core_component : "c64_1541_core";
+      return cpu_component_dispatch_callback(cpu, target, "unload_media", args, argc);
+    query_drive_activity: |
+      const char *target = (comp->core_component != NULL && comp->core_component[0] != '\0') ? comp->core_component : "c64_1541_core";
+      return cpu_component_dispatch_callback(cpu, target, "query_drive_activity", args, argc);
+    query_media_loaded: |
+      const char *target = (comp->media_component != NULL && comp->media_component[0] != '\0') ? comp->media_component : "c64_1541_media";
+      return cpu_component_dispatch_callback(cpu, target, "query_media_loaded", args, argc);
+    query_true_drive_active: |
+      const char *target = (comp->core_component != NULL && comp->core_component[0] != '\0') ? comp->core_component : "c64_1541_core";
+      return cpu_component_dispatch_callback(cpu, target, "query_true_drive_active", NULL, 0u);
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

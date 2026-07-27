@@ -280,6 +280,23 @@ behavior:
       }
       comp->atari_audio_track_length = 0u;
       comp->atari_event_total_ticks = 0u;
+      {
+          static int trace_init = -1;
+          static FILE *trace_fp = NULL;
+          if (trace_init < 0) {
+              const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+              trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (trace_init != 0) {
+                  const char *trace_path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                  if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+                  if (trace_fp == NULL) trace_fp = stderr;
+              }
+          }
+          if (trace_init != 0) {
+              fprintf(trace_fp, "atari_cass load begin cycle=%llu path=%s\n", (unsigned long long)cpu->total_cycles, path);
+              fflush(trace_fp);
+          }
+      }
       result = (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "load_media", args, argc);
       if (result != 0u && path != NULL) {
           char wav_path[1024];
@@ -517,6 +534,32 @@ behavior:
               #undef ATARI_SYNTH_EMIT_GAP_MS10
           }
       }
+      {
+          static int trace_init = -1;
+          static FILE *trace_fp = NULL;
+          if (trace_init < 0) {
+              const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+              trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (trace_init != 0) {
+                  const char *trace_path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                  if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+                  if (trace_fp == NULL) trace_fp = stderr;
+              }
+          }
+          if (trace_init != 0) {
+              fprintf(
+                  trace_fp,
+                  "atari_cass load end cycle=%llu result=%u events=%u ticks=%llu synth_edges=%u synth_samples=%u\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)result,
+                  (unsigned)comp->atari_event_count,
+                  (unsigned long long)comp->atari_event_total_ticks,
+                  (unsigned)comp->atari_synth_edge_count,
+                  (unsigned)comp->atari_synth_total_samples
+              );
+              fflush(trace_fp);
+          }
+      }
       return result;
     unload_media: |
       comp->atari_fsk_cursor_samples = 0u;
@@ -569,6 +612,26 @@ behavior:
       return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "unload_media", args, argc);
     set_transport_mode: |
       uint8_t mode = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      {
+          static int trace_init = -1;
+          static FILE *trace_fp = NULL;
+          if (trace_init < 0) {
+              const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+              trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (trace_init != 0) {
+                  const char *trace_path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                  if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+                  if (trace_fp == NULL) trace_fp = stderr;
+              }
+          }
+          if (trace_init != 0) {
+              fprintf(trace_fp, "atari_cass set_transport cycle=%llu old=%u new=%u\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)comp->atari_transport_mode_state,
+                  (unsigned)mode);
+              fflush(trace_fp);
+          }
+      }
       if (mode == 1u && comp->atari_transport_mode_state != 1u) {
           comp->atari_fsk_cursor_samples = 0u;
           comp->atari_fsk_edge_cursor = 0u;
@@ -588,6 +651,27 @@ behavior:
       return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport", "set_transport_mode", args, argc);
     set_motor: |
       uint8_t motor = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      {
+          static int trace_init = -1;
+          static FILE *trace_fp = NULL;
+          if (trace_init < 0) {
+              const char *env = getenv("PASM_ATARI800XL_CAS_TRACE");
+              trace_init = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+              if (trace_init != 0) {
+                  const char *trace_path = getenv("PASM_ATARI800XL_CAS_TRACE_FILE");
+                  if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+                  if (trace_fp == NULL) trace_fp = stderr;
+              }
+          }
+          if (trace_init != 0) {
+              fprintf(trace_fp, "atari_cass set_motor cycle=%llu old=%u new=%u transport=%u\n",
+                  (unsigned long long)cpu->total_cycles,
+                  (unsigned)comp->atari_motor_state,
+                  (unsigned)motor,
+                  (unsigned)comp->atari_transport_mode_state);
+              fflush(trace_fp);
+          }
+      }
       if (motor != 0u && comp->atari_motor_state == 0u) {
           comp->atari_fsk_cursor_samples = 0u;
           comp->atari_fsk_edge_cursor = 0u;
@@ -655,7 +739,6 @@ behavior:
               }
           }
           if (
-              ((uint8_t)(state & 0xFFu)) != 1u ||
               (state & (1ull << 8u)) == 0u ||
               (state & (1ull << 9u)) == 0u ||
               sample_rate == 0u
@@ -708,7 +791,7 @@ behavior:
                   comp->atari_cas_event_time_left -= delta_ticks;
                   comp->atari_cas_last_playhead_ticks = playhead_ticks;
               }
-              while (comp->atari_cas_event_time_left < 0) {
+              while (comp->atari_cas_event_time_left <= 0) {
                   if (comp->atari_cas_current_kind == 0u && comp->atari_cas_pending_serin != 0u) {
                       loaded = 1;
                       loaded_byte = comp->atari_cas_pending_byte;

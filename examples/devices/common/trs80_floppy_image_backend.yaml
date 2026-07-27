@@ -17,6 +17,9 @@ state:
   - name: track_count
     type: uint16_t
     initial: "0"
+  - name: side_count
+    type: uint8_t
+    initial: "1"
   - name: activity_flags
     type: uint8_t
     initial: "0"
@@ -58,6 +61,7 @@ behavior:
       comp->image_size = 0u;
       comp->sectors_per_track = 0u;
       comp->track_count = 0u;
+      comp->side_count = 1u;
       comp->activity_flags = 0u;
       (void)cpu;
   callback_handlers:
@@ -72,6 +76,7 @@ behavior:
       uint8_t looks_like_jv3 = 0u;
       uint8_t sectors_per_track = 18u;
       uint16_t track_count = 0u;
+      uint8_t side_count = 1u;
       const char *dot;
       char ext[16];
       size_t ext_len = 0u;
@@ -150,6 +155,24 @@ behavior:
           if (active_entries > 0u && (8704u + (active_entries * 256u)) <= file_size) {
               track_count = (uint16_t)(max_track + 1u);
           }
+      } else if (strcmp(ext, "dsk") == 0) {
+          struct RawGeom { size_t size; uint8_t spt; uint16_t tracks; uint8_t sides; };
+          static const struct RawGeom raw_geoms[] = {
+              { 35u * 1u * 18u * 256u, 18u, 35u, 1u },
+              { 40u * 1u * 18u * 256u, 18u, 40u, 1u },
+              { 40u * 2u * 18u * 256u, 18u, 40u, 2u },
+              { 35u * 1u * 16u * 256u, 16u, 35u, 1u },
+              { 40u * 1u * 16u * 256u, 16u, 40u, 1u },
+              { 40u * 2u * 16u * 256u, 16u, 40u, 2u }
+          };
+          for (size_t i = 0u; i < (sizeof(raw_geoms) / sizeof(raw_geoms[0])); ++i) {
+              if (file_size == raw_geoms[i].size) {
+                  sectors_per_track = raw_geoms[i].spt;
+                  track_count = raw_geoms[i].tracks;
+                  side_count = raw_geoms[i].sides;
+                  break;
+              }
+          }
       }
       if (track_count == 0u) {
           if (trace_enabled != 0) {
@@ -168,6 +191,7 @@ behavior:
       comp->image_size = (uint32_t)file_size;
       comp->sectors_per_track = sectors_per_track;
       comp->track_count = track_count;
+      comp->side_count = side_count;
       comp->activity_flags = 0u;
       if (trace_enabled != 0) {
           fprintf(trace_fp, "floppy_backend_load ok path=%s size=%zu spt=%u tracks=%u\n",
@@ -183,6 +207,7 @@ behavior:
       comp->image_size = 0u;
       comp->sectors_per_track = 0u;
       comp->track_count = 0u;
+      comp->side_count = 1u;
       comp->activity_flags = 0u;
       return 1u;
     query_drive_activity: |
@@ -191,7 +216,8 @@ behavior:
       return (uint64_t)flags;
     query_geometry: |
       uint64_t packed = ((uint64_t)comp->sectors_per_track & 0xFFu) |
-                        ((((uint64_t)comp->track_count) & 0xFFFFu) << 8u);
+                        ((((uint64_t)comp->track_count) & 0xFFFFu) << 8u) |
+                        ((((uint64_t)comp->side_count) & 0xFFu) << 24u);
       return packed;
     query_track_present: |
       uint8_t target_track = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
@@ -199,6 +225,10 @@ behavior:
       uint8_t target_density = (argc > 2u) ? (uint8_t)(args[2] & 0xFFu) : 0u;
       if (comp->image_data == NULL || comp->image_size == 0u) return 0u;
       if (comp->image_size > 8704u) {
+          if (comp->track_count != 0u && comp->side_count != 0u &&
+              (size_t)comp->track_count * (size_t)comp->side_count * (size_t)comp->sectors_per_track * 256u == (size_t)comp->image_size) {
+              return (target_track < comp->track_count && target_side < comp->side_count) ? 1u : 0u;
+          }
           for (size_t off = 0u; off + 2u < 8704u; off += 3u) {
               uint8_t trk = comp->image_data[off + 0u];
               uint8_t sec = comp->image_data[off + 1u];
@@ -231,6 +261,20 @@ behavior:
       }
       if (dst == NULL || comp->image_data == NULL || comp->image_size == 0u) return 0u;
       if (comp->image_size > 8704u) {
+          if (comp->track_count != 0u && comp->side_count != 0u &&
+              (size_t)comp->track_count * (size_t)comp->side_count * (size_t)comp->sectors_per_track * 256u == (size_t)comp->image_size) {
+              if (target_track < comp->track_count &&
+                  target_side < comp->side_count &&
+                  target_sector >= 1u &&
+                  target_sector <= comp->sectors_per_track) {
+                  size_t lba = ((size_t)target_track * (size_t)comp->side_count + (size_t)target_side) * (size_t)comp->sectors_per_track;
+                  size_t offset = (lba + (size_t)(target_sector - 1u)) * 256u;
+                  if (offset + 256u <= (size_t)comp->image_size) {
+                      memcpy(dst, comp->image_data + offset, 256u);
+                      result = 0x01u;
+                  }
+              }
+          } else {
           size_t data_index = 0u;
           for (size_t off = 0u; off + 2u < 8704u; off += 3u) {
               uint8_t trk = comp->image_data[off + 0u];
@@ -258,6 +302,7 @@ behavior:
                   break;
               }
               data_index += 1u;
+          }
           }
       }
       if ((result & 0x01u) != 0u) {

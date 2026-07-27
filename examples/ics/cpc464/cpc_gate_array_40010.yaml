@@ -40,12 +40,30 @@ state:
   - name: upper_rom
     type: uint8_t *
     initial: "NULL"
+  - name: disk_rom
+    type: uint8_t *
+    initial: "NULL"
+  - name: disk_rom_size
+    type: uint32_t
+    initial: "0"
   - name: lower_rom_enabled
     type: uint8_t
     initial: "1"
   - name: upper_rom_enabled
     type: uint8_t
     initial: "1"
+  - name: upper_rom_select
+    type: uint8_t
+    initial: "0"
+  - name: disk_rom_init_done
+    type: uint8_t
+    initial: "0"
+  - name: disk_rom_init_active
+    type: uint8_t
+    initial: "0"
+  - name: disk_rom_init_return_pc
+    type: uint16_t
+    initial: "0"
   - name: ga_pen_select
     type: uint8_t
     initial: "0"
@@ -138,6 +156,31 @@ behavior:
       if (comp->upper_rom == NULL) {
           comp->upper_rom = (uint8_t *)calloc(0x4000u, sizeof(uint8_t));
       }
+      if (comp->disk_rom == NULL) {
+          const char *disk_rom_path = getenv("PASM_CPC_DISK_ROM");
+          if (disk_rom_path != NULL && disk_rom_path[0] != '\0') {
+              FILE *fp = fopen(disk_rom_path, "rb");
+              if (fp != NULL) {
+                  if (fseek(fp, 0L, SEEK_END) == 0) {
+                      long file_size_long = ftell(fp);
+                      if (file_size_long > 0L && fseek(fp, 0L, SEEK_SET) == 0) {
+                          size_t file_size = (size_t)file_size_long;
+                          uint8_t *disk_rom = (uint8_t *)calloc(0x4000u, sizeof(uint8_t));
+                          if (disk_rom != NULL) {
+                              size_t to_read = (file_size > 0x4000u) ? 0x4000u : file_size;
+                              if (fread(disk_rom, 1u, to_read, fp) == to_read) {
+                                  comp->disk_rom = disk_rom;
+                                  comp->disk_rom_size = (uint32_t)to_read;
+                              } else {
+                                  free(disk_rom);
+                              }
+                          }
+                      }
+                  }
+                  fclose(fp);
+              }
+          }
+      }
       if (comp->ga_inks == NULL) {
           comp->ga_inks = (uint8_t *)calloc(17u, sizeof(uint8_t));
       }
@@ -155,6 +198,10 @@ behavior:
       comp->ga_irq_window = 0u;
       comp->lower_rom_enabled = 1u;
       comp->upper_rom_enabled = 1u;
+      comp->upper_rom_select = 0u;
+      comp->disk_rom_init_done = 0u;
+      comp->disk_rom_init_active = 0u;
+      comp->disk_rom_init_return_pc = 0u;
       comp->ga_pen_select = 0u;
       comp->ga_mode = 1u;
       if (comp->ga_inks != NULL) {
@@ -195,6 +242,11 @@ behavior:
           free(comp->upper_rom);
           comp->upper_rom = NULL;
       }
+      if (comp->disk_rom != NULL) {
+          free(comp->disk_rom);
+          comp->disk_rom = NULL;
+      }
+      comp->disk_rom_size = 0u;
       if (comp->ga_inks != NULL) {
           free(comp->ga_inks);
           comp->ga_inks = NULL;
@@ -203,8 +255,14 @@ behavior:
       if (comp->lower_rom_enabled != 0u && addr < 0x4000u && comp->lower_rom != NULL) {
           return comp->lower_rom[addr & 0x3FFFu];
       }
-      if (comp->upper_rom_enabled != 0u && addr >= 0xC000u && comp->upper_rom != NULL) {
-          return comp->upper_rom[(uint16_t)(addr - 0xC000u) & 0x3FFFu];
+      if (comp->upper_rom_enabled != 0u && addr >= 0xC000u) {
+          uint16_t rom_off = (uint16_t)(addr - 0xC000u) & 0x3FFFu;
+          if (comp->upper_rom_select == 7u && comp->disk_rom != NULL && rom_off < comp->disk_rom_size) {
+              return comp->disk_rom[rom_off];
+          }
+          if (comp->upper_rom != NULL) {
+              return comp->upper_rom[rom_off];
+          }
       }
       if (comp->display_active != 0u) {
           uint64_t slot = cpu->total_cycles & 0x03u;
@@ -264,6 +322,10 @@ behavior:
               0u
           };
           value = (uint8_t)cpu_component_call(cpu, "cpc_gate_array", "ppi_read_io_page", io_args, 3);
+      } else if (port == 0xFB7Eu) {
+          value = (uint8_t)cpu_component_dispatch_callback(cpu, "cpc_floppy_stub", "fdc_status_read", NULL, 0u);
+      } else if (port == 0xFB7Fu) {
+          value = (uint8_t)cpu_component_dispatch_callback(cpu, "cpc_floppy_stub", "fdc_data_read", NULL, 0u);
       }
     port_write_pre: |
       uint16_t ph = (uint16_t)(port & 0xFF00u);
@@ -311,6 +373,20 @@ behavior:
               ppi_trace_count += 1u;
               if ((ppi_trace_count & 63u) == 0u) fflush(ppi_trace_fp);
           }
+          return;
+      }
+      if (port == 0xFA7Eu) {
+          uint64_t fdc_args[1] = { (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "cpc_floppy_stub", "fdc_motor_write", fdc_args, 1u);
+          return;
+      }
+      if (port == 0xFB7Fu) {
+          uint64_t fdc_args[1] = { (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "cpc_floppy_stub", "fdc_data_write", fdc_args, 1u);
+          return;
+      }
+      if ((port & 0xFF00u) == 0xDF00u) {
+          comp->upper_rom_select = (uint8_t)(value & 0x1Fu);
           return;
       }
       if (ph == 0xF500u) {
@@ -392,6 +468,30 @@ behavior:
           comp->ga_hsync_accum += delta;
       }
       comp->last_cycle = now;
+
+      if (comp->disk_rom != NULL && comp->disk_rom_init_done == 0u) {
+          if (comp->disk_rom_init_active == 0u) {
+              if (cpu->pc >= 0xC000u && cpu->pc < 0x10000u && cpu->total_cycles > 100000u) {
+                  uint16_t return_pc = cpu->pc;
+                  uint16_t new_sp = (uint16_t)(cpu->sp - 2u);
+                  comp->disk_rom_init_return_pc = return_pc;
+                  comp->disk_rom_init_active = 1u;
+                  cpu->memory[new_sp] = (uint8_t)(return_pc & 0xFFu);
+                  cpu->memory[(uint16_t)(new_sp + 1u)] = (uint8_t)(return_pc >> 8u);
+                  cpu->sp = new_sp;
+                  cpu->registers[REG_D] = 0x00u;
+                  cpu->registers[REG_E] = 0x40u;
+                  cpu->registers[REG_H] = 0xABu;
+                  cpu->registers[REG_L] = 0xFFu;
+                  cpu->registers[REG_C] = 0x07u;
+                  cpu->pc = 0xBCCEu;
+              }
+          } else if (cpu->pc == comp->disk_rom_init_return_pc) {
+              comp->disk_rom_init_active = 0u;
+              comp->disk_rom_init_done = 1u;
+              comp->upper_rom_select = 0u;
+          }
+      }
 
       {
           uint64_t cycles = delta;

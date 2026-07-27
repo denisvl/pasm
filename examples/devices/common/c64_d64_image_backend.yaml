@@ -1,0 +1,175 @@
+metadata:
+  id: c64_d64_image_backend
+  type: floppy_image_backend
+  model: c64_d64_image_backend
+  version: "1.0"
+
+state:
+  - name: image_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: image_size
+    type: uint32_t
+    initial: "0"
+  - name: track_count
+    type: uint8_t
+    initial: "35"
+  - name: activity_flags
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: query_drive_activity
+      args: []
+      returns: u8
+    - name: query_image_data
+      args: []
+      returns: u64
+    - name: query_image_size
+      args: []
+      returns: u64
+    - name: query_track_count
+      args: []
+      returns: u64
+  handlers: []
+  signals: []
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->activity_flags = 0u;
+    destroy: |
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_size = 0u;
+      comp->track_count = 35u;
+      comp->activity_flags = 0u;
+      (void)cpu;
+  callback_handlers:
+    load_media: |
+      const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+      FILE *fp;
+      uint8_t *image = NULL;
+      long file_size_long;
+      size_t file_size;
+      uint8_t track_count = 0u;
+      {
+          const char *trace_env = getenv("PASM_C64_LOAD_TRACE");
+          if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+              const char *trace_path = getenv("PASM_C64_LOAD_TRACE_FILE");
+              FILE *trace_fp;
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/c64_load_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp != NULL) {
+                  fprintf(trace_fp, "backend_load path=%s argc=%u\n", (path != NULL) ? path : "<null>", (unsigned)argc);
+                  fclose(trace_fp);
+              }
+          }
+      }
+      if (path == NULL || path[0] == '\0') return 0u;
+      fp = fopen(path, "rb");
+      if (fp == NULL) return 0u;
+      if (fseek(fp, 0L, SEEK_END) != 0) { fclose(fp); return 0u; }
+      file_size_long = ftell(fp);
+      if (file_size_long <= 0L) { fclose(fp); return 0u; }
+      if (fseek(fp, 0L, SEEK_SET) != 0) { fclose(fp); return 0u; }
+      file_size = (size_t)file_size_long;
+      if (file_size == 174848u) track_count = 35u;
+      else if (file_size == 175531u) track_count = 35u;
+      else if (file_size == 196608u) track_count = 40u;
+      else if (file_size == 197376u) track_count = 40u;
+      else {
+          const char *trace_env = getenv("PASM_C64_LOAD_TRACE");
+          if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+              const char *trace_path = getenv("PASM_C64_LOAD_TRACE_FILE");
+              FILE *trace_fp;
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/c64_load_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp != NULL) {
+                  fprintf(trace_fp, "backend_load unsupported_size=%zu\n", file_size);
+                  fclose(trace_fp);
+              }
+          }
+          fclose(fp);
+          return 0u;
+      }
+      image = (uint8_t *)malloc(file_size);
+      if (image == NULL) { fclose(fp); return 0u; }
+      if (fread(image, 1u, file_size, fp) != file_size) {
+          fclose(fp);
+          free(image);
+          return 0u;
+      }
+      fclose(fp);
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_data = image;
+      comp->image_size = (uint32_t)file_size;
+      comp->track_count = track_count;
+      comp->activity_flags = 0u;
+      {
+          const char *trace_env = getenv("PASM_C64_LOAD_TRACE");
+          if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+              const char *trace_path = getenv("PASM_C64_LOAD_TRACE_FILE");
+              FILE *trace_fp;
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/c64_load_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp != NULL) {
+                  fprintf(trace_fp, "backend_load ok size=%zu tracks=%u\n", file_size, (unsigned)track_count);
+                  fclose(trace_fp);
+              }
+          }
+      }
+      return 1u;
+    unload_media: |
+      {
+          const char *trace_env = getenv("PASM_C64_LOAD_TRACE");
+          if (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') {
+              const char *trace_path = getenv("PASM_C64_LOAD_TRACE_FILE");
+              FILE *trace_fp;
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/c64_load_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp != NULL) {
+                  fprintf(trace_fp, "backend_unload\n");
+                  fclose(trace_fp);
+              }
+          }
+      }
+      if (comp->image_data != NULL) {
+          free(comp->image_data);
+          comp->image_data = NULL;
+      }
+      comp->image_size = 0u;
+      comp->track_count = 35u;
+      comp->activity_flags = 0u;
+      return 1u;
+    query_drive_activity: |
+      uint8_t flags = comp->activity_flags;
+      comp->activity_flags = 0u;
+      return (uint64_t)flags;
+    query_image_data: |
+      return (uint64_t)(uintptr_t)comp->image_data;
+    query_image_size: |
+      return (uint64_t)comp->image_size;
+    query_track_count: |
+      return (uint64_t)comp->track_count;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

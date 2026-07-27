@@ -17,6 +17,7 @@ COCO1_IC_PATHS = [
     str(BASE_DIR / "examples" / "ics" / "coco1" / "coco1_vdg_6847.yaml"),
     str(BASE_DIR / "examples" / "ics" / "coco1" / "coco1_cart_expansion.yaml"),
     str(BASE_DIR / "examples" / "ics" / "coco1" / "coco1_main_ram.yaml"),
+    str(BASE_DIR / "examples" / "ics" / "common" / "wd1793.yaml"),
 ]
 
 
@@ -50,6 +51,8 @@ def test_coco1_interactive_stack_validates():
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_gameport.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_video.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_speaker.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "common" / "cassette_transport.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "common" / "trs80_floppy_image_backend.yaml"),
         ],
         host_paths=[str(BASE_DIR / "examples" / "hosts" / "coco1" / "coco_host_hal_interactive.yaml")],
         cartridge_path=str(
@@ -90,6 +93,8 @@ def test_coco1_keyboard_wiring_and_bindings():
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_gameport.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_video.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_speaker.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "common" / "cassette_transport.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "common" / "trs80_floppy_image_backend.yaml"),
         ],
         host_paths=[str(BASE_DIR / "examples" / "hosts" / "coco1" / "coco_host_hal_interactive.yaml")],
         cartridge_path=str(
@@ -234,6 +239,8 @@ def test_generate_mc6809_coco1():
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_gameport.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_video.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_speaker.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "common" / "cassette_transport.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "common" / "trs80_floppy_image_backend.yaml"),
         ],
         host_paths=[str(BASE_DIR / "examples" / "hosts" / "coco1" / "coco_host_stub.yaml")],
         cartridge_map_path=str(
@@ -254,31 +261,32 @@ def test_generate_mc6809_coco1():
         "coco1_ic_coco1_pia1_6821.c",
         "coco1_ic_coco1_sam_6883.c",
         "coco1_ic_coco1_vdg_6847.c",
+        "coco1_ic_wd1793_fdc.c",
     ]
     impl = (src_dir / "MC6809_core.c").read_text(encoding="utf-8")
     sam_impl = (src_dir / "coco1_ic_coco1_sam_6883.c").read_text(encoding="utf-8")
-    system_glue = (src_dir / "coco1_system_glue.c").read_text(encoding="utf-8")
+    all_generated = "\n".join(p.read_text(encoding="utf-8") for p in src_dir.glob("coco1_*.c"))
     assert "0xFFC0u" in sam_impl
     assert "0xFF00u" in sam_impl and "0xFF03u" in sam_impl
     assert "0xFF20u" in sam_impl and "0xFF23u" in sam_impl
     assert "pia0_cra" in sam_impl and "pia1_cra" in sam_impl
     assert "pia0_ddra" in sam_impl and "pia1_ddra" in sam_impl
     # PIA0 FF00-FF03 read path is owned by the PIA0 callback contract now.
-    assert "component_coco1_pia0_6821_callback_read_reg" in system_glue
-    assert "selected_cols" in system_glue
-    assert "pressed_cols" in system_glue
+    assert "component_coco1_pia0_6821_callback_read_reg" in all_generated
+    assert "selected_cols" in all_generated
+    assert "pressed_cols" in all_generated
     assert "\"pia0_read_reg\"" in sam_impl
     assert "\"keyboard_read_row\"" not in sam_impl
     assert "\"joystick_read_axis\"" not in sam_impl
     assert "\"joystick_read_button\"" not in sam_impl
     assert "sam_display_base" in sam_impl
     assert "sam_all_ram" in sam_impl
-    assert "dac8" in system_glue
-    assert "sbs_enabled" in system_glue
-    assert "row_bytes = 16u" in system_glue and "row_bytes = 32u" in system_glue
+    assert "dac8" in all_generated
+    assert "sbs_enabled" in all_generated
+    assert "row_bytes = 16u" in all_generated and "row_bytes = 32u" in all_generated
     assert "sam_gm0" in sam_impl
-    assert "(raw & 0x80u)" in system_glue
-    assert "(raw & 0x40u)" in system_glue
+    assert "(raw & 0x80u)" in all_generated
+    assert "(raw & 0x40u)" in all_generated
 
 
 def test_coco1_split_callback_wiring_and_irq_routes():
@@ -307,6 +315,8 @@ def test_coco1_split_callback_wiring_and_irq_routes():
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_gameport.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_video.yaml"),
             str(BASE_DIR / "examples" / "devices" / "coco1" / "coco_speaker.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "common" / "cassette_transport.yaml"),
+            str(BASE_DIR / "examples" / "devices" / "common" / "trs80_floppy_image_backend.yaml"),
         ],
         host_paths=[str(BASE_DIR / "examples" / "hosts" / "coco1" / "coco_host_stub.yaml")],
         cartridge_map_path=str(BASE_DIR / "examples" / "cartridges" / "coco1" / "coco_mapper_none.yaml"),
@@ -314,9 +324,12 @@ def test_coco1_split_callback_wiring_and_irq_routes():
     )
     sam_impl = (outdir / "src" / "coco1_ic_coco1_sam_6883.c").read_text(encoding="utf-8")
     system_glue = (outdir / "src" / "coco1_system_glue.c").read_text(encoding="utf-8")
+    all_generated = "\n".join(
+        p.read_text(encoding="utf-8") for p in (outdir / "src").glob("coco1_*.c")
+    )
 
     # IRQ/FIRQ paths still exist (behavioral guard), now via SAM interrupt bridge callback.
     assert "\"raise_interrupt\"" in sam_impl
     assert "mc6809_interrupt(" not in sam_impl
-    assert "component_coco1_sam_6883_callback_raise_interrupt" in system_glue
-    assert "mc6809_interrupt(cpu, vector)" in system_glue
+    assert "raise_interrupt" in all_generated
+    assert "mc6809_interrupt(cpu, vector)" in all_generated

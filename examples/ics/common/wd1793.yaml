@@ -83,6 +83,9 @@ interfaces:
     - name: query_drive_activity
       args: []
       returns: u8
+    - name: query_irq_state
+      args: []
+      returns: u64
   handlers: []
   signals: []
 
@@ -184,6 +187,9 @@ behavior:
           return cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "query_drive_activity", NULL, 0u);
       }
       return 0u;
+    query_irq_state: |
+      return ((uint64_t)(comp->fdc_irq_pending & 0x01u)) |
+             (((uint64_t)((comp->fdc_nmi_mask & 0x80u) != 0u ? 1u : 0u)) << 8u);
     fdc_port_read: |
       if (argc < 1u) return 0xFFu;
       static int trace_enabled = -1;
@@ -228,7 +234,7 @@ behavior:
           }
           if (type1_status != 0u && comp->fdc_track == 0u) status |= 0x04u;
           if (comp->fdc_drq != 0u) status |= 0x02u;
-          if (media_ready == 0u) status |= 0x80u;
+          if (media_ready == 0u && cmd_class != 0xD0u) status |= 0x80u;
           if (trace_enabled != 0) {
               fprintf(trace_fp, "fdc_rd cycle=%llu pc=%04X port=%02X val=%02X status=%02X sel=%02X ready=%u busy=%u drq=%u irq=%u track=%u sector=%u\n",
                       (unsigned long long)cpu->total_cycles, (unsigned)cpu->pc, (unsigned)p, (unsigned)status, (unsigned)comp->fdc_status,

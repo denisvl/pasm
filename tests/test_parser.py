@@ -1318,3 +1318,64 @@ def test_floppy_source_component_loads_common_backend_device(tmp_path):
     assert "trs80_floppy_image_backend" in loaded_device_ids
     assert "trs80_floppy_image_backend" in loaded["components"]["devices"]
 
+
+def test_subsystem_schema_accepts_drive_subsystem_descriptor():
+    if yaml_loader.Draft7Validator is None:
+        pytest.skip("jsonschema not available")
+    schema = yaml_loader.load_schema("subsystem")
+    validator = yaml_loader.Draft7Validator(schema)
+
+    subsystem = {
+        "metadata": {
+            "id": "c64_1541_subsystem",
+            "type": "drive_subsystem",
+            "model": "commodore_1541_subsystem",
+            "version": "1.0",
+            "title": "Commodore 1541 Drive-Side Subsystem",
+        },
+        "subsystem": {
+            "processor": "../processors/mos6502.yaml",
+            "system": "../systems/c1541/c1541_default.yaml",
+            "ics": [
+                "../ics/common/mos6522_via1.yaml",
+                "../ics/common/mos6522_via2.yaml",
+            ],
+            "media_backends": [
+                "../devices/common/c64_d64_image_backend.yaml",
+            ],
+            "bridge_devices": [
+                "../devices/c64/c64_1541.yaml",
+            ],
+            "core_devices": [
+                "../devices/c64/c64_1541_media.yaml",
+                "../devices/c64/c64_1541_dos.yaml",
+                "../devices/c64/c64_1541_core.yaml",
+            ],
+            "execution_model": "drive_side_cpu",
+            "bus": "iec_serial",
+            "notes": [
+                "The current C64 runtime still uses the bridge device until nested multi-CPU execution is available.",
+            ],
+        },
+    }
+
+    assert list(validator.iter_errors(subsystem)) == []
+
+
+def test_example_c64_1541_subsystem_file_validates():
+    loader = yaml_loader.ProcessorSystemLoader()
+    data = loader.load_subsystem(
+        str(BASE_DIR / "examples" / "subsystems" / "c64_1541_subsystem.yaml")
+    )
+
+    assert data["metadata"]["id"] == "c64_1541_subsystem"
+    assert data["metadata"]["type"] == "drive_subsystem"
+    assert data["subsystem"]["execution_model"] == "drive_side_cpu"
+    assert data["subsystem"]["bus"] == "iec_serial"
+    assert pathlib.Path(data["subsystem"]["processor"]).is_absolute()
+    assert pathlib.Path(data["subsystem"]["system"]).is_absolute()
+    assert all(pathlib.Path(path).is_absolute() for path in data["subsystem"]["ics"])
+    assert all(pathlib.Path(path).is_absolute() for path in data["subsystem"]["media_backends"])
+    assert all(pathlib.Path(path).is_absolute() for path in data["subsystem"]["bridge_devices"])
+    assert all(pathlib.Path(path).is_absolute() for path in data["subsystem"]["core_devices"])
+

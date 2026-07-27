@@ -377,6 +377,8 @@ def get_schema_path(kind: str) -> Path:
         return base / "floppy_drive_schema.json"
     if kind == "floppy_source":
         return base / "floppy_source_schema.json"
+    if kind == "subsystem":
+        return base / "subsystem_schema.json"
     if kind == "runtime_keyboard_map":
         return base / "runtime_keyboard_map_schema.json"
     raise ValueError(f"Unknown schema kind: {kind}")
@@ -648,6 +650,7 @@ class ProcessorSystemLoader:
         self.cassette_source_schema = load_schema("cassette_source")
         self.floppy_drive_schema = load_schema("floppy_drive")
         self.floppy_source_schema = load_schema("floppy_source")
+        self.subsystem_schema = load_schema("subsystem")
         if Draft7Validator:
             self.processor_validator = Draft7Validator(self.processor_schema)
             self.system_validator = Draft7Validator(self.system_schema)
@@ -659,6 +662,7 @@ class ProcessorSystemLoader:
             self.cassette_source_validator = Draft7Validator(self.cassette_source_schema)
             self.floppy_drive_validator = Draft7Validator(self.floppy_drive_schema)
             self.floppy_source_validator = Draft7Validator(self.floppy_source_schema)
+            self.subsystem_validator = Draft7Validator(self.subsystem_schema)
         else:
             self.processor_validator = None
             self.system_validator = None
@@ -670,6 +674,7 @@ class ProcessorSystemLoader:
             self.cassette_source_validator = None
             self.floppy_drive_validator = None
             self.floppy_source_validator = None
+            self.subsystem_validator = None
 
     def _resolve_existing_file(self, path: str) -> Path:
         path_obj = Path(path)
@@ -1050,6 +1055,55 @@ class ProcessorSystemLoader:
     def load_floppy_source(self, floppy_source_path: str) -> Dict[str, Any]:
         floppy_source_data = self._load_yaml(floppy_source_path, "floppy_source")
         return self.validate_floppy_source(floppy_source_data)
+
+    def validate_subsystem(self, subsystem_data: Dict[str, Any]) -> Dict[str, Any]:
+        errors = _iter_errors(self.subsystem_validator, subsystem_data)
+        if errors:
+            raise ValidationError(_format_schema_errors("Subsystem", errors))
+        return subsystem_data
+
+    def load_subsystem(self, subsystem_path: str) -> Dict[str, Any]:
+        resolved_subsystem_path = str(self._resolve_existing_file(subsystem_path))
+        subsystem_data = self._load_yaml(resolved_subsystem_path, "subsystem")
+        subsystem_data = self.validate_subsystem(subsystem_data)
+
+        normalized = copy.deepcopy(subsystem_data)
+        subsystem = normalized.setdefault("subsystem", {})
+        base_dir = Path(resolved_subsystem_path).resolve().parent
+
+        processor_path = str(subsystem.get("processor", "")).strip()
+        system_path = str(subsystem.get("system", "")).strip()
+        if not processor_path or not system_path:
+            raise ValidationError(
+                "Subsystem validation failed:\n"
+                "subsystem.processor and subsystem.system are required"
+            )
+
+        resolved_processor = str(self._resolve_cli_file(processor_path, base_dir))
+        resolved_system = str(self._resolve_cli_file(system_path, base_dir))
+        self.validate_processor(self._load_yaml(resolved_processor, "processor"))
+        self.validate_system(self._load_yaml(resolved_system, "system"))
+        subsystem["processor"] = resolved_processor
+        subsystem["system"] = resolved_system
+
+        for field_name, kind, validator in (
+            ("ics", "ic", self.validate_ic),
+            ("media_backends", "device", self.validate_device),
+            ("bridge_devices", "device", self.validate_device),
+            ("core_devices", "device", self.validate_device),
+        ):
+            raw_paths = subsystem.get(field_name, [])
+            if not isinstance(raw_paths, list):
+                continue
+            resolved_paths: List[str] = []
+            for raw_path in raw_paths:
+                path_str = str(raw_path).strip()
+                resolved_path = str(self._resolve_cli_file(path_str, base_dir))
+                validator(self._load_yaml(resolved_path, kind))
+                resolved_paths.append(resolved_path)
+            subsystem[field_name] = resolved_paths
+
+        return normalized
 
     def _validate_instruction_display_specs(self, processor_data: Dict[str, Any]) -> None:
         codegen = _processor_codegen(processor_data)

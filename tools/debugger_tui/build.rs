@@ -60,6 +60,31 @@ fn extract_json_array_strings(text: &str, key: &str) -> Vec<String> {
     out
 }
 
+fn extract_all_json_strings(text: &str, key: &str) -> Vec<String> {
+    let needle = format!("\"{key}\"");
+    let mut out = Vec::new();
+    let mut offset = 0usize;
+    while let Some(start) = text[offset..].find(&needle) {
+        let start = offset + start;
+        let rest = &text[start + needle.len()..];
+        let Some(colon) = rest.find(':') else {
+            break;
+        };
+        let rest = &rest[colon + 1..];
+        let Some(first_quote) = rest.find('"') else {
+            offset = start + needle.len();
+            continue;
+        };
+        let rest = &rest[first_quote + 1..];
+        let Some(end_quote) = rest.find('"') else {
+            break;
+        };
+        out.push(rest[..end_quote].to_string());
+        offset = start + needle.len();
+    }
+    out
+}
+
 fn static_link_spec_from_filename(file_name: &str) -> Option<String> {
     #[cfg(target_env = "msvc")]
     {
@@ -81,10 +106,51 @@ fn emit_split_static_links(search_dirs: &[PathBuf], manifest_text: &str) -> bool
         return false;
     };
 
+    let subsystem_system_statics: Vec<String> = extract_all_json_strings(manifest_text, "system_static")
+        .into_iter()
+        .skip(1)
+        .collect();
+    let subsystem_cpu_core_statics: Vec<String> = extract_all_json_strings(manifest_text, "cpu_core_static")
+        .into_iter()
+        .skip(1)
+        .collect();
+    let subsystem_output_dirs: Vec<String> = extract_all_json_strings(manifest_text, "output_dir");
+    let subsystem_cmake_subdirs: Vec<String> = extract_all_json_strings(manifest_text, "cmake_subdir");
+
     for dir in search_dirs {
         let system_path = dir.join(&system_static);
         let cpu_core_path = dir.join(&cpu_core_static);
         if !(system_path.exists() && cpu_core_path.exists()) {
+            continue;
+        }
+
+        let mut subsystem_pairs: Vec<(PathBuf, PathBuf)> = Vec::new();
+        let mut missing_subsystem = false;
+        for idx in 0..subsystem_cpu_core_statics.len().min(subsystem_system_statics.len()) {
+            let sub_cpu_core_static = &subsystem_cpu_core_statics[idx];
+            let sub_system_static = &subsystem_system_statics[idx];
+            let subdir = if dir.ends_with("build") {
+                subsystem_cmake_subdirs.get(idx).map(String::as_str).unwrap_or("")
+            } else {
+                subsystem_output_dirs.get(idx).map(String::as_str).unwrap_or("")
+            };
+            let sub_cpu_core_path = if subdir.is_empty() {
+                dir.join(sub_cpu_core_static)
+            } else {
+                dir.join(subdir).join(sub_cpu_core_static)
+            };
+            let sub_system_path = if subdir.is_empty() {
+                dir.join(sub_system_static)
+            } else {
+                dir.join(subdir).join(sub_system_static)
+            };
+            if !(sub_cpu_core_path.exists() && sub_system_path.exists()) {
+                missing_subsystem = true;
+                break;
+            }
+            subsystem_pairs.push((sub_cpu_core_path, sub_system_path));
+        }
+        if missing_subsystem {
             continue;
         }
 
@@ -107,6 +173,30 @@ fn emit_split_static_links(search_dirs: &[PathBuf], manifest_text: &str) -> bool
         println!("cargo:rustc-link-lib={cpu_core_link}");
         println!("cargo:rerun-if-changed={}", system_path.display());
         println!("cargo:rerun-if-changed={}", cpu_core_path.display());
+        for (sub_cpu_core_path, sub_system_path) in subsystem_pairs {
+            if let Some(parent) = sub_cpu_core_path.parent() {
+                println!("cargo:rustc-link-search=native={}", parent.display());
+            }
+            if let Some(parent) = sub_system_path.parent() {
+                println!("cargo:rustc-link-search=native={}", parent.display());
+            }
+            let Some(sub_cpu_core_file) = sub_cpu_core_path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let Some(sub_system_file) = sub_system_path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let Some(sub_cpu_core_link) = static_link_spec_from_filename(sub_cpu_core_file) else {
+                continue;
+            };
+            let Some(sub_system_link) = static_link_spec_from_filename(sub_system_file) else {
+                continue;
+            };
+            println!("cargo:rustc-link-lib={sub_cpu_core_link}");
+            println!("cargo:rustc-link-lib={sub_system_link}");
+            println!("cargo:rerun-if-changed={}", sub_cpu_core_path.display());
+            println!("cargo:rerun-if-changed={}", sub_system_path.display());
+        }
         return true;
     }
     false
