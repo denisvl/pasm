@@ -1,37 +1,54 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# One-shot helper: generate + build + run PASM Rust debugger for TRS-80 Color Computer 1.
+#
+# Usage:
+#   scripts/run_coco_debugger.sh [interactive|default]
+#
+# Optional env overrides:
+#   START_PC=0xA027
+#   MEMORY_SIZE=65536
+#   OUTPUT_DIR=generated/mc6809_coco1_sdl
+#   EXTRA_CARGO_ARGS="--release"
+#   CMAKE_BUILD_TYPE=Release
+#   RUN_SPEED=realtime|max
+#   PASM_HOST_AUDIO=1
+#   FLOPPY=/abs/path/to/disk.jv1|.jv3|.dmk|.dsk
+#   DISK_ROM=/abs/path/to/disk_basic.rom
+#   ECB_ROM=/abs/path/to/extbasic.rom              (map Extended BASIC at $8000-$9FFF)
+#   USE_CARTRIDGE=0|1
+#   CARTRIDGE_MAP=examples/cartridges/coco1/coco_mapper_none.yaml
+#   CARTRIDGE_ROM_GEN=../../roms/coco1/Downland V1.1 (1983) (26-3046) (Tandy) [a1].ccc
+#   CARTRIDGE_ROM_RUN=/abs/path/to/cart.rom  (optional override)
+#   CARTRIDGE_DIR=/abs/path/to/coco1/roms     (enable runtime cartridge picker list)
+#   BOOT_CARTRIDGE=0|1                          (default 0: boot base CoCo, then pick cart)
+#   PASM_EMU_CART_PICKER_RAW_KEYS=0|1           (default 1; raw picker hotkey F12)
+
 PROFILE="${1:-interactive}"
-shift || true
-
-if [[ "$PROFILE" != "default" && "$PROFILE" != "interactive" ]]; then
-  echo "Unsupported profile: $PROFILE" >&2
-  echo "Usage: $0 [default|interactive] [-- args...]" >&2
-  exit 2
-fi
-
-export START_PC="${START_PC:-0xA027}"
-export MEMORY_SIZE="${MEMORY_SIZE:-65536}"
-export EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
-export CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
-export RUN_SPEED="${RUN_SPEED:-realtime}"
-export PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
-export USE_CARTRIDGE="${USE_CARTRIDGE:-0}"
-export CARTRIDGE_MAP="${CARTRIDGE_MAP:-}"
-export CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-}"
-export CARTRIDGE_ROM_RUN="${CARTRIDGE_ROM_RUN:-}"
-export CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
-export BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-0}"
-export PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
-export KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/coco1/host_keyboard_coco.yaml}"
-export CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/coco1/host_controller_coco.yaml}"
-export HOST_BACKEND="${HOST_BACKEND:-glfw}"
+START_PC="${START_PC:-0xA027}"
+MEMORY_SIZE="${MEMORY_SIZE:-65536}"
+EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:---release}"
+CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
+RUN_SPEED="${RUN_SPEED:-realtime}"
+PASM_HOST_AUDIO="${PASM_HOST_AUDIO:-1}"
+USE_CARTRIDGE="${USE_CARTRIDGE:-0}"
+CARTRIDGE_MAP="${CARTRIDGE_MAP:-}"
+CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-}"
+CARTRIDGE_ROM_RUN="${CARTRIDGE_ROM_RUN:-}"
+CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
+BOOT_CARTRIDGE="${BOOT_CARTRIDGE:-0}"
+PASM_EMU_CART_PICKER_RAW_KEYS="${PASM_EMU_CART_PICKER_RAW_KEYS:-1}"
+KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/coco1/host_keyboard_coco.yaml}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/coco1/host_controller_coco.yaml}"
+DISK_ROM="${DISK_ROM:-}"
+ECB_ROM="${ECB_ROM:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$REPO_ROOT"
-export UV_CACHE_DIR="${UV_CACHE_DIR:-$REPO_ROOT/.uv-cache}"
-mkdir -p "$UV_CACHE_DIR"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
+mkdir -p "${UV_CACHE_DIR}"
 
 PROCESSOR="examples/processors/mc6809.yaml"
 IC_SAM="examples/ics/coco1/coco1_sam_6883.yaml"

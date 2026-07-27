@@ -5,6 +5,7 @@ import subprocess
 import sys
 import json
 import re
+import textwrap
 
 import pytest
 import yaml
@@ -13,6 +14,7 @@ from src import generator as gen_mod
 from src.codegen.build_system import generate_cmake, generate_makefile
 from src.codegen.cpu_decoder import generate_decoder
 from src.codegen.cpu_debug_abi import generate_debug_abi
+from src.codegen.automation_adapter import generate_automation_adapter
 from src.codegen.cpu_header import generate_cpu_header
 from src.codegen.cpu_impl import generate_cpu_impl
 from src.codegen.cpu_impl import generate_cartridge_picker_runtime_glue
@@ -1641,6 +1643,327 @@ def test_generator_emits_debug_abi_files(tmp_path):
     assert "return dbgapi8_dbg_pump_host_events(cpu);" in impl
 
 
+def test_generator_emits_automation_adapter_files(tmp_path):
+    isa = _base_isa("AutoApi8")
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "auto_api8", isa)
+    outdir = tmp_path / "auto_api8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    for relative in [
+        "src/emu_automation.h",
+        "src/emu_automation_adapter.h",
+        "src/emu_automation.c",
+        "src/AutoApi8_automation_adapter.h",
+        "src/AutoApi8_automation_adapter.c",
+    ]:
+        assert (outdir / relative).exists()
+
+    header = (outdir / "src" / "AutoApi8_automation_adapter.h").read_text(encoding="utf-8")
+    impl = (outdir / "src" / "AutoApi8_automation_adapter.c").read_text(encoding="utf-8")
+    cmake = (outdir / "CMakeLists.txt").read_text(encoding="utf-8")
+    makefile = (outdir / "Makefile").read_text(encoding="utf-8")
+
+    assert "autoapi8_automation_attach_debug(" in header
+    assert "autoapi8_automation_create(" in header
+    assert "emu_automation_attach_adapter(&adapter, out_machine)" in impl
+    assert "pasm_dbg_run_for_cycles(ctx->cpu, cycle_slice, &mode)" in impl
+    assert "src/emu_automation.c" in cmake
+    assert "src/AutoApi8_automation_adapter.c" in cmake
+    assert "$(SRC_DIR)/emu_automation.c" in makefile
+    assert "$(SRC_DIR)/AutoApi8_automation_adapter.c" in makefile
+
+
+def test_automation_adapter_generator_wraps_debug_abi_execution():
+    isa = _base_isa("AutoWrap8")
+    header, impl = generate_automation_adapter(isa, "AutoWrap8")
+
+    assert '#include "AutoWrap8_debug_abi.h"' in header
+    assert "autowrap8_automation_attach_debug(" in header
+    assert "autowrap8_automation_create(" in header
+    assert "pasm_dbg_pause(ctx->cpu)" in impl
+    assert "pasm_dbg_reset(ctx->cpu)" in impl
+    assert "pasm_dbg_run_for_cycles(ctx->cpu, cycle_slice, &mode)" in impl
+    assert "EMU_AUTOMATION_CAP_EXEC_STEP_FRAME" in impl
+    assert "EMU_AUTOMATION_CAP_SCREEN_FRAMEBUFFER" not in impl
+
+
+def test_automation_adapter_generator_supports_declared_system_memory_text_grid():
+    isa = _base_isa("AutoText8")
+    isa["system"] = {
+        "metadata": {"name": "AutoTextSystem"},
+        "automation": {
+            "screen": {
+                "text_views": [
+                    {
+                        "id": "primary_text",
+                        "columns": 40,
+                        "rows": 24,
+                        "row_stride": 40,
+                        "memory": {
+                            "source": "system_memory",
+                            "base": 0x400,
+                            "alternate_base": 0x800,
+                            "address_layout": "bit_interleaved_rows",
+                            "row_low_mask": 0x07,
+                            "row_low_shift": 7,
+                            "row_high_shift": 3,
+                            "row_high_multiplier": 0x28,
+                            "column_multiplier": 1,
+                        },
+                        "charset": "apple2_character_rom",
+                        "unicode_map": "apple2_text",
+                    }
+                ]
+            }
+        },
+    }
+    _, impl = generate_automation_adapter(isa, "AutoText8")
+
+    assert "EMU_AUTOMATION_CAP_SCREEN_TEXT_GRID" in impl
+    assert '    { "primary_text", (uint32_t)40u, (uint32_t)24u' in impl
+    assert "PASM_AUTOMATION_TEXT_LAYOUT_BIT_INTERLEAVED_ROWS" in impl
+    assert "pasm_dbg_read_memory(ctx->cpu, address, &native_code, 1u)" in impl
+    assert "((uint64_t)(row & view->row_low_mask) << view->row_low_shift)" in impl
+    assert "((uint64_t)(row >> view->row_high_shift) * (uint64_t)view->row_high_multiplier)" in impl
+    assert "adapter.capture_text_grid = autotext8_automation_capture_text_grid;" in impl
+    assert "adapter.text_grid_view_count = autotext8_automation_text_grid_view_count;" in impl
+    assert "adapter.text_grid_view_descriptor = autotext8_automation_text_grid_view_descriptor;" in impl
+    assert "adapter.release_text_grid = autotext8_automation_release_text_grid;" in impl
+
+
+def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_path):
+    if shutil.which("cc") is None:
+        pytest.skip("cc is not available")
+
+    isa = _base_isa("AutoText8")
+    isa["system"] = {
+        "metadata": {"name": "AutoTextSystem"},
+        "automation": {
+            "screen": {
+                "text_views": [
+                    {
+                        "id": "primary_text",
+                        "columns": 2,
+                        "rows": 3,
+                        "row_stride": 2,
+                        "memory": {
+                            "source": "system_memory",
+                            "base": 0x400,
+                            "address_layout": "bit_interleaved_rows",
+                            "row_low_mask": 0x07,
+                            "row_low_shift": 7,
+                            "row_high_shift": 3,
+                            "row_high_multiplier": 0x28,
+                            "column_multiplier": 1,
+                        },
+                        "charset": "apple2_character_rom",
+                        "unicode_map": "apple2_text",
+                    }
+                ]
+            }
+        },
+    }
+    adapter_header, adapter_impl = generate_automation_adapter(isa, "AutoText8")
+
+    (tmp_path / "AutoText8.h").write_text(
+        textwrap.dedent(
+            """
+            #ifndef AUTOTEXT8_H
+            #define AUTOTEXT8_H
+            #include <stdint.h>
+            typedef struct CPUState { uint8_t memory[65536]; } CPUState;
+            #endif
+            """
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "AutoText8_debug_abi.h").write_text(
+        textwrap.dedent(
+            """
+            #ifndef AUTOTEXT8_DEBUG_ABI_H
+            #define AUTOTEXT8_DEBUG_ABI_H
+            #include <stddef.h>
+            #include <stdint.h>
+            #include "AutoText8.h"
+            #define PASM_DBG_RUNNING 0
+            #define PASM_DBG_PAUSED 1
+            #define PASM_DBG_STEPPING 2
+            #define PASM_DBG_EXITED 3
+            #define PASM_DBG_ERROR 4
+            typedef struct PASMDebugSnapshotCore {
+                char target_name[64];
+                char status_line[256];
+                uint8_t mode;
+                uint8_t architecture;
+                uint64_t system_clock_hz;
+                uint32_t selected_thread_id;
+                uint64_t pc;
+                uint64_t sp;
+                uint64_t total_cycles;
+                uint64_t last_step_cycles;
+                uint64_t tstate_global;
+                uint64_t tstate_frame;
+                uint64_t frame_index;
+                uint8_t interrupt_mode;
+                uint8_t iff1;
+                uint8_t iff2;
+            } PASMDebugSnapshotCore;
+            typedef struct PASMDebugCounts { uint32_t rows[11]; } PASMDebugCounts;
+            typedef struct PASMDebugDisasmRow { uint8_t unused; } PASMDebugDisasmRow;
+            typedef struct PASMDebugRegisterRow { uint8_t unused; } PASMDebugRegisterRow;
+            typedef struct PASMDebugFlagRow { uint8_t unused; } PASMDebugFlagRow;
+            typedef struct PASMDebugOperandRow { uint8_t unused; } PASMDebugOperandRow;
+            typedef struct PASMDebugStackRow { uint8_t unused; } PASMDebugStackRow;
+            typedef struct PASMDebugMemoryRow { uint8_t unused; } PASMDebugMemoryRow;
+            typedef struct PASMDebugCallFrameRow { uint8_t unused; } PASMDebugCallFrameRow;
+            typedef struct PASMDebugBreakpointRow { uint8_t unused; } PASMDebugBreakpointRow;
+            typedef struct PASMDebugWatchpointRow { uint8_t unused; } PASMDebugWatchpointRow;
+            typedef struct PASMDebugThreadRow { uint8_t unused; } PASMDebugThreadRow;
+            typedef struct PASMDebugHistoryRow { uint8_t unused; } PASMDebugHistoryRow;
+            CPUState *pasm_dbg_create(size_t memory_size);
+            void pasm_dbg_destroy(CPUState *cpu);
+            void pasm_dbg_reset(CPUState *cpu);
+            int pasm_dbg_snapshot_fill(
+                CPUState *cpu,
+                PASMDebugSnapshotCore *out_core,
+                PASMDebugDisasmRow *disasm_rows, size_t disasm_cap,
+                PASMDebugRegisterRow *reg_rows, size_t reg_cap,
+                PASMDebugFlagRow *flag_rows, size_t flag_cap,
+                PASMDebugOperandRow *operand_rows, size_t operand_cap,
+                PASMDebugStackRow *stack_rows, size_t stack_cap,
+                PASMDebugMemoryRow *mem_rows, size_t mem_cap,
+                PASMDebugCallFrameRow *call_rows, size_t call_cap,
+                PASMDebugBreakpointRow *bp_rows, size_t bp_cap,
+                PASMDebugWatchpointRow *wp_rows, size_t wp_cap,
+                PASMDebugThreadRow *thread_rows, size_t thread_cap,
+                PASMDebugHistoryRow *hist_rows, size_t hist_cap
+            );
+            int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode);
+            int pasm_dbg_pause(CPUState *cpu);
+            int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
+            const char *pasm_dbg_system_name(void);
+            #endif
+            """
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "AutoText8_automation_adapter.h").write_text(adapter_header, encoding="utf-8")
+    (tmp_path / "AutoText8_automation_adapter.c").write_text(adapter_impl, encoding="utf-8")
+    (tmp_path / "test_driver.c").write_text(
+        textwrap.dedent(
+            """
+            #include "AutoText8_automation_adapter.h"
+            #include <stdlib.h>
+            #include <string.h>
+
+            CPUState *pasm_dbg_create(size_t memory_size) {
+                (void)memory_size;
+                return (CPUState *)calloc(1u, sizeof(CPUState));
+            }
+            void pasm_dbg_destroy(CPUState *cpu) { free(cpu); }
+            void pasm_dbg_reset(CPUState *cpu) { memset(cpu->memory, 0, sizeof(cpu->memory)); }
+            int pasm_dbg_snapshot_fill(
+                CPUState *cpu,
+                PASMDebugSnapshotCore *out_core,
+                PASMDebugDisasmRow *disasm_rows, size_t disasm_cap,
+                PASMDebugRegisterRow *reg_rows, size_t reg_cap,
+                PASMDebugFlagRow *flag_rows, size_t flag_cap,
+                PASMDebugOperandRow *operand_rows, size_t operand_cap,
+                PASMDebugStackRow *stack_rows, size_t stack_cap,
+                PASMDebugMemoryRow *mem_rows, size_t mem_cap,
+                PASMDebugCallFrameRow *call_rows, size_t call_cap,
+                PASMDebugBreakpointRow *bp_rows, size_t bp_cap,
+                PASMDebugWatchpointRow *wp_rows, size_t wp_cap,
+                PASMDebugThreadRow *thread_rows, size_t thread_cap,
+                PASMDebugHistoryRow *hist_rows, size_t hist_cap
+            ) {
+                (void)cpu; (void)disasm_rows; (void)disasm_cap; (void)reg_rows; (void)reg_cap;
+                (void)flag_rows; (void)flag_cap; (void)operand_rows; (void)operand_cap;
+                (void)stack_rows; (void)stack_cap; (void)mem_rows; (void)mem_cap;
+                (void)call_rows; (void)call_cap; (void)bp_rows; (void)bp_cap;
+                (void)wp_rows; (void)wp_cap; (void)thread_rows; (void)thread_cap;
+                (void)hist_rows; (void)hist_cap;
+                memset(out_core, 0, sizeof(*out_core));
+                out_core->mode = PASM_DBG_PAUSED;
+                out_core->system_clock_hz = 1000000u;
+                out_core->total_cycles = 1234u;
+                out_core->frame_index = 7u;
+                return 0;
+            }
+            int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode) {
+                (void)cpu; (void)max_cycles;
+                *out_mode = PASM_DBG_PAUSED;
+                return 0;
+            }
+            int pasm_dbg_pause(CPUState *cpu) { (void)cpu; return 0; }
+            int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size) {
+                if (address + size > sizeof(cpu->memory)) return -1;
+                memcpy(out, cpu->memory + address, size);
+                return 0;
+            }
+            const char *pasm_dbg_system_name(void) { return "AutoTextSystem"; }
+
+            int main(void) {
+                CPUState cpu;
+                emu_automation_machine_t *machine = NULL;
+                emu_automation_text_view_descriptor_t descriptor;
+                emu_automation_text_grid_snapshot_t text;
+                size_t text_view_count = 0u;
+                memset(&cpu, 0, sizeof(cpu));
+
+                cpu.memory[0x0400] = 0xC1; /* row 0, col 0 -> A */
+                cpu.memory[0x0401] = 0xC2; /* row 0, col 1 -> B */
+                cpu.memory[0x0480] = 0xC3; /* row 1, col 0 -> C */
+                cpu.memory[0x0481] = 0xC4; /* row 1, col 1 -> D */
+                cpu.memory[0x0500] = 0xC5; /* row 2, col 0 -> E */
+                cpu.memory[0x0501] = 0xC6; /* row 2, col 1 -> F */
+
+                if (autotext8_automation_attach_debug(&cpu, &machine) != EMU_AUTOMATION_OK) return 1;
+                if (emu_automation_screen_text_view_count(machine, &text_view_count) != EMU_AUTOMATION_OK) return 9;
+                if (text_view_count != 1u) return 10;
+                if (emu_automation_screen_text_view_descriptor(machine, 0u, &descriptor) != EMU_AUTOMATION_OK) return 11;
+                if (strcmp(descriptor.region_id, "primary_text") != 0) return 12;
+                if (descriptor.columns != 2u || descriptor.rows != 3u || descriptor.row_stride != 2u) return 13;
+                if (strcmp(descriptor.charset_id, "apple2_character_rom") != 0) return 14;
+                if (strcmp(descriptor.unicode_map, "apple2_text") != 0) return 15;
+                if (emu_automation_screen_text_grid(machine, "primary_text", &text) != EMU_AUTOMATION_OK) return 2;
+                if ((text.columns != 2u) || (text.rows != 3u) || (text.cell_count != 6u)) return 3;
+                if (strcmp(text.plain_utf8, "AB\\nCD\\nEF") != 0) return 4;
+                if (text.frame.frame_number != 7u || text.frame.emulated_cycles != 1234u) return 5;
+                if (text.cells[2].source_address != 0x0480u || text.cells[2].unicode_codepoint != 'C') return 6;
+                if (text.cells[0].native_code != 0xC1u || text.cells[0].confidence != 255u) return 7;
+                emu_automation_text_grid_release(machine, &text);
+                if (text.cells != NULL || text.plain_utf8 != NULL) return 8;
+                emu_automation_machine_destroy(machine);
+                return 0;
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    binary = tmp_path / "adapter_text_grid_test"
+    subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-I",
+            str(tmp_path),
+            "-I",
+            str(BASE_DIR / "automation" / "include"),
+            str(BASE_DIR / "automation" / "core" / "emu_automation.c"),
+            str(tmp_path / "AutoText8_automation_adapter.c"),
+            str(tmp_path / "test_driver.c"),
+            "-o",
+            str(binary),
+        ],
+        check=True,
+    )
+    subprocess.run([str(binary)], check=True)
+
+
 def test_debug_abi_pumps_host_hal_when_host_present():
     isa = _base_isa("DbgPump8")
     isa["hosts"] = [
@@ -1762,12 +2085,51 @@ def test_generator_emits_debugger_link_manifest(tmp_path):
         "src/DbgLink8_core.c",
         "src/DbgLink8_decoder.c",
         "src/DbgLink8_debug_abi.c",
+        "src/emu_automation.c",
+        "src/DbgLink8_automation_adapter.c",
     ]
     assert "src/dbg_link8_test_runtime.c" in manifest["split_units"]["system_sources"]
     assert "src/dbg_link8_test_debug_abi.c" not in manifest["split_units"]["system_sources"]
     assert manifest["headers"]["debug_abi"] == "src/DbgLink8_debug_abi.h"
+    assert manifest["headers"]["automation_abi"] == "src/emu_automation.h"
+    assert manifest["headers"]["automation_adapter"] == "src/DbgLink8_automation_adapter.h"
+    assert manifest["automation"]["system"] == {}
     assert "link" in manifest
     assert isinstance(manifest["link"]["library_names"], list)
+
+
+def test_debugger_link_manifest_preserves_automation_metadata(tmp_path):
+    isa = _base_isa("AutoManifest8")
+    processor_path, system_path = write_pair_from_legacy(
+        tmp_path,
+        "auto_manifest8",
+        isa,
+        system_overrides={
+            "automation": {
+                "screen": {
+                    "text_views": [
+                        {
+                            "id": "primary_text",
+                            "columns": 40,
+                            "rows": 24,
+                            "memory": {
+                                "source": "system_memory",
+                                "base": 0x400,
+                                "address_layout": "linear",
+                            },
+                        }
+                    ]
+                }
+            }
+        },
+    )
+    outdir = tmp_path / "auto_manifest8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    manifest = json.loads((outdir / "debugger_link.json").read_text(encoding="utf-8"))
+    text_views = manifest["automation"]["system"]["screen"]["text_views"]
+    assert text_views[0]["id"] == "primary_text"
+    assert text_views[0]["memory"]["base"] == 0x400
 
 
 def test_generator_prunes_stale_split_units(tmp_path):

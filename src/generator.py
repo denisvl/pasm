@@ -24,6 +24,7 @@ from src.codegen.split_units import (
 )
 from src.codegen.cpu_decoder import generate_decoder
 from src.codegen.cpu_debug_abi import generate_debug_abi
+from src.codegen.automation_adapter import generate_automation_adapter
 from src.codegen.cpu_hooks import HOOK_NAMES, generate_hooks
 from src.codegen.build_system import generate_cmake, generate_makefile
 from src.codegen.test_harness import generate_test_c
@@ -34,6 +35,9 @@ from src.codegen.split_layout import (
     system_unit_basenames,
 )
 from src.logging_utils import logger
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class EmulatorGenerator:
@@ -247,6 +251,29 @@ class EmulatorGenerator:
         debug_header, debug_impl = generate_debug_abi(isa_data_for_codegen, self.cpu_name)
         (src_dir / f"{self.cpu_name}_debug_abi.h").write_text(debug_header)
         (src_dir / f"{self.cpu_name}_debug_abi.c").write_text(debug_impl)
+
+        # Generate automation ABI bridge and copy the canonical automation core.
+        logger.info("  - Generating automation adapter...")
+        automation_header, automation_impl = generate_automation_adapter(
+            isa_data_for_codegen, self.cpu_name
+        )
+        (src_dir / "emu_automation.h").write_text(
+            (REPO_ROOT / "automation" / "include" / "emu_automation.h").read_text(
+                encoding="utf-8"
+            )
+        )
+        (src_dir / "emu_automation_adapter.h").write_text(
+            (REPO_ROOT / "automation" / "include" / "emu_automation_adapter.h").read_text(
+                encoding="utf-8"
+            )
+        )
+        (src_dir / "emu_automation.c").write_text(
+            (REPO_ROOT / "automation" / "core" / "emu_automation.c").read_text(
+                encoding="utf-8"
+            )
+        )
+        (src_dir / f"{self.cpu_name}_automation_adapter.h").write_text(automation_header)
+        (src_dir / f"{self.cpu_name}_automation_adapter.c").write_text(automation_impl)
 
         # Generate hooks if enabled in ISA
         hooks_header, hooks_impl = None, None
@@ -832,6 +859,8 @@ exit /b 0
                     f"src/{self.cpu_name}_core.c",
                     f"src/{self.cpu_name}_decoder.c",
                     f"src/{self.cpu_name}_debug_abi.c",
+                    "src/emu_automation.c",
+                    f"src/{self.cpu_name}_automation_adapter.c",
                 ],
                 "system_sources": [
                     f"src/{name}.c"
@@ -851,6 +880,8 @@ exit /b 0
             "headers": {
                 "cpu": f"src/{self.cpu_name}.h",
                 "debug_abi": f"src/{self.cpu_name}_debug_abi.h",
+                "automation_abi": "src/emu_automation.h",
+                "automation_adapter": f"src/{self.cpu_name}_automation_adapter.h",
             },
             "link": {
                 "library_paths": list(coding.get("library_paths", [])),
@@ -858,6 +889,9 @@ exit /b 0
                 "library_files": link_library_files,
             },
             "memory_default_size": int(memory.get("default_size", 65536)),
+            "automation": {
+                "system": self.isa_data.get("system", {}).get("automation", {}),
+            },
             "cartridge": {
                 "enabled": bool(self.isa_data.get("cartridge")),
                 "id": self.isa_data.get("cartridge", {}).get("metadata", {}).get("id", ""),

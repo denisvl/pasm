@@ -1762,6 +1762,7 @@ class ProcessorSystemLoader:
                 "clock_hz": int(system_data.get("clock_hz", 0)),
                 "reset_delay_seconds": int(system_data.get("reset_delay_seconds", 0)),
                 "integrations": copy.deepcopy(system_data.get("integrations", {})),
+                "automation": copy.deepcopy(system_data.get("automation", {})),
             },
             "host_backend_target": str(host_backend_target or ""),
         }

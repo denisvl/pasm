@@ -264,6 +264,65 @@
           "maximum": 4
         }
       }
+    },
+    "automation": {
+      "type": "object",
+      "description": "Host-owned automation metadata such as framebuffer capture and input backend behavior.",
+      "additionalProperties": true,
+      "properties": {
+        "screen": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "framebuffer": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "text_views": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "columns",
+                  "rows"
+                ],
+                "additionalProperties": true,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "columns": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "rows": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "native_properties": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
     }
   }
 }
