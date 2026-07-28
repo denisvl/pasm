@@ -2,6 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEBUGGER="${SCRIPT_DIR}/run_msx1_expanded_debugger.sh"
+if [[ ! -x "${DEBUGGER}" ]]; then
+  echo "MSX1 Expanded debugger launcher not found or not executable: ${DEBUGGER}" >&2
+  exit 2
+fi
 
 # MSX interactive defaults:
 # - keep cartridge subsystem enabled for runtime picker
@@ -10,4 +15,4 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 USE_CARTRIDGE=1 \
 BOOT_CARTRIDGE=0 \
 PASM_EMU_CART_PICKER_RAW_KEYS=1 \
-"${SCRIPT_DIR}/run_msx1_expandend_debugger.sh" interactive "$@"
+"${DEBUGGER}" interactive "$@"

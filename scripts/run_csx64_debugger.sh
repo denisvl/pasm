@@ -104,7 +104,7 @@ fi
 
 OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
-mkdir -p "$(dirname "${OUTPUT_DIR}")"
+mkdir -p "${OUTPUT_DIR}" "${BUILD_DIR}"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
 BUILD_DIR_ABS="$(cd "$(dirname "${BUILD_DIR}")" && pwd)/$(basename "${BUILD_DIR}")"
 

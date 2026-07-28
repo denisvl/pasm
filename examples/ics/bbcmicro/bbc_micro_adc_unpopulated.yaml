@@ -1,0 +1,42 @@
+metadata:
+  id: bbc_micro_adc_unpopulated
+  type: io_controller
+  model: unpopulated_adc
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks: []
+  handlers:
+    - name: bus_read
+      args: [u16]
+    - name: bus_write
+      args: [u16, u8]
+  signals: []
+
+maps:
+  memory:
+    ranges:
+    - name: ADC_UNPOPULATED
+      start: 65048
+      size: 8
+      access: ["read", "write"]
+
+behavior:
+  snippets: {}
+  callback_handlers: {}
+  handler_bodies:
+    bus_read: |
+      if (handled != NULL) *handled = 1u;
+      return 0xFFu;
+    bus_write: |
+      if (handled != NULL) *handled = 1u;
+      (void)value;
+      return 0u;
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

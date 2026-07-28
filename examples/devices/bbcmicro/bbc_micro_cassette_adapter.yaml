@@ -894,10 +894,10 @@ behavior:
 
 coding:
   headers:
-    - stdio.h
-    - stdlib.h
-    - string.h
-    - zlib.h
+    - <stdio.h>
+    - <stdlib.h>
+    - <string.h>
+    - <zlib.h>
   include_paths: []
   linked_libraries:
     - name: z

@@ -23,6 +23,7 @@ from src.codegen.cpu_impl import generate_host_hal_impl_glue
 from src.codegen.cpu_impl import generate_input_runtime_glue
 from src.codegen.cpu_impl import generate_input_runtime_contract_support
 from src.codegen.split_units import (
+    emit_ic_unit,
     extract_split_section,
     extract_split_sections,
     extract_host_hal_function_prototypes,
@@ -983,6 +984,20 @@ def test_memory_read_only_regions_emit_write_guards():
     assert "if (addr >= 0x8000u) {" in code
 
 
+def test_unpopulated_memory_regions_emit_read_and_write_guards():
+    isa = _base_isa("MemOpenBus8")
+    isa["memory"]["regions"] = [
+        {"name": "RAM", "start": 0x0000, "size": 0x4000, "read_write": True},
+        {"name": "FLOATING", "start": 0x4000, "size": 0x4000, "type": "unpopulated"},
+        {"name": "ROM", "start": 0x8000, "size": 0x8000, "read_only": True},
+    ]
+
+    code = generate_cpu_impl(isa, "MemOpenBus8")
+    assert "Unpopulated region: FLOATING - returns 0xFF" in code
+    assert "if (addr >= 0x4000u && addr < 0x8000u) {" in code
+    assert "Ignore writes to read-only region: FLOATING" in code
+
+
 @pytest.mark.skipif(
     (shutil.which("cc") is None and shutil.which("gcc") is None and shutil.which("clang") is None),
     reason="C compiler not available on PATH",
@@ -1065,6 +1080,87 @@ int main(void) {
     assert "ROM=00" in proc.stdout
     assert "ERR_RAM=0" in proc.stdout
     assert "ERR_ROM=0" in proc.stdout
+
+
+@pytest.mark.skipif(
+    (shutil.which("cc") is None and shutil.which("gcc") is None and shutil.which("clang") is None),
+    reason="C compiler not available on PATH",
+)
+def test_runtime_unpopulated_regions_return_open_bus_and_discard_writes(tmp_path):
+    isa = _base_isa("MemOpenBusRuntime8")
+    isa["memory"]["regions"] = [
+        {"name": "RAM", "start": 0x0000, "size": 0x4000, "read_write": True},
+        {"name": "FLOATING", "start": 0x4000, "size": 0x4000, "type": "unpopulated"},
+        {"name": "ROM", "start": 0x8000, "size": 0x8000, "read_only": True},
+    ]
+    processor_path, system_path = write_pair_from_legacy(
+        tmp_path, "mem_open_bus_runtime8", isa
+    )
+
+    outdir = tmp_path / "mem_open_bus_runtime8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    harness_c = outdir / "open_bus_harness.c"
+    harness_c.write_text(
+        """
+#include <stdio.h>
+#include "MemOpenBusRuntime8.h"
+
+int main(void) {
+    CPUState *cpu = memopenbusruntime8_create(65536);
+    if (!cpu) return 2;
+
+    memopenbusruntime8_write_byte(cpu, 0x7000, 0x5A);
+    unsigned int api = (unsigned int)memopenbusruntime8_read_byte(cpu, 0x7000);
+    unsigned int backing = (unsigned int)cpu->memory[0x7000];
+    int err = cpu->error_code;
+
+    printf("API=%02X\\n", api);
+    printf("BACKING=%02X\\n", backing);
+    printf("ERR=%d\\n", err);
+
+    memopenbusruntime8_destroy(cpu);
+    return 0;
+}
+""",
+        encoding="utf-8",
+    )
+
+    compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
+    binary_name = "open_bus_harness.exe" if os.name == "nt" else "open_bus_harness"
+    binary = outdir / binary_name
+    split_runtime = next((outdir / "src").glob("*_runtime.c"))
+    split_system_bus = next((outdir / "src").glob("*_system_bus.c"))
+    split_system_glue = next((outdir / "src").glob("*_system_glue.c"))
+    split_host_glue = next((outdir / "src").glob("*_host_glue.c"))
+    split_device_glue = next((outdir / "src").glob("*_device_glue.c"))
+    subprocess.check_call(
+        [
+            compiler,
+            "-std=c11",
+            "-O2",
+            "-D_POSIX_C_SOURCE=199309L",
+            "-I",
+            str(outdir / "src"),
+            str(outdir / "src" / "MemOpenBusRuntime8_core.c"),
+            str(outdir / "src" / "MemOpenBusRuntime8_decoder.c"),
+            str(split_runtime),
+            str(split_system_bus),
+            str(split_system_glue),
+            str(split_host_glue),
+            str(split_device_glue),
+            str(harness_c),
+            "-o",
+            str(binary),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
+
+    proc = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
+    assert "API=FF" in proc.stdout
+    assert "BACKING=00" in proc.stdout
+    assert "ERR=0" in proc.stdout
 
 
 def test_system_rom_loader_api_is_emitted(tmp_path):
@@ -2824,6 +2920,22 @@ def test_header_includes_supported_compiler_gate():
     isa = _base_isa("CompilerGate8")
     header = generate_cpu_header(isa, "CompilerGate8")
     assert "Unsupported compiler: generated code supports MSVC, Clang, and GCC." in header
+
+
+def test_split_ic_unit_normalizes_coding_headers():
+    isa = _base_isa("SplitInclude8")
+    component = {
+        "metadata": {"id": "demo_ic", "type": "io_controller", "model": "demo"},
+        "state": [],
+        "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+        "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+        "coding": {"headers": ["stdio.h", '"pasm_overlay.h"']},
+    }
+
+    unit = emit_ic_unit(isa, "SplitInclude8", component)
+    assert "#include <stdio.h>" in unit
+    assert '#include "pasm_overlay.h"' in unit
+    assert "#include stdio.h" not in unit
 
 
 def test_header_emits_system_metadata_constants():

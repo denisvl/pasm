@@ -31,6 +31,8 @@ DISK_ROM="${DISK_ROM:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
+mkdir -p "${UV_CACHE_DIR}"
 
 PROCESSOR="examples/processors/z80.yaml"
 IC="examples/ics/zx_spectrum48k/zx_spectrum_48k_ula.yaml"

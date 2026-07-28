@@ -12,7 +12,7 @@ set -euo pipefail
 #   OUTPUT_DIR=generated/z80_msx1_expanded_interactive
 #   EXTRA_CARGO_ARGS="--release"
 #   USE_CARTRIDGE=1|0
-#   CARTRIDGE_MAP=examples/cartridges/msx1/msx_mapper_konami.yaml
+#   CARTRIDGE_MAP=examples/cartridges/msx1_expanded/msx_mapper_konami_expanded.yaml
 #   CARTRIDGE_ROM_GEN=../roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom
 #   CARTRIDGE_ROM_RUNTIME=/abs/path/to/rom.rom
 #   EXTRA_CMAKE_ARGS="-DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-linux"
@@ -46,7 +46,7 @@ CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/msx1/host_controller_msx1.yaml}
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 USE_CARTRIDGE="${USE_CARTRIDGE:-1}"
-CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/msx1/msx_mapper_konami.yaml}"
+CARTRIDGE_MAP="${CARTRIDGE_MAP:-examples/cartridges/msx1_expanded/msx_mapper_konami_expanded.yaml}"
 CARTRIDGE_ROM_GEN="${CARTRIDGE_ROM_GEN:-../../roms/msx1/Penguin Adventure - Yumetairiku Adventure (1986) Konami [Konami Antiques MSX Collection 3 - RC-743] [2539].rom}"
 CARTRIDGE_ROM_RUNTIME="${CARTRIDGE_ROM_RUNTIME:-}"
 CARTRIDGE_DIR="${CARTRIDGE_DIR:-}"
@@ -58,36 +58,37 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
 mkdir -p "${UV_CACHE_DIR}"
+CARTRIDGE_DIR="${CARTRIDGE_DIR:-${REPO_ROOT}/examples/roms/msx1}"
 
 PROCESSOR="examples/processors/z80.yaml"
 IC_VDP="examples/ics/msx1/msx1_vdp_tms9918a.yaml"
-IC_PPI="examples/ics/msx1/msx1_ppi_8255_expanded.yaml"
+IC_PPI="examples/ics/msx1_expanded/msx1_ppi_8255_expanded.yaml"
 IC_PSG="examples/ics/msx1/msx1_psg_ay8910.yaml"
 IC_MAIN_RAM="examples/ics/msx1/msx1_main_ram.yaml"
-IC_EXPANDED_SLOT="examples/ics/msx1/msx1_expanded_slot_controller.yaml"
+IC_EXPANDED_SLOT="examples/ics/msx1_expanded/msx1_expanded_slot_controller.yaml"
 DEVICE_KB="examples/devices/msx1/msx_keyboard.yaml"
 DEVICE_CTRL="examples/devices/msx1/msx_controller.yaml"
 DEVICE_VIDEO="examples/devices/msx1/msx_video.yaml"
 DEVICE_SPK="examples/devices/msx1/msx_speaker.yaml"
 DEVICE_CASSETTE="examples/devices/common/cassette_transport.yaml"
 DEVICE_TV="examples/devices/common/tv_crt_mono.yaml"
-SYSTEM_DIR="examples/systems/msx1"
+SYSTEM_DIR="examples/systems/msx1_expanded"
 
 case "${PROFILE}" in
   default)
     if [[ "${USE_CARTRIDGE}" != "0" ]]; then
-      SYSTEM="examples/systems/msx1/msx1_expanded_cartridge_default.yaml"
+      SYSTEM="examples/systems/msx1_expanded/msx1_expanded_cartridge_default.yaml"
     else
-      SYSTEM="examples/systems/msx1/msx1_expanded_default.yaml"
+      SYSTEM="examples/systems/msx1_expanded/msx1_expanded_default.yaml"
     fi
     HOST="examples/hosts/msx1/msx_host_stub.yaml"
     DEFAULT_OUTPUT="generated/z80_msx1_expanded_default"
     ;;
   interactive)
     if [[ "${USE_CARTRIDGE}" != "0" ]]; then
-      SYSTEM="examples/systems/msx1/msx1_expanded_cartridge_interactive.yaml"
+      SYSTEM="examples/systems/msx1_expanded/msx1_expanded_cartridge_interactive.yaml"
     else
-      SYSTEM="examples/systems/msx1/msx1_expanded_interactive.yaml"
+      SYSTEM="examples/systems/msx1_expanded/msx1_expanded_interactive.yaml"
     fi
     HOST="examples/hosts/msx1/msx_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/z80_msx1_expanded_interactive"
@@ -238,11 +239,11 @@ fi
 
 BUILD_DIR_ABS="$(cd "${BUILD_DIR}" && pwd)"
 CMAKE_CONFIG_BUILD_DIR="${BUILD_DIR}/${CMAKE_BUILD_TYPE}"
-CMAKE_CONFIG_BUILD_DIR_ABS="$(cd "${CMAKE_CONFIG_BUILD_DIR}" && pwd)"
 OUTPUT_DIR_ABS="$(cd "${OUTPUT_DIR}" && pwd)"
 export PASM_EMU_DIR="${OUTPUT_DIR_ABS}"
 export PASM_EMU_BUILD_DIR="${BUILD_DIR_ABS}"
 if [[ -d "${CMAKE_CONFIG_BUILD_DIR}" ]]; then
+  CMAKE_CONFIG_BUILD_DIR_ABS="$(cd "${CMAKE_CONFIG_BUILD_DIR}" && pwd)"
   export PASM_EMU_BUILD_DIR="${CMAKE_CONFIG_BUILD_DIR_ABS}"
 fi
 export PASM_EMU_MANIFEST="${OUTPUT_DIR_ABS}/debugger_link.json"

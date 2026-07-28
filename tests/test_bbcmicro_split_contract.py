@@ -8,6 +8,7 @@ def test_bbcmicro_systems_use_split_ics_and_no_legacy_io():
     )
     for rel in systems:
         s = Path(rel).read_text(encoding="utf-8")
+        assert "- bbc_micro_i8271_fdc" in s
         assert "- bbc_micro_crtc_6845" in s
         assert "- bbc_micro_video_ula" in s
         assert "- bbc_micro_system_via_6522" in s
@@ -24,6 +25,8 @@ def test_bbcmicro_systems_use_split_ics_and_no_legacy_io():
 def test_bbcmicro_runner_loads_main_ram_ic():
     script = Path("scripts/run_bbc_micro_debugger.sh").read_text(encoding="utf-8")
     assert 'IC_MAIN_RAM="examples/ics/bbcmicro/bbc_micro_main_ram.yaml"' in script
+    assert 'IC_FDC="examples/ics/bbcmicro/bbc_micro_i8271_fdc.yaml"' in script
+    assert '--ic "${IC_FDC}"' in script
     assert '--ic "${IC_MAIN_RAM}"' in script
     assert 'DEVICE_FLOPPY_BACKEND="examples/devices/common/floppy_raw_sector_image_backend.yaml"' in script
     assert '--device "${DEVICE_FLOPPY_BACKEND}"' in script
@@ -37,7 +40,7 @@ def test_bbcmicro_systems_expose_floppy_runtime():
     )
     for rel in systems:
         s = Path(rel).read_text(encoding="utf-8")
-        assert "floppy: bbc_micro_crtc_6845" in s
+        assert "floppy: bbc_micro_i8271_fdc" in s
         assert "media_picker:" in s
         assert "open_action_id: EMU_MEDIA_PICKER" in s
         assert "directory: examples/floppies/bbcmicro" in s
@@ -45,6 +48,7 @@ def test_bbcmicro_systems_expose_floppy_runtime():
         assert "source_type: ../../floppy_sources/dsd_file.yaml" in s
         assert "source_type: ../../floppy_sources/adl_file.yaml" in s
         assert "source_component: floppy_raw_sector_image_backend" in s
+        assert "component: bbc_micro_i8271_fdc" in s
 
 
 def test_bbcmicro_dfs_sideways_slot_is_e():

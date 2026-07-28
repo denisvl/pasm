@@ -81,6 +81,19 @@
               },
               "read_only": {
                 "type": "boolean"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["ram", "rom", "unpopulated", "floating", "open_bus"],
+                "default": "ram",
+                "description": "Memory region type. 'unpopulated'/'floating'/'open_bus' regions return 0xFF on read and discard writes."
+              },
+              "read_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255,
+                "default": 255,
+                "description": "Value returned when reading from unpopulated/floating/open_bus regions (default 0xFF)"
               }
             }
           }

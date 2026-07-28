@@ -69,8 +69,9 @@ def emit_ic_unit(isa_data: Dict[str, Any], cpu_name: str, component: Dict[str, A
     )
     coding = component.get("coding") or {}
     header_includes = [
-        f"#include {h}"
+        f"#include {_normalize_c_include_header(h)}"
         for h in (coding.get("headers") or [])
+        if str(h).strip()
     ]
     lines = [
         "/* Auto-generated split unit: per-IC ownership scaffold. */",
@@ -206,13 +207,17 @@ def _generate_component_coding_includes(components: List[Dict[str, Any]]) -> str
             if not h or h in seen:
                 continue
             seen.add(h)
-            if h.startswith("<") or h.startswith('"'):
-                headers.append(f"#include {h}")
-            else:
-                headers.append(f"#include <{h}>")
+            headers.append(f"#include {_normalize_c_include_header(h)}")
     if not headers:
         return ""
     return "\n".join(headers) + "\n\n"
+
+
+def _normalize_c_include_header(header: Any) -> str:
+    h = str(header).strip()
+    if h.startswith("<") or h.startswith('"'):
+        return h
+    return f"<{h}>"
 
 
 def _rewrite_memory_read_block(block: str) -> str:

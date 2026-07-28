@@ -71,16 +71,25 @@ esac
 
 OUTPUT_DIR="${OUTPUT_DIR:-$DEFAULT_OUTPUT}"
 BUILD_DIR="$OUTPUT_DIR/build"
-mkdir -p "$(dirname "$OUTPUT_DIR")"
+mkdir -p "$OUTPUT_DIR"
 
 # Merge joystick keyboard map into the main keyboard map so the debugger can
 # accept joystick input via the keyboard when a physical controller is absent.
 MERGED_KB_MAP="$OUTPUT_DIR/host_keyboard_apple2_merged.yaml"
+if [[ "$MERGED_KB_MAP" = /* ]]; then
+  MERGED_KB_MAP_ABS="$MERGED_KB_MAP"
+else
+  MERGED_KB_MAP_ABS="$REPO_ROOT/$MERGED_KB_MAP"
+fi
 if [[ "$PROFILE" == "interactive" && -f "$REPO_ROOT/scripts/merge_keyboard_maps.py" ]]; then
-  python "$REPO_ROOT/scripts/merge_keyboard_maps.py" \
+  python3 "$REPO_ROOT/scripts/merge_keyboard_maps.py" \
     "$REPO_ROOT/$KEYBOARD_MAP" \
     "$REPO_ROOT/$JOYSTICK_KEYBOARD_MAP" \
-    "$REPO_ROOT/$MERGED_KB_MAP" || true
+    > "$MERGED_KB_MAP_ABS"
+  if [[ ! -s "$MERGED_KB_MAP_ABS" ]]; then
+    echo "Keyboard map merge produced no output: $MERGED_KB_MAP" >&2
+    exit 4
+  fi
   KEYBOARD_MAP="$MERGED_KB_MAP"
 fi
 

@@ -302,6 +302,7 @@ def generate_cpu_impl(
         port_write_hook_post,
     ) = _generate_port_hook_snippets(hooks)
     memory_write_guard = _generate_memory_write_guard(isa_data)
+    memory_read_guard = _generate_memory_read_guard(isa_data)
     (
         ic_helpers_code,
         ic_init,
@@ -419,6 +420,7 @@ def generate_cpu_impl(
         port_write_hook_pre=port_write_hook_pre,
         port_write_hook_post=port_write_hook_post,
         memory_write_guard=memory_write_guard,
+        memory_read_guard=memory_read_guard,
         memory_read_trace="",
         ic_init=ic_init,
         ic_reset=ic_reset,
@@ -1634,7 +1636,58 @@ def _generate_memory_write_guard(isa_data: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _generate_memory_read_guard(isa_data: Dict[str, Any]) -> str:
+    """Generate memory read guards for unpopulated/floating/open_bus regions.
+
+    These regions return a configurable value (default 0xFF) on read and
+    discard writes. This models unpopulated RAM areas like the BBC Micro's
+    $4000-$7FFF gap.
+    """
+    memory = isa_data.get("memory", {})
+    regions = memory.get("regions", [])
+    if not regions:
+        return ""
+
+    lines: List[str] = []
+
+    for region in regions:
+        region_type = str(region.get("type", "ram")).lower()
+        if region_type not in ("unpopulated", "floating", "open_bus"):
+            continue
+
+        clipped_start, clipped_end = _clip_region_bounds(
+            int(region.get("start", 0)), int(region.get("size", 0))
+        )
+        if clipped_start >= clipped_end:
+            continue
+
+        region_name = _escape_c_string(str(region.get("name", "UNPOPULATED")))
+        read_value = int(region.get("read_value", 255)) & 0xFF
+
+        max_addr_exclusive = 0x10000
+        if clipped_start == 0 and clipped_end == max_addr_exclusive:
+            condition = "true"
+        elif clipped_start == 0:
+            condition = f"(addr < 0x{clipped_end:04X}u)"
+        elif clipped_end == max_addr_exclusive:
+            condition = f"(addr >= 0x{clipped_start:04X}u)"
+        else:
+            condition = (
+                f"(addr >= 0x{clipped_start:04X}u && addr < 0x{clipped_end:04X}u)"
+            )
+
+        lines.append(f"    /* Unpopulated region: {region_name} - returns 0x{read_value:02X} */")
+        lines.append(f"    if {condition} {{")
+        lines.append(f"        return 0x{read_value:02X}u;")
+        lines.append("    }")
+
+    return "\n".join(lines)
+
+
 def _is_region_writable(region: Dict[str, Any]) -> bool:
+    region_type = str(region.get("type", "ram")).lower()
+    if region_type in ("unpopulated", "floating", "open_bus"):
+        return False
     if bool(region.get("read_only", False)):
         return False
     if "read_write" in region and not bool(region.get("read_write")):
@@ -6341,7 +6394,7 @@ def _generate_ic_runtime_blocks(
             "        if (strncmp(s, \"- host_scancode:\", 16) == 0 || strncmp(s, \"host_scancode:\", 14) == 0) {",
             "            int32_t sc;",
             "            const int pref = (strncmp(s, \"- host_scancode:\", 16) == 0) ? 16 : 14;",
-            "            s = cpu_component_trim(s + pref);",
+            "            s = cpu_component_unquote(cpu_component_trim(s + pref));",
             "            sc = cpu_component_scancode_for_host_token(s);",
             "            if (sc < 0) { fprintf(stderr, \"Keyboard map parse error: unknown host_scancode token: '%s'\\n\", s); fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
             "            current = cpu_component_runtime_binding_for_scancode(sc, 0u, 1u);",
@@ -6358,7 +6411,7 @@ def _generate_ic_runtime_blocks(
             "        if (strncmp(s, \"- host_scancode_shifted:\", 24) == 0 || strncmp(s, \"host_scancode_shifted:\", 22) == 0) {",
             "            int32_t sc;",
             "            const int pref = (strncmp(s, \"- host_scancode_shifted:\", 24) == 0) ? 24 : 22;",
-            "            s = cpu_component_trim(s + pref);",
+            "            s = cpu_component_unquote(cpu_component_trim(s + pref));",
             "            sc = cpu_component_scancode_for_host_token(s);",
             "            if (sc < 0) { fprintf(stderr, \"Keyboard map parse error: unknown host_scancode_shifted token: '%s'\\n\", s); fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
             "            current = cpu_component_runtime_binding_for_scancode(sc, 2u, 1u);",
@@ -6368,7 +6421,7 @@ def _generate_ic_runtime_blocks(
             "        if (strncmp(s, \"- host_scancode_unshifted:\", 26) == 0 || strncmp(s, \"host_scancode_unshifted:\", 24) == 0) {",
             "            int32_t sc;",
             "            const int pref = (strncmp(s, \"- host_scancode_unshifted:\", 26) == 0) ? 26 : 24;",
-            "            s = cpu_component_trim(s + pref);",
+            "            s = cpu_component_unquote(cpu_component_trim(s + pref));",
             "            sc = cpu_component_scancode_for_host_token(s);",
             "            if (sc < 0) { fprintf(stderr, \"Keyboard map parse error: unknown host_scancode_unshifted token: '%s'\\n\", s); fclose(f); cpu_component_runtime_keyboard_clear(); return -1; }",
             "            current = cpu_component_runtime_binding_for_scancode(sc, 1u, 1u);",

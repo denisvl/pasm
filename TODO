@@ -180,7 +180,7 @@
           - Direct ROM init at `C006` was insufficient; switching to firmware `KL_INIT_BACK` (`BCCE`) still does not make `CAT` leave cassette mode.
           - Remaining failure is firmware-level AMSDOS registration/patching semantics, not image decode or basic FDC sector reads.
         Repo note: debug ledger is in docs/c64_1541_true_drive_debug_ledger.md.
-        Next system for floppy integration: BBC Micro, using the existing target that already exposes SSD/DSD/ADL media config but still points the floppy slot at `bbc_micro_crtc_6845` instead of a real FDC/drive device.
+        BBC Micro follow-up completed: SSD/DSD/ADL media config now routes through `bbc_micro_i8271_fdc` instead of the CRTC-owned floppy slot.
 
 ☐ Parked: MSX1 floppy integration now boots into Disk BASIC and mounts `.dsk` media, but `FILES` still reports `Disk offline`.
         Files: examples/ics/msx1/msx_disk_interface_wd1793.yaml, examples/ics/msx1/msx1_psg_ay8910.yaml, examples/systems/msx1/msx1_floppy_default.yaml, examples/systems/msx1/msx1_floppy_interactive.yaml, scripts/run_msx_debugger.sh, scripts/run_msx_no_tui.sh
@@ -573,7 +573,7 @@
             - Added optional `system.display` metadata for startup default display model selection and runtime-switchable model lists.
             - Added contract tests for CRT/LCD display models, TV mono/stereo audio, mono-to-stereo duplication, silent/audio monitor behavior, literal display IDs, and ZX Spectrum beeper separation.
 
-☐ System YAML must support a path where custom code or guards may be inserted when reading RAM.
+☑ System YAML must support a path where custom code or guards may be inserted when reading RAM.
         Motivation:
             - BBC Micro Model A reports "32K" at boot instead of "16K". The MOS detects RAM size by writing to $3000 and reading back from $7000; on real hardware the unpopulated $4000-$7FFF range returns 0xFF (no RAM), so the MOS concludes 16K. The current generated emulator uses a flat 64K `cpu->memory[]` array, so $4000-$7FFF reads back the written value and the MOS reports 32K.
             - The flat array cannot simply be shrunk to 16K because ROMs (`ROM_PAGED` at $8000, `ROM_OS` at $C000) are loaded directly into `cpu->memory[]` by `mos6502_load_rom` (see `generated/bbc_micro_model_a_interactive/src/MOS6502_core.c`), so `memory_size` must remain 64K.
@@ -588,11 +588,12 @@
                 2. An explicit per-region `read_guard` / `write_guard` snippet field (raw C or a small DSL) that the codegen splices into the read/write templates via new `{memory_read_guard}` / `{memory_write_guard}` placeholders.
                 3. A general "memory hook" list on the system YAML allowing named C snippets to be inserted before the flat-array fallback.
             - Whichever shape is chosen, it must be driven entirely from the system YAML (and/or IC YAML), not hard-coded per CPU in the codegen, consistent with the existing "must come from the processor/system yaml" principle documented above.
-        Affected files (implementation deferred):
-            - `src/codegen/cpu_impl.py` — extend `_generate_memory_write_guard` (or add `_generate_memory_read_guard`) to emit read guards for unpopulated/custom regions.
-            - `src/codegen/templates.py` — add a `{memory_read_guard}` placeholder to the `read_byte` template alongside the existing `{memory_write_guard}` in `write_byte`.
-            - `schemas/system_schema.json` — add the new region type or guard-snippet fields.
-            - `examples/systems/bbcmicro/bbc_micro_model_a_interactive.yaml` — declare $4000-$7FFF as the new unpopulated region (read returns 0xFF, writes ignored).
-            - Optionally `examples/ics/bbcmicro/bbc_micro_model_a_main_ram.yaml` — populate `maps.memory.ranges` so the RAM IC actually owns $0000-$3FFF instead of relying on the flat array.
-        Verification (after implementation):
-            - Regenerate the `bbc_micro_model_a_interactive` profile, cmake configure + build, boot, and confirm the MOS prints "BBC Computer 16K" instead of "32K".
+        Completed:
+            - Added `type: unpopulated` / `floating` / `open_bus` plus `read_value` support to system memory regions.
+            - Added `{memory_read_guard}` generation so reads from unpopulated regions return the configured open-bus value.
+            - Extended write guards so unpopulated regions discard writes without shrinking `memory_size`.
+            - Declared Model A `$4000-$7FFF` as `RAM_UNPOPULATED` in both default and interactive system YAMLs.
+            - Added codegen/runtime tests proving unpopulated ranges return `0xFF` and discard writes.
+        Verification:
+            - Regenerated, configured, and built `bbc_micro_model_a_interactive`.
+            - Generated core now reads `$4000-$7FFF` as `0xFF` and ignores writes there, matching the MOS 16K RAM-detection requirement.
