@@ -1253,6 +1253,10 @@ class ProcessorSystemLoader:
         if not cid:
             return aliases
         aliases.append(cid)
+        if cid.endswith("_stub"):
+            aliases.append(cid[: -len("_stub")])
+        else:
+            aliases.append(f"{cid}_stub")
         if cid.endswith("_sdl2"):
             aliases.append(cid[: -len("_sdl2")])
         else:

@@ -36,6 +36,7 @@ static emu_automation_result_t mock_capabilities(
         EMU_AUTOMATION_CAP_SCREEN_FRAMEBUFFER |
         EMU_AUTOMATION_CAP_INPUT_KEYBOARD |
         EMU_AUTOMATION_CAP_INPUT_CONTROLLER |
+        EMU_AUTOMATION_CAP_EXEC_TIMING |
         EMU_AUTOMATION_CAP_EXEC_PAUSE |
         EMU_AUTOMATION_CAP_EXEC_RESUME |
         EMU_AUTOMATION_CAP_EXEC_RESET |
@@ -162,6 +163,21 @@ static emu_automation_result_t mock_capture_text_grid(
     return EMU_AUTOMATION_OK;
 }
 
+static emu_automation_result_t mock_read_frame_metadata(
+    void *context,
+    emu_automation_frame_metadata_t *out_metadata)
+{
+    MockMachine *machine = (MockMachine *)context;
+    if (out_metadata == NULL) {
+        return EMU_AUTOMATION_INVALID_ARGUMENT;
+    }
+    out_metadata->frame_number = machine->frame;
+    out_metadata->emulated_cycles = machine->frame * 100u;
+    out_metadata->emulated_time_ns = machine->frame * 1000u;
+    out_metadata->execution_state = machine->state;
+    return EMU_AUTOMATION_OK;
+}
+
 static void mock_release_text_grid(
     void *context,
     emu_automation_text_grid_snapshot_t *snapshot)
@@ -217,6 +233,7 @@ int main(void)
     emu_automation_machine_t *machine = NULL;
     emu_automation_machine_descriptor_t descriptor;
     emu_automation_framebuffer_snapshot_t framebuffer;
+    emu_automation_frame_metadata_t timing;
     emu_automation_text_view_descriptor_t text_descriptor;
     emu_automation_text_grid_snapshot_t text_grid;
     emu_automation_key_event_t key_event;
@@ -237,6 +254,7 @@ int main(void)
     adapter.run_frames = mock_run_frames;
     adapter.capture_framebuffer = mock_capture_framebuffer;
     adapter.capture_text_grid = mock_capture_text_grid;
+    adapter.read_frame_metadata = mock_read_frame_metadata;
     adapter.text_grid_view_count = mock_text_grid_view_count;
     adapter.text_grid_view_descriptor = mock_text_grid_view_descriptor;
     adapter.release_text_grid = mock_release_text_grid;
@@ -255,6 +273,8 @@ int main(void)
     if (emu_automation_screen_framebuffer(machine, &framebuffer) != EMU_AUTOMATION_OK) return 10;
     if (framebuffer.frame.frame_number != 5u || framebuffer.pixels[0] != 5u) return 11;
     emu_automation_framebuffer_release(machine, &framebuffer);
+    if (emu_automation_execution_frame_metadata(machine, &timing) != EMU_AUTOMATION_OK) return 25;
+    if (timing.frame_number != 5u || timing.emulated_cycles != 500u || timing.emulated_time_ns != 5000u) return 26;
     if (emu_automation_screen_text_view_count(machine, &text_view_count) != EMU_AUTOMATION_OK) return 20;
     if (text_view_count != 1u) return 21;
     if (emu_automation_screen_text_view_descriptor(machine, 0u, &text_descriptor) != EMU_AUTOMATION_OK) return 22;
@@ -345,6 +365,365 @@ def test_automation_c_abi_rejects_invalid_adapter(tmp_path):
                 adapter.capabilities = 0;
                 return emu_automation_attach_adapter(&adapter, &machine) == EMU_AUTOMATION_INVALID_ARGUMENT
                     && machine == (emu_automation_machine_t *)1 ? 0 : 1;
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-I",
+            str(BASE_DIR / "automation" / "include"),
+            str(BASE_DIR / "automation" / "core" / "emu_automation.c"),
+            str(source),
+            "-o",
+            str(binary),
+        ],
+        check=True,
+    )
+    subprocess.run([str(binary)], check=True)
+
+
+def test_automation_c_abi_event_subscription_core_api(tmp_path):
+    if shutil.which("cc") is None:
+        pytest.skip("cc is not available")
+
+    source = tmp_path / "subscription_api.c"
+    binary = tmp_path / "subscription_api"
+    source.write_text(
+        textwrap.dedent(
+            r"""
+            #include "emu_automation_adapter.h"
+
+            #include <stdint.h>
+            #include <stdlib.h>
+            #include <string.h>
+
+            typedef struct MockMachine {
+                uint64_t frame;
+                uint64_t next_sequence;
+                emu_automation_execution_state_t state;
+                emu_automation_event_t events[16];
+                size_t event_count;
+            } MockMachine;
+
+            typedef struct SeenEvents {
+                uint64_t sequences[8];
+                size_t count;
+            } SeenEvents;
+
+            static void mock_push_event(
+                MockMachine *machine,
+                emu_automation_event_type_t event_type,
+                emu_automation_execution_state_t previous_execution_state,
+                emu_automation_execution_state_t current_execution_state)
+            {
+                emu_automation_event_t *event;
+                if (machine->event_count >= (sizeof(machine->events) / sizeof(machine->events[0]))) return;
+                event = &machine->events[machine->event_count++];
+                memset(event, 0, sizeof(*event));
+                event->struct_size = sizeof(*event);
+                event->struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+                event->sequence_number = ++machine->next_sequence;
+                event->event_type = event_type;
+                event->previous_execution_state = previous_execution_state;
+                event->current_execution_state = current_execution_state;
+                event->frame.struct_size = sizeof(event->frame);
+                event->frame.struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+                event->frame.frame_number = machine->frame;
+                event->frame.execution_state = machine->state;
+                event->input_accepted.struct_size = sizeof(event->input_accepted);
+                event->input_accepted.struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+                event->input_applied.struct_size = sizeof(event->input_applied);
+                event->input_applied.struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+            }
+
+            static emu_automation_result_t mock_describe(
+                void *context,
+                emu_automation_machine_descriptor_t *out_descriptor)
+            {
+                (void)context;
+                out_descriptor->machine_id = "sub-machine";
+                out_descriptor->system_id = "sub-system";
+                out_descriptor->model_id = "sub-model";
+                out_descriptor->region = "";
+                out_descriptor->video_standard = "";
+                out_descriptor->adapter_version = "1";
+                out_descriptor->configured_memory_bytes = 65536u;
+                return EMU_AUTOMATION_OK;
+            }
+
+            static emu_automation_result_t mock_capabilities(
+                void *context,
+                emu_automation_capabilities_t *out_capabilities)
+            {
+                (void)context;
+                out_capabilities->feature_bits =
+                    EMU_AUTOMATION_CAP_EXEC_RESET |
+                    EMU_AUTOMATION_CAP_EXEC_RUN_FRAMES |
+                    EMU_AUTOMATION_CAP_EVENTS_FRAME_COMPLETED;
+                return EMU_AUTOMATION_OK;
+            }
+
+            static emu_automation_result_t mock_reset(void *context, emu_automation_reset_kind_t kind)
+            {
+                MockMachine *machine = (MockMachine *)context;
+                if (kind != EMU_AUTOMATION_RESET_COLD) return EMU_AUTOMATION_UNSUPPORTED;
+                machine->frame = 0u;
+                machine->state = EMU_AUTOMATION_EXECUTION_PAUSED;
+                mock_push_event(
+                    machine,
+                    EMU_AUTOMATION_EVENT_MACHINE_RESET,
+                    0,
+                    EMU_AUTOMATION_EXECUTION_PAUSED);
+                return EMU_AUTOMATION_OK;
+            }
+
+            static emu_automation_result_t mock_run_frames(void *context, uint64_t frame_count)
+            {
+                MockMachine *machine = (MockMachine *)context;
+                for (uint64_t i = 0u; i < frame_count; ++i) {
+                    machine->frame++;
+                    if (machine->frame == 2u) {
+                        mock_push_event(machine, EMU_AUTOMATION_EVENT_TEXT_CHANGED, 0, 0);
+                    }
+                    mock_push_event(machine, EMU_AUTOMATION_EVENT_FRAME_COMPLETED, 0, 0);
+                }
+                return EMU_AUTOMATION_OK;
+            }
+
+            static emu_automation_result_t mock_poll_event(
+                void *context,
+                uint64_t after_sequence,
+                emu_automation_event_t *out_event)
+            {
+                MockMachine *machine = (MockMachine *)context;
+                for (size_t i = 0u; i < machine->event_count; ++i) {
+                    if (machine->events[i].sequence_number > after_sequence) {
+                        *out_event = machine->events[i];
+                        return EMU_AUTOMATION_OK;
+                    }
+                }
+                return EMU_AUTOMATION_TIMEOUT;
+            }
+
+            static void on_event(const emu_automation_event_t *event, void *user_data)
+            {
+                SeenEvents *seen = (SeenEvents *)user_data;
+                if (seen->count < (sizeof(seen->sequences) / sizeof(seen->sequences[0]))) {
+                    seen->sequences[seen->count++] = event->sequence_number;
+                }
+            }
+
+            int main(void)
+            {
+                MockMachine mock;
+                SeenEvents seen;
+                emu_automation_adapter_t adapter;
+                emu_automation_machine_t *machine = NULL;
+                emu_automation_subscription_t *subscription = NULL;
+                size_t count = 0u;
+
+                memset(&mock, 0, sizeof(mock));
+                memset(&seen, 0, sizeof(seen));
+                memset(&adapter, 0, sizeof(adapter));
+                adapter.struct_size = sizeof(adapter);
+                adapter.struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+                adapter.context = &mock;
+                adapter.describe = mock_describe;
+                adapter.capabilities = mock_capabilities;
+                adapter.reset = mock_reset;
+                adapter.run_frames = mock_run_frames;
+                adapter.poll_event = mock_poll_event;
+
+                if (emu_automation_attach_adapter(&adapter, &machine) != EMU_AUTOMATION_OK) return 1;
+                if (emu_automation_machine_reset(machine, EMU_AUTOMATION_RESET_COLD) != EMU_AUTOMATION_OK) return 2;
+                if (emu_automation_machine_run_frames(machine, 3u) != EMU_AUTOMATION_OK) return 3;
+                if (emu_automation_subscription_create(
+                        machine,
+                        EMU_AUTOMATION_EVENT_FRAME_COMPLETED,
+                        0u,
+                        on_event,
+                        &seen,
+                        &subscription) != EMU_AUTOMATION_OK) return 4;
+                if (emu_automation_subscription_dispatch_available(subscription, 0u, &count) != EMU_AUTOMATION_OK) return 5;
+                if (count != 3u) return 6;
+                if (seen.count != 3u) return 7;
+                if (seen.sequences[0] != 2u || seen.sequences[1] != 4u || seen.sequences[2] != 5u) return 8;
+                if (emu_automation_subscription_after_sequence(subscription) != 5u) return 9;
+                if (emu_automation_subscription_dispatch_available(subscription, 0u, &count) != EMU_AUTOMATION_OK) return 10;
+                if (count != 0u) return 11;
+                if (emu_automation_subscription_set_after_sequence(subscription, 1u) != EMU_AUTOMATION_OK) return 12;
+                if (emu_automation_subscription_after_sequence(subscription) != 1u) return 13;
+                if (emu_automation_subscription_dispatch_available(subscription, 1u, &count) != EMU_AUTOMATION_OK) return 14;
+                if (count != 1u) return 15;
+                if (emu_automation_subscription_after_sequence(subscription) != 2u) return 16;
+                emu_automation_machine_destroy(machine);
+                if (emu_automation_subscription_dispatch_available(subscription, 0u, &count) != EMU_AUTOMATION_INVALID_STATE) return 17;
+                emu_automation_subscription_destroy(subscription);
+                return 0;
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-I",
+            str(BASE_DIR / "automation" / "include"),
+            str(BASE_DIR / "automation" / "core" / "emu_automation.c"),
+            str(source),
+            "-o",
+            str(binary),
+        ],
+        check=True,
+    )
+    subprocess.run([str(binary)], check=True)
+
+
+def test_automation_c_abi_subscription_rejects_reentrant_dispatch(tmp_path):
+    if shutil.which("cc") is None:
+        pytest.skip("cc is not available")
+
+    source = tmp_path / "subscription_reentrant.c"
+    binary = tmp_path / "subscription_reentrant"
+    source.write_text(
+        textwrap.dedent(
+            r"""
+            #include "emu_automation_adapter.h"
+
+            #include <stdint.h>
+            #include <stdlib.h>
+            #include <string.h>
+
+            typedef struct MockMachine {
+                uint64_t next_sequence;
+                emu_automation_event_t events[4];
+                size_t event_count;
+            } MockMachine;
+
+            typedef struct CallbackState {
+                emu_automation_subscription_t *subscription;
+                int nested_result;
+                size_t nested_count;
+            } CallbackState;
+
+            static void mock_push_event(
+                MockMachine *machine,
+                emu_automation_event_type_t event_type,
+                emu_automation_execution_state_t previous_execution_state,
+                emu_automation_execution_state_t current_execution_state)
+            {
+                emu_automation_event_t *event = &machine->events[machine->event_count++];
+                memset(event, 0, sizeof(*event));
+                event->struct_size = sizeof(*event);
+                event->struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+                event->sequence_number = ++machine->next_sequence;
+                event->event_type = event_type;
+                event->previous_execution_state = previous_execution_state;
+                event->current_execution_state = current_execution_state;
+                event->frame.struct_size = sizeof(event->frame);
+                event->frame.struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+                event->input_accepted.struct_size = sizeof(event->input_accepted);
+                event->input_accepted.struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+                event->input_applied.struct_size = sizeof(event->input_applied);
+                event->input_applied.struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+            }
+
+            static emu_automation_result_t mock_describe(
+                void *context,
+                emu_automation_machine_descriptor_t *out_descriptor)
+            {
+                (void)context;
+                out_descriptor->machine_id = "reentrant-machine";
+                out_descriptor->system_id = "reentrant-system";
+                out_descriptor->model_id = "reentrant-model";
+                out_descriptor->region = "";
+                out_descriptor->video_standard = "";
+                out_descriptor->adapter_version = "1";
+                out_descriptor->configured_memory_bytes = 65536u;
+                return EMU_AUTOMATION_OK;
+            }
+
+            static emu_automation_result_t mock_capabilities(
+                void *context,
+                emu_automation_capabilities_t *out_capabilities)
+            {
+                (void)context;
+                out_capabilities->feature_bits = EMU_AUTOMATION_CAP_EVENTS_FRAME_COMPLETED;
+                return EMU_AUTOMATION_OK;
+            }
+
+            static emu_automation_result_t mock_poll_event(
+                void *context,
+                uint64_t after_sequence,
+                emu_automation_event_t *out_event)
+            {
+                MockMachine *machine = (MockMachine *)context;
+                for (size_t i = 0u; i < machine->event_count; ++i) {
+                    if (machine->events[i].sequence_number > after_sequence) {
+                        *out_event = machine->events[i];
+                        return EMU_AUTOMATION_OK;
+                    }
+                }
+                return EMU_AUTOMATION_TIMEOUT;
+            }
+
+            static void on_event(const emu_automation_event_t *event, void *user_data)
+            {
+                CallbackState *state = (CallbackState *)user_data;
+                (void)event;
+                state->nested_result = emu_automation_subscription_dispatch_available(
+                    state->subscription,
+                    1u,
+                    &state->nested_count);
+            }
+
+            int main(void)
+            {
+                MockMachine mock;
+                CallbackState state;
+                emu_automation_adapter_t adapter;
+                emu_automation_machine_t *machine = NULL;
+                emu_automation_subscription_t *subscription = NULL;
+                size_t count = 0u;
+
+                memset(&mock, 0, sizeof(mock));
+                memset(&state, 0, sizeof(state));
+                memset(&adapter, 0, sizeof(adapter));
+                adapter.struct_size = sizeof(adapter);
+                adapter.struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+                adapter.context = &mock;
+                adapter.describe = mock_describe;
+                adapter.capabilities = mock_capabilities;
+                adapter.poll_event = mock_poll_event;
+
+                mock_push_event(&mock, EMU_AUTOMATION_EVENT_FRAME_COMPLETED, 0, 0);
+
+                if (emu_automation_attach_adapter(&adapter, &machine) != EMU_AUTOMATION_OK) return 1;
+                if (emu_automation_subscription_create(
+                        machine,
+                        EMU_AUTOMATION_EVENT_FRAME_COMPLETED,
+                        0u,
+                        on_event,
+                        &state,
+                        &subscription) != EMU_AUTOMATION_OK) return 2;
+                state.subscription = subscription;
+                if (emu_automation_subscription_dispatch_available(subscription, 1u, &count) != EMU_AUTOMATION_OK) return 3;
+                if (count != 1u) return 4;
+                if (state.nested_result != EMU_AUTOMATION_INVALID_STATE) return 5;
+                if (state.nested_count != 0u) return 6;
+                emu_automation_subscription_destroy(subscription);
+                emu_automation_machine_destroy(machine);
+                return 0;
             }
             """
         ),

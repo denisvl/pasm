@@ -1,0 +1,13 @@
+[package]
+name = "emu-automation"
+version = "0.1.0"
+edition = "2021"
+description = "Safe Rust wrapper for the PASM emulator automation ABI"
+license = "MIT"
+build = "build.rs"
+
+[dependencies]
+emu-automation-sys = { path = "../emu-automation-sys" }
+
+[lib]
+path = "src/lib.rs"

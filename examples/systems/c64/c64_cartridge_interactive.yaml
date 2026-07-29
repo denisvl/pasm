@@ -212,6 +212,8 @@ audio:
   channels: 1
 integrations:
   profile: c64_cartridge_interactive
+  subsystems:
+  - ../../subsystems/c64_1541_subsystem.yaml
 display:
   default_component: tv
   default_model: generic_crt_tv_mono

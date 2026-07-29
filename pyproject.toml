@@ -35,6 +35,7 @@ ui = [
 
 [project.scripts]
 pasm = "src.main:main"
+pasm-automation = "src.pasm_automation.terminal_client:main"
 
 [build-system]
 requires = ["setuptools>=61.0"]

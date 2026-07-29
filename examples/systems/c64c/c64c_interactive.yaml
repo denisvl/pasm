@@ -80,6 +80,7 @@ components:
   - tv
   hosts:
   - host_c64_sdl2
+  cartridge: c64_cart0
   cassette: datasette_c64
 cassette:
   component: datasette_c64

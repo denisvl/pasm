@@ -37,6 +37,8 @@ interfaces:
       args: [u8]
     - name: audio_pcm
       args: [u8, u64]
+    - name: audio_pcm_s16
+      args: [u16, u64]
   signals: []
 
 behavior:
@@ -54,6 +56,8 @@ behavior:
           comp->irq_edges += 1u;
       }
     audio_pcm: |
+      comp->audio_samples += 1u;
+    audio_pcm_s16: |
       comp->audio_samples += 1u;
 
 coding:

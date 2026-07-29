@@ -464,15 +464,25 @@ class EmulatorGenerator:
             .replace('"', '\\"')
         )
         has_cartridge = bool(self.isa_data.get("cartridge"))
+        has_floppy = bool(self.isa_data.get("floppy"))
         cart_usage_line = (
             '    printf("  --cart-rom <file>  Load cartridge ROM file (overrides generated default)\\n");'
             if has_cartridge
             else ""
         )
+        floppy_usage_line = (
+            '    printf("  --floppy <file> Load floppy disk image\\n");' if has_floppy else ""
+        )
         cart_cli_parse = (
             '        } else if (strcmp(argv[i], "--cart-rom") == 0 && i + 1 < argc) {\n'
             "            cart_rom_file = argv[++i];\n"
             if has_cartridge
+            else ""
+        )
+        floppy_cli_parse = (
+            '        } else if (strcmp(argv[i], "--floppy") == 0 && i + 1 < argc) {\n'
+            "            floppy_file = argv[++i];\n"
+            if has_floppy
             else ""
         )
         cart_default_decl = (
@@ -520,6 +530,20 @@ class EmulatorGenerator:
             if keyboard_map_required
             else ""
         )
+        floppy_load_block = (
+            "    if (floppy_file == NULL || floppy_file[0] == '\\0') {\n"
+            '        floppy_file = getenv("PASM_EMU_FLOPPY_AUTO_PATH");\n'
+            "    }\n"
+            "    if (floppy_file != NULL && floppy_file[0] != '\\0') {\n"
+            f"        if ({self.cpu_prefix}_load_floppy_media(cpu, floppy_file) != 0) {{\n"
+            '            fprintf(stderr, "Failed to load floppy image: %s\\n", floppy_file);\n'
+            "            return 1;\n"
+            "        }\n"
+            '        printf("Loaded floppy image: %s\\n", floppy_file);\n'
+            "    }\n"
+            if has_floppy
+            else ""
+        )
 
         template = """/*
  * Auto-generated main.c
@@ -538,7 +562,7 @@ void print_usage(const char *prog) {{
 {keyboard_usage_line}
     printf("  --rom <file>    Load ROM file\\n");
 {cart_usage_line}
-    printf("  --floppy <file> Load floppy disk image\\n");
+{floppy_usage_line}
     printf("  --addr <addr>   Load address (default: 0x0000)\\n");
     printf("  --run           Run emulator\\n");
     printf("  --cycles <n>    Run for n cycles\\n");
@@ -621,7 +645,7 @@ int main(int argc, char *argv[]) {{
     const char *system_dir = NULL;
     const char *keyboard_map_file = NULL;
     const char *rom_file = NULL;
-    const char *floppy_file = NULL;
+{floppy_decl}
 {cart_default_decl}
     const char *c64_autotype_text = getenv("PASM_C64_AUTOTYPE");
     const char *c64_autotype_cycle_env = getenv("PASM_C64_AUTOTYPE_CYCLE");
@@ -638,8 +662,7 @@ int main(int argc, char *argv[]) {{
             system_dir = argv[++i];
 {keyboard_cli_parse}        }} else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {{
             rom_file = argv[++i];
-        }} else if (strcmp(argv[i], "--floppy") == 0 && i + 1 < argc) {{
-            floppy_file = argv[++i];
+{floppy_cli_parse}        }} else if (0) {{
 {cart_cli_parse}        }} else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {{
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
         }} else if (strcmp(argv[i], "--run") == 0) {{
@@ -673,16 +696,7 @@ int main(int argc, char *argv[]) {{
         printf("Loaded ROM: %s at 0x%04X\\n", rom_file, load_addr);
     }}
 
-    if (floppy_file == NULL || floppy_file[0] == '\\0') {{
-        floppy_file = getenv("PASM_EMU_FLOPPY_AUTO_PATH");
-    }}
-    if (floppy_file != NULL && floppy_file[0] != '\\0') {{
-        if ({cpu_prefix}_load_floppy_media(cpu, floppy_file) != 0) {{
-            fprintf(stderr, "Failed to load floppy image: %s\\n", floppy_file);
-            return 1;
-        }}
-        printf("Loaded floppy image: %s\\n", floppy_file);
-    }}
+{floppy_load_block}
     
     if (test_name) {{
         printf("Running test: %s\\n", test_name);
@@ -725,11 +739,15 @@ int main(int argc, char *argv[]) {{
             memory_default_size=memory_default_size,
             keyboard_usage_line=keyboard_usage_line,
             cart_usage_line=cart_usage_line,
+            floppy_usage_line=floppy_usage_line,
+            floppy_decl=('    const char *floppy_file = NULL;' if has_floppy else ""),
             cart_default_decl=cart_default_decl,
             keyboard_cli_parse=keyboard_cli_parse,
+            floppy_cli_parse=floppy_cli_parse,
             cart_cli_parse=cart_cli_parse,
             keyboard_required_check=keyboard_required_check,
             keyboard_load_block=keyboard_load_block,
+            floppy_load_block=floppy_load_block,
             cart_load_block=cart_load_block,
         )
 
