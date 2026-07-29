@@ -1,7 +1,7 @@
 metadata:
   id: bbc_micro_crtc_6845
   type: io_controller
-  model: bbc_micro_crtc_6845
+  model: bbc_micro_model_a_crtc_6845
   version: "1.0"
 
 state:
@@ -421,7 +421,7 @@ behavior:
                   if (comp->sideways_basic_rom != NULL && comp->sideways_basic_size != 0u) break;
               }
           }
-          if (comp->sideways_dfs_rom == NULL || comp->sideways_dfs_size == 0u) {
+          if (0u && (comp->sideways_dfs_rom == NULL || comp->sideways_dfs_size == 0u)) {
               for (size_t i = 0u; i < candidate_count; ++i) {
                   char path[1024];
                   FILE *fp;
@@ -512,6 +512,9 @@ behavior:
           /* Unpopulated sideways ROM socket (open bus approximation). */
           return 0xFFu;
       }
+      if ((addr & 0xFFF0u) == 0xFE60u) return 0xFFu;
+      if (addr == 0xFE18u) return 0xFFu;
+      if ((addr & 0xFFF8u) == 0xFE80u) return 0xFFu;
       if ((addr & 0xFFF0u) == 0xFE40u || (addr & 0xFFF0u) == 0xFE60u) {
           uint8_t is_user_via = (uint8_t)(((addr & 0xFFF0u) == 0xFE60u) ? 1u : 0u);
           uint8_t reg = (uint8_t)(addr & 0x000Fu);
@@ -683,10 +686,10 @@ behavior:
       }
       if ((addr & 0xFFF0u) == 0xFEE0u) {
           /* Tube ULA not present in this baseline model. */
-          return 0x00u;
+          return 0xFFu;
       }
       if ((addr & 0xFF00u) == 0xFE00u) {
-          return 0x00u;
+          return 0xFFu;
       }
     init: |
       (void)cpu;
@@ -990,6 +993,9 @@ behavior:
           /* Tube ULA not present; ignore writes. */
           return;
       }
+      if ((addr & 0xFFF0u) == 0xFE60u) return;
+      if (addr == 0xFE18u) return;
+      if ((addr & 0xFFF8u) == 0xFE80u) return;
       if ((addr & 0xFFF0u) == 0xFE40u || (addr & 0xFFF0u) == 0xFE60u) {
           uint8_t is_user_via = (uint8_t)(((addr & 0xFFF0u) == 0xFE60u) ? 1u : 0u);
           uint8_t reg = (uint8_t)(addr & 0x000Fu);

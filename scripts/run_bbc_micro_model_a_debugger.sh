@@ -40,13 +40,14 @@ mkdir -p log
 
 PROCESSOR="examples/processors/mos6502.yaml"
 SYSTEM_DIR="examples/systems/bbcmicro"
-IC_CRTC="examples/ics/bbcmicro/bbc_micro_crtc_6845.yaml"
+IC_CRTC="examples/ics/bbcmicro/bbc_micro_model_a_crtc_6845.yaml"
 IC_VIDEO_ULA="examples/ics/bbcmicro/bbc_micro_video_ula.yaml"
 IC_SYSTEM_VIA="examples/ics/bbcmicro/bbc_micro_system_via_6522.yaml"
 IC_TELETEXT="examples/ics/bbcmicro/bbc_micro_teletext_saa5050.yaml"
 IC_ACIA="examples/ics/bbcmicro/bbc_micro_acia_6850.yaml"
 IC_MMU="examples/ics/bbcmicro/bbc_micro_mmu_paged_rom.yaml"
 IC_PSG="examples/ics/bbcmicro/sn76489_psg0.yaml"
+IC_RAM_MIRROR="examples/ics/bbcmicro/bbc_micro_model_a_ram_mirror.yaml"
 IC_MAIN_RAM="examples/ics/bbcmicro/bbc_micro_model_a_main_ram.yaml"
 DEVICE_KB="examples/devices/bbcmicro/bbc_micro_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/bbcmicro/bbc_micro_video.yaml"
@@ -96,6 +97,7 @@ UV_CACHE_DIR="${UV_CACHE_DIR}" uv run python -m src.main generate \
   --ic "${IC_ACIA}" \
   --ic "${IC_MMU}" \
   --ic "${IC_PSG}" \
+  --ic "${IC_RAM_MIRROR}" \
   --ic "${IC_MAIN_RAM}" \
   --device "${DEVICE_KB}" \
   --device "${DEVICE_VIDEO}" \

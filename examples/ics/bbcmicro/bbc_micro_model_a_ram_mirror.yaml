@@ -1,0 +1,52 @@
+metadata:
+  id: bbc_micro_model_a_ram_mirror
+  type: bus_interface
+  model: bbc_micro_model_a_ram_mirror
+  version: "1.0"
+
+state: []
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: MODEL_A_RAM_MIRROR
+        start: 0x4000
+        size: 0x4000
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      (void)cpu;
+    mem_read_pre: |
+      if (addr >= 0x4000u && addr < 0x8000u) {
+          if (handled != NULL) *handled = 1u;
+          return cpu->memory[(uint16_t)(addr & 0x3FFFu)];
+      }
+    mem_write_pre: |
+      if (addr >= 0x4000u && addr < 0x8000u) {
+          cpu->memory[(uint16_t)(addr & 0x3FFFu)] = value;
+          if (handled != NULL) *handled = 1u;
+          return;
+      }
+    step_pre: |
+      (void)cpu;
+    step_post: |
+      (void)cpu;
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

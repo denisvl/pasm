@@ -57,6 +57,7 @@ components:
   - bbc_micro_acia_6850
   - bbc_micro_mmu_paged_rom
   - sn76489_psg0
+  - bbc_micro_model_a_ram_mirror
   - bbc_micro_model_a_main_ram
   devices:
   - keyboard_bbc_micro

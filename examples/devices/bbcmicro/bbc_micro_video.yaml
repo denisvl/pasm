@@ -30,71 +30,6 @@ behavior:
   handler_bodies:
     on_frame_ready: |
       comp->frame_count = (uint32_t)(args[0] & 0xFFFFFFFFu);
-      {
-          static int vtrace = -1;
-          static FILE *vfp = NULL;
-          if (vtrace < 0) {
-              const char *e = getenv("PASM_BBC_VIDEO_TRACE");
-              vtrace = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
-              if (vtrace != 0) {
-                  const char *p = getenv("PASM_BBC_VIDEO_TRACE_FILE");
-                  if (p == NULL || p[0] == '\0') p = "log/bbc_micro_video_trace.log";
-                  vfp = fopen(p, "a");
-                  if (vfp != NULL) {
-                      fprintf(vfp, "# frame,cycle,mode,sbase,b0,b1,b2,b3,printable_1k,nonzero_1k\n");
-                      fflush(vfp);
-                  } else {
-                      vtrace = 0;
-                  }
-              }
-          }
-          if (vtrace != 0 && vfp != NULL && (comp->frame_count % 25u) == 0u) {
-              uint8_t mode_t = cpu->comp_bbc_micro_crtc_6845.video_mode;
-              uint16_t sb_t = cpu->comp_bbc_micro_crtc_6845.screen_base;
-              uint8_t b0 = ((uint64_t)(sb_t + 0u) < cpu->memory_size) ? cpu->memory[sb_t + 0u] : 0u;
-              uint8_t b1 = ((uint64_t)(sb_t + 1u) < cpu->memory_size) ? cpu->memory[sb_t + 1u] : 0u;
-              uint8_t b2 = ((uint64_t)(sb_t + 2u) < cpu->memory_size) ? cpu->memory[sb_t + 2u] : 0u;
-              uint8_t b3 = ((uint64_t)(sb_t + 3u) < cpu->memory_size) ? cpu->memory[sb_t + 3u] : 0u;
-              uint32_t printable = 0u;
-              uint32_t nonzero = 0u;
-              for (uint32_t i = 0u; i < 1024u; ++i) {
-                  uint16_t a = (uint16_t)(sb_t + i);
-                  if ((uint64_t)a >= cpu->memory_size) break;
-                  uint8_t v = cpu->memory[a];
-                  if (v != 0u) nonzero += 1u;
-                  v = (uint8_t)(v & 0x7Fu);
-                  if (v >= 32u && v <= 126u) printable += 1u;
-              }
-              uint16_t best_base = 0u;
-              uint32_t best_printable = 0u;
-              for (uint32_t base = 0u; base + 1024u <= cpu->memory_size; base += 0x100u) {
-                  uint32_t pcount = 0u;
-                  for (uint32_t i = 0u; i < 1024u; ++i) {
-                      uint8_t v = (uint8_t)(cpu->memory[base + i] & 0x7Fu);
-                      if (v >= 32u && v <= 126u) pcount += 1u;
-                  }
-                  if (pcount > best_printable) {
-                      best_printable = pcount;
-                      best_base = (uint16_t)base;
-                  }
-              }
-              fprintf(
-                  vfp,
-                  "%u,%llu,%u,%04X,%02X,%02X,%02X,%02X,%u,%u,best=%04X/%u\n",
-                  (unsigned)comp->frame_count,
-                  (unsigned long long)cpu->total_cycles,
-                  (unsigned)mode_t,
-                  (unsigned)sb_t,
-                  (unsigned)b0, (unsigned)b1, (unsigned)b2, (unsigned)b3,
-                  (unsigned)printable,
-                  (unsigned)nonzero,
-                  (unsigned)best_base,
-                  (unsigned)best_printable
-              );
-              fflush(vfp);
-          }
-      }
-
       /* Keep headroom for wide text paths (e.g. 80x25 cells at 12px ~= 960px). */
       static uint32_t framebuf[1024u * 512u];
       static const uint8_t glyph[96][8] = {
@@ -145,7 +80,6 @@ behavior:
       uint8_t mode = cpu->comp_bbc_micro_crtc_6845.video_mode;
       uint16_t screen_base = cpu->comp_bbc_micro_crtc_6845.screen_base;
       uint16_t crtc_start_addr = cpu->comp_bbc_micro_crtc_6845.crtc_start_addr;
-
       if (mode == 7u) {
           /* Text memory is fixed-size; do not derive columns/rows from host window size. */
           uint32_t cols = 40u;
@@ -160,13 +94,11 @@ behavior:
           for (uint32_t row = 0u; row < rows; ++row) {
               for (uint32_t col = 0u; col < cols; ++col) {
                   uint16_t addr = 0u;
-                  if (mode == 7u) {
-                      /* Mode 7 text fetch is character-addressed from CRTC start. */
-                      uint16_t base = 0x7C00u;
-                      uint16_t start_off = (uint16_t)(crtc_start_addr & 0x03FFu);
-                      uint16_t off = (uint16_t)((start_off + (uint16_t)(row * cols + col)) & 0x03FFu);
-                      addr = (uint16_t)(base + off);
-                  }
+                  /* Mode 7 text fetch is character-addressed from CRTC start. */
+                  uint16_t base = screen_base;
+                  uint16_t start_off = (uint16_t)(crtc_start_addr & 0x03FFu);
+                  uint16_t off = (uint16_t)((start_off + (uint16_t)(row * cols + col)) & 0x03FFu);
+                  addr = (uint16_t)(base + off);
                   uint8_t ch_raw = ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 32u;
                   uint8_t ch = (uint8_t)(ch_raw & 0x7Fu);
                   uint8_t glyph_idx = (uint8_t)((ch >= 32u && ch <= 127u) ? (ch - 32u) : 0u);

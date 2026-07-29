@@ -326,7 +326,6 @@ uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
     {{
         uint8_t __handled = 0u;
         uint8_t __value = cpu_components_bus_read(cpu, addr, &__handled);
-{memory_read_trace}
         if (__handled != 0u) return __value;
     }}
     if (addr >= cpu->memory_size) {{
