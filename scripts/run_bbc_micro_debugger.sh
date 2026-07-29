@@ -37,6 +37,7 @@ mkdir -p log
 
 PROCESSOR="examples/processors/mos6502.yaml"
 SYSTEM_DIR="examples/systems/bbcmicro"
+IC_FDC="examples/ics/bbcmicro/bbc_micro_i8271_fdc.yaml"
 IC_CRTC="examples/ics/bbcmicro/bbc_micro_crtc_6845.yaml"
 IC_VIDEO_ULA="examples/ics/bbcmicro/bbc_micro_video_ula.yaml"
 IC_SYSTEM_VIA="examples/ics/bbcmicro/bbc_micro_system_via_6522.yaml"
@@ -88,6 +89,7 @@ echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
 UV_CACHE_DIR="${UV_CACHE_DIR}" uv run python -m src.main generate \
   --processor "${PROCESSOR}" \
   --system "${SYSTEM}" \
+  --ic "${IC_FDC}" \
   --ic "${IC_CRTC}" \
   --ic "${IC_VIDEO_ULA}" \
   --ic "${IC_SYSTEM_VIA}" \

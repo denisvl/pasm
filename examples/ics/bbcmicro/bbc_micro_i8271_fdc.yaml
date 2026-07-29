@@ -1,0 +1,550 @@
+metadata:
+  id: bbc_micro_i8271_fdc
+  type: io_controller
+  model: intel_8271_fdc
+  version: "1.0"
+
+state:
+  - name: fdc_status
+    type: uint8_t
+    initial: "0x00"
+  - name: fdc_result
+    type: uint8_t
+    initial: "0x00"
+  - name: fdc_data
+    type: uint8_t
+    initial: "0x00"
+  - name: fdc_media_loaded
+    type: uint8_t
+    initial: "0"
+  - name: fdc_source_component
+    type: char *
+    initial: "NULL"
+  - name: fdc_command
+    type: uint8_t
+    initial: "0"
+  - name: fdc_params0
+    type: uint8_t
+    initial: "0"
+  - name: fdc_params1
+    type: uint8_t
+    initial: "0"
+  - name: fdc_params2
+    type: uint8_t
+    initial: "0"
+  - name: fdc_params3
+    type: uint8_t
+    initial: "0"
+  - name: fdc_params4
+    type: uint8_t
+    initial: "0"
+  - name: fdc_param_count
+    type: uint8_t
+    initial: "0"
+  - name: fdc_param_req
+    type: uint8_t
+    initial: "0"
+  - name: fdc_drive_select
+    type: uint8_t
+    initial: "0"
+  - name: fdc_curtrack0
+    type: uint8_t
+    initial: "0"
+  - name: fdc_curtrack1
+    type: uint8_t
+    initial: "0"
+  - name: fdc_cursector
+    type: uint8_t
+    initial: "0"
+  - name: fdc_sectors_left
+    type: uint8_t
+    initial: "0"
+  - name: fdc_sector_size
+    type: uint16_t
+    initial: "0"
+  - name: fdc_data_count
+    type: uint16_t
+    initial: "0"
+  - name: fdc_data_index
+    type: uint16_t
+    initial: "0"
+  - name: fdc_phase
+    type: uint8_t
+    initial: "0"
+  - name: fdc_last_host_activity_cycle
+    type: uint64_t
+    initial: "0"
+  - name: fdc_deadline_cycle
+    type: uint64_t
+    initial: "0"
+  - name: fdc_step_time
+    type: uint32_t
+    initial: "6000"
+  - name: fdc_settle_time
+    type: uint32_t
+    initial: "6000"
+  - name: fdc_load_time
+    type: uint32_t
+    initial: "6000"
+  - name: fdc_unload_revs
+    type: uint8_t
+    initial: "0"
+  - name: fdc_sector_buffer
+    type: uint8_t *
+    initial: "NULL"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr, u8, ptr]
+      returns: u8
+    - name: unload_media
+      args: [u8]
+      returns: u8
+    - name: query_drive_activity
+      args: [u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: I8271_FDC
+        start: 0xFE80
+        size: 0x0008
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+      if (comp->fdc_sector_buffer == NULL) {
+          comp->fdc_sector_buffer = (uint8_t *)calloc(256u, 1u);
+      }
+    reset: |
+      if (comp->fdc_sector_buffer == NULL) {
+          comp->fdc_sector_buffer = (uint8_t *)calloc(256u, 1u);
+      } else {
+          memset(comp->fdc_sector_buffer, 0, 256u);
+      }
+      comp->fdc_command = 0u;
+      comp->fdc_params0 = 0u;
+      comp->fdc_params1 = 0u;
+      comp->fdc_params2 = 0u;
+      comp->fdc_params3 = 0u;
+      comp->fdc_params4 = 0u;
+      comp->fdc_param_count = 0u;
+      comp->fdc_param_req = 0u;
+      comp->fdc_drive_select = 0u;
+      comp->fdc_curtrack0 = 0u;
+      comp->fdc_curtrack1 = 0u;
+      comp->fdc_cursector = 0u;
+      comp->fdc_sectors_left = 0u;
+      comp->fdc_sector_size = 0u;
+      comp->fdc_data_count = 0u;
+      comp->fdc_data_index = 0u;
+      comp->fdc_phase = 0u;
+      comp->fdc_last_host_activity_cycle = 0u;
+      comp->fdc_deadline_cycle = 0u;
+      comp->fdc_status = 0u;
+      comp->fdc_result = 0u;
+      comp->fdc_data = 0u;
+      (void)cpu;
+    destroy: |
+      if (comp->fdc_source_component != NULL) {
+          if (comp->fdc_media_loaded != 0u) {
+              (void)cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "unload_media", NULL, 0u);
+          }
+          free(comp->fdc_source_component);
+          comp->fdc_source_component = NULL;
+      }
+      if (comp->fdc_sector_buffer != NULL) {
+          free(comp->fdc_sector_buffer);
+          comp->fdc_sector_buffer = NULL;
+      }
+      comp->fdc_media_loaded = 0u;
+    mem_read_pre: |
+      if ((addr & 0xFFF8u) == 0xFE80u) {
+          uint8_t reg = (uint8_t)(addr & 0x0007u);
+          comp->fdc_last_host_activity_cycle = cpu->total_cycles;
+          if (reg == 0u) {
+              return comp->fdc_status;
+          }
+          if (reg == 1u) {
+              uint8_t value = comp->fdc_result;
+              comp->fdc_status = (uint8_t)(comp->fdc_status & (uint8_t)~0x18u);
+              return value;
+          }
+          if (reg == 4u) {
+              uint8_t value = comp->fdc_data;
+              comp->fdc_status = (uint8_t)(comp->fdc_status & (uint8_t)~0x0Cu);
+              if (comp->fdc_data_count != 0u && comp->fdc_sector_buffer != NULL) {
+                  comp->fdc_phase = 3u;
+                  comp->fdc_deadline_cycle = cpu->total_cycles + 200u;
+                  comp->fdc_status = 0x80u;
+              } else if (comp->fdc_sectors_left > 1u) {
+                  comp->fdc_phase = 5u;
+                  comp->fdc_deadline_cycle = cpu->total_cycles + 200u;
+                  comp->fdc_status = 0x80u;
+              } else {
+                  comp->fdc_phase = 6u;
+                  comp->fdc_deadline_cycle = cpu->total_cycles + 200u;
+                  comp->fdc_status = 0x80u;
+              }
+              return value;
+          }
+          return 0u;
+      }
+    mem_write_pre: |
+      if ((addr & 0xFFF8u) == 0xFE80u) {
+          uint8_t reg = (uint8_t)(addr & 0x0007u);
+          comp->fdc_last_host_activity_cycle = cpu->total_cycles;
+          if (reg == 0u) {
+              uint8_t command = (uint8_t)(value & 0x3Fu);
+              if ((comp->fdc_status & 0x80u) != 0u) return;
+              if (command == 0x17u) command = 0x13u;
+              comp->fdc_command = command;
+              comp->fdc_param_count = 0u;
+              comp->fdc_param_req = 0u;
+              comp->fdc_phase = 0u;
+              comp->fdc_data_count = 0u;
+              comp->fdc_data_index = 0u;
+              if (command < 0x2Cu) {
+                  comp->fdc_drive_select =
+                      (uint8_t)((comp->fdc_drive_select & (uint8_t)~0xC0u) | (value & 0xC0u));
+              }
+              comp->fdc_status = 0x80u;
+              comp->fdc_result = 0u;
+              if (command == 0x2Cu) {
+                  uint8_t result = 0x80u;
+                  if ((comp->fdc_drive_select & 0x80u) != 0u) result |= 0x40u;
+                  if ((comp->fdc_drive_select & 0x40u) != 0u) result |= 0x04u;
+                  if ((((comp->fdc_drive_select & 0x80u) != 0u) ? comp->fdc_curtrack1 : comp->fdc_curtrack0) == 0u) {
+                      result |= 0x02u;
+                  }
+                  comp->fdc_result = result;
+                  comp->fdc_status = 0x10u;
+                  return;
+              }
+              switch (command) {
+                  case 0x29u:
+                  case 0x3Du:
+                      comp->fdc_param_req = 1u;
+                      break;
+                  case 0x0Au:
+                  case 0x0Eu:
+                  case 0x12u:
+                  case 0x16u:
+                  case 0x1Eu:
+                  case 0x3Au:
+                      comp->fdc_param_req = 2u;
+                      break;
+                  case 0x23u:
+                      comp->fdc_param_req = 5u;
+                      break;
+                  case 0x13u:
+                  case 0x17u:
+                  case 0x1Fu:
+                  case 0x1Bu:
+                  case 0x0Bu:
+                  case 0x0Fu:
+                      comp->fdc_param_req = 3u;
+                      break;
+                  case 0x35u:
+                      comp->fdc_param_req = 4u;
+                      break;
+                  default:
+                      comp->fdc_result = 0x18u;
+                      comp->fdc_status = (uint8_t)0x18u;
+                      mos6502_interrupt(cpu, 0xFFu);
+                      break;
+              }
+              return;
+          }
+          if (reg == 1u) {
+              uint8_t *dst = NULL;
+              switch (comp->fdc_param_count) {
+                  case 0u: dst = &comp->fdc_params0; break;
+                  case 1u: dst = &comp->fdc_params1; break;
+                  case 2u: dst = &comp->fdc_params2; break;
+                  case 3u: dst = &comp->fdc_params3; break;
+                  case 4u: dst = &comp->fdc_params4; break;
+                  default: break;
+              }
+              if (dst != NULL) *dst = (uint8_t)(value & 0xFFu);
+              if (comp->fdc_param_count < 5u) comp->fdc_param_count = (uint8_t)(comp->fdc_param_count + 1u);
+              if (comp->fdc_param_req != 0u && comp->fdc_param_count >= comp->fdc_param_req) {
+                  switch (comp->fdc_command) {
+                      case 0x35u:
+                          if (comp->fdc_params0 == 0x0Du) {
+                              comp->fdc_step_time = (uint32_t)comp->fdc_params1 * 2000u;
+                              comp->fdc_settle_time = (uint32_t)comp->fdc_params2 * 2000u;
+                              comp->fdc_unload_revs = (uint8_t)(comp->fdc_params3 >> 4u);
+                              comp->fdc_load_time = (uint32_t)(comp->fdc_params3 & 0x0Fu) * 4000u;
+                          }
+                          comp->fdc_status = 0u;
+                          break;
+                      case 0x3Du:
+                          comp->fdc_status = 0x10u;
+                          switch (comp->fdc_params0) {
+                              case 0x12u: comp->fdc_result = comp->fdc_curtrack0; break;
+                              case 0x1Au: comp->fdc_result = comp->fdc_curtrack1; break;
+                              case 0x23u: comp->fdc_result = comp->fdc_drive_select; break;
+                              default: comp->fdc_result = 0u; break;
+                          }
+                          break;
+                      case 0x3Au:
+                          if (comp->fdc_params0 == 0x12u) comp->fdc_curtrack0 = comp->fdc_params1;
+                          else if (comp->fdc_params0 == 0x1Au) comp->fdc_curtrack1 = comp->fdc_params1;
+                          else if (comp->fdc_params0 == 0x23u) comp->fdc_drive_select = comp->fdc_params1;
+                          comp->fdc_status = 0u;
+                          break;
+                      case 0x29u:
+                          comp->fdc_deadline_cycle = cpu->total_cycles + comp->fdc_step_time + comp->fdc_settle_time + comp->fdc_load_time;
+                          break;
+                      case 0x0Au:
+                      case 0x0Eu:
+                      case 0x12u:
+                      case 0x16u:
+                      case 0x1Eu:
+                          comp->fdc_cursector = comp->fdc_params1;
+                          comp->fdc_sectors_left = 1u;
+                          comp->fdc_sector_size = (comp->fdc_command == 0x1Eu) ? 0u : 128u;
+                          comp->fdc_deadline_cycle = cpu->total_cycles + comp->fdc_load_time + 200u;
+                          break;
+                      case 0x13u:
+                      case 0x17u:
+                      case 0x1Fu:
+                      case 0x0Bu:
+                      case 0x0Fu:
+                          comp->fdc_cursector = comp->fdc_params1;
+                          comp->fdc_sectors_left = (uint8_t)(comp->fdc_params2 & 31u);
+                          if (comp->fdc_sectors_left == 0u) comp->fdc_sectors_left = 1u;
+                          comp->fdc_sector_size = (uint16_t)(128u << ((comp->fdc_params2 >> 5u) & 0x07u));
+                          if (comp->fdc_sector_size > 256u) comp->fdc_sector_size = 256u;
+                          if (comp->fdc_command == 0x1Fu) comp->fdc_sector_size = 0u;
+                          comp->fdc_deadline_cycle = cpu->total_cycles + comp->fdc_load_time + 200u;
+                          break;
+                      case 0x1Bu:
+                          comp->fdc_cursector = comp->fdc_params1;
+                          comp->fdc_sectors_left = (uint8_t)(comp->fdc_params2 & 31u);
+                          if (comp->fdc_sectors_left == 0u) comp->fdc_sectors_left = 1u;
+                          comp->fdc_sector_size = 4u;
+                          comp->fdc_deadline_cycle = cpu->total_cycles + comp->fdc_load_time + 200u;
+                          break;
+                      case 0x23u:
+                          comp->fdc_deadline_cycle = cpu->total_cycles + comp->fdc_load_time + 200u;
+                          break;
+                      default:
+                          break;
+                  }
+              }
+              return;
+          }
+          if (reg == 2u) {
+              if ((value & 1u) != 0u) {
+                  comp->fdc_command = 0u;
+                  comp->fdc_param_count = 0u;
+                  comp->fdc_param_req = 0u;
+                  comp->fdc_status = 0u;
+                  comp->fdc_result = 0u;
+                  comp->fdc_data = 0u;
+                  comp->fdc_data_count = 0u;
+                  comp->fdc_data_index = 0u;
+                  comp->fdc_deadline_cycle = 0u;
+              }
+              return;
+          }
+          if (reg == 4u) {
+              comp->fdc_data = (uint8_t)(value & 0xFFu);
+              return;
+          }
+          return;
+      }
+    step_post: |
+      if ((comp->fdc_status & 0x80u) != 0u &&
+          comp->fdc_deadline_cycle != 0u &&
+          cpu->total_cycles >= comp->fdc_deadline_cycle &&
+          comp->fdc_phase == 3u) {
+          comp->fdc_deadline_cycle = 0u;
+          if (comp->fdc_data_count != 0u && comp->fdc_sector_buffer != NULL) {
+              comp->fdc_data = comp->fdc_sector_buffer[comp->fdc_data_index];
+              comp->fdc_data_index = (uint16_t)(comp->fdc_data_index + 1u);
+              comp->fdc_data_count = (uint16_t)(comp->fdc_data_count - 1u);
+              comp->fdc_status = (uint8_t)(0x80u | 0x08u | 0x04u);
+              mos6502_interrupt(cpu, 0xFFu);
+          } else {
+              comp->fdc_phase = 6u;
+              comp->fdc_deadline_cycle = cpu->total_cycles + 200u;
+              comp->fdc_status = 0x80u;
+          }
+      }
+      if ((comp->fdc_status & 0x80u) != 0u &&
+          comp->fdc_deadline_cycle != 0u &&
+          cpu->total_cycles >= comp->fdc_deadline_cycle &&
+          comp->fdc_phase == 5u) {
+          comp->fdc_phase = 0u;
+          comp->fdc_cursector = (uint8_t)(comp->fdc_cursector + 1u);
+          comp->fdc_sectors_left = (uint8_t)(comp->fdc_sectors_left - 1u);
+      }
+      if ((comp->fdc_status & 0x80u) != 0u &&
+          comp->fdc_deadline_cycle != 0u &&
+          cpu->total_cycles >= comp->fdc_deadline_cycle &&
+          comp->fdc_phase == 6u) {
+          comp->fdc_phase = 0u;
+          comp->fdc_deadline_cycle = 0u;
+          comp->fdc_status = 0x18u;
+          comp->fdc_result = 0u;
+          mos6502_interrupt(cpu, 0xFFu);
+      }
+      if ((comp->fdc_status & 0x80u) != 0u &&
+          comp->fdc_data_count == 0u &&
+          comp->fdc_deadline_cycle != 0u &&
+          cpu->total_cycles >= comp->fdc_deadline_cycle &&
+          comp->fdc_phase == 0u) {
+          uint8_t drive_index = ((comp->fdc_drive_select & 0x80u) != 0u) ? 1u : 0u;
+          uint8_t side_index = ((comp->fdc_drive_select & 0x20u) != 0u) ? 1u : 0u;
+          uint8_t track = (drive_index != 0u) ? comp->fdc_curtrack1 : comp->fdc_curtrack0;
+          comp->fdc_deadline_cycle = 0u;
+          if (comp->fdc_command == 0x29u) {
+              if (drive_index != 0u) comp->fdc_curtrack1 = comp->fdc_params0;
+              else comp->fdc_curtrack0 = comp->fdc_params0;
+              comp->fdc_status = 0x18u;
+              comp->fdc_result = 0u;
+              mos6502_interrupt(cpu, 0xFFu);
+          } else if (comp->fdc_command == 0x0Au || comp->fdc_command == 0x0Bu || comp->fdc_command == 0x0Eu || comp->fdc_command == 0x0Fu) {
+              if (drive_index != 0u) comp->fdc_curtrack1 = comp->fdc_params0;
+              else comp->fdc_curtrack0 = comp->fdc_params0;
+              comp->fdc_status = 0x18u;
+              comp->fdc_result = 0x12u;
+              mos6502_interrupt(cpu, 0xFFu);
+          } else if (comp->fdc_command == 0x12u || comp->fdc_command == 0x13u || comp->fdc_command == 0x16u || comp->fdc_command == 0x17u || comp->fdc_command == 0x1Eu || comp->fdc_command == 0x1Fu) {
+              track = comp->fdc_params0;
+              if (drive_index != 0u) comp->fdc_curtrack1 = track;
+              else comp->fdc_curtrack0 = track;
+              if (comp->fdc_command == 0x1Eu || comp->fdc_command == 0x1Fu) {
+                  uint64_t present_args[3] = { (uint64_t)track, (uint64_t)side_index, 0u };
+                  uint8_t present = (comp->fdc_source_component != NULL && comp->fdc_source_component[0] != '\0') ?
+                      (uint8_t)cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "query_track_present", present_args, 3u) : 0u;
+                  if (present != 0u) {
+                      if (comp->fdc_sectors_left > 1u) {
+                          comp->fdc_cursector = (uint8_t)(comp->fdc_cursector + 1u);
+                          comp->fdc_sectors_left = (uint8_t)(comp->fdc_sectors_left - 1u);
+                          comp->fdc_deadline_cycle = cpu->total_cycles + 200u;
+                      } else {
+                          comp->fdc_status = 0x18u;
+                          comp->fdc_result = 0u;
+                          mos6502_interrupt(cpu, 0xFFu);
+                      }
+                  } else {
+                      comp->fdc_status = 0x18u;
+                      comp->fdc_result = 0x18u;
+                      mos6502_interrupt(cpu, 0xFFu);
+                  }
+              } else {
+                  uint64_t read_args[5] = { (uint64_t)track, (uint64_t)comp->fdc_cursector, (uint64_t)side_index, 0u, (uint64_t)(uintptr_t)comp->fdc_sector_buffer };
+                  uint8_t ok = (comp->fdc_source_component != NULL && comp->fdc_source_component[0] != '\0' && comp->fdc_sector_buffer != NULL) ?
+                      (uint8_t)cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "read_sector", read_args, 5u) : 0u;
+                  comp->fdc_last_host_activity_cycle = cpu->total_cycles;
+                  if (ok != 0u) {
+                      comp->fdc_data_index = 1u;
+                      comp->fdc_data_count = (uint16_t)((comp->fdc_sector_size > 0u) ? (comp->fdc_sector_size - 1u) : 0u);
+                      comp->fdc_data = comp->fdc_sector_buffer[0];
+                      comp->fdc_status = (uint8_t)(0x80u | 0x08u | 0x04u);
+                      mos6502_interrupt(cpu, 0xFFu);
+                  } else {
+                      comp->fdc_status = 0x18u;
+                      comp->fdc_result = 0x18u;
+                      mos6502_interrupt(cpu, 0xFFu);
+                  }
+              }
+          } else if (comp->fdc_command == 0x1Bu) {
+              track = comp->fdc_params0;
+              if (drive_index != 0u) comp->fdc_curtrack1 = track;
+              else comp->fdc_curtrack0 = track;
+              if (comp->fdc_source_component != NULL &&
+                  comp->fdc_source_component[0] != '\0' &&
+                  comp->fdc_sector_buffer != NULL) {
+                  uint64_t addr_args[3] = {
+                      (uint64_t)track,
+                      (uint64_t)side_index,
+                      (uint64_t)(uintptr_t)comp->fdc_sector_buffer
+                  };
+                  uint8_t ok = (uint8_t)cpu_component_dispatch_callback(
+                      cpu, comp->fdc_source_component, "read_address", addr_args, 3u);
+                  if (ok != 0u) {
+                      comp->fdc_data = comp->fdc_sector_buffer[0];
+                      comp->fdc_data_index = 1u;
+                      comp->fdc_data_count = 3u;
+                      comp->fdc_status = (uint8_t)(0x80u | 0x08u | 0x04u);
+                      if (comp->fdc_sectors_left > 0u) {
+                          comp->fdc_sectors_left--;
+                      }
+                      mos6502_interrupt(cpu, 0xFFu);
+                  } else {
+                      comp->fdc_status = 0x18u;
+                      comp->fdc_result = 0x18u;
+                      mos6502_interrupt(cpu, 0xFFu);
+                  }
+              } else {
+                  comp->fdc_status = 0x18u;
+                  comp->fdc_result = 0x18u;
+                  mos6502_interrupt(cpu, 0xFFu);
+              }
+          } else if (comp->fdc_command == 0x23u) {
+              comp->fdc_status = 0x18u;
+              comp->fdc_result = 0u;
+              mos6502_interrupt(cpu, 0xFFu);
+          }
+      }
+  callback_handlers:
+    load_media: |
+      const char *path = (argc > 0u) ? (const char *)(uintptr_t)args[0] : NULL;
+      const char *source_component = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : NULL;
+      if (path == NULL || path[0] == '\0') return 0u;
+      if (source_component == NULL || source_component[0] == '\0') return 0u;
+      if (comp->fdc_source_component != NULL) {
+          if (comp->fdc_media_loaded != 0u) {
+              (void)cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "unload_media", NULL, 0u);
+          }
+          free(comp->fdc_source_component);
+          comp->fdc_source_component = NULL;
+      }
+      comp->fdc_source_component = strdup(source_component);
+      if (comp->fdc_source_component == NULL) return 0u;
+      if (cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "load_media", args, 1u) == 0u) {
+          free(comp->fdc_source_component);
+          comp->fdc_source_component = NULL;
+          return 0u;
+      }
+      comp->fdc_media_loaded = 1u;
+      comp->fdc_status = 0x00u;
+      comp->fdc_result = 0x00u;
+      comp->fdc_data = 0x00u;
+      return 1u;
+    unload_media: |
+      if (comp->fdc_source_component != NULL) {
+          if (comp->fdc_media_loaded != 0u) {
+              (void)cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "unload_media", NULL, 0u);
+          }
+          free(comp->fdc_source_component);
+          comp->fdc_source_component = NULL;
+      }
+      comp->fdc_media_loaded = 0u;
+      comp->fdc_status = 0x00u;
+      comp->fdc_result = 0x00u;
+      comp->fdc_data = 0x00u;
+      return 1u;
+    query_drive_activity: |
+      if (comp->fdc_source_component != NULL && comp->fdc_source_component[0] != '\0') {
+          return cpu_component_dispatch_callback(cpu, comp->fdc_source_component, "query_drive_activity", NULL, 0u);
+      }
+      return 0u;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

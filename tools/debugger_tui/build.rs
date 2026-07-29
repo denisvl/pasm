@@ -197,6 +197,77 @@ fn extract_json_array_strings(text: &str, key: &str) -> Vec<String> {
     out
 }
 
+fn extract_json_array_objects(text: &str, key: &str) -> Vec<String> {
+    let needle = format!("\"{key}\"");
+    let Some(start) = text.find(&needle) else {
+        return Vec::new();
+    };
+
+    let rest = &text[start + needle.len()..];
+    let Some(colon) = rest.find(':') else {
+        return Vec::new();
+    };
+
+    let rest = &rest[colon + 1..];
+    let Some(open) = rest.find('[') else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut depth = 0usize;
+
+    for ch in rest[open + 1..].chars() {
+        if in_string {
+            if depth > 0 {
+                current.push(ch);
+            }
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => {
+                if depth > 0 {
+                    current.push(ch);
+                }
+                in_string = true;
+            }
+            '{' => {
+                depth += 1;
+                current.push(ch);
+            }
+            '}' => {
+                if depth > 0 {
+                    current.push(ch);
+                    depth -= 1;
+                    if depth == 0 {
+                        out.push(std::mem::take(&mut current));
+                    }
+                }
+            }
+            ']' if depth == 0 => break,
+            _ => {
+                if depth > 0 {
+                    current.push(ch);
+                }
+            }
+        }
+    }
+
+    out
+}
+
 fn workspace_root_from_manifest_dir() -> Option<PathBuf> {
     let manifest_dir = env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from)?;
     manifest_dir
@@ -465,6 +536,87 @@ fn emit_required_split_libraries(search_dirs: &[PathBuf], manifest_text: &str) {
     }
 }
 
+fn add_subsystem_search_dirs(
+    dirs: &mut Vec<PathBuf>,
+    manifest_text: &str,
+    emu_dir: Option<&Path>,
+    build_dir: Option<&Path>,
+) {
+    for object in extract_json_array_objects(manifest_text, "subsystems") {
+        let Some(cmake_subdir) = extract_json_string(&object, "cmake_subdir") else {
+            continue;
+        };
+        let cmake_subdir = cmake_subdir.trim();
+        if cmake_subdir.is_empty() {
+            continue;
+        }
+        if let Some(dir) = build_dir {
+            add_build_dirs(dirs, &dir.join(cmake_subdir));
+        }
+        if let Some(dir) = emu_dir {
+            add_build_dirs(dirs, &dir.join("build").join(cmake_subdir));
+        }
+    }
+}
+
+fn emit_subsystem_split_libraries(search_dirs: &[PathBuf], manifest_text: &str) {
+    for object in extract_json_array_objects(manifest_text, "subsystems") {
+        let id = extract_json_string(&object, "id").unwrap_or_else(|| "<unknown>".to_string());
+        let Some(system_file) = extract_json_string(&object, "system_static") else {
+            continue;
+        };
+        let Some(cpu_file) = extract_json_string(&object, "cpu_core_static") else {
+            continue;
+        };
+
+        let system_path = find_library(search_dirs, &system_file).unwrap_or_else(|| {
+            panic!(
+                "Unable to find subsystem `{id}` system library `{system_file}`.\nSearch directories:\n{}",
+                format_search_dirs(search_dirs)
+            )
+        });
+
+        let cpu_path = find_library(search_dirs, &cpu_file).unwrap_or_else(|| {
+            panic!(
+                "Unable to find subsystem `{id}` CPU library `{cpu_file}`.\nSearch directories:\n{}",
+                format_search_dirs(search_dirs)
+            )
+        });
+
+        let system_dir = system_path
+            .parent()
+            .expect("subsystem system library path has no parent");
+        let cpu_dir = cpu_path
+            .parent()
+            .expect("subsystem CPU library path has no parent");
+
+        println!("cargo:rustc-link-search=native={}", system_dir.display());
+        if cpu_dir != system_dir {
+            println!("cargo:rustc-link-search=native={}", cpu_dir.display());
+        }
+
+        let system_name = static_library_name(&system_file).unwrap_or_else(|| {
+            panic!("Unsupported subsystem static library filename: {system_file}")
+        });
+        let cpu_name = static_library_name(&cpu_file).unwrap_or_else(|| {
+            panic!("Unsupported subsystem static library filename: {cpu_file}")
+        });
+
+        println!("cargo:rustc-link-lib=static={system_name}");
+        println!("cargo:rustc-link-lib=static={cpu_name}");
+        println!("cargo:rerun-if-changed={}", system_path.display());
+        println!("cargo:rerun-if-changed={}", cpu_path.display());
+        println!(
+            "cargo:warning=PASM linked subsystem `{id}` system library: {}",
+            system_path.display()
+        );
+        println!(
+            "cargo:warning=PASM linked subsystem `{id}` CPU library: {}",
+            cpu_path.display()
+        );
+    }
+}
+
 fn format_search_dirs(search_dirs: &[PathBuf]) -> String {
     search_dirs
         .iter()
@@ -652,7 +804,13 @@ fn main() {
         "cargo:warning=PASM selected system: {system_name} ({processor_name})"
     );
 
-    let search_dirs = selected_search_dirs(emu_dir.as_deref(), build_dir.as_deref());
+    let mut search_dirs = selected_search_dirs(emu_dir.as_deref(), build_dir.as_deref());
+    add_subsystem_search_dirs(
+        &mut search_dirs,
+        &manifest_text,
+        emu_dir.as_deref(),
+        build_dir.as_deref(),
+    );
 
     println!(
         "cargo:warning=PASM emulator library search directories:\n{}",
@@ -665,5 +823,6 @@ fn main() {
      * is incomplete, the build fails instead of silently linking Apple II.
      */
     emit_required_split_libraries(&search_dirs, &manifest_text);
+    emit_subsystem_split_libraries(&search_dirs, &manifest_text);
     emit_manifest_extra_links(&manifest_text);
 }

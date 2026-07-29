@@ -365,6 +365,18 @@ typedef struct {{
     char effect[128];
 }} PASMDebugHistoryRow;
 
+typedef struct {{
+    const char *device_id;
+    uint32_t unicode_codepoint;
+    uint32_t native_code;
+    const char *key_id;
+    uint32_t required_modifier_bits;
+    const char *shift_key_id;
+    const char *ctrl_key_id;
+    const char *alt_key_id;
+    const char *meta_key_id;
+}} PASMDebugCharacterMapping;
+
 int {cpu_prefix}_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
 int {cpu_prefix}_dbg_snapshot_fill(
     CPUState *cpu,
@@ -389,9 +401,12 @@ int {cpu_prefix}_dbg_step_into(CPUState *cpu);
 int {cpu_prefix}_dbg_step_over(CPUState *cpu);
 int {cpu_prefix}_dbg_step_out(CPUState *cpu);
 int {cpu_prefix}_dbg_toggle_breakpoint(CPUState *cpu, uint64_t address);
+int {cpu_prefix}_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled);
 int {cpu_prefix}_dbg_select_thread(CPUState *cpu, uint32_t thread_id);
 int {cpu_prefix}_dbg_jump_frame(CPUState *cpu, size_t frame_index);
 int {cpu_prefix}_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
+int {cpu_prefix}_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size);
+int {cpu_prefix}_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value);
 int {cpu_prefix}_dbg_clear_memory(CPUState *cpu);
 int {cpu_prefix}_dbg_clear_history(CPUState *cpu);
 int {cpu_prefix}_dbg_set_history_enabled(CPUState *cpu, uint8_t enabled);
@@ -400,6 +415,20 @@ int {cpu_prefix}_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
 int {cpu_prefix}_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
 int {cpu_prefix}_dbg_focus_host_window(CPUState *cpu);
 int {cpu_prefix}_dbg_pump_host_events(CPUState *cpu);
+int {cpu_prefix}_character_mapping_count(CPUState *cpu, size_t *out_count);
+int {cpu_prefix}_character_mapping_descriptor(
+    CPUState *cpu,
+    size_t index,
+    const char **out_device_id,
+    uint32_t *out_unicode_codepoint,
+    uint32_t *out_native_code,
+    const char **out_key_id,
+    uint32_t *out_modifier_bits,
+    const char **out_shift_key_id,
+    const char **out_ctrl_key_id,
+    const char **out_alt_key_id,
+    const char **out_meta_key_id
+);
 
 /* Generic bridge symbols for architecture-agnostic debugger frontends. */
 CPUState *pasm_dbg_create(size_t memory_size);
@@ -435,9 +464,12 @@ int pasm_dbg_step_into(CPUState *cpu);
 int pasm_dbg_step_over(CPUState *cpu);
 int pasm_dbg_step_out(CPUState *cpu);
 int pasm_dbg_toggle_breakpoint(CPUState *cpu, uint64_t address);
+int pasm_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled);
 int pasm_dbg_select_thread(CPUState *cpu, uint32_t thread_id);
 int pasm_dbg_jump_frame(CPUState *cpu, size_t frame_index);
 int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
+int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size);
+int pasm_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value);
 int pasm_dbg_clear_memory(CPUState *cpu);
 int pasm_dbg_clear_history(CPUState *cpu);
 int pasm_dbg_set_history_enabled(CPUState *cpu, uint8_t enabled);
@@ -446,6 +478,12 @@ int pasm_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
 int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
 int pasm_dbg_focus_host_window(CPUState *cpu);
 int pasm_dbg_pump_host_events(CPUState *cpu);
+int pasm_dbg_character_mapping_count(CPUState *cpu, size_t *out_count);
+int pasm_dbg_character_mapping_descriptor(
+    CPUState *cpu,
+    size_t index,
+    PASMDebugCharacterMapping *out_mapping
+);
 uint8_t pasm_dbg_requires_keyboard_map(void);
 uint8_t pasm_dbg_supports_cartridge(void);
 const char *pasm_dbg_processor_name(void);
@@ -549,12 +587,14 @@ def _generate_impl(
         )
 
     reg_fill_lines: List[str] = []
+    reg_write_lines: List[str] = []
     for idx, reg in enumerate(registers):
         reg_name = str(reg.get("name", "R"))
         reg_label = str(reg.get("display_name") or reg_name)
         reg_bits = int(reg.get("bits", 8))
         digits = max(2, (reg_bits + 3) // 4)
         value_expr = _reg_value_expr(reg)
+        reg_c_name = _escape_c_string(reg_name.upper())
         reg_fill_lines.append(
             f"""        if (row < reg_cap) {{
             PASMDebugRegisterRow *r = &reg_rows[row];
@@ -568,6 +608,27 @@ def _generate_impl(
             }}
         }}
         row++;"""
+        )
+        mask_expr = "value"
+        if reg_bits < 64:
+            mask_expr = f"(value & 0x{((1 << reg_bits) - 1):X}ull)"
+        reg_type = str(reg.get("type", "general"))
+        assign_expr = f"(uint{reg_bits}_t)({mask_expr})"
+        if reg_type == "program_counter":
+            target_expr = "cpu->pc"
+        elif reg_type == "stack_pointer":
+            target_expr = "cpu->sp"
+        elif reg_type == "index":
+            target_expr = f"cpu->{_to_c_ident(reg_name)}"
+        elif reg_type == "special":
+            target_expr = f"cpu->registers[REG_{reg_name.upper()}]"
+        else:
+            target_expr = f"cpu->registers[REG_{reg_name.upper()}]"
+        reg_write_lines.append(
+            f"""    if (strcmp(register_name, "{reg_c_name}") == 0) {{
+        {target_expr} = {assign_expr};
+        return 0;
+    }}"""
         )
 
     flag_fill_lines: List[str] = []
@@ -1304,6 +1365,28 @@ int {cpu_prefix}_dbg_toggle_breakpoint(CPUState *cpu, uint64_t address) {{
     return 0;
 }}
 
+int {cpu_prefix}_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled) {{
+    int i;
+    uint16_t addr16;
+    uint8_t currently_enabled = 0u;
+    if (!cpu) return -1;
+    if (enabled > 1u) return -1;
+    addr16 = (uint16_t)(address & 0xFFFFu);
+    for (i = 0; i < cpu->num_break_points; i++) {{
+        if (cpu->break_points[i] == addr16) {{
+            currently_enabled = 1u;
+            break;
+        }}
+    }}
+    if (currently_enabled == enabled) return 0;
+    if (enabled) {{
+        {cpu_prefix}_set_breakpoint(cpu, addr16);
+    }} else {{
+        {cpu_prefix}_clear_breakpoint(cpu, addr16);
+    }}
+    return 0;
+}}
+
 int {cpu_prefix}_dbg_select_thread(CPUState *cpu, uint32_t thread_id) {{
     (void)cpu;
     return (thread_id == 0u) ? 0 : -1;
@@ -1332,6 +1415,31 @@ int {cpu_prefix}_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, 
         out[i] = dbg_peek_byte(cpu, mem_addr);
     }}
     return 0;
+}}
+
+int {cpu_prefix}_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size) {{
+    size_t i;
+    if (!cpu || !bytes) return -1;
+    if (cpu->memory_size == 0u) return -1;
+    if (size == 0u) return 0;
+    if (address >= cpu->memory_size) {{
+        address %= cpu->memory_size;
+    }}
+    for (i = 0; i < size; i++) {{
+        uint64_t linear = address + (uint64_t)i;
+        if (linear < address) {{
+            linear %= cpu->memory_size;
+        }}
+        linear %= cpu->memory_size;
+        {cpu_prefix}_write_byte(cpu, (uint16_t)(linear & 0xFFFFu), bytes[i]);
+    }}
+    return 0;
+}}
+
+int {cpu_prefix}_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value) {{
+    if (!cpu || !register_name) return -1;
+{chr(10).join(reg_write_lines) if reg_write_lines else "    (void)value;"}
+    return -1;
 }}
 
 int {cpu_prefix}_dbg_clear_memory(CPUState *cpu) {{
@@ -1418,6 +1526,32 @@ int pasm_dbg_load_controller_map(CPUState *cpu, const char *path) {{
     return {cpu_prefix}_load_controller_map(cpu, path);
 }}
 
+int pasm_dbg_character_mapping_count(CPUState *cpu, size_t *out_count) {{
+    return {cpu_prefix}_character_mapping_count(cpu, out_count);
+}}
+
+int pasm_dbg_character_mapping_descriptor(
+    CPUState *cpu,
+    size_t index,
+    PASMDebugCharacterMapping *out_mapping
+) {{
+    if (out_mapping == NULL) return -1;
+    memset(out_mapping, 0, sizeof(*out_mapping));
+    return {cpu_prefix}_character_mapping_descriptor(
+        cpu,
+        index,
+        &out_mapping->device_id,
+        &out_mapping->unicode_codepoint,
+        &out_mapping->native_code,
+        &out_mapping->key_id,
+        &out_mapping->required_modifier_bits,
+        &out_mapping->shift_key_id,
+        &out_mapping->ctrl_key_id,
+        &out_mapping->alt_key_id,
+        &out_mapping->meta_key_id
+    );
+}}
+
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {{
     return {cpu_prefix}_dbg_snapshot_counts(cpu, out_counts);
 }}
@@ -1486,6 +1620,10 @@ int pasm_dbg_toggle_breakpoint(CPUState *cpu, uint64_t address) {{
     return {cpu_prefix}_dbg_toggle_breakpoint(cpu, address);
 }}
 
+int pasm_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled) {{
+    return {cpu_prefix}_dbg_set_breakpoint_enabled(cpu, address, enabled);
+}}
+
 int pasm_dbg_select_thread(CPUState *cpu, uint32_t thread_id) {{
     return {cpu_prefix}_dbg_select_thread(cpu, thread_id);
 }}
@@ -1496,6 +1634,14 @@ int pasm_dbg_jump_frame(CPUState *cpu, size_t frame_index) {{
 
 int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size) {{
     return {cpu_prefix}_dbg_read_memory(cpu, address, out, size);
+}}
+
+int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size) {{
+    return {cpu_prefix}_dbg_write_memory(cpu, address, bytes, size);
+}}
+
+int pasm_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value) {{
+    return {cpu_prefix}_dbg_write_register(cpu, register_name, value);
 }}
 
 int pasm_dbg_clear_memory(CPUState *cpu) {{

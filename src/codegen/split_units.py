@@ -68,15 +68,11 @@ def emit_ic_unit(isa_data: Dict[str, Any], cpu_name: str, component: Dict[str, A
         )
     )
     coding = component.get("coding") or {}
-    header_includes = []
-    for h in (coding.get("headers") or []):
-        h = str(h).strip()
-        if not h:
-            continue
-        if h.startswith("<") or h.startswith('"'):
-            header_includes.append(f"#include {h}")
-        else:
-            header_includes.append(f"#include <{h}>")
+    header_includes = [
+        f"#include {_normalize_c_include_header(h)}"
+        for h in (coding.get("headers") or [])
+        if str(h).strip()
+    ]
     lines = [
         "/* Auto-generated split unit: per-IC ownership scaffold. */",
         f"/* IC id: {comp_id} */",
@@ -211,13 +207,17 @@ def _generate_component_coding_includes(components: List[Dict[str, Any]]) -> str
             if not h or h in seen:
                 continue
             seen.add(h)
-            if h.startswith("<") or h.startswith('"'):
-                headers.append(f"#include {h}")
-            else:
-                headers.append(f"#include <{h}>")
+            headers.append(f"#include {_normalize_c_include_header(h)}")
     if not headers:
         return ""
     return "\n".join(headers) + "\n\n"
+
+
+def _normalize_c_include_header(header: Any) -> str:
+    h = str(header).strip()
+    if h.startswith("<") or h.startswith('"'):
+        return h
+    return f"<{h}>"
 
 
 def _rewrite_memory_read_block(block: str) -> str:
@@ -983,6 +983,16 @@ def _generate_attached_subsystem_bridge_glue(isa_data: Dict[str, Any]) -> str:
         f"extern uint8_t {cpu_prefix}_read_byte(PASMSubsystemOpaqueCPU *cpu, uint16_t addr);",
         f"extern int {cpu_prefix}_step(PASMSubsystemOpaqueCPU *cpu);",
         f"extern int {cpu_prefix}_dbg_run_for_cycles(PASMSubsystemOpaqueCPU *cpu, uint64_t max_cycles, uint8_t *out_mode);",
+        "void pasm_c64_1541_subsystem_reset(void);",
+        "void pasm_c64_1541_subsystem_destroy(void);",
+        "uint64_t pasm_c64_1541_subsystem_call(",
+        "    const char *component_id,",
+        "    const char *callback_name,",
+        "    const uint64_t *args,",
+        "    uint8_t argc",
+        ");",
+        "int pasm_c64_1541_subsystem_step(uint32_t max_steps);",
+        "int pasm_c64_1541_subsystem_sync_to(uint64_t host_cycles);",
         f"extern uint64_t {dispatch_prefix}_cpu_component_dispatch_callback(",
         "    PASMSubsystemOpaqueCPU *cpu,",
         "    const char *component_id,",

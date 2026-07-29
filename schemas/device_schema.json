@@ -521,6 +521,132 @@
           }
         }
       }
+    },
+    "automation": {
+      "type": "object",
+      "description": "Transport-neutral automation metadata for screen, input, and native state adapters.",
+      "additionalProperties": true,
+      "properties": {
+        "screen": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "framebuffer": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "text_views": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "columns",
+                  "rows"
+                ],
+                "additionalProperties": true,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "component": {
+                    "type": "string"
+                  },
+                  "columns": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "rows": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "row_stride": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "memory": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "source": {
+                        "type": "string"
+                      },
+                      "base": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "alternate_base": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "address_layout": {
+                        "type": "string"
+                      },
+                      "row_low_mask": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "row_low_shift": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "row_high_shift": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "row_high_multiplier": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "column_multiplier": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    }
+                  },
+                  "charset": {
+                    "type": "string"
+                  },
+                  "native_encoding": {
+                    "type": "string"
+                  },
+                  "unicode_map": {
+                    "type": "string"
+                  },
+                  "unknown_policy": {
+                    "type": "string"
+                  },
+                  "mode_conditions": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "attributes": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "native_properties": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
     }
   }
 }

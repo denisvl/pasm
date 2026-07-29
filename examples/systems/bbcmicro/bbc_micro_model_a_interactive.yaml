@@ -11,6 +11,11 @@ memory:
     start: 0
     size: 16384
     read_write: true
+  - name: RAM_UNPOPULATED
+    start: 16384
+    size: 16384
+    type: unpopulated
+    read_value: 255
   - name: ROM_PAGED
     start: 32768
     size: 16384

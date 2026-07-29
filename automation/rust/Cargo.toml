@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "emu-automation",
+    "emu-automation-sys",
+]
+resolver = "2"

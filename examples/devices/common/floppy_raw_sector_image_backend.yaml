@@ -208,6 +208,98 @@ behavior:
               sector_size_bytes = 256u;
           }
       }
+      if (strcmp(ext, "trd") == 0 && file_size == 655360u) {
+          sectors_per_track = 16u;
+          side_count = 2u;
+          track_count = 80u;
+          sector_number_base = 1u;
+          sector_size_code = 1u;
+          sector_size_bytes = 256u;
+      }
+      if (strcmp(ext, "scl") == 0) {
+          const uint8_t trd_disk_type = 0x16u;
+          const uint16_t trd_total_sectors = 80u * 2u * 16u;
+          const uint16_t trd_reserved_sectors = 16u;
+          const uint32_t trd_image_size = 655360u;
+          uint8_t file_count;
+          size_t header_offset;
+          size_t data_offset;
+          size_t data_cursor;
+          uint16_t used_sectors = 0u;
+          uint8_t next_sector = 0u;
+          uint8_t next_track = 1u;
+          uint8_t *trd_image;
+          uint16_t free_sectors;
+          uint32_t i;
+          if (file_size < 9u || memcmp(image, "SINCLAIR", 8u) != 0) {
+              free(image);
+              return 0u;
+          }
+          file_count = image[8];
+          if (file_count == 0u || file_count > 128u) {
+              free(image);
+              return 0u;
+          }
+          header_offset = 9u;
+          data_offset = header_offset + ((size_t)file_count * 14u);
+          if (data_offset > file_size) {
+              free(image);
+              return 0u;
+          }
+          for (i = 0u; i < (uint32_t)file_count; ++i) {
+              size_t file_header = header_offset + ((size_t)i * 14u);
+              used_sectors = (uint16_t)(used_sectors + (uint16_t)image[file_header + 13u]);
+          }
+          if ((uint32_t)trd_reserved_sectors + (uint32_t)used_sectors > (uint32_t)trd_total_sectors) {
+              free(image);
+              return 0u;
+          }
+          if (data_offset + ((size_t)used_sectors * 256u) > file_size) {
+              free(image);
+              return 0u;
+          }
+          trd_image = (uint8_t *)calloc((size_t)trd_image_size, 1u);
+          if (trd_image == NULL) {
+              free(image);
+              return 0u;
+          }
+          data_cursor = data_offset;
+          for (i = 0u; i < (uint32_t)file_count; ++i) {
+              size_t file_header = header_offset + ((size_t)i * 14u);
+              size_t dirent_offset = (size_t)i * 16u;
+              uint8_t file_sectors = image[file_header + 13u];
+              size_t file_bytes = (size_t)file_sectors * 256u;
+              size_t trd_offset = (((size_t)next_track * 16u) + (size_t)next_sector) * 256u;
+              memcpy(trd_image + dirent_offset, image + file_header, 14u);
+              trd_image[dirent_offset + 14u] = next_sector;
+              trd_image[dirent_offset + 15u] = next_track;
+              if (file_bytes != 0u) {
+                  memcpy(trd_image + trd_offset, image + data_cursor, file_bytes);
+              }
+              data_cursor += file_bytes;
+              next_sector = (uint8_t)(next_sector + file_sectors);
+              next_track = (uint8_t)(next_track + (next_sector / 16u));
+              next_sector = (uint8_t)(next_sector % 16u);
+          }
+          free(image);
+          image = trd_image;
+          file_size = (size_t)trd_image_size;
+          free_sectors = (uint16_t)(trd_total_sectors - trd_reserved_sectors - used_sectors);
+          image[0x8E1u] = next_sector;
+          image[0x8E2u] = next_track;
+          image[0x8E3u] = trd_disk_type;
+          image[0x8E4u] = file_count;
+          image[0x8E5u] = (uint8_t)(free_sectors & 0xFFu);
+          image[0x8E6u] = (uint8_t)((free_sectors >> 8u) & 0xFFu);
+          image[0x8E7u] = 0x10u;
+          memset(image + 0x8E9u, 0x20, 9u);
+          sectors_per_track = 16u;
+          side_count = 2u;
+          track_count = 80u;
+          sector_number_base = 1u;
+          sector_size_code = 1u;
+          sector_size_bytes = 256u;
+      }
       if (sectors_per_track == 0u || side_count == 0u || track_count == 0u) {
           free(image);
           return 0u;

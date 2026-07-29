@@ -24,6 +24,7 @@ from src.codegen.split_units import (
 )
 from src.codegen.cpu_decoder import generate_decoder
 from src.codegen.cpu_debug_abi import generate_debug_abi
+from src.codegen.automation_adapter import generate_automation_adapter
 from src.codegen.cpu_hooks import HOOK_NAMES, generate_hooks
 from src.codegen.build_system import generate_cmake, generate_makefile
 from src.codegen.test_harness import generate_test_c
@@ -34,6 +35,9 @@ from src.codegen.split_layout import (
     system_unit_basenames,
 )
 from src.logging_utils import logger
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class EmulatorGenerator:
@@ -248,6 +252,29 @@ class EmulatorGenerator:
         (src_dir / f"{self.cpu_name}_debug_abi.h").write_text(debug_header)
         (src_dir / f"{self.cpu_name}_debug_abi.c").write_text(debug_impl)
 
+        # Generate automation ABI bridge and copy the canonical automation core.
+        logger.info("  - Generating automation adapter...")
+        automation_header, automation_impl = generate_automation_adapter(
+            isa_data_for_codegen, self.cpu_name
+        )
+        (src_dir / "emu_automation.h").write_text(
+            (REPO_ROOT / "automation" / "include" / "emu_automation.h").read_text(
+                encoding="utf-8"
+            )
+        )
+        (src_dir / "emu_automation_adapter.h").write_text(
+            (REPO_ROOT / "automation" / "include" / "emu_automation_adapter.h").read_text(
+                encoding="utf-8"
+            )
+        )
+        (src_dir / "emu_automation.c").write_text(
+            (REPO_ROOT / "automation" / "core" / "emu_automation.c").read_text(
+                encoding="utf-8"
+            )
+        )
+        (src_dir / f"{self.cpu_name}_automation_adapter.h").write_text(automation_header)
+        (src_dir / f"{self.cpu_name}_automation_adapter.c").write_text(automation_impl)
+
         # Generate hooks if enabled in ISA
         hooks_header, hooks_impl = None, None
         hooks_config = self.isa_data.get("hooks", {})
@@ -443,10 +470,19 @@ class EmulatorGenerator:
             if has_cartridge
             else ""
         )
+        floppy_usage_line = (
+            '    printf("  --floppy <file> Load floppy disk image\\n");' if has_floppy else ""
+        )
         cart_cli_parse = (
             '        } else if (strcmp(argv[i], "--cart-rom") == 0 && i + 1 < argc) {\n'
             "            cart_rom_file = argv[++i];\n"
             if has_cartridge
+            else ""
+        )
+        floppy_cli_parse = (
+            '        } else if (strcmp(argv[i], "--floppy") == 0 && i + 1 < argc) {\n'
+            "            floppy_file = argv[++i];\n"
+            if has_floppy
             else ""
         )
         cart_default_decl = (
@@ -494,33 +530,17 @@ class EmulatorGenerator:
             if keyboard_map_required
             else ""
         )
-        floppy_usage_line = (
-            '    printf("  --floppy <file> Load floppy disk image\\n");'
-            if has_floppy
-            else ""
-        )
-        floppy_cli_parse = (
-            '        } else if (strcmp(argv[i], "--floppy") == 0 && i + 1 < argc) {\n'
-            "            floppy_file = argv[++i];\n"
-            if has_floppy
-            else ""
-        )
-        floppy_decl = (
-            "    const char *floppy_file = NULL;"
-            if has_floppy
-            else ""
-        )
         floppy_load_block = (
-            "    if (floppy_file == NULL || floppy_file[0] == '\\0') {{{{\n"
-            "        floppy_file = getenv(\"PASM_EMU_FLOPPY_AUTO_PATH\");\n"
-            "    }}}}\n"
-            "    if (floppy_file != NULL && floppy_file[0] != '\\0') {{{{\n"
-            "        if (" + self.cpu_prefix + "_load_floppy_media(cpu, floppy_file) != 0) {{{{\n"
+            "    if (floppy_file == NULL || floppy_file[0] == '\\0') {\n"
+            '        floppy_file = getenv("PASM_EMU_FLOPPY_AUTO_PATH");\n'
+            "    }\n"
+            "    if (floppy_file != NULL && floppy_file[0] != '\\0') {\n"
+            f"        if ({self.cpu_prefix}_load_floppy_media(cpu, floppy_file) != 0) {{\n"
             '            fprintf(stderr, "Failed to load floppy image: %s\\n", floppy_file);\n'
             "            return 1;\n"
-            "        }}}}\n"
+            "        }\n"
             '        printf("Loaded floppy image: %s\\n", floppy_file);\n'
-            "    }}}}\n"
+            "    }\n"
             if has_floppy
             else ""
         )
@@ -642,7 +662,8 @@ int main(int argc, char *argv[]) {{
             system_dir = argv[++i];
 {keyboard_cli_parse}        }} else if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {{
             rom_file = argv[++i];
-{floppy_cli_parse}{cart_cli_parse}        }} else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {{
+{floppy_cli_parse}        }} else if (0) {{
+{cart_cli_parse}        }} else if (strcmp(argv[i], "--addr") == 0 && i + 1 < argc) {{
             load_addr = (uint16_t)strtol(argv[++i], NULL, 0);
         }} else if (strcmp(argv[i], "--run") == 0) {{
             run_emulator = true;
@@ -676,6 +697,7 @@ int main(int argc, char *argv[]) {{
     }}
 
 {floppy_load_block}
+    
     if (test_name) {{
         printf("Running test: %s\\n", test_name);
         if (strcmp(test_name, "basic") == 0) {{
@@ -718,14 +740,17 @@ int main(int argc, char *argv[]) {{
             keyboard_usage_line=keyboard_usage_line,
             cart_usage_line=cart_usage_line,
             floppy_usage_line=floppy_usage_line,
+            floppy_decl=('    const char *floppy_file = NULL;' if has_floppy else ""),
             cart_default_decl=cart_default_decl,
             keyboard_cli_parse=keyboard_cli_parse,
+            floppy_cli_parse=floppy_cli_parse,
             cart_cli_parse=cart_cli_parse,
             floppy_cli_parse=floppy_cli_parse,
             floppy_decl=floppy_decl,
             floppy_load_block=floppy_load_block,
             keyboard_required_check=keyboard_required_check,
             keyboard_load_block=keyboard_load_block,
+            floppy_load_block=floppy_load_block,
             cart_load_block=cart_load_block,
         )
 
@@ -855,6 +880,8 @@ exit /b 0
                     f"src/{self.cpu_name}_core.c",
                     f"src/{self.cpu_name}_decoder.c",
                     f"src/{self.cpu_name}_debug_abi.c",
+                    "src/emu_automation.c",
+                    f"src/{self.cpu_name}_automation_adapter.c",
                 ],
                 "system_sources": [
                     f"src/{name}.c"
@@ -874,6 +901,8 @@ exit /b 0
             "headers": {
                 "cpu": f"src/{self.cpu_name}.h",
                 "debug_abi": f"src/{self.cpu_name}_debug_abi.h",
+                "automation_abi": "src/emu_automation.h",
+                "automation_adapter": f"src/{self.cpu_name}_automation_adapter.h",
             },
             "link": {
                 "library_paths": list(coding.get("library_paths", [])),
@@ -881,6 +910,9 @@ exit /b 0
                 "library_files": link_library_files,
             },
             "memory_default_size": int(memory.get("default_size", 65536)),
+            "automation": {
+                "system": self.isa_data.get("system", {}).get("automation", {}),
+            },
             "cartridge": {
                 "enabled": bool(self.isa_data.get("cartridge")),
                 "id": self.isa_data.get("cartridge", {}).get("metadata", {}).get("id", ""),

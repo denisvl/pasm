@@ -1,0 +1,251 @@
+metadata:
+  id: zx_betadisk_interface
+  type: io_controller
+  model: zx_betadisk_interface_wd1793
+  version: "1.0"
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+  - name: control_reg
+    type: uint8_t
+    initial: "0x0C"
+  - name: trdos_rom_paged
+    type: uint8_t
+    initial: "0"
+  - name: rom_loaded_from
+    type: char *
+    initial: "NULL"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: trdos_rom_window
+        start: 0x0000
+        size: 0x4000
+        access: [read, write]
+  ports:
+    read:
+      - name: betadisk_status_port
+        mask: 0x00FF
+        value: 0x00FF
+      - name: betadisk_cmd_port
+        mask: 0x00FF
+        value: 0x001F
+      - name: betadisk_track_port
+        mask: 0x00FF
+        value: 0x003F
+      - name: betadisk_sector_port
+        mask: 0x00FF
+        value: 0x005F
+      - name: betadisk_data_port
+        mask: 0x00FF
+        value: 0x007F
+    write:
+      - name: betadisk_status_port
+        mask: 0x00FF
+        value: 0x00FF
+      - name: betadisk_cmd_port
+        mask: 0x00FF
+        value: 0x001F
+      - name: betadisk_track_port
+        mask: 0x00FF
+        value: 0x003F
+      - name: betadisk_sector_port
+        mask: 0x00FF
+        value: 0x005F
+      - name: betadisk_data_port
+        mask: 0x00FF
+        value: 0x007F
+
+behavior:
+  snippets:
+    init: |
+      if (comp->rom_data == NULL) {
+          const char *disk_rom_path = getenv("PASM_ZX_BETADISK_ROM");
+          if (disk_rom_path != NULL && disk_rom_path[0] != '\0') {
+              FILE *fp = fopen(disk_rom_path, "rb");
+              if (fp != NULL) {
+                  if (fseek(fp, 0L, SEEK_END) == 0) {
+                      long file_size_long = ftell(fp);
+                      if (file_size_long > 0L && fseek(fp, 0L, SEEK_SET) == 0) {
+                          size_t file_size = (size_t)file_size_long;
+                          uint8_t *rom = (uint8_t *)calloc(file_size, sizeof(uint8_t));
+                          if (rom != NULL) {
+                              if (fread(rom, 1u, file_size, fp) == file_size) {
+                                  if (comp->rom_data != NULL) free(comp->rom_data);
+                                  comp->rom_data = rom;
+                                  comp->rom_size = (uint32_t)file_size;
+                                  if (comp->rom_loaded_from != NULL) free(comp->rom_loaded_from);
+                                  comp->rom_loaded_from = strdup(disk_rom_path);
+                              } else {
+                                  free(rom);
+                              }
+                          }
+                      }
+                  }
+                  fclose(fp);
+              }
+          }
+      }
+    reset: |
+      uint8_t drive_select;
+      uint8_t fdc_select;
+      comp->control_reg = 0x0Cu;
+      comp->trdos_rom_paged = 0u;
+      drive_select = (uint8_t)(comp->control_reg & 0x03u);
+      fdc_select = 0u;
+      if (drive_select <= 3u) fdc_select = (uint8_t)(1u << drive_select);
+      if ((comp->control_reg & 0x10u) == 0u) fdc_select |= 0x10u;
+      if ((comp->control_reg & 0x20u) != 0u) fdc_select |= 0x80u;
+      if (cpu->comp_wd1793_fdc.fdc_media_loaded != 0u) {
+          uint64_t fdc_sel_args[2] = { 0xF4u, (uint64_t)fdc_select };
+          (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_write", fdc_sel_args, 2u);
+      }
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      if (comp->rom_loaded_from != NULL) {
+          free(comp->rom_loaded_from);
+          comp->rom_loaded_from = NULL;
+      }
+      comp->rom_size = 0u;
+    mem_read_pre: |
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      if (trace_enabled < 0) {
+          const char *env = getenv("PASM_ZX_BETADISK_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = getenv("PASM_ZX_BETADISK_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/zx_betadisk_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_enabled = 0;
+          }
+      }
+      if (comp->trdos_rom_paged == 0u &&
+          cpu->pc >= 0x3D00u && cpu->pc < 0x4000u &&
+          addr < 0x4000u &&
+          comp->rom_data != NULL && comp->rom_size > 0u) {
+          comp->trdos_rom_paged = 1u;
+          if (trace_enabled != 0 && trace_fp != NULL) {
+              fprintf(trace_fp, "page_in cycle=%llu pc=%04X addr=%04X\n",
+                      (unsigned long long)cpu->total_cycles, (unsigned)cpu->pc, (unsigned)addr);
+              fflush(trace_fp);
+          }
+      }
+      if (comp->trdos_rom_paged != 0u && addr < 0x4000u && comp->rom_data != NULL && comp->rom_size > 0u) {
+          uint32_t off = (uint32_t)addr;
+          if (comp->rom_size <= 0x4000u) off &= 0x3FFFu;
+          if (off < comp->rom_size) return comp->rom_data[off];
+          return 0xFFu;
+      }
+    mem_write_pre: |
+      if (addr < 0x4000u) {
+          return;
+      }
+    port_read_post: |
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      if (trace_enabled < 0) {
+          const char *env = getenv("PASM_ZX_BETADISK_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = getenv("PASM_ZX_BETADISK_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/zx_betadisk_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_enabled = 0;
+          }
+      }
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
+      if (p == 0xFFu) {
+          value = 0u;
+          if ((cpu->comp_wd1793_fdc.fdc_drq & 0x01u) != 0u) value |= 0x40u;
+          if ((cpu->comp_wd1793_fdc.fdc_irq_pending & 0x01u) != 0u) value |= 0x80u;
+      } else if (p == 0x1Fu) {
+          uint64_t fdc_args[1] = { 0xF0u };
+          value = (uint8_t)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_read", fdc_args, 1u);
+      } else if (p == 0x3Fu) {
+          uint64_t fdc_args[1] = { 0xF1u };
+          value = (uint8_t)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_read", fdc_args, 1u);
+      } else if (p == 0x5Fu) {
+          uint64_t fdc_args[1] = { 0xF2u };
+          value = (uint8_t)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_read", fdc_args, 1u);
+      } else if (p == 0x7Fu) {
+          uint64_t fdc_args[1] = { 0xF3u };
+          value = (uint8_t)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_read", fdc_args, 1u);
+      }
+      if (trace_enabled != 0 && trace_fp != NULL &&
+          (p == 0xFFu || p == 0x1Fu || p == 0x3Fu || p == 0x5Fu || p == 0x7Fu)) {
+          fprintf(trace_fp, "rd cycle=%llu pc=%04X port=%02X val=%02X ctrl=%02X drq=%u irq=%u paged=%u\n",
+                  (unsigned long long)cpu->total_cycles, (unsigned)cpu->pc, (unsigned)p, (unsigned)value,
+                  (unsigned)comp->control_reg, (unsigned)(cpu->comp_wd1793_fdc.fdc_drq & 1u),
+                  (unsigned)(cpu->comp_wd1793_fdc.fdc_irq_pending & 1u), (unsigned)comp->trdos_rom_paged);
+          fflush(trace_fp);
+      }
+    port_write_pre: |
+      static int trace_enabled = -1;
+      static FILE *trace_fp = NULL;
+      if (trace_enabled < 0) {
+          const char *env = getenv("PASM_ZX_BETADISK_TRACE");
+          trace_enabled = (env != NULL && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+          if (trace_enabled != 0) {
+              const char *trace_path = getenv("PASM_ZX_BETADISK_TRACE_FILE");
+              if (trace_path == NULL || trace_path[0] == '\0') trace_path = "/tmp/zx_betadisk_trace.log";
+              trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_enabled = 0;
+          }
+      }
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xFFu);
+      if (trace_enabled != 0 && trace_fp != NULL &&
+          (p == 0xFFu || p == 0x1Fu || p == 0x3Fu || p == 0x5Fu || p == 0x7Fu)) {
+          fprintf(trace_fp, "wr cycle=%llu pc=%04X port=%02X val=%02X ctrl_before=%02X paged=%u\n",
+                  (unsigned long long)cpu->total_cycles, (unsigned)cpu->pc, (unsigned)p, (unsigned)value,
+                  (unsigned)comp->control_reg, (unsigned)comp->trdos_rom_paged);
+          fflush(trace_fp);
+      }
+      if (p == 0xFFu) {
+          comp->control_reg = value;
+          {
+              uint8_t drive_select = (uint8_t)(value & 0x03u);
+              uint8_t fdc_select = 0u;
+              if (drive_select <= 3u) fdc_select = (uint8_t)(1u << drive_select);
+              if ((value & 0x10u) == 0u) fdc_select |= 0x10u;
+              if ((value & 0x20u) != 0u) fdc_select |= 0x80u;
+              {
+                  uint64_t fdc_sel_args[2] = { 0xF4u, (uint64_t)fdc_select };
+                  (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_write", fdc_sel_args, 2u);
+              }
+          }
+      } else if (p == 0x1Fu) {
+          uint64_t fdc_args[2] = { 0xF0u, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_write", fdc_args, 2u);
+      } else if (p == 0x3Fu) {
+          uint64_t fdc_args[2] = { 0xF1u, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_write", fdc_args, 2u);
+      } else if (p == 0x5Fu) {
+          uint64_t fdc_args[2] = { 0xF2u, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_write", fdc_args, 2u);
+      } else if (p == 0x7Fu) {
+          uint64_t fdc_args[2] = { 0xF3u, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "wd1793_fdc", "fdc_port_write", fdc_args, 2u);
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

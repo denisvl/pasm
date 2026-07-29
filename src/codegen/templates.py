@@ -333,6 +333,7 @@ uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return 0xFF;
     }}
+{memory_read_guard}
     return cpu->memory[addr];
 }}
 

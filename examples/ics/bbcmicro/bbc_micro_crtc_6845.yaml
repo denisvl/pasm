@@ -371,7 +371,11 @@ maps:
     ranges:
       - name: sheila_page
         start: 0xFE00
-        size: 0x0100
+        size: 0x0080
+        access: [read, write]
+      - name: sheila_page_after_fdc
+        start: 0xFE88
+        size: 0x0078
         access: [read, write]
 
 behavior:

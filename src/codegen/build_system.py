@@ -71,7 +71,11 @@ def generate_cmake(
 
     has_hooks = _hooks_enabled(isa_data) if include_hooks is None else include_hooks
 
-    cpu_core_extra_sources = f"    src/{cpu_name}_debug_abi.c"
+    cpu_core_extra_sources = (
+        f"    src/{cpu_name}_debug_abi.c\n"
+        "    src/emu_automation.c\n"
+        f"    src/{cpu_name}_automation_adapter.c"
+    )
     if has_hooks:
         cpu_core_extra_sources += f"\n    src/{cpu_name}_hooks.c"
     system_source_lines = [f"    {path}\n" for path in all_system_sources(isa_data, system_prefix)]
@@ -524,7 +528,9 @@ SYSTEM_LIB = lib{system_prefix}_system.a
 
 CPU_CORE_SOURCES = $(SRC_DIR)/{cpu_name}_core.c \\
     $(SRC_DIR)/{cpu_name}_decoder.c \\
-    $(SRC_DIR)/{cpu_name}_debug_abi.c{f" \\\\\\n    $(SRC_DIR)/{cpu_name}_hooks.c" if has_hooks else ""}
+    $(SRC_DIR)/{cpu_name}_debug_abi.c \\
+    $(SRC_DIR)/emu_automation.c \\
+    $(SRC_DIR)/{cpu_name}_automation_adapter.c{f" \\\\\\n    $(SRC_DIR)/{cpu_name}_hooks.c" if has_hooks else ""}
 
 SYSTEM_SOURCES = {system_source_lines}
 

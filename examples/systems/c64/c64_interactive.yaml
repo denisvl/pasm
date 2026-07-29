@@ -81,6 +81,7 @@ components:
   - tv
   hosts:
   - host_c64_sdl2
+  cartridge: c64_cart0
   cassette: datasette_c64
   floppy: c64_1541
 media_picker:

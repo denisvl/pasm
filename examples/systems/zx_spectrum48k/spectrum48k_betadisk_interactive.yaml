@@ -1,0 +1,288 @@
+metadata:
+  name: Z80Spectrum48KBetaDiskInteractiveSystem
+  title: PASM ZX Spectrum 48K + Beta Disk
+  version: '0.1'
+clock_hz: 3500000
+reset_delay_seconds: 0
+memory:
+  default_size: 65536
+  regions:
+  - name: ROM
+    start: 0
+    size: 16384
+    read_only: true
+  - name: DISPLAY_BITMAP
+    start: 16384
+    size: 6144
+    read_write: true
+  - name: SCREEN_ATTRIBUTES
+    start: 22528
+    size: 768
+    read_write: true
+  - name: PRINTER_BUFFER
+    start: 23296
+    size: 256
+    read_write: true
+  - name: SYSTEM_VARIABLES
+    start: 23552
+    size: 182
+    read_write: true
+  - name: RAM_GENERAL
+    start: 23734
+    size: 41802
+    read_write: true
+  rom_images:
+  - name: spectrum48_rom
+    file: ../../roms/zx_spectrum48k/48k.rom
+    target_region: ROM
+    offset: 0
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+components:
+  ics:
+  - ula0
+  - zx48_loram
+  - zx48_hiram
+  - wd1793_fdc
+  - zx_betadisk_interface
+  devices:
+  - keyboard0
+  - controller_zx48
+  - video0
+  - beeper
+  - mic0
+  - cassette_transport_nomotor
+  - floppy_raw_sector_image_backend
+  - tv
+  hosts:
+  - host_zx48
+  cassette: cassette_transport_nomotor
+  floppy: wd1793_fdc
+media_picker:
+  open_action_id: EMU_MEDIA_PICKER
+cassette:
+  component: cassette_transport_nomotor
+  directory: examples/cassettes/zx_spectrum48k
+  allowed_extensions: [yaml, wav, tap, tzx]
+  sources:
+    - kind: line_in
+      source_type: ../../cassette_sources/line_in.yaml
+      component: cassette_transport_nomotor
+      label: Line In
+    - kind: file
+      source_type: ../../cassette_sources/zx_wav_file.yaml
+      component: cassette_transport_nomotor
+      label: ZX WAV Tape
+      allowed_extensions: [yaml, wav]
+    - kind: file
+      source_type: ../../cassette_sources/zx_tap_file.yaml
+      component: cassette_transport_nomotor
+      label: ZX TAP Tape
+      allowed_extensions: [tap]
+    - kind: file
+      source_type: ../../cassette_sources/zx_tzx_file.yaml
+      component: cassette_transport_nomotor
+      label: ZX TZX Tape
+      allowed_extensions: [tzx]
+  controls:
+    picker_action_id: EMU_CASSETTE_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+floppy:
+  directory: examples/floppies/zx_spectrum48k
+  sources:
+    - kind: file
+      source_type: ../../floppy_sources/trd_file.yaml
+      source_component: floppy_raw_sector_image_backend
+      label: TR-DOS Disk
+      allowed_extensions: [trd, scl]
+  drives:
+    - slot: 0
+      label: Drive A
+      drive_type: ../../floppy_drives/msx_3_5_dd.yaml
+      component: wd1793_fdc
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
+connections:
+- from:
+    component: ula0
+    kind: callback
+    name: keyboard_read
+  to:
+    component: keyboard0
+    kind: callback
+    name: read_matrix
+- from:
+    component: ula0
+    kind: callback
+    name: kempston_read
+  to:
+    component: controller_zx48
+    kind: callback
+    name: read_kempston
+- from:
+    component: controller_zx48
+    kind: callback
+    name: host_kempston
+  to:
+    component: host_zx48
+    kind: callback
+    name: read_kempston
+- from:
+    component: keyboard0
+    kind: callback
+    name: host_matrix
+  to:
+    component: host_zx48
+    kind: callback
+    name: keyboard_matrix
+- from:
+    component: mic0
+    kind: callback
+    name: sample_input
+  to:
+    component: cassette_transport_nomotor
+    kind: callback
+    name: sample_input
+- from:
+    component: mic0
+    kind: signal
+    name: mic_level
+  to:
+    component: ula0
+    kind: handler
+    name: mic_input
+- from:
+    component: ula0
+    kind: signal
+    name: border_changed
+  to:
+    component: video0
+    kind: handler
+    name: on_border_changed
+- from:
+    component: ula0
+    kind: signal
+    name: frame_boundary
+  to:
+    component: video0
+    kind: handler
+    name: on_frame_boundary
+- from:
+    component: ula0
+    kind: signal
+    name: frame_boundary
+  to:
+    component: host_zx48
+    kind: handler
+    name: frame_boundary
+- from:
+    component: ula0
+    kind: signal
+    name: beeper_level
+  to:
+    component: beeper
+    kind: handler
+    name: on_beeper_level
+- from:
+    component: ula0
+    kind: signal
+    name: tape_out
+  to:
+    component: cassette_transport_nomotor
+    kind: handler
+    name: on_output_sample
+- from:
+    component: ula0
+    kind: signal
+    name: irq_edge
+  to:
+    component: host_zx48
+    kind: handler
+    name: irq_edge
+- from:
+    component: video0
+    kind: signal
+    name: frame_ready
+  to:
+    component: tv
+    kind: handler
+    name: on_frame_present5
+- from:
+    component: video0
+    kind: signal
+    name: border_present
+  to:
+    component: host_zx48
+    kind: handler
+    name: video_border
+- from:
+    component: beeper
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_zx48
+    kind: handler
+    name: audio_pcm
+- from:
+    component: cassette_transport_nomotor
+    kind: signal
+    name: playback_sample
+  to:
+    component: beeper
+    kind: handler
+    name: on_tape_playback_sample
+- from:
+    component: tv
+    kind: signal
+    name: frame_present5
+  to:
+    component: host_zx48
+    kind: handler
+    name: video_frame
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+integrations:
+  profile: zx_spectrum_48k_betadisk_interactive
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers

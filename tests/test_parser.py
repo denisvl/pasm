@@ -863,6 +863,79 @@ def test_system_schema_accepts_cassette_contract_block():
     assert list(validator.iter_errors(system_data)) == []
 
 
+def test_system_schema_accepts_automation_text_view_metadata():
+    if yaml_loader.Draft7Validator is None:
+        pytest.skip("jsonschema not available")
+    schema = yaml_loader.load_schema("system")
+    validator = yaml_loader.Draft7Validator(schema)
+
+    system_data = {
+        "metadata": {"name": "AutomationTextSystem"},
+        "clock_hz": 1023000,
+        "memory": {"default_size": 65536},
+        "components": {
+            "ics": [],
+            "devices": [],
+            "hosts": [],
+        },
+        "connections": [],
+        "automation": {
+            "screen": {
+                "text_views": [
+                    {
+                        "id": "primary_text",
+                        "component": "video",
+                        "columns": 40,
+                        "rows": 24,
+                        "row_stride": 40,
+                        "memory": {
+                            "source": "system_memory",
+                            "base": 0x0400,
+                            "alternate_base": 0x0800,
+                            "address_layout": "bit_interleaved_rows",
+                            "row_low_mask": 0x07,
+                            "row_low_shift": 7,
+                            "row_high_shift": 3,
+                            "row_high_multiplier": 0x28,
+                            "column_multiplier": 1,
+                        },
+                        "charset": "apple2_character_rom",
+                        "native_encoding": "apple2_screen_code",
+                        "unicode_map": "apple2_text",
+                        "unknown_policy": "preserve_native",
+                        "mode_conditions": {
+                            "text_switch": True,
+                            "page2_selects_alternate_base": True,
+                        },
+                        "attributes": {
+                            "inverse_range": [0x00, 0x3F],
+                            "flash_range": [0x40, 0x7F],
+                            "normal_range": [0x80, 0xFF],
+                        },
+                    }
+                ]
+            },
+            "capabilities": ["screen.text_grid"],
+        },
+    }
+
+    assert list(validator.iter_errors(system_data)) == []
+
+
+def test_apple2_interactive_declares_automation_text_view():
+    loader = yaml_loader.ProcessorSystemLoader()
+    path = pathlib.Path("examples/systems/apple2/apple2_interactive.yaml")
+    system_data = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    validated = loader.validate_system(system_data)
+    text_views = validated["automation"]["screen"]["text_views"]
+    assert text_views[0]["id"] == "primary_text"
+    assert text_views[0]["memory"]["address_layout"] == "bit_interleaved_rows"
+    assert text_views[0]["memory"]["row_low_mask"] == 0x07
+    assert text_views[0]["columns"] == 40
+    assert text_views[0]["rows"] == 24
+
+
 def test_cassette_source_schema_accepts_wav_cas_cdt_uef_and_line_in():
     if yaml_loader.Draft7Validator is None:
         pytest.skip("jsonschema not available")

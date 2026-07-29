@@ -8,6 +8,10 @@ Note: this file tracks the current post-implementation backlog (not historical t
 - ☑ Implement jump-to-address dialog (`g`) for disassembly and memory panes.
 - ☑ Implement run-to-cursor (`F4`).
 - ☑ Align step/run keymap with current shortcuts (`F7`/`F8`/`F6`/`F9`, `F5`).
+- ☑ Fix per-IC generated include rendering so bare YAML headers such as `stdio.h`, `stdlib.h`, and `pasm_overlay.h` emit valid C includes.
+- ☑ Fix MSX1 Expanded interactive launcher script typo and add a clear delegated-launcher check.
+- ☑ Fix CoCo 2 launcher cartridge path resolution and default cartridge picker directory.
+- ☑ Fix CSX64/TDP-100 launcher generated-directory path setup before generation.
 
 ## Open
 - ☐ Reset should preserve breakpoints across reset in linked backend.
@@ -16,8 +20,22 @@ Note: this file tracks the current post-implementation backlog (not historical t
 - ☐ Relative branch rendering should include computed target address.
 - ☐ Disassembly navigation should pan continuously beyond a single backend window using arrows/page keys.
 - ☐ Step-over semantics for block/repeat instructions (example: `LDDR`) must match debugger expectations.
+- ☐ **ZX Spectrum 48K Beta Disk / TR-DOS boot probe still loops on WD1793 Type-I `0x18`**: Beta Disk port/status wiring now reaches the TR-DOS probe, and the FDC status sequence was narrowed from `0x05/0x06` to `0xA5/0xA6` (busy/completed) with correct READY and spin-up bits, but TR-DOS still polls at `PC=0x3EB5` and rewrites `0x18` at `PC=0x3D9A` forever. It never advances to `cmd=0xC0`, `READ ADDRESS`, or any sector I/O. Remaining suspected cause is incomplete WD1793 Type-I command semantics for `0x18` rather than Beta wrapper wiring.
 - ☐ **Famicom carrier sprite rendering bug**: In 1942 (Japan, USA).nes, the carrier (large multi-sprite object) only renders the first row of sprites. Other sprites (planes, bullets, explosions) render correctly. Root cause unknown — OAM DMA fix and sprite y-offset fix applied but issue persists. Need to investigate sprite evaluation/rendering pipeline for multi-sprite objects.
 - ☐ **MSX1 Expanded black screen**: Emulator boots but shows black screen. Cartridge mapper (Konami) and expanded slot controller (sub-slot register 0xFFFF) need debugging. PPI slot_select initialized to 0xF5, expanded slot controller marks slot 1 as expanded, cartridge mapper uses primary_slot_id/secondary_slot_id with bank defaults 1,2,3. Need to debug cartridge mapping at boot and VDP initialization.
+- ☑ **Apple II+ interactive keyboard map generation failure**: `scripts/run_apple2plus_debugger.sh` now invokes `merge_keyboard_maps.py` with the expected two inputs, redirects stdout to the merged keyboard map, ensures the output directory exists, and exits if the merged map is empty.
+- ☐ **BBC Micro models need to be segregated into different folders**: They're currently under the same one.
+- ☑ **BBC Micro models ACIA generated source has invalid include directives**: BBC ACIA/cassette YAML headers were corrected and per-IC split-unit include rendering now normalizes bare headers to valid C includes.
+- ☑ **C64 linked debugger omits generated 1541 subsystem libraries**: `tools/debugger_tui/build.rs` now reads attached subsystem entries from `debugger_link.json`, adds nested subsystem build directories to the library search path, and links subsystem system/CPU static libraries after the top-level emulator libraries. `scripts/run_c64_debugger.sh` also creates output/build directories before resolving absolute paths.
+- ☑ **CoCo 2 interactive launcher uses an invalid CoCo 1 ROM directory**: `scripts/run_coco2_debugger.sh` now defaults the cartridge directory to `examples/roms/coco1`, resolves cartridge ROMs relative to the system directory or repo root, quotes paths, and exits if the ROM or directory is missing.
+- ☑ **CSX64 debugger launcher resolves the generated directory before generation**: `scripts/run_csx64_debugger.sh` now creates `OUTPUT_DIR` and `BUILD_DIR` before resolving their absolute paths.
+- ☑ **MSX1 Expanded interactive launcher references a misspelled debugger script**: `scripts/run_msx1_expanded_interactive.sh` now delegates to `scripts/run_msx1_expanded_debugger.sh` and fails clearly if the target launcher is missing or not executable.
+- ☑ **SM3 VDP generated source has invalid include directives**: per-IC split-unit include rendering now normalizes bare YAML headers to valid C includes.
+- ☑ **SMS VDP generated source has invalid include directives**: per-IC split-unit include rendering now normalizes bare YAML headers to valid C includes.
+- ☑ **SMS2 ASIC generated source has invalid include directives**: per-IC split-unit include rendering now normalizes bare YAML headers to valid C includes.
+- ☑ **TDP-100 debugger launcher resolves the generated directory before generation**: `scripts/run_tdp100_debugger.sh` now creates `OUTPUT_DIR` and `BUILD_DIR` before resolving their absolute paths.
+- ☑ **TRS-80 Model 4 video generated source has an invalid local include directive**: per-IC split-unit include rendering now normalizes bare YAML headers to valid C includes.
+- ☑ **ZX Spectrum 48K debugger is showing a host audio input cannot be opened message when running**: ZX48 audio capture is now opt-in with `PASM_ZX48_AUDIO_INPUT=1`, so normal interactive runs keep audio output enabled without opening a host recording device. `scripts/run_zx48_debugger.sh` also uses the repo-local `UV_CACHE_DIR` default.
 - ☐ Atari 65XE performance is around 25%
 - ☐ Atari 800XE performance is around 25%
 - ☐ Atari 800XL performance is around 25%

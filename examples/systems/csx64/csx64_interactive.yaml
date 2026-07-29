@@ -75,6 +75,7 @@ components:
   - tv
   hosts:
   - host_c64_sdl2
+  cartridge: c64_cart0
 connections:
 - from:
     component: c64_pla

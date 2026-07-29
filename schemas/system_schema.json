@@ -81,6 +81,19 @@
               },
               "read_only": {
                 "type": "boolean"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["ram", "rom", "unpopulated", "floating", "open_bus"],
+                "default": "ram",
+                "description": "Memory region type. 'unpopulated'/'floating'/'open_bus' regions return 0xFF on read and discard writes."
+              },
+              "read_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255,
+                "default": 255,
+                "description": "Value returned when reading from unpopulated/floating/open_bus regions (default 0xFF)"
               }
             }
           }
@@ -696,6 +709,180 @@
                 ]
               },
               "model": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "automation": {
+      "type": "object",
+      "description": "Transport-neutral automation metadata for screen, input, and native state adapters.",
+      "additionalProperties": false,
+      "properties": {
+        "screen": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "framebuffer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_component": {
+                  "type": "string"
+                },
+                "source_handler": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "pixel_format": {
+                  "type": "string",
+                  "enum": [
+                    "rgba8888",
+                    "bgra8888",
+                    "rgb565",
+                    "index8"
+                  ]
+                }
+              }
+            },
+            "text_views": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "columns",
+                  "rows"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "component": {
+                    "type": "string"
+                  },
+                  "columns": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "rows": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "row_stride": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "memory": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "source": {
+                        "type": "string",
+                        "enum": [
+                          "system_memory",
+                          "component_state",
+                          "callback"
+                        ]
+                      },
+                      "base": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "alternate_base": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "address_layout": {
+                        "type": "string",
+                        "enum": [
+                          "linear",
+                          "bit_interleaved_rows",
+                          "interleaved",
+                          "custom"
+                        ]
+                      },
+                      "row_low_mask": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "row_low_shift": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "row_high_shift": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "row_high_multiplier": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "column_multiplier": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    }
+                  },
+                  "charset": {
+                    "type": "string"
+                  },
+                  "native_encoding": {
+                    "type": "string"
+                  },
+                  "unicode_map": {
+                    "type": "string"
+                  },
+                  "unknown_policy": {
+                    "type": "string",
+                    "enum": [
+                      "preserve_native",
+                      "replacement_character"
+                    ]
+                  },
+                  "mode_conditions": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "attributes": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "native_properties": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "id": {
                 "type": "string"
               }
             }
