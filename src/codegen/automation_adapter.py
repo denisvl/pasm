@@ -100,6 +100,7 @@ def generate_automation_adapter(isa_data: Dict[str, Any], cpu_name: str) -> tupl
         f"\n    adapter.release_event = {cpu_prefix}_automation_release_event;"
     )
     text_grid_impl = _generate_text_grid_impl(cpu_name, cpu_prefix, text_view_rows) if supports_text_grid else ""
+    inspection_impl = _generate_inspection_impl(cpu_name, cpu_prefix)
     text_event_impl = (
         _generate_text_event_impl(cpu_name, cpu_prefix)
         if supports_text_grid
@@ -532,6 +533,7 @@ static emu_automation_result_t {cpu_prefix}_automation_run_frames(
 }}
 
 {text_grid_impl}
+{inspection_impl}
 {text_event_impl}
 
 static emu_automation_result_t {cpu_prefix}_automation_poll_event(
@@ -894,6 +896,11 @@ static void {cpu_prefix}_automation_release_text_grid(
     free(owned->plain);
     free(owned);
 }}
+"""
+
+
+def _generate_inspection_impl(cpu_name: str, cpu_prefix: str) -> str:
+    return f"""
 
 static emu_automation_result_t {cpu_prefix}_automation_read_memory(
     void *context,

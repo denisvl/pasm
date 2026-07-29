@@ -1895,6 +1895,12 @@ def test_automation_adapter_generator_wraps_debug_abi_execution():
     assert "adapter.poll_event = autowrap8_automation_poll_event;" in impl
     assert "adapter.release_event = autowrap8_automation_release_event;" in impl
     assert "EMU_AUTOMATION_CAP_SCREEN_FRAMEBUFFER" not in impl
+    assert impl.count("autowrap8_automation_read_registers(") == 2
+    assert (
+        "static emu_automation_result_t autowrap8_automation_read_registers(\n"
+        "    void *context,\n"
+        "    emu_automation_register_value_t *out_registers,"
+    ) in impl
 
 
 def test_debug_abi_generator_bridges_character_mapping_queries():
@@ -1953,6 +1959,7 @@ def test_automation_adapter_generator_supports_declared_system_memory_text_grid(
     assert "adapter.text_grid_view_count = autotext8_automation_text_grid_view_count;" in impl
     assert "adapter.text_grid_view_descriptor = autotext8_automation_text_grid_view_descriptor;" in impl
     assert "adapter.release_text_grid = autotext8_automation_release_text_grid;" in impl
+    assert impl.count("autotext8_automation_read_registers(") == 2
 
 
 def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_path):

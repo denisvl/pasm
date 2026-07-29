@@ -5,6 +5,7 @@ mod state;
 mod ui;
 
 use std::io;
+use std::io::IsTerminal;
 use std::time::{Duration, Instant};
 
 use actions::map_key_event;
@@ -99,6 +100,11 @@ fn parse_speed_mode() -> Result<RunSpeedMode, String> {
 }
 
 fn run_ui(mut app: App, use_alt_screen: bool) -> Result<(), String> {
+    if !io::stdout().is_terminal() || !io::stdin().is_terminal() {
+        return Err(
+            "interactive TUI requires a terminal on stdin/stdout; run this script from a real terminal or use a no_tui runner / generated binary directly".to_string(),
+        );
+    }
     enable_raw_mode().map_err(|e| e.to_string())?;
     let mut stdout = io::stdout();
     if use_alt_screen {
