@@ -1222,15 +1222,24 @@ static emu_automation_result_t {cpu_prefix}_automation_hash_text_view(
     const {cpu_name}AutomationTextView *view,
     uint64_t *out_hash)
 {{
-    uint8_t cells[(size_t)view->columns * (size_t)view->rows];
+    size_t cell_count;
+    uint8_t *cells;
+    emu_automation_result_t result;
+    if (view == NULL || out_hash == NULL) return EMU_AUTOMATION_INVALID_ARGUMENT;
+    cell_count = (size_t)view->columns * (size_t)view->rows;
+    if (cell_count == 0u) return EMU_AUTOMATION_INVALID_ARGUMENT;
+    cells = (uint8_t *)calloc(cell_count, sizeof(*cells));
+    if (cells == NULL) return EMU_AUTOMATION_INTERNAL_ERROR;
     if ({cpu_prefix}_automation_read_text_view_cells(ctx, view, cells) != EMU_AUTOMATION_OK) {{
+        free(cells);
         return EMU_AUTOMATION_ADAPTER_ERROR;
     }}
-    if (out_hash == NULL) return EMU_AUTOMATION_INVALID_ARGUMENT;
     *out_hash = {cpu_prefix}_automation_hash_text_cells(
         cells,
-        (size_t)view->columns * (size_t)view->rows);
-    return EMU_AUTOMATION_OK;
+        cell_count);
+    result = EMU_AUTOMATION_OK;
+    free(cells);
+    return result;
 }}
 
 static void {cpu_prefix}_automation_initialize_text_events(
@@ -1257,7 +1266,8 @@ static void {cpu_prefix}_automation_emit_screen_events(
     {cpu_name}AutomationDebugContext *ctx)
 {{
     const {cpu_name}AutomationTextView *view = &{cpu_prefix}_automation_text_views[0];
-    uint8_t current_cells[(size_t)view->columns * (size_t)view->rows];
+    size_t cell_count;
+    uint8_t *current_cells;
     {cpu_name}AutomationEventOwned *text_owned = NULL;
     uint64_t hash;
     uint32_t change_x = 0u;
@@ -1268,23 +1278,33 @@ static void {cpu_prefix}_automation_emit_screen_events(
     if (ctx == NULL || {cpu_prefix}_automation_text_view_count == 0u) {{
         return;
     }}
+    cell_count = (size_t)view->columns * (size_t)view->rows;
+    if (cell_count == 0u) {{
+        return;
+    }}
+    current_cells = (uint8_t *)calloc(cell_count, sizeof(*current_cells));
+    if (current_cells == NULL) {{
+        return;
+    }}
     if ({cpu_prefix}_automation_read_text_view_cells(
             ctx,
             view,
             current_cells) != EMU_AUTOMATION_OK) {{
+        free(current_cells);
         return;
     }}
     hash = {cpu_prefix}_automation_hash_text_cells(
         current_cells,
-        (size_t)view->columns * (size_t)view->rows);
+        cell_count);
     if (ctx->last_text_hash_valid == 0u || ctx->last_text_cells_valid == 0u) {{
         ctx->last_text_hash = hash;
         ctx->last_text_hash_valid = 1u;
         memcpy(
             ctx->last_text_cells,
             current_cells,
-            (size_t)view->columns * (size_t)view->rows);
+            cell_count);
         ctx->last_text_cells_valid = 1u;
+        free(current_cells);
         return;
     }}
     if (ctx->last_text_hash != hash) {{
@@ -1308,7 +1328,7 @@ static void {cpu_prefix}_automation_emit_screen_events(
         memcpy(
             ctx->last_text_cells,
             current_cells,
-            (size_t)view->columns * (size_t)view->rows);
+            cell_count);
         {cpu_prefix}_automation_push_event(
             ctx,
             EMU_AUTOMATION_EVENT_TEXT_CHANGED,
@@ -1338,5 +1358,6 @@ static void {cpu_prefix}_automation_emit_screen_events(
             0u,
             NULL);
     }}
+    free(current_cells);
 }}
 """

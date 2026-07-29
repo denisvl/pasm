@@ -1960,6 +1960,10 @@ def test_automation_adapter_generator_supports_declared_system_memory_text_grid(
     assert "adapter.text_grid_view_descriptor = autotext8_automation_text_grid_view_descriptor;" in impl
     assert "adapter.release_text_grid = autotext8_automation_release_text_grid;" in impl
     assert impl.count("autotext8_automation_read_registers(") == 2
+    assert "uint8_t cells[(size_t)view->columns * (size_t)view->rows]" not in impl
+    assert "uint8_t current_cells[(size_t)view->columns * (size_t)view->rows]" not in impl
+    assert "cells = (uint8_t *)calloc(cell_count, sizeof(*cells));" in impl
+    assert "current_cells = (uint8_t *)calloc(cell_count, sizeof(*current_cells));" in impl
 
 
 def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_path):
