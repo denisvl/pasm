@@ -6,6 +6,8 @@ __pycache__/
 build/
 *.o
 tools/debugger_tui/target/
+automation/rust/target/
+automation/rust/Cargo.lock
 pasm.egg-info/
 
 examples/roms/
