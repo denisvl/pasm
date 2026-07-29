@@ -4,9 +4,9 @@ This file tracks the remaining implementation work for the emulator automation
 plan. It is intended to stay practical and implementation-oriented rather than
 repeat the full design document.
 
-Scope note: continue implementation through Phase 8 only unless explicitly
-requested otherwise. Do not start Recording and Replay, Inspection / Debug
-Operations, or Language / UX Follow-Up work without user direction.
+Scope note: Phase 8 and the originally deferred Recording and Replay /
+Inspection / Debug Operations items are now complete. Do not start Language /
+UX Follow-Up or post-plan integration work unless explicitly requested.
 
 ## Current Status
 
@@ -162,9 +162,23 @@ Operations, or Language / UX Follow-Up work without user direction.
 - [ ] Validate the Rust Windows loader on an actual Windows runtime
 - [ ] Add Windows CI coverage for the Rust workspace
 
+## MCP Integration for Coding Agents
+
+- [ ] Add an MCP server crate/package over the existing automation core
+- [ ] Expose machine lifecycle and capability discovery MCP tools
+- [ ] Expose execution control and input injection MCP tools
+- [ ] Expose structured observation tools for framebuffer/text-grid capture
+- [ ] Expose wait-condition MCP tools over the existing synchronization layer
+- [ ] Expose event polling/subscription MCP tools
+- [ ] Expose recording/replay MCP tools
+- [ ] Expose inspection/debug MCP tools with capability gating
+- [ ] Keep responses structured and avoid free-form command expressions
+- [ ] Validate the MCP server on Unix and Windows hosts
+
 ## Immediate Next Candidates
 
 - [x] Thread event polling through one real adapter path
 - [x] Add core-level callback/subscription API
-- [ ] Add machine character-map support for authentic `type_text(...)`
-- [ ] Add memory/PC wait conditions
+- [x] Add machine character-map support for authentic `type_text(...)`
+- [x] Add memory/PC wait conditions
+- [ ] Add coding-agent-facing MCP integration over the automation surface

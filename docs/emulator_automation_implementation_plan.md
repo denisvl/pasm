@@ -257,6 +257,46 @@ This avoids maintaining three independent behavioral implementations.
 
 ---
 
+## 6.5 MCP Integration for Coding Agents
+
+After the stable C ABI, language bindings, inspection/debug operations, and
+transport-neutral protocol are in place, add an MCP server that exposes the
+automation surface to coding agents.
+
+The MCP layer should:
+
+- Reuse the existing automation core rather than introduce a parallel control
+  path.
+- Expose machine lifecycle, execution control, input injection, observation,
+  waits, recording/replay, and inspection/debug operations as explicit MCP
+  tools.
+- Preserve capability discovery so agents can adapt to systems that only expose
+  a subset of the full automation model.
+- Return structured data rather than free-form terminal text wherever possible.
+- Keep machine-specific operations behind explicit, capability-gated tool calls.
+- Work on Unix and Windows hosts.
+
+Recommended MCP tool families:
+
+- `machine.open` / `machine.close`
+- `machine.info` / `machine.capabilities`
+- `machine.run` / `machine.pause` / `machine.reset` / `machine.step`
+- `machine.input.keyboard` / `machine.input.controller` /
+  `machine.input.release_all`
+- `machine.screen.framebuffer` / `machine.screen.text_grid`
+- `machine.wait.*`
+- `machine.events.poll` / `machine.events.subscribe`
+- `machine.record.start` / `machine.record.stop` / `machine.replay`
+- `machine.inspect.memory.read` / `machine.inspect.memory.write`
+- `machine.inspect.registers.read` / `machine.inspect.registers.write`
+- `machine.inspect.disassembly.current`
+- `machine.debug.breakpoints.*`
+
+The MCP server should be treated as an agent-facing integration layer, not as a
+replacement for the existing Python, C, Rust, or JSON Lines surfaces.
+
+---
+
 ## 7. Recommended Language Strategy
 
 ## 7.1 C ABI as the interoperability foundation
