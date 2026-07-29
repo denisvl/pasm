@@ -46,6 +46,18 @@ jobs:
       - name: Run test suite
         run: uv run --extra dev pytest -q
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check Rust automation workspace
+        run: cargo check --manifest-path automation/rust/Cargo.toml --workspace
+
+      - name: Check Rust automation workspace with serde
+        run: cargo check --manifest-path automation/rust/Cargo.toml -p emu-automation --features serde --example real_adapter_text_wait
+
+      - name: Test Rust automation workspace
+        run: cargo test --manifest-path automation/rust/Cargo.toml --workspace --all-targets
+
   sectorz-integration:
     if: ${{ vars.PASM_ENABLE_SECTORZ_TEST == '1' }}
     name: sectorz-integration

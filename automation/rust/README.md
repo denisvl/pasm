@@ -30,6 +30,16 @@ let text = machine.screen().text(Some("main"))?;
 let ready = machine.screen().wait_for_text("READY", Some("main"), 120, 1)?;
 ```
 
+Condition composition also supports multi-condition grouping:
+
+```rust
+let ready_or_prompt = emu_automation::Condition::any(vec![
+    machine.conditions().screen_contains("READY", Some("main")),
+    machine.conditions().screen_contains("OK", Some("main")),
+]);
+let result = machine.wait().until(ready_or_prompt, 180, 1)?;
+```
+
 Wait helpers return `WaitError`, which distinguishes timeout from an
 underlying automation call failure.
 
@@ -135,6 +145,25 @@ let replayed = InputSequence::from_jsonl(&jsonl)?;
 replayed.play(&machine)?;
 ```
 
+## Real Adapter Example
+
+The crate now includes a real-adapter example:
+
+```bash
+cargo run -p emu-automation --example real_adapter_text_wait -- /path/to/built/emulator
+```
+
+The example opens a built automation-enabled emulator artifact, prints machine
+metadata, and waits for text on the first exposed text-grid region.
+
+## Optional Serde Support
+
+Enable serde derives on the public value/snapshot types with:
+
+```toml
+emu-automation = { path = "automation/rust/emu-automation", features = ["serde"] }
+```
+
 ## Current Limitations
 
 - Dynamic shared-library loading is implemented for Unix and Windows.
@@ -150,4 +179,3 @@ replayed.play(&machine)?;
   cross-thread callback behavior.
 - Event polling is currently limited to the small envelope exercised by the
   reset/state/frame/input/text/screen mock path.
-- No serde support yet.

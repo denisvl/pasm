@@ -9,7 +9,107 @@ use std::sync::Arc;
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 pub use emu_automation_sys as sys;
+
+#[cfg(feature = "serde")]
+mod serde_support {
+    use super::sys;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub mod execution_state {
+        use super::*;
+        pub fn serialize<S>(value: &sys::emu_automation_execution_state_t, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_i32(*value as i32)
+        }
+        pub fn deserialize<'de, D>(deserializer: D) -> Result<sys::emu_automation_execution_state_t, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            match i32::deserialize(deserializer)? {
+                0 => Ok(sys::emu_automation_execution_state_t::EMU_AUTOMATION_EXECUTION_STOPPED),
+                1 => Ok(sys::emu_automation_execution_state_t::EMU_AUTOMATION_EXECUTION_RUNNING),
+                2 => Ok(sys::emu_automation_execution_state_t::EMU_AUTOMATION_EXECUTION_PAUSED),
+                other => Err(serde::de::Error::custom(format!("invalid execution state value: {other}"))),
+            }
+        }
+    }
+
+    pub mod pixel_format {
+        use super::*;
+        pub fn serialize<S>(value: &sys::emu_automation_pixel_format_t, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_i32(*value as i32)
+        }
+        pub fn deserialize<'de, D>(deserializer: D) -> Result<sys::emu_automation_pixel_format_t, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            match i32::deserialize(deserializer)? {
+                0 => Ok(sys::emu_automation_pixel_format_t::EMU_AUTOMATION_PIXEL_FORMAT_UNKNOWN),
+                1 => Ok(sys::emu_automation_pixel_format_t::EMU_AUTOMATION_PIXEL_FORMAT_RGBA8888),
+                2 => Ok(sys::emu_automation_pixel_format_t::EMU_AUTOMATION_PIXEL_FORMAT_BGRA8888),
+                3 => Ok(sys::emu_automation_pixel_format_t::EMU_AUTOMATION_PIXEL_FORMAT_RGB565),
+                other => Err(serde::de::Error::custom(format!("invalid pixel format value: {other}"))),
+            }
+        }
+    }
+
+    pub mod event_type {
+        use super::*;
+        pub fn serialize<S>(value: &sys::emu_automation_event_type_t, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_i32(*value as i32)
+        }
+        pub fn deserialize<'de, D>(deserializer: D) -> Result<sys::emu_automation_event_type_t, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            match i32::deserialize(deserializer)? {
+                0 => Ok(sys::emu_automation_event_type_t::EMU_AUTOMATION_EVENT_NONE),
+                1 => Ok(sys::emu_automation_event_type_t::EMU_AUTOMATION_EVENT_FRAME_COMPLETED),
+                2 => Ok(sys::emu_automation_event_type_t::EMU_AUTOMATION_EVENT_MACHINE_RESET),
+                3 => Ok(sys::emu_automation_event_type_t::EMU_AUTOMATION_EVENT_EXECUTION_STATE_CHANGED),
+                4 => Ok(sys::emu_automation_event_type_t::EMU_AUTOMATION_EVENT_INPUT_SUBMITTED),
+                5 => Ok(sys::emu_automation_event_type_t::EMU_AUTOMATION_EVENT_SCREEN_CHANGED),
+                6 => Ok(sys::emu_automation_event_type_t::EMU_AUTOMATION_EVENT_TEXT_CHANGED),
+                7 => Ok(sys::emu_automation_event_type_t::EMU_AUTOMATION_EVENT_MEDIA_ACTIVITY),
+                8 => Ok(sys::emu_automation_event_type_t::EMU_AUTOMATION_EVENT_DEBUG_MESSAGE),
+                9 => Ok(sys::emu_automation_event_type_t::EMU_AUTOMATION_EVENT_ERROR),
+                other => Err(serde::de::Error::custom(format!("invalid event type value: {other}"))),
+            }
+        }
+    }
+
+    pub mod input_action {
+        use super::*;
+        pub fn serialize<S>(value: &sys::emu_automation_input_action_t, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_i32(*value as i32)
+        }
+        pub fn deserialize<'de, D>(deserializer: D) -> Result<sys::emu_automation_input_action_t, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            match i32::deserialize(deserializer)? {
+                0 => Ok(sys::emu_automation_input_action_t::EMU_AUTOMATION_INPUT_RELEASE),
+                1 => Ok(sys::emu_automation_input_action_t::EMU_AUTOMATION_INPUT_PRESS),
+                other => Err(serde::de::Error::custom(format!("invalid input action value: {other}"))),
+            }
+        }
+    }
+}
 
 type AbiVersionFn = unsafe extern "C" fn() -> u32;
 type ResultNameFn =
@@ -619,6 +719,40 @@ impl<T: 'static> Condition<T> {
             Ok(Some((left_value, right_value)))
         })
     }
+
+    pub fn any(conditions: Vec<Condition<T>>) -> Condition<T> {
+        assert!(!conditions.is_empty(), "at least one condition is required");
+        let mut predicates = conditions
+            .into_iter()
+            .map(|condition| condition.predicate)
+            .collect::<Vec<_>>();
+        Condition::new("any condition", move |machine| {
+            for predicate in &mut predicates {
+                if let Some(value) = predicate(machine)? {
+                    return Ok(Some(value));
+                }
+            }
+            Ok(None)
+        })
+    }
+
+    pub fn all(conditions: Vec<Condition<T>>) -> Condition<Vec<T>> {
+        assert!(!conditions.is_empty(), "at least one condition is required");
+        let mut predicates = conditions
+            .into_iter()
+            .map(|condition| condition.predicate)
+            .collect::<Vec<_>>();
+        Condition::new("all conditions", move |machine| {
+            let mut results = Vec::with_capacity(predicates.len());
+            for predicate in &mut predicates {
+                let Some(value) = predicate(machine)? else {
+                    return Ok(None);
+                };
+                results.push(value);
+            }
+            Ok(Some(results))
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -650,11 +784,13 @@ impl fmt::Display for LoadError {
 
 impl std::error::Error for LoadError {}
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Capabilities {
     pub feature_bits: u64,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineDescriptor {
     pub machine_id: String,
@@ -667,6 +803,7 @@ pub struct MachineDescriptor {
     pub capabilities: Capabilities,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CharacterMappingDescriptor {
     pub device_id: String,
@@ -680,14 +817,17 @@ pub struct CharacterMappingDescriptor {
     pub meta_key_id: String,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrameMetadata {
     pub frame_number: u64,
     pub emulated_cycles: u64,
     pub emulated_time_ns: u64,
+    #[cfg_attr(feature = "serde", serde(with = "serde_support::execution_state"))]
     pub execution_state: sys::emu_automation_execution_state_t,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisterValue {
     pub name: String,
@@ -697,6 +837,7 @@ pub struct RegisterValue {
     pub changed: bool,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstructionInfo {
     pub address: u64,
@@ -711,6 +852,7 @@ pub struct InstructionInfo {
     pub changed_since_last_step: bool,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rect {
     pub x: i32,
@@ -719,12 +861,14 @@ pub struct Rect {
     pub height: u32,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FramebufferSnapshot {
     pub frame: FrameMetadata,
     pub width: u32,
     pub height: u32,
     pub stride_bytes: u32,
+    #[cfg_attr(feature = "serde", serde(with = "serde_support::pixel_format"))]
     pub pixel_format: sys::emu_automation_pixel_format_t,
     pub visible_area: Rect,
     pub pixel_aspect_numerator: u32,
@@ -732,6 +876,7 @@ pub struct FramebufferSnapshot {
     pub pixels: Vec<u8>,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextViewDescriptor {
     pub region_id: String,
@@ -743,6 +888,7 @@ pub struct TextViewDescriptor {
     pub unicode_map: String,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextCell {
     pub native_code: u32,
@@ -757,6 +903,7 @@ pub struct TextCell {
     pub confidence: u8,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextDelta {
     pub x: u32,
@@ -765,6 +912,7 @@ pub struct TextDelta {
     pub after: TextCell,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextGridSnapshot {
     pub region_id: String,
@@ -776,9 +924,11 @@ pub struct TextGridSnapshot {
     pub frame: FrameMetadata,
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AutomationEvent {
     pub sequence_number: u64,
+    #[cfg_attr(feature = "serde", serde(with = "serde_support::event_type"))]
     pub event_type: sys::emu_automation_event_type_t,
     pub frame: FrameMetadata,
     pub input_accepted: FrameMetadata,
@@ -793,6 +943,7 @@ pub struct AutomationEvent {
     pub change_cell_count: u32,
     pub text_deltas: Vec<TextDelta>,
     pub message: String,
+    #[cfg_attr(feature = "serde", serde(with = "serde_support::input_action"))]
     pub input_action: sys::emu_automation_input_action_t,
     pub input_timing: Timing,
 }
@@ -890,6 +1041,7 @@ impl<'a> Controller<'a> {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Timing {
     Immediate,
@@ -940,6 +1092,7 @@ impl Timing {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TapTimingPreset {
     pub press_timing: Timing,
@@ -979,6 +1132,7 @@ enum InputStep {
     WaitFrames(u64),
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputLogStep {
     pub kind: String,

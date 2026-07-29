@@ -146,34 +146,45 @@ UX Follow-Up or post-plan integration work unless explicitly requested.
 
 ### Python
 
-- [ ] Expand the pytest plugin with per-system fixtures
-- [ ] Add screenshot-on-failure support
-- [ ] Add richer diagnostics for failed waits/assertions
-- [ ] Add end-to-end examples against a real adapter
+- [x] Expand the pytest plugin with per-system fixtures
+- [x] Add screenshot-on-failure support
+- [x] Add richer diagnostics for failed waits/assertions
+- [x] Add end-to-end examples against a real adapter
 
 ### Rust
 
-- [ ] Add serde support where appropriate
-- [ ] Add more ergonomic condition composition
-- [ ] Add examples against a real adapter
+- [x] Add serde support where appropriate
+- [x] Add more ergonomic condition composition
+- [x] Add examples against a real adapter
 
 ### Cross-Platform
 
 - [ ] Validate the Rust Windows loader on an actual Windows runtime
-- [ ] Add Windows CI coverage for the Rust workspace
+      The Windows dynamic-loader smoke path is now implemented in
+      `automation/rust/emu-automation/tests/ffi_smoke.rs` and wired into the
+      `windows-msvc` GitHub Actions job, but it still needs confirmation from an
+      actual Windows CI run.
+- [x] Add Windows CI coverage for the Rust workspace
+      The existing OS matrix in `.github/workflows/ci.yml` now runs Rust
+      automation workspace `cargo check`/`cargo test` coverage, including the
+      serde-enabled example build, on `windows-latest`.
 
 ## MCP Integration for Coding Agents
 
-- [ ] Add an MCP server crate/package over the existing automation core
-- [ ] Expose machine lifecycle and capability discovery MCP tools
-- [ ] Expose execution control and input injection MCP tools
-- [ ] Expose structured observation tools for framebuffer/text-grid capture
-- [ ] Expose wait-condition MCP tools over the existing synchronization layer
-- [ ] Expose event polling/subscription MCP tools
-- [ ] Expose recording/replay MCP tools
-- [ ] Expose inspection/debug MCP tools with capability gating
-- [ ] Keep responses structured and avoid free-form command expressions
+- [x] Add an MCP server crate/package over the existing automation core
+- [x] Expose machine lifecycle and capability discovery MCP tools
+- [x] Expose execution control and input injection MCP tools
+- [x] Expose structured observation tools for framebuffer/text-grid capture
+- [x] Expose wait-condition MCP tools over the existing synchronization layer
+- [x] Expose event polling/subscription MCP tools
+      The current MCP surface exposes structured event polling and drain tools.
+      It does not yet expose a long-lived streamed subscription tool.
+- [x] Expose recording/replay MCP tools
+- [x] Expose inspection/debug MCP tools with capability gating
+- [x] Keep responses structured and avoid free-form command expressions
 - [ ] Validate the MCP server on Unix and Windows hosts
+      Unix-side implementation and focused tests are in place. Windows-host
+      validation is still pending an actual Windows run.
 
 ## Immediate Next Candidates
 
@@ -181,4 +192,4 @@ UX Follow-Up or post-plan integration work unless explicitly requested.
 - [x] Add core-level callback/subscription API
 - [x] Add machine character-map support for authentic `type_text(...)`
 - [x] Add memory/PC wait conditions
-- [ ] Add coding-agent-facing MCP integration over the automation surface
+- [x] Add coding-agent-facing MCP integration over the automation surface

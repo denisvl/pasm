@@ -8,6 +8,10 @@ build = "build.rs"
 
 [dependencies]
 emu-automation-sys = { path = "../emu-automation-sys" }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde"]
 
 [lib]
 path = "src/lib.rs"

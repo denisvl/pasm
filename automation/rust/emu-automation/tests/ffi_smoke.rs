@@ -1046,7 +1046,7 @@ fn rust_waits_for_media_activity_event() {
     assert_eq!(media.message, "disk activity");
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn rust_library_opens_shared_object_and_creates_machine() {
     let shared = build_mock_shared_library();
@@ -1087,7 +1087,33 @@ fn build_mock_shared_library() -> PathBuf {
     shared
 }
 
-#[cfg(unix)]
+#[cfg(windows)]
+fn build_mock_shared_library() -> PathBuf {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .ancestors()
+        .nth(3)
+        .expect("repo root")
+        .to_path_buf();
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    let shared = out_dir.join("mock_automation_loader.dll");
+    let status = Command::new("cl")
+        .arg("/nologo")
+        .arg("/LD")
+        .arg("/std:c11")
+        .arg("/I")
+        .arg(repo_root.join("automation/include"))
+        .arg(repo_root.join("automation/core/emu_automation.c"))
+        .arg(manifest_dir.join("tests/support/mock_automation.c"))
+        .arg("/link")
+        .arg(format!("/OUT:{}", display_path(&shared)))
+        .status()
+        .expect("invoke cl");
+    assert!(status.success(), "cl failed building {}", display_path(&shared));
+    shared
+}
+
+#[cfg(any(unix, windows))]
 fn display_path(path: &Path) -> String {
     path.display().to_string()
 }
