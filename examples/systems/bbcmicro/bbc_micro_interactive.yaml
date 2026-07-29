@@ -70,6 +70,24 @@ components:
   floppy: bbc_micro_i8271_fdc
 media_picker:
   open_action_id: EMU_MEDIA_PICKER
+automation:
+  screen:
+    text_views:
+    - id: primary_text
+      component: bbc_micro_crtc_6845
+      columns: 40
+      rows: 25
+      row_stride: 40
+      memory:
+        source: system_memory
+        base: 0x7C00
+        address_layout: linear
+      charset: bbc_mode7_saa5050
+      native_encoding: bbc_mode7_code
+      unicode_map: bbc_mode7_text
+      unknown_policy: preserve_native
+      mode_conditions:
+        video_mode: 7
 cassette:
   component: bbc_micro_cassette_adapter
   directory: examples/cassettes/bbcmicro

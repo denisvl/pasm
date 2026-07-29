@@ -63,6 +63,22 @@ components:
   floppy: wd1793_fdc
 media_picker:
   open_action_id: EMU_MEDIA_PICKER
+automation:
+  screen:
+    text_views:
+    - id: primary_text
+      component: trs80_m4ga
+      columns: 80
+      rows: 24
+      row_stride: 80
+      memory:
+        source: system_memory
+        base: 0xF800
+        address_layout: linear
+      charset: trs80_model4_charset
+      native_encoding: trs80_model4_screen_code
+      unicode_map: trs80_model4_text
+      unknown_policy: preserve_native
 cassette:
   component: cassette_transport
   directory: examples/cassettes/trs80_model4

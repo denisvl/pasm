@@ -1966,6 +1966,46 @@ def test_automation_adapter_generator_supports_declared_system_memory_text_grid(
     assert "current_cells = (uint8_t *)calloc(cell_count, sizeof(*current_cells));" in impl
 
 
+def test_automation_adapter_generator_supports_callback_backed_tile_name_table_text_grid():
+    isa = _base_isa("AutoCallbackText8")
+    isa["system"] = {
+        "metadata": {"name": "AutoCallbackTextSystem"},
+        "automation": {
+            "screen": {
+                "text_views": [
+                    {
+                        "id": "primary_text",
+                        "columns": 40,
+                        "rows": 24,
+                        "row_stride": 40,
+                        "memory": {
+                            "source": "callback",
+                            "component": "vdp",
+                            "read_callback": "read_text_cell",
+                            "callback_offset_mode": "cell_index",
+                            "base": 0x0000,
+                            "address_layout": "tile_name_table",
+                            "column_multiplier": 1,
+                        },
+                        "charset": "vdp_charset",
+                        "native_encoding": "screen_code",
+                        "unicode_map": "ascii",
+                    }
+                ]
+            }
+        },
+    }
+    _, impl = generate_automation_adapter(isa, "AutoCallbackText8")
+
+    assert "PASM_AUTOMATION_TEXT_LAYOUT_TILE_NAME_TABLE" in impl
+    assert "PASM_AUTOMATION_TEXT_SOURCE_CALLBACK" in impl
+    assert "PASM_AUTOMATION_TEXT_CALLBACK_OFFSET_CELL_INDEX" in impl
+    assert '"vdp", "read_text_cell", "vdp_charset", "screen_code", "ascii"' in impl
+    assert "cpu_component_dispatch_callback(" in impl
+    assert "view->component_id" in impl
+    assert "view->read_callback" in impl
+
+
 def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_path):
     if shutil.which("cc") is None:
         pytest.skip("cc is not available")
@@ -2007,6 +2047,13 @@ def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_p
             #define AUTOTEXT8_H
             #include <stdint.h>
             typedef struct CPUState { uint8_t memory[65536]; } CPUState;
+            uint64_t cpu_component_dispatch_callback(
+                CPUState *cpu,
+                const char *component_id,
+                const char *callback_name,
+                const uint64_t *args,
+                uint8_t argc
+            );
             #endif
             """
         ),
@@ -2043,9 +2090,29 @@ def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_p
                 uint8_t iff1;
                 uint8_t iff2;
             } PASMDebugSnapshotCore;
-            typedef struct PASMDebugCounts { uint32_t rows[11]; } PASMDebugCounts;
-            typedef struct PASMDebugDisasmRow { uint8_t unused; } PASMDebugDisasmRow;
-            typedef struct PASMDebugRegisterRow { uint8_t unused; } PASMDebugRegisterRow;
+            typedef struct PASMDebugCounts {
+                uint32_t rows[11];
+                uint32_t register_rows;
+            } PASMDebugCounts;
+            typedef struct PASMDebugDisasmRow {
+                uint64_t address;
+                uint8_t bytes[16];
+                char instruction[128];
+                char symbol[64];
+                uint8_t has_symbol;
+                uint8_t is_current_ip;
+                uint8_t has_breakpoint;
+                uint64_t branch_target;
+                uint8_t has_branch_target;
+                uint8_t changed_since_last_step;
+            } PASMDebugDisasmRow;
+            typedef struct PASMDebugRegisterRow {
+                char name[32];
+                char hex_value[32];
+                char dec_value[32];
+                uint8_t has_dec;
+                uint8_t changed;
+            } PASMDebugRegisterRow;
             typedef struct PASMDebugFlagRow { uint8_t unused; } PASMDebugFlagRow;
             typedef struct PASMDebugOperandRow { uint8_t unused; } PASMDebugOperandRow;
             typedef struct PASMDebugStackRow { uint8_t unused; } PASMDebugStackRow;
@@ -2055,6 +2122,17 @@ def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_p
             typedef struct PASMDebugWatchpointRow { uint8_t unused; } PASMDebugWatchpointRow;
             typedef struct PASMDebugThreadRow { uint8_t unused; } PASMDebugThreadRow;
             typedef struct PASMDebugHistoryRow { uint8_t unused; } PASMDebugHistoryRow;
+            typedef struct PASMDebugCharacterMapping {
+                const char *device_id;
+                uint32_t unicode_codepoint;
+                uint32_t native_code;
+                const char *key_id;
+                uint32_t required_modifier_bits;
+                const char *shift_key_id;
+                const char *ctrl_key_id;
+                const char *alt_key_id;
+                const char *meta_key_id;
+            } PASMDebugCharacterMapping;
             CPUState *pasm_dbg_create(size_t memory_size);
             void pasm_dbg_destroy(CPUState *cpu);
             void pasm_dbg_reset(CPUState *cpu);
@@ -2076,6 +2154,16 @@ def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_p
             int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode);
             int pasm_dbg_pause(CPUState *cpu);
             int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
+            int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size);
+            int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
+            int pasm_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value);
+            int pasm_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled);
+            int pasm_dbg_character_mapping_count(CPUState *cpu, size_t *out_count);
+            int pasm_dbg_character_mapping_descriptor(
+                CPUState *cpu,
+                size_t index,
+                PASMDebugCharacterMapping *out_mapping
+            );
             const char *pasm_dbg_system_name(void);
             #endif
             """
@@ -2136,6 +2224,47 @@ def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_p
                 memcpy(out, cpu->memory + address, size);
                 return 0;
             }
+            int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size) {
+                if (address + size > sizeof(cpu->memory)) return -1;
+                memcpy(cpu->memory + address, bytes, size);
+                return 0;
+            }
+            int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {
+                (void)cpu;
+                memset(out_counts, 0, sizeof(*out_counts));
+                return 0;
+            }
+            int pasm_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value) {
+                (void)cpu; (void)register_name; (void)value;
+                return 0;
+            }
+            int pasm_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled) {
+                (void)cpu; (void)address; (void)enabled;
+                return 0;
+            }
+            int pasm_dbg_character_mapping_count(CPUState *cpu, size_t *out_count) {
+                (void)cpu;
+                *out_count = 0u;
+                return 0;
+            }
+            int pasm_dbg_character_mapping_descriptor(
+                CPUState *cpu,
+                size_t index,
+                PASMDebugCharacterMapping *out_mapping
+            ) {
+                (void)cpu; (void)index; (void)out_mapping;
+                return -1;
+            }
+            uint64_t cpu_component_dispatch_callback(
+                CPUState *cpu,
+                const char *component_id,
+                const char *callback_name,
+                const uint64_t *args,
+                uint8_t argc
+            ) {
+                (void)cpu; (void)component_id; (void)callback_name; (void)args; (void)argc;
+                return 0u;
+            }
             const char *pasm_dbg_system_name(void) { return "AutoTextSystem"; }
 
             int main(void) {
@@ -2190,6 +2319,321 @@ def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_p
             str(BASE_DIR / "automation" / "include"),
             str(BASE_DIR / "automation" / "core" / "emu_automation.c"),
             str(tmp_path / "AutoText8_automation_adapter.c"),
+            str(tmp_path / "test_driver.c"),
+            "-o",
+            str(binary),
+        ],
+        check=True,
+    )
+    proc = subprocess.run([str(binary)], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr or proc.stdout or f"exit={proc.returncode}"
+
+
+def test_generated_automation_adapter_captures_text_grid_via_callback(tmp_path):
+    if shutil.which("cc") is None:
+        pytest.skip("cc is not available")
+
+    isa = _base_isa("AutoCbText8")
+    isa["system"] = {
+        "metadata": {"name": "AutoCbTextSystem"},
+        "automation": {
+            "screen": {
+                "text_views": [
+                    {
+                        "id": "primary_text",
+                        "columns": 2,
+                        "rows": 2,
+                        "row_stride": 2,
+                        "memory": {
+                            "source": "callback",
+                            "component": "vdp",
+                            "read_callback": "read_text_cell",
+                            "callback_offset_mode": "cell_index",
+                            "base": 0x2000,
+                            "address_layout": "tile_name_table",
+                            "column_multiplier": 1,
+                        },
+                        "charset": "vdp_charset",
+                        "native_encoding": "screen_code",
+                        "unicode_map": "ascii",
+                    }
+                ]
+            }
+        },
+    }
+    adapter_header, adapter_impl = generate_automation_adapter(isa, "AutoCbText8")
+
+    (tmp_path / "AutoCbText8.h").write_text(
+        textwrap.dedent(
+            """
+            #ifndef AUTOCBTEXT8_H
+            #define AUTOCBTEXT8_H
+            #include <stdint.h>
+            typedef struct CPUState { uint8_t memory[65536]; } CPUState;
+            uint64_t cpu_component_dispatch_callback(
+                CPUState *cpu,
+                const char *component_id,
+                const char *callback_name,
+                const uint64_t *args,
+                uint8_t argc
+            );
+            #endif
+            """
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "AutoCbText8_debug_abi.h").write_text(
+        textwrap.dedent(
+            """
+            #ifndef AUTOCBTEXT8_DEBUG_ABI_H
+            #define AUTOCBTEXT8_DEBUG_ABI_H
+            #include <stddef.h>
+            #include <stdint.h>
+            #include "AutoCbText8.h"
+            #define PASM_DBG_RUNNING 0
+            #define PASM_DBG_PAUSED 1
+            #define PASM_DBG_STEPPING 2
+            #define PASM_DBG_EXITED 3
+            #define PASM_DBG_ERROR 4
+            typedef struct PASMDebugSnapshotCore {
+                char target_name[64];
+                char status_line[256];
+                uint8_t mode;
+                uint8_t architecture;
+                uint64_t system_clock_hz;
+                uint32_t selected_thread_id;
+                uint64_t pc;
+                uint64_t sp;
+                uint64_t total_cycles;
+                uint64_t last_step_cycles;
+                uint64_t tstate_global;
+                uint64_t tstate_frame;
+                uint64_t frame_index;
+                uint8_t interrupt_mode;
+                uint8_t iff1;
+                uint8_t iff2;
+            } PASMDebugSnapshotCore;
+            typedef struct PASMDebugCounts {
+                uint32_t rows[11];
+                uint32_t register_rows;
+            } PASMDebugCounts;
+            typedef struct PASMDebugDisasmRow {
+                uint64_t address;
+                uint8_t bytes[16];
+                char instruction[128];
+                char symbol[64];
+                uint8_t has_symbol;
+                uint8_t is_current_ip;
+                uint8_t has_breakpoint;
+                uint64_t branch_target;
+                uint8_t has_branch_target;
+                uint8_t changed_since_last_step;
+            } PASMDebugDisasmRow;
+            typedef struct PASMDebugRegisterRow {
+                char name[32];
+                char hex_value[32];
+                char dec_value[32];
+                uint8_t has_dec;
+                uint8_t changed;
+            } PASMDebugRegisterRow;
+            typedef struct PASMDebugFlagRow { uint8_t unused; } PASMDebugFlagRow;
+            typedef struct PASMDebugOperandRow { uint8_t unused; } PASMDebugOperandRow;
+            typedef struct PASMDebugStackRow { uint8_t unused; } PASMDebugStackRow;
+            typedef struct PASMDebugMemoryRow { uint8_t unused; } PASMDebugMemoryRow;
+            typedef struct PASMDebugCallFrameRow { uint8_t unused; } PASMDebugCallFrameRow;
+            typedef struct PASMDebugBreakpointRow { uint8_t unused; } PASMDebugBreakpointRow;
+            typedef struct PASMDebugWatchpointRow { uint8_t unused; } PASMDebugWatchpointRow;
+            typedef struct PASMDebugThreadRow { uint8_t unused; } PASMDebugThreadRow;
+            typedef struct PASMDebugHistoryRow { uint8_t unused; } PASMDebugHistoryRow;
+            typedef struct PASMDebugCharacterMapping {
+                const char *device_id;
+                uint32_t unicode_codepoint;
+                uint32_t native_code;
+                const char *key_id;
+                uint32_t required_modifier_bits;
+                const char *shift_key_id;
+                const char *ctrl_key_id;
+                const char *alt_key_id;
+                const char *meta_key_id;
+            } PASMDebugCharacterMapping;
+            CPUState *pasm_dbg_create(size_t memory_size);
+            void pasm_dbg_destroy(CPUState *cpu);
+            void pasm_dbg_reset(CPUState *cpu);
+            int pasm_dbg_snapshot_fill(
+                CPUState *cpu,
+                PASMDebugSnapshotCore *out_core,
+                PASMDebugDisasmRow *disasm_rows, size_t disasm_cap,
+                PASMDebugRegisterRow *reg_rows, size_t reg_cap,
+                PASMDebugFlagRow *flag_rows, size_t flag_cap,
+                PASMDebugOperandRow *operand_rows, size_t operand_cap,
+                PASMDebugStackRow *stack_rows, size_t stack_cap,
+                PASMDebugMemoryRow *mem_rows, size_t mem_cap,
+                PASMDebugCallFrameRow *call_rows, size_t call_cap,
+                PASMDebugBreakpointRow *bp_rows, size_t bp_cap,
+                PASMDebugWatchpointRow *wp_rows, size_t wp_cap,
+                PASMDebugThreadRow *thread_rows, size_t thread_cap,
+                PASMDebugHistoryRow *hist_rows, size_t hist_cap
+            );
+            int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode);
+            int pasm_dbg_pause(CPUState *cpu);
+            int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
+            int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size);
+            int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
+            int pasm_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value);
+            int pasm_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled);
+            int pasm_dbg_character_mapping_count(CPUState *cpu, size_t *out_count);
+            int pasm_dbg_character_mapping_descriptor(
+                CPUState *cpu,
+                size_t index,
+                PASMDebugCharacterMapping *out_mapping
+            );
+            const char *pasm_dbg_system_name(void);
+            #endif
+            """
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "AutoCbText8_automation_adapter.h").write_text(adapter_header, encoding="utf-8")
+    (tmp_path / "AutoCbText8_automation_adapter.c").write_text(adapter_impl, encoding="utf-8")
+    (tmp_path / "test_driver.c").write_text(
+        textwrap.dedent(
+            """
+            #include "AutoCbText8_automation_adapter.h"
+            #include <stdlib.h>
+            #include <string.h>
+
+            CPUState *pasm_dbg_create(size_t memory_size) {
+                (void)memory_size;
+                return (CPUState *)calloc(1u, sizeof(CPUState));
+            }
+            void pasm_dbg_destroy(CPUState *cpu) { free(cpu); }
+            void pasm_dbg_reset(CPUState *cpu) { memset(cpu->memory, 0, sizeof(cpu->memory)); }
+            int pasm_dbg_snapshot_fill(
+                CPUState *cpu,
+                PASMDebugSnapshotCore *out_core,
+                PASMDebugDisasmRow *disasm_rows, size_t disasm_cap,
+                PASMDebugRegisterRow *reg_rows, size_t reg_cap,
+                PASMDebugFlagRow *flag_rows, size_t flag_cap,
+                PASMDebugOperandRow *operand_rows, size_t operand_cap,
+                PASMDebugStackRow *stack_rows, size_t stack_cap,
+                PASMDebugMemoryRow *mem_rows, size_t mem_cap,
+                PASMDebugCallFrameRow *call_rows, size_t call_cap,
+                PASMDebugBreakpointRow *bp_rows, size_t bp_cap,
+                PASMDebugWatchpointRow *wp_rows, size_t wp_cap,
+                PASMDebugThreadRow *thread_rows, size_t thread_cap,
+                PASMDebugHistoryRow *hist_rows, size_t hist_cap
+            ) {
+                (void)cpu; (void)disasm_rows; (void)disasm_cap; (void)reg_rows; (void)reg_cap;
+                (void)flag_rows; (void)flag_cap; (void)operand_rows; (void)operand_cap;
+                (void)stack_rows; (void)stack_cap; (void)mem_rows; (void)mem_cap;
+                (void)call_rows; (void)call_cap; (void)bp_rows; (void)bp_cap;
+                (void)wp_rows; (void)wp_cap; (void)thread_rows; (void)thread_cap;
+                (void)hist_rows; (void)hist_cap;
+                memset(out_core, 0, sizeof(*out_core));
+                out_core->mode = PASM_DBG_PAUSED;
+                out_core->system_clock_hz = 1000000u;
+                out_core->total_cycles = 321u;
+                out_core->frame_index = 9u;
+                return 0;
+            }
+            int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode) {
+                (void)cpu; (void)max_cycles;
+                *out_mode = PASM_DBG_PAUSED;
+                return 0;
+            }
+            int pasm_dbg_pause(CPUState *cpu) { (void)cpu; return 0; }
+            int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size) {
+                if (address + size > sizeof(cpu->memory)) return -1;
+                memcpy(out, cpu->memory + address, size);
+                return 0;
+            }
+            int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size) {
+                if (address + size > sizeof(cpu->memory)) return -1;
+                memcpy(cpu->memory + address, bytes, size);
+                return 0;
+            }
+            int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {
+                (void)cpu;
+                memset(out_counts, 0, sizeof(*out_counts));
+                return 0;
+            }
+            int pasm_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value) {
+                (void)cpu; (void)register_name; (void)value;
+                return 0;
+            }
+            int pasm_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled) {
+                (void)cpu; (void)address; (void)enabled;
+                return 0;
+            }
+            int pasm_dbg_character_mapping_count(CPUState *cpu, size_t *out_count) {
+                (void)cpu;
+                *out_count = 0u;
+                return 0;
+            }
+            int pasm_dbg_character_mapping_descriptor(
+                CPUState *cpu,
+                size_t index,
+                PASMDebugCharacterMapping *out_mapping
+            ) {
+                (void)cpu; (void)index; (void)out_mapping;
+                return -1;
+            }
+            const char *pasm_dbg_system_name(void) { return "AutoCbTextSystem"; }
+
+            uint64_t cpu_component_dispatch_callback(
+                CPUState *cpu,
+                const char *component_id,
+                const char *callback_name,
+                const uint64_t *args,
+                uint8_t argc
+            ) {
+                (void)cpu;
+                if (argc != 1u) return 0u;
+                if (strcmp(component_id, "vdp") != 0) return 0u;
+                if (strcmp(callback_name, "read_text_cell") != 0) return 0u;
+                switch ((unsigned)args[0]) {
+                case 0u: return 'A';
+                case 1u: return 'B';
+                case 2u: return 'C';
+                case 3u: return 'D';
+                default: return '?';
+                }
+            }
+
+            int main(void) {
+                CPUState cpu;
+                emu_automation_machine_t *machine = NULL;
+                emu_automation_text_grid_snapshot_t text;
+                memset(&cpu, 0, sizeof(cpu));
+
+                if (autocbtext8_automation_attach_debug(&cpu, &machine) != EMU_AUTOMATION_OK) return 1;
+                if (emu_automation_screen_text_grid(machine, "primary_text", &text) != EMU_AUTOMATION_OK) return 2;
+                if (text.columns != 2u || text.rows != 2u || text.cell_count != 4u) return 3;
+                if (strcmp(text.plain_utf8, "AB\\nCD") != 0) return 4;
+                if (text.cells[3].source_address != 0x2003u || text.cells[3].unicode_codepoint != 'D') return 5;
+                if (text.frame.frame_number != 9u || text.frame.emulated_cycles != 321u) return 6;
+                emu_automation_text_grid_release(machine, &text);
+                emu_automation_machine_destroy(machine);
+                return 0;
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    binary = tmp_path / "adapter_callback_text_grid_test"
+    subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-I",
+            str(tmp_path),
+            "-I",
+            str(BASE_DIR / "automation" / "include"),
+            str(BASE_DIR / "automation" / "core" / "emu_automation.c"),
+            str(tmp_path / "AutoCbText8_automation_adapter.c"),
             str(tmp_path / "test_driver.c"),
             "-o",
             str(binary),

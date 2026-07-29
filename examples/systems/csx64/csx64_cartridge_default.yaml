@@ -56,4 +56,21 @@ components:
   devices: []
   hosts: []
 
+automation:
+  screen:
+    text_views:
+      - id: primary_text
+        component: c64_vic_ii
+        columns: 40
+        rows: 25
+        row_stride: 40
+        memory:
+          source: system_memory
+          base: 0x0400
+          address_layout: linear
+        charset: c64_char_rom
+        native_encoding: c64_screen_code
+        unicode_map: c64_screen_text
+        unknown_policy: preserve_native
+
 connections: []

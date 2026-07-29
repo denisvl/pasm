@@ -19,10 +19,16 @@ def _automation_text_views(isa_data: Dict[str, Any]) -> list[dict[str, Any]]:
 def _first_supported_text_view(isa_data: Dict[str, Any]) -> dict[str, Any] | None:
     for view in _automation_text_views(isa_data):
         memory = view.get("memory", {}) or {}
-        if str(memory.get("source", "")).strip() != "system_memory":
+        source = str(memory.get("source", "")).strip()
+        if source not in {"system_memory", "component_memory", "callback"}:
             continue
+        if source in {"component_memory", "callback"}:
+            if not str(memory.get("component", "")).strip():
+                continue
+            if not str(memory.get("read_callback", "")).strip():
+                continue
         layout = str(memory.get("address_layout", "linear")).strip()
-        if layout not in {"linear", "bit_interleaved_rows"}:
+        if layout not in {"linear", "bit_interleaved_rows", "tile_name_table"}:
             continue
         return view
     return None
@@ -32,12 +38,34 @@ def _c_text_view_table(text_views: list[dict[str, Any]]) -> tuple[bool, str]:
     rows: list[str] = []
     for view in text_views:
         memory = view.get("memory", {}) or {}
-        if str(memory.get("source", "")).strip() != "system_memory":
+        source = str(memory.get("source", "")).strip()
+        if source not in {"system_memory", "component_memory", "callback"}:
             continue
+        if source in {"component_memory", "callback"}:
+            if not str(memory.get("component", "")).strip():
+                continue
+            if not str(memory.get("read_callback", "")).strip():
+                continue
         layout = str(memory.get("address_layout", "linear")).strip()
-        if layout not in {"linear", "bit_interleaved_rows"}:
+        if layout not in {"linear", "bit_interleaved_rows", "tile_name_table"}:
             continue
-        layout_id = "PASM_AUTOMATION_TEXT_LAYOUT_BIT_INTERLEAVED_ROWS" if layout == "bit_interleaved_rows" else "PASM_AUTOMATION_TEXT_LAYOUT_LINEAR"
+        if layout == "bit_interleaved_rows":
+            layout_id = "PASM_AUTOMATION_TEXT_LAYOUT_BIT_INTERLEAVED_ROWS"
+        elif layout == "tile_name_table":
+            layout_id = "PASM_AUTOMATION_TEXT_LAYOUT_TILE_NAME_TABLE"
+        else:
+            layout_id = "PASM_AUTOMATION_TEXT_LAYOUT_LINEAR"
+        if source == "component_memory":
+            source_id = "PASM_AUTOMATION_TEXT_SOURCE_COMPONENT_MEMORY"
+        elif source == "callback":
+            source_id = "PASM_AUTOMATION_TEXT_SOURCE_CALLBACK"
+        else:
+            source_id = "PASM_AUTOMATION_TEXT_SOURCE_SYSTEM_MEMORY"
+        callback_offset_mode = str(memory.get("callback_offset_mode", "address")).strip()
+        if callback_offset_mode == "cell_index":
+            callback_offset_mode_id = "PASM_AUTOMATION_TEXT_CALLBACK_OFFSET_CELL_INDEX"
+        else:
+            callback_offset_mode_id = "PASM_AUTOMATION_TEXT_CALLBACK_OFFSET_ADDRESS"
         row_stride = int(view.get("row_stride", view.get("columns", 1)))
         column_multiplier = int(memory.get("column_multiplier", 1))
         rows.append(
@@ -48,12 +76,16 @@ def _c_text_view_table(text_views: list[dict[str, Any]]) -> tuple[bool, str]:
             f"(uint32_t){row_stride}u, "
             f"(uint64_t){int(memory.get('base', 0))}ull, "
             f"(uint64_t){int(memory.get('alternate_base', memory.get('base', 0)))}ull, "
+            f"{source_id}, "
             f"{layout_id}, "
             f"(uint32_t){int(memory.get('row_low_mask', 0))}u, "
             f"(uint32_t){int(memory.get('row_low_shift', 0))}u, "
             f"(uint32_t){int(memory.get('row_high_shift', 0))}u, "
             f"(uint32_t){int(memory.get('row_high_multiplier', 0))}u, "
             f"(uint32_t){column_multiplier}u, "
+            f"{callback_offset_mode_id}, "
+            f"\"{_escape_c_string(memory.get('component', ''))}\", "
+            f"\"{_escape_c_string(memory.get('read_callback', ''))}\", "
             f"\"{_escape_c_string(view.get('charset', ''))}\", "
             f"\"{_escape_c_string(view.get('native_encoding', ''))}\", "
             f"\"{_escape_c_string(view.get('unicode_map', ''))}\" "
@@ -655,8 +687,20 @@ def _generate_text_grid_impl(cpu_name: str, cpu_prefix: str, text_view_rows: str
     return f"""
 typedef enum {cpu_name}AutomationTextLayout {{
     PASM_AUTOMATION_TEXT_LAYOUT_LINEAR = 0,
-    PASM_AUTOMATION_TEXT_LAYOUT_BIT_INTERLEAVED_ROWS = 1
+    PASM_AUTOMATION_TEXT_LAYOUT_BIT_INTERLEAVED_ROWS = 1,
+    PASM_AUTOMATION_TEXT_LAYOUT_TILE_NAME_TABLE = 2
 }} {cpu_name}AutomationTextLayout;
+
+typedef enum {cpu_name}AutomationTextSource {{
+    PASM_AUTOMATION_TEXT_SOURCE_SYSTEM_MEMORY = 0,
+    PASM_AUTOMATION_TEXT_SOURCE_COMPONENT_MEMORY = 1,
+    PASM_AUTOMATION_TEXT_SOURCE_CALLBACK = 2
+}} {cpu_name}AutomationTextSource;
+
+typedef enum {cpu_name}AutomationTextCallbackOffsetMode {{
+    PASM_AUTOMATION_TEXT_CALLBACK_OFFSET_ADDRESS = 0,
+    PASM_AUTOMATION_TEXT_CALLBACK_OFFSET_CELL_INDEX = 1
+}} {cpu_name}AutomationTextCallbackOffsetMode;
 
 typedef struct {cpu_name}AutomationTextView {{
     const char *id;
@@ -665,12 +709,16 @@ typedef struct {cpu_name}AutomationTextView {{
     uint32_t row_stride;
     uint64_t base;
     uint64_t alternate_base;
+    {cpu_name}AutomationTextSource source;
     {cpu_name}AutomationTextLayout layout;
     uint32_t row_low_mask;
     uint32_t row_low_shift;
     uint32_t row_high_shift;
     uint32_t row_high_multiplier;
     uint32_t column_multiplier;
+    {cpu_name}AutomationTextCallbackOffsetMode callback_offset_mode;
+    const char *component_id;
+    const char *read_callback;
     const char *charset_id;
     const char *native_encoding;
     const char *unicode_map;
@@ -714,8 +762,62 @@ static uint64_t {cpu_prefix}_automation_text_address(
             ((uint64_t)(row >> view->row_high_shift) * (uint64_t)view->row_high_multiplier) +
             ((uint64_t)column * (uint64_t)column_multiplier);
     }}
+    if (view->layout == PASM_AUTOMATION_TEXT_LAYOUT_TILE_NAME_TABLE) {{
+        return view->base + ((uint64_t)row * (uint64_t)view->row_stride) +
+            ((uint64_t)column * (uint64_t)column_multiplier);
+    }}
     return view->base + ((uint64_t)row * (uint64_t)view->row_stride) +
         ((uint64_t)column * (uint64_t)column_multiplier);
+}}
+
+static uint64_t {cpu_prefix}_automation_text_callback_arg(
+    const {cpu_name}AutomationTextView *view,
+    uint32_t row,
+    uint32_t column,
+    uint64_t address)
+{{
+    uint32_t column_multiplier = (view->column_multiplier == 0u) ? 1u : view->column_multiplier;
+    if (view->callback_offset_mode == PASM_AUTOMATION_TEXT_CALLBACK_OFFSET_CELL_INDEX) {{
+        return ((uint64_t)row * (uint64_t)view->row_stride) +
+            ((uint64_t)column * (uint64_t)column_multiplier);
+    }}
+    return address;
+}}
+
+static emu_automation_result_t {cpu_prefix}_automation_read_text_native_code(
+    {cpu_name}AutomationDebugContext *ctx,
+    const {cpu_name}AutomationTextView *view,
+    uint64_t read_arg,
+    uint8_t *out_native_code)
+{{
+    if (ctx == NULL || ctx->cpu == NULL || view == NULL || out_native_code == NULL) {{
+        return EMU_AUTOMATION_INVALID_ARGUMENT;
+    }}
+    if (view->source == PASM_AUTOMATION_TEXT_SOURCE_SYSTEM_MEMORY) {{
+        if (pasm_dbg_read_memory(ctx->cpu, read_arg, out_native_code, 1u) != 0) {{
+            return EMU_AUTOMATION_ADAPTER_ERROR;
+        }}
+        return EMU_AUTOMATION_OK;
+    }}
+    if (
+        (view->source == PASM_AUTOMATION_TEXT_SOURCE_COMPONENT_MEMORY ||
+         view->source == PASM_AUTOMATION_TEXT_SOURCE_CALLBACK) &&
+        view->component_id != NULL && view->component_id[0] != '\\0' &&
+        view->read_callback != NULL && view->read_callback[0] != '\\0'
+    ) {{
+        uint64_t args[1] = {{ read_arg }};
+        *out_native_code = (uint8_t)(
+            cpu_component_dispatch_callback(
+                ctx->cpu,
+                view->component_id,
+                view->read_callback,
+                args,
+                1u
+            ) & 0xFFu
+        );
+        return EMU_AUTOMATION_OK;
+    }}
+    return EMU_AUTOMATION_UNSUPPORTED;
 }}
 
 static uint32_t {cpu_prefix}_automation_apple2_codepoint(uint8_t native_code)
@@ -824,9 +926,10 @@ static emu_automation_result_t {cpu_prefix}_automation_capture_text_grid(
         for (uint32_t col = 0u; col < view->columns; ++col) {{
             size_t index = ((size_t)row * (size_t)view->columns) + (size_t)col;
             uint64_t address = {cpu_prefix}_automation_text_address(view, row, col);
+            uint64_t read_arg = {cpu_prefix}_automation_text_callback_arg(view, row, col, address);
             uint8_t native_code = 0u;
             uint32_t codepoint;
-            if (pasm_dbg_read_memory(ctx->cpu, address, &native_code, 1u) != 0) {{
+            if ({cpu_prefix}_automation_read_text_native_code(ctx, view, read_arg, &native_code) != EMU_AUTOMATION_OK) {{
                 free(owned->cells);
                 free(owned->plain);
                 free(owned);

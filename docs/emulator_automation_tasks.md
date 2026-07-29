@@ -186,6 +186,50 @@ UX Follow-Up or post-plan integration work unless explicitly requested.
       Unix-side implementation and focused tests are in place. Windows-host
       validation is still pending an actual Windows run.
 
+## Agnostic Text-Grid Source Model
+
+- [x] Extend text-grid metadata with generic source kinds beyond fixed system RAM
+      Add schema/runtime support for declarative `component_memory` and
+      callback-backed cell sources so nontrivial video systems do not require
+      machine-named backend logic.
+- [x] Extend text-grid metadata with generic layout kinds beyond linear pages
+      Add declarative support for layouts such as `tile_name_table` and other
+      generic row/column addressing forms without free-form expressions.
+- [x] Support callback-backed text-cell capture in the generated automation adapter
+- [x] Add focused schema/codegen tests for the agnostic text-grid model
+- [x] Migrate TMS9918A systems onto the generic text-grid model
+      MSX1, MSX1 Expanded, SG-1000, and SG-1000 II now use callback-backed
+      declarative text-grid capture with `tile_name_table` layout, backed by
+      focused parser/codegen coverage.
+- [x] Migrate Atari 8-bit ANTIC text systems onto the generic text-grid model
+      Atari 65XE, 800XE, 800XL, and XEGS now use declarative callback-backed
+      text-grid metadata. The shared ANTIC component resolves live text cells
+      from the current display-list-driven screen state without backend
+      machine-name branching.
+- [x] Migrate Amstrad CPC text systems onto the generic text-grid model
+      CPC 464 now uses declarative callback-backed text-grid metadata over the
+      existing gate-array/CRTC state, without adding CPC-specific logic to the
+      generic automation backend.
+- [x] Migrate TDP-100 text systems onto the generic text-grid model
+      TDP-100 now declares the existing CoCo-compatible system-memory text-grid
+      view through the generic metadata path.
+- [x] Audit remaining systems for required text-grid metadata
+      The remaining example systems without `automation.screen.text_views` are
+      now considered intentionally out of scope for the current declarative
+      text-grid model:
+      - Graphics-only / sprite-tile console paths: Atari 2600, NES/Famicom,
+        SMS/SMS2/SM3
+      - Bitmap-text or framebuffer-text paths without a stable native text-cell
+        source in the current machine model: ZX Spectrum 48K family
+      - Peripheral-only or non-screen systems: C1541
+      - CPU/core harnesses and minimal execution examples without user display
+        surfaces: MC6809, MOS6502, MOS6509, MOS6510, Z80, `simple8`,
+        `simple_cpu`, `minimal8`
+      - Tooling-only example: `keymapper_tool`
+      Future work for bitmap-text systems should be tracked separately from the
+      current text-grid source model, likely as framebuffer inspection or OCR,
+      not as declarative text-cell capture.
+
 ## Immediate Next Candidates
 
 - [x] Thread event polling through one real adapter path

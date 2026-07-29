@@ -791,8 +791,22 @@
                         "type": "string",
                         "enum": [
                           "system_memory",
+                          "component_memory",
                           "component_state",
                           "callback"
+                        ]
+                      },
+                      "component": {
+                        "type": "string"
+                      },
+                      "read_callback": {
+                        "type": "string"
+                      },
+                      "callback_offset_mode": {
+                        "type": "string",
+                        "enum": [
+                          "address",
+                          "cell_index"
                         ]
                       },
                       "base": {
@@ -808,6 +822,7 @@
                         "enum": [
                           "linear",
                           "bit_interleaved_rows",
+                          "tile_name_table",
                           "interleaved",
                           "custom"
                         ]
