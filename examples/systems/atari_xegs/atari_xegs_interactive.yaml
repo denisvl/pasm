@@ -1,0 +1,114 @@
+metadata:
+  name: AtariXEGSInteractiveSystem
+  title: PASM Atari XE Game System (Interactive)
+  version: '0.1'
+clock_hz: 1789773
+reset_delay_seconds: 0
+memory:
+  default_size: 65536
+  regions:
+  - name: RAM_LOW
+    start: 0
+    size: 40960
+    read_write: true
+  - name: ROM_BANK
+    start: 40960
+    size: 8192
+    read_only: true
+  - name: RAM_B000
+    start: 45056
+    size: 4096
+    read_write: true
+  - name: ROM_OS_LOW
+    start: 49152
+    size: 4096
+    read_only: true
+  - name: IO_PAGE
+    start: 53248
+    size: 2048
+    read_write: true
+  - name: ROM_OS_HIGH
+    start: 55296
+    size: 10240
+    read_only: true
+  rom_images:
+  - name: atari_xegs_basic
+    file: ../../roms/atari_xegs/c101687.rom
+    target_region: ROM_BANK
+    offset: 0
+    file_offset: 8192
+    load_size: 8192
+  - name: atari_xegs_os_low
+    file: ../../roms/atari_xegs/c101687.rom
+    target_region: ROM_OS_LOW
+    offset: 0
+    file_offset: 16384
+    load_size: 4096
+  - name: atari_xegs_os_high
+    file: ../../roms/atari_xegs/c101687.rom
+    target_region: ROM_OS_HIGH
+    offset: 0
+    file_offset: 22528
+    load_size: 10240
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+components:
+  ics:
+  - atari800xl_antic
+  - atari800xl_gtia
+  - atari800xl_pokey
+  - atari800xl_pia_6520
+  - atari800xl_mmu
+  - atari800xl_main_ram
+  devices:
+  - keyboard_atari800xl
+  - controller_atari800xl
+  - video_atari800xl
+  - speaker
+  - tv
+  hosts:
+  - host_atari800xl
+connections: []
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+integrations:
+  profile: atari_xegs_interactive
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+integrations:
+  profile: atari_xegs_interactive
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo

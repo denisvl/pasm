@@ -38,6 +38,10 @@ set "DEVICE_KB=examples/devices/cpc464/cpc_keyboard.yaml"
 set "DEVICE_GP=examples/devices/cpc464/cpc_gameport.yaml"
 set "DEVICE_VIDEO=examples/devices/cpc464/cpc_video.yaml"
 set "DEVICE_SPK=examples/devices/cpc464/cpc_speaker.yaml"
+set "DEVICE_FLOPPY_STUB=examples/devices/cpc464/cpc_floppy_stub.yaml"
+set "DEVICE_DSK_BACKEND=examples/devices/common/cpc_dsk_image_backend.yaml"
+set "DEVICE_CASSETTE=examples/devices/common/cassette_transport.yaml"
+set "DEVICE_MONITOR=examples/devices/common/monitor_crt_color.yaml"
 set "SYSTEM_DIR=examples/systems/cpc464"
 
 if /I "%PROFILE%"=="default" (
@@ -129,6 +133,10 @@ uv run python -m src.main generate ^
   --device "%DEVICE_GP%" ^
   --device "%DEVICE_VIDEO%" ^
   --device "%DEVICE_SPK%" ^
+  --device "%DEVICE_FLOPPY_STUB%" ^
+  --device "%DEVICE_DSK_BACKEND%" ^
+  --device "%DEVICE_CASSETTE%" ^
+  --device "%DEVICE_MONITOR%" ^
   --host "%HOST%" ^
   --host-backend "%HOST_BACKEND%" ^
   --output "%OUTPUT_DIR%"

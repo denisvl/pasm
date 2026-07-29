@@ -1,0 +1,87 @@
+metadata:
+  name: AtariXEGSCartridgeInteractiveSystem
+  title: PASM Atari XE Game System (Cartridge Interactive)
+  version: '0.1'
+clock_hz: 1789773
+reset_delay_seconds: 0
+memory:
+  default_size: 65536
+  regions:
+  - name: RAM_LOW
+    start: 0
+    size: 40960
+    read_write: true
+  - name: ROM_BASIC
+    start: 40960
+    size: 8192
+    read_write: true
+  - name: RAM_B000
+    start: 45056
+    size: 4096
+    read_write: true
+  - name: ROM_SELFTEST
+    start: 20480
+    size: 2048
+    read_only: true
+  - name: ROM_OS_LOW
+    start: 49152
+    size: 4096
+    read_only: true
+  - name: IO_PAGE
+    start: 53248
+    size: 2048
+    read_write: true
+  - name: ROM_OS_HIGH
+    start: 55296
+    size: 10240
+    read_only: true
+  rom_images:
+  - name: atari_xegs_os_low
+    file: ../../roms/atari800xl/ATARIXL_C000.ROM
+    target_region: ROM_OS_LOW
+    offset: 0
+  - name: atari_xegs_os_high
+    file: ../../roms/atari800xl/ATARIXL_D800.ROM
+    target_region: ROM_OS_HIGH
+    offset: 0
+  - name: atari_xegs_selftest
+    file: ../../roms/atari800xl/ATARIXL_SELFTEST.ROM
+    target_region: ROM_SELFTEST
+    offset: 0
+  - name: atari_xegs_basic
+    file: ../../roms/atari_xegs/AtariBasic.rom
+    target_region: ROM_BASIC
+    offset: 0
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+components:
+  ics:
+  - atari800xl_antic
+  - atari800xl_gtia
+  - atari800xl_pokey
+  - atari800xl_pia_6520
+  - atari800xl_mmu
+  - atari800xl_main_ram
+  devices:
+  - keyboard_atari800xl
+  - controller_atari800xl
+  - video_atari800xl
+  - speaker
+  - tv
+  hosts:
+  - host_atari800xl
+  cartridge: atari_cart0
+connections: []

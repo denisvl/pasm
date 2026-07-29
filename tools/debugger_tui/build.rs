@@ -53,6 +53,89 @@ fn extract_json_string(text: &str, key: &str) -> Option<String> {
     None
 }
 
+/// A single subsystem entry from `debugger_link.json`.
+struct SubsystemEntry {
+    cmake_subdir: String,
+    system_target: String,
+    cpu_core_target: String,
+}
+
+/// Extract the `subsystems` array from the manifest, returning the fields
+/// needed to locate and link each subsystem's static libraries.
+fn extract_subsystems(text: &str) -> Vec<SubsystemEntry> {
+    let needle = "\"subsystems\"";
+    let Some(start) = text.find(needle) else {
+        return Vec::new();
+    };
+
+    let rest = &text[start + needle.len()..];
+    let Some(colon) = rest.find(':') else {
+        return Vec::new();
+    };
+    let rest = &rest[colon + 1..];
+    let Some(open) = rest.find('[') else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut object_start = None;
+
+    for (i, ch) in rest[open..].char_indices() {
+        match ch {
+            '{' => {
+                if depth == 0 {
+                    object_start = Some(i);
+                }
+                depth += 1;
+            }
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(start_idx) = object_start {
+                        let object = &rest[open + start_idx..=open + i];
+                        let cmake_subdir =
+                            extract_json_string(object, "cmake_subdir").unwrap_or_default();
+                        let system_target =
+                            extract_json_string(object, "system_target").unwrap_or_default();
+                        let cpu_core_target =
+                            extract_json_string(object, "cpu_core_target").unwrap_or_default();
+
+                        if !system_target.is_empty() {
+                            out.push(SubsystemEntry {
+                                cmake_subdir,
+                                system_target,
+                                cpu_core_target,
+                            });
+                        }
+                    }
+                    object_start = None;
+                }
+            }
+            ']' if depth == 0 => break,
+            _ => {}
+        }
+    }
+
+    out
+}
+
+/// Construct the platform-appropriate static library file name from a CMake
+/// target name (e.g. `c64_1541_subsystem_mos6502_cpu_core` →
+/// `c64_1541_subsystem_mos6502_cpu_core.lib` on MSVC or
+/// `libc64_1541_subsystem_mos6502_cpu_core.a` on Unix).
+fn target_library_filename(target: &str) -> String {
+    #[cfg(target_env = "msvc")]
+    {
+        format!("{target}.lib")
+    }
+
+    #[cfg(not(target_env = "msvc"))]
+    {
+        format!("lib{target}.a")
+    }
+}
+
 fn extract_json_array_strings(text: &str, key: &str) -> Vec<String> {
     let needle = format!("\"{key}\"");
     let Some(start) = text.find(&needle) else {
@@ -290,6 +373,96 @@ fn emit_required_split_libraries(search_dirs: &[PathBuf], manifest_text: &str) {
         "cargo:warning=PASM linked emulator CPU library: {}",
         cpu_path.display()
     );
+
+    /*
+     * Link subsystem libraries (e.g. the C64's 1541 floppy drive subsystem
+     * with its own MOS6502 CPU). The main system library references symbols
+     * from these subsystem libraries, so they must be linked as well.
+     */
+    let subsystems = extract_subsystems(manifest_text);
+    for sub in &subsystems {
+        let sub_system_file = target_library_filename(&sub.system_target);
+        let sub_cpu_file = target_library_filename(&sub.cpu_core_target);
+
+        /*
+         * Subsystem libraries live under a subdirectory of the build tree
+         * (e.g. build/subsystems/c64_1541_subsystem/Release on Visual
+         * Studio). Build a set of search directories that includes the
+         * subsystem's build subdirectory.
+         */
+        let mut sub_search_dirs = Vec::new();
+        if !sub.cmake_subdir.is_empty() {
+            for dir in search_dirs {
+                /*
+                 * search_dirs entries are typically build/Release or build.
+                 * Strip the trailing Release/Debug config to get the build
+                 * root, then append the cmake_subdir and re-add configs.
+                 */
+                let parent = dir.parent().unwrap_or(dir);
+                add_build_dirs(&mut sub_search_dirs, &parent.join(&sub.cmake_subdir));
+            }
+        }
+        /*
+         * Fall back to the top-level search dirs as well.
+         */
+        for dir in search_dirs {
+            push_unique_existing(&mut sub_search_dirs, dir.to_path_buf());
+        }
+
+        let sub_system_path = find_library(&sub_search_dirs, &sub_system_file)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Unable to find subsystem system library `{sub_system_file}` for subsystem `{}`.\nSearch directories:\n{}",
+                    sub.system_target,
+                    format_search_dirs(&sub_search_dirs)
+                )
+            });
+
+        let sub_cpu_path = find_library(&sub_search_dirs, &sub_cpu_file)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Unable to find subsystem CPU core library `{sub_cpu_file}` for subsystem `{}`.\nSearch directories:\n{}",
+                    sub.cpu_core_target,
+                    format_search_dirs(&sub_search_dirs)
+                )
+            });
+
+        let sub_system_dir = sub_system_path
+            .parent()
+            .expect("subsystem system library path has no parent");
+        let sub_cpu_dir = sub_cpu_path
+            .parent()
+            .expect("subsystem CPU library path has no parent");
+
+        println!("cargo:rustc-link-search=native={}", sub_system_dir.display());
+        if sub_cpu_dir != sub_system_dir {
+            println!("cargo:rustc-link-search=native={}", sub_cpu_dir.display());
+        }
+
+        let sub_system_name = static_library_name(&sub_system_file)
+            .unwrap_or_else(|| panic!("Unsupported subsystem static library filename: {sub_system_file}"));
+        let sub_cpu_name = static_library_name(&sub_cpu_file)
+            .unwrap_or_else(|| panic!("Unsupported subsystem static library filename: {sub_cpu_file}"));
+
+        /*
+         * Link subsystem system before its CPU core (same dependency order
+         * as the main system).
+         */
+        println!("cargo:rustc-link-lib=static={sub_system_name}");
+        println!("cargo:rustc-link-lib=static={sub_cpu_name}");
+
+        println!("cargo:rerun-if-changed={}", sub_system_path.display());
+        println!("cargo:rerun-if-changed={}", sub_cpu_path.display());
+
+        println!(
+            "cargo:warning=PASM linked subsystem system library: {}",
+            sub_system_path.display()
+        );
+        println!(
+            "cargo:warning=PASM linked subsystem CPU library: {}",
+            sub_cpu_path.display()
+        );
+    }
 }
 
 fn format_search_dirs(search_dirs: &[PathBuf]) -> String {

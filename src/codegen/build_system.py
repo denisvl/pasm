@@ -295,7 +295,7 @@ find_package(Threads REQUIRED)
                 has_explicit_sdl2_link = True
             if "glfw" in path_str.lower():
                 has_explicit_glfw_link = True
-            cmake_lib_entries.append(f'"{_cmake_path(path_str)}"')
+            cmake_lib_entries.append(f'"{_cmake_path(path_str)}"')   
     if uses_sdl2_backend and not has_explicit_sdl2_link:
         cmake_lib_entries.append("${PASM_SDL2_LINK_TARGET}")
     if uses_glfw_backend and not has_explicit_glfw_link:
@@ -316,8 +316,7 @@ find_package(Threads REQUIRED)
             + f"target_link_libraries({project_name}_test PRIVATE\n"
             + "\n".join(f"    {entry}" for entry in cmake_lib_entries)
             + "\n)\n"
-        )
-
+        )    
     subsystem_add_subdirs = ""
     subsystem_system_link_block = ""
     subsystem_test_link_block = ""

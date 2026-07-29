@@ -10,4 +10,4 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 USE_CARTRIDGE=1 \
 BOOT_CARTRIDGE=0 \
 PASM_EMU_CART_PICKER_RAW_KEYS=1 \
-"${SCRIPT_DIR}/run_msx_debugger.sh" interactive "$@"
+"${SCRIPT_DIR}/run_msx1_debugger.sh" interactive "$@"

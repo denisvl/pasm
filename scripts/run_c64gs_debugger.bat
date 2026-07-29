@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 set "PROFILE=%~1"
 if not defined PROFILE set "PROFILE=interactive"
@@ -12,11 +12,11 @@ if not defined RUN_SPEED set "RUN_SPEED=realtime"
 if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/c64/host_keyboard_c64.yaml"
 if not defined CONTROLLER_MAP set "CONTROLLER_MAP=examples/hosts/c64/host_controller_c64.yaml"
 if not defined CARTRIDGE_MAP set "CARTRIDGE_MAP=examples/cartridges/c64/c64_cart_auto.yaml"
-if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN=../../roms/c64c/basic.901226-01.bin"
-if not defined CARTRIDGE_ROM_RUNTIME set "CARTRIDGE_ROM_RUNTIME="
+if not defined CARTRIDGE_ROM_GEN set "CARTRIDGE_ROM_GEN=../../roms/c64c/64c.251913-01.bin"
+if not defined CARTRIDGE_ROM_RUNTIME set "CARTRIDGE_ROM_RUNTIME=%REPO_ROOT%\examples\roms\c64c\64c.251913-01.bin"
 if not defined CARTRIDGE_DIR set "CARTRIDGE_DIR="
 if not defined BOOT_CARTRIDGE set "BOOT_CARTRIDGE=0"
-if not defined USE_CARTRIDGE_SYSTEM set "USE_CARTRIDGE_SYSTEM=0"
+if not defined USE_CARTRIDGE_SYSTEM set "USE_CARTRIDGE_SYSTEM=1"
 if not defined PASM_EMU_CART_PICKER_RAW_KEYS set "PASM_EMU_CART_PICKER_RAW_KEYS=1"
 if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 
@@ -24,9 +24,18 @@ set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
 cd /d "%REPO_ROOT%"
 if errorlevel 1 exit /b %errorlevel%
+
 if not defined UV_CACHE_DIR set "UV_CACHE_DIR=%REPO_ROOT%\.uv-cache"
 if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%" >nul 2>&1
 if not defined CARTRIDGE_DIR set "CARTRIDGE_DIR=%REPO_ROOT%\examples\roms\c64c"
+
+rem if not defined EXTRA_CMAKE_ARGS set "EXTRA_CMAKE_ARGS="
+rem if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
+rem if not defined PASM_SDL_DEBUG set "PASM_SDL_DEBUG=0"
+rem if not defined PASM_SDL_LOGFILE set "PASM_SDL_LOGFILE=%TEMP%\c64gs_sdl.log"
+rem if not defined PASM_SDL_AUDIO set "PASM_SDL_AUDIO=1"
+rem if not defined PASM_HOST_AUDIO set "PASM_HOST_AUDIO=%PASM_SDL_AUDIO%"
+
 
 set "PROCESSOR=examples/processors/mos6510.yaml"
 set "IC_PLA=examples/ics/c64/c64_pla_8580.yaml"
@@ -34,25 +43,33 @@ set "IC_VIC=examples/ics/c64/c64_vic_ii_8565.yaml"
 set "IC_SID=examples/ics/c64/c64_sid_8580.yaml"
 set "IC_CIA1=examples/ics/c64/c64_cia1_6526.yaml"
 set "IC_CIA2=examples/ics/c64/c64_cia2_6526.yaml"
-set "IC_COLOR_RAM=examples/ics/c64/c64_color_ram_2114.yaml"
 set "IC_MAIN_RAM=examples/ics/c64/c64_main_ram.yaml"
+set "IC_COLOR_RAM=examples/ics/c64/c64_color_ram_2114.yaml"
 set "DEVICE_KB=examples/devices/c64/c64_keyboard.yaml"
 set "DEVICE_JOY=examples/devices/c64/c64_joystick.yaml"
 set "DEVICE_VIDEO=examples/devices/c64/c64_video.yaml"
-set "DEVICE_DATASETTE=examples/devices/c64/c64_datasette.yaml"
 set "DEVICE_TV=examples/devices/common/tv_crt_mono.yaml"
+set "DEVICE_SPK=examples/devices/c64/c64_speaker.yaml"
 set "HOST_INTERACTIVE=examples/hosts/c64/c64_host_hal_interactive.yaml"
 
 if /I "%PROFILE%"=="default" (
-  set "SYSTEM=examples/systems/c64c/c64c_cartridge_default.yaml"
-  set "DEFAULT_OUTPUT=generated/c64c"
+  set "SYSTEM=examples/systems/c64gs/c64gs_default.yaml"
+  set "DEFAULT_OUTPUT=generated/c64gs"
 ) else if /I "%PROFILE%"=="interactive" (
-  set "SYSTEM=examples/systems/c64c/c64c_cartridge_interactive.yaml"
-  set "DEFAULT_OUTPUT=generated/c64c_interactive"
+  set "SYSTEM=examples/systems/c64gs/c64gs_interactive.yaml"
+  set "DEFAULT_OUTPUT=generated/c64gs_interactive"
 ) else (
   >&2 echo Unsupported profile: %PROFILE%
   >&2 echo Use: default ^| interactive
   exit /b 2
+)
+
+if not "%USE_CARTRIDGE_SYSTEM%"=="0" (
+  if /I "%PROFILE%"=="default" (
+    set "SYSTEM=examples/systems/c64gs/c64gs_cartridge_default.yaml"
+  ) else if /I "%PROFILE%"=="interactive" (
+    set "SYSTEM=examples/systems/c64gs/c64gs_cartridge_interactive.yaml"
+  )
 )
 
 for %%I in ("%SYSTEM%") do set "SYSTEM_DIR=%%~dpI"
@@ -90,8 +107,8 @@ uv run python -m src.main generate ^
   --device "%DEVICE_KB%" ^
   --device "%DEVICE_JOY%" ^
   --device "%DEVICE_VIDEO%" ^
-  --device "%DEVICE_DATASETTE%" ^
   --device "%DEVICE_TV%" ^
+  --device "%DEVICE_SPK%" ^
   --host "%HOST_INTERACTIVE%" ^
   --host-backend "%HOST_BACKEND%" ^
   --cartridge-map "%CARTRIDGE_MAP%" ^
@@ -130,8 +147,8 @@ cargo run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --fea
   --system-dir "%SYSTEM_DIR%" ^
   --start-pc "%START_PC%" ^
   --run-speed "%RUN_SPEED%" ^
-  --cartridge-dir "%CARTRIDGE_DIR%" ^
-  --cart-rom "%ROM_RUNTIME%"
+  --cartridge-dir "%CARTRIDGE_DIR%" ^        
+  --cart-rom "%ROM_RUNTIME%"      
 goto :run_done
 
 :run_default_no_boot
@@ -168,3 +185,8 @@ cargo run %EXTRA_CARGO_ARGS% --manifest-path tools/debugger_tui/Cargo.toml --fea
   --keyboard-map "%KEYBOARD_MAP%" ^
   --controller-map "%CONTROLLER_MAP%" ^
   --cartridge-dir "%CARTRIDGE_DIR%"
+
+:run_done
+  if errorlevel 1 exit /b %errorlevel%
+exit /b 0
+

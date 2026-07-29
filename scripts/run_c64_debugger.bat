@@ -40,6 +40,12 @@ set "DEVICE_KB=examples/devices/c64/c64_keyboard.yaml"
 set "DEVICE_JOY=examples/devices/c64/c64_joystick.yaml"
 set "DEVICE_VIDEO=examples/devices/c64/c64_video.yaml"
 set "DEVICE_DATASETTE=examples/devices/c64/c64_datasette.yaml"
+set "DEVICE_IEC_BUS=examples/devices/c64/c64_iec_bus.yaml"
+set "DEVICE_1541=examples/devices/c64/c64_1541.yaml"
+set "DEVICE_1541_MEDIA=examples/devices/c64/c64_1541_media.yaml"
+set "DEVICE_1541_DOS=examples/devices/c64/c64_1541_dos.yaml"
+set "DEVICE_1541_CORE=examples/devices/c64/c64_1541_core.yaml"
+set "DEVICE_D64_BACKEND=examples/devices/common/c64_d64_image_backend.yaml"
 set "DEVICE_TV=examples/devices/common/tv_crt_mono.yaml"
 set "HOST_INTERACTIVE=examples/hosts/c64/c64_host_hal_interactive.yaml"
 
@@ -77,34 +83,76 @@ for %%I in ("%CMAKE_CONFIG_BUILD_DIR%") do set "CMAKE_CONFIG_BUILD_DIR_ABS=%%~fI
 
 echo [1/3] Generating emulator -^> %OUTPUT_DIR%
 if /I "%PROFILE%"=="interactive" goto :gen_interactive
-uv run python -m src.main generate ^
-  --processor "%PROCESSOR%" ^
-  --system "%SYSTEM%" ^
-  --output "%OUTPUT_DIR%"
+if "%USE_CARTRIDGE_SYSTEM%"=="0" (
+  uv run python -m src.main generate ^
+    --processor "%PROCESSOR%" ^
+    --system "%SYSTEM%" ^
+    --output "%OUTPUT_DIR%"
+) else (
+  uv run python -m src.main generate ^
+    --processor "%PROCESSOR%" ^
+    --system "%SYSTEM%" ^
+    --cartridge-map "%CARTRIDGE_MAP%" ^
+    --cartridge-rom "%CARTRIDGE_ROM_GEN%" ^
+    --output "%OUTPUT_DIR%"
+)
 if errorlevel 1 exit /b %errorlevel%
 goto :gen_done
 
 :gen_interactive
-uv run python -m src.main generate ^
-  --processor "%PROCESSOR%" ^
-  --system "%SYSTEM%" ^
-  --ic "%IC_PLA%" ^
-  --ic "%IC_VIC%" ^
-  --ic "%IC_SID%" ^
-  --ic "%IC_CIA1%" ^
-  --ic "%IC_CIA2%" ^
-  --ic "%IC_COLOR_RAM%" ^
-  --ic "%IC_MAIN_RAM%" ^
-  --device "%DEVICE_KB%" ^
-  --device "%DEVICE_JOY%" ^
-  --device "%DEVICE_VIDEO%" ^
-  --device "%DEVICE_DATASETTE%" ^
-  --device "%DEVICE_TV%" ^
-  --host "%HOST_INTERACTIVE%" ^
-  --host-backend "%HOST_BACKEND%" ^
-  --cartridge-map "%CARTRIDGE_MAP%" ^
-  --cartridge-rom "%CARTRIDGE_ROM_GEN%" ^
-  --output "%OUTPUT_DIR%"
+if "%USE_CARTRIDGE_SYSTEM%"=="0" (
+  uv run python -m src.main generate ^
+    --processor "%PROCESSOR%" ^
+    --system "%SYSTEM%" ^
+    --ic "%IC_PLA%" ^
+    --ic "%IC_VIC%" ^
+    --ic "%IC_SID%" ^
+    --ic "%IC_CIA1%" ^
+    --ic "%IC_CIA2%" ^
+    --ic "%IC_COLOR_RAM%" ^
+    --ic "%IC_MAIN_RAM%" ^
+    --device "%DEVICE_KB%" ^
+    --device "%DEVICE_JOY%" ^
+    --device "%DEVICE_VIDEO%" ^
+    --device "%DEVICE_DATASETTE%" ^
+    --device "%DEVICE_IEC_BUS%" ^
+    --device "%DEVICE_1541%" ^
+    --device "%DEVICE_1541_MEDIA%" ^
+    --device "%DEVICE_1541_DOS%" ^
+    --device "%DEVICE_1541_CORE%" ^
+    --device "%DEVICE_D64_BACKEND%" ^
+    --device "%DEVICE_TV%" ^
+    --host "%HOST_INTERACTIVE%" ^
+    --host-backend "%HOST_BACKEND%" ^
+    --output "%OUTPUT_DIR%"
+) else (
+  uv run python -m src.main generate ^
+    --processor "%PROCESSOR%" ^
+    --system "%SYSTEM%" ^
+    --ic "%IC_PLA%" ^
+    --ic "%IC_VIC%" ^
+    --ic "%IC_SID%" ^
+    --ic "%IC_CIA1%" ^
+    --ic "%IC_CIA2%" ^
+    --ic "%IC_COLOR_RAM%" ^
+    --ic "%IC_MAIN_RAM%" ^
+    --device "%DEVICE_KB%" ^
+    --device "%DEVICE_JOY%" ^
+    --device "%DEVICE_VIDEO%" ^
+    --device "%DEVICE_DATASETTE%" ^
+    --device "%DEVICE_IEC_BUS%" ^
+    --device "%DEVICE_1541%" ^
+    --device "%DEVICE_1541_MEDIA%" ^
+    --device "%DEVICE_1541_DOS%" ^
+    --device "%DEVICE_1541_CORE%" ^
+    --device "%DEVICE_D64_BACKEND%" ^
+    --device "%DEVICE_TV%" ^
+    --host "%HOST_INTERACTIVE%" ^
+    --host-backend "%HOST_BACKEND%" ^
+    --cartridge-map "%CARTRIDGE_MAP%" ^
+    --cartridge-rom "%CARTRIDGE_ROM_GEN%" ^
+    --output "%OUTPUT_DIR%"
+)
 if errorlevel 1 exit /b %errorlevel%
 :gen_done
 

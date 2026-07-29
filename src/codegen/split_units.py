@@ -68,10 +68,15 @@ def emit_ic_unit(isa_data: Dict[str, Any], cpu_name: str, component: Dict[str, A
         )
     )
     coding = component.get("coding") or {}
-    header_includes = [
-        f"#include {h}"
-        for h in (coding.get("headers") or [])
-    ]
+    header_includes = []
+    for h in (coding.get("headers") or []):
+        h = str(h).strip()
+        if not h:
+            continue
+        if h.startswith("<") or h.startswith('"'):
+            header_includes.append(f"#include {h}")
+        else:
+            header_includes.append(f"#include <{h}>")
     lines = [
         "/* Auto-generated split unit: per-IC ownership scaffold. */",
         f"/* IC id: {comp_id} */",

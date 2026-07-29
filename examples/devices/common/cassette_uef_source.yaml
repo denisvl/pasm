@@ -435,6 +435,9 @@ coding:
     - string.h
     - zlib.h
   include_paths: []
-  linked_libraries:
+  linked_libraries: []
+  win_linked_libraries:
+    - name: zlib
+  linux_linked_libraries:
     - name: z
   library_paths: []

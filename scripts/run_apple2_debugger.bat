@@ -54,7 +54,7 @@ set "DEVICE_GP=examples/devices/apple2/apple2_gameport.yaml"
 set "DEVICE_VIDEO=examples/devices/apple2/apple2_video.yaml"
 set "DEVICE_SPK=examples/devices/apple2/apple2_speaker.yaml"
 set "DEVICE_CASSETTE=examples/devices/apple2/apple2_cassette_adapter.yaml"
-set "DEVICE_CASSETTE_TRANSPORT=examples/devices/common/cassette_transport.yaml"
+set "DEVICE_CASSETTE_TRANSPORT=examples/devices/common/cassette_transport_nomotor.yaml"
 set "DEVICE_MONITOR=examples/devices/common/monitor_crt_color.yaml"
 set "HOST_INTERACTIVE=examples/hosts/apple2/apple2_host_hal_interactive.yaml"
 
@@ -158,6 +158,7 @@ uv run python -m src.main generate ^
   --device "%DEVICE_CASSETTE%" ^
   --device "%DEVICE_CASSETTE_TRANSPORT%" ^
   --device "%DEVICE_MONITOR%" ^
+  --device "examples/devices/common/apple2_floppy_image_backend.yaml" ^
   --host "%HOST_INTERACTIVE%" ^
   --host-backend "%HOST_BACKEND%" ^
   --output "%OUTPUT_DIR%"

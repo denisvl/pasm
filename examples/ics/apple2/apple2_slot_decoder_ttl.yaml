@@ -315,7 +315,8 @@ behavior:
                   uint32_t track_slots = 35u * 4u;
                   delta = (int32_t)phase_delta[CURRENT_PHASE & 0x03u][next_phase] * 2;
                   if (STREAM_MODE != 0u && source_component != NULL) {
-                      uint64_t slots = ({ uint64_t __a[1] = { (uint64_t)comp->drive_select }; cpu_component_dispatch_callback(cpu, source_component, "query_track_slots", __a, 1u); });
+                      uint64_t __a[1] = { (uint64_t)comp->drive_select };
+                      uint64_t slots = cpu_component_dispatch_callback(cpu, source_component, "query_track_slots", __a, 1u);
                       if (slots != 0u) track_slots = (uint32_t)slots;
                   }
                   {
@@ -516,7 +517,8 @@ behavior:
                   uint32_t track_slots = 35u * 4u;
                   delta = (int32_t)phase_delta[CURRENT_PHASE & 0x03u][next_phase] * 2;
                   if (STREAM_MODE != 0u && source_component != NULL) {
-                      uint64_t slots = ({ uint64_t __a[1] = { (uint64_t)comp->drive_select }; cpu_component_dispatch_callback(cpu, source_component, "query_track_slots", __a, 1u); });
+                      uint64_t __a[1] = { (uint64_t)comp->drive_select };
+                      uint64_t slots = cpu_component_dispatch_callback(cpu, source_component, "query_track_slots", __a, 1u);
                       if (slots != 0u) track_slots = (uint32_t)slots;
                   }
                   {
