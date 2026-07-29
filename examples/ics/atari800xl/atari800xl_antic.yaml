@@ -748,8 +748,8 @@ behavior:
           if (cart_present == 0u)
       #endif
           {
-          if ((comp->portb & 0x02u) != 0u && comp->ram_under_basic != NULL) {
-              return comp->ram_under_basic[(uint16_t)(addr - 0xA000u)];
+          if ((comp->portb & 0x02u) != 0u) {
+              return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
           }
           }
       }
@@ -760,16 +760,10 @@ behavior:
           }
       }
       if (addr >= 0xC000u && addr < 0xD000u) {
-          if (comp->ram_under_os_low != NULL) {
-              /* ANTIC DMA must be able to see RAM hidden under the OS ROM. */
-              return comp->ram_under_os_low[(uint16_t)(addr - 0xC000u)];
-          }
+          return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
       }
       if (addr >= 0xD800u) {
-          if (comp->ram_under_os_high != NULL) {
-              /* Star Raiders stores its custom mode-6 charset under the OS ROM. */
-              return comp->ram_under_os_high[(uint16_t)(addr - 0xD800u)];
-          }
+          return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
       }
 
       if (addr >= 0xD000u && addr < 0xD800u) {

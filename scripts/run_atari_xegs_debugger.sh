@@ -15,10 +15,9 @@ set -euo pipefail
 #   RUN_SPEED=realtime|max
 #   PASM_HOST_AUDIO=1
 #   KEYBOARD_MAP=examples/hosts/atari800xl/host_keyboard_atari800xl.yaml
-#   OS_ROM_LOW=../../roms/atari800xl/ATARIXL_C000.ROM
-#   OS_ROM_HIGH=../../roms/atari800xl/ATARIXL_D800.ROM
-#   SELFTEST_ROM=../../roms/atari800xl/ATARIXL_SELFTEST.ROM
-#   BASIC_ROM=../../roms/atari_xegs/AtariBasic.rom
+#   OS_ROM_LOW=../../roms/atari_xegs/c101687.rom
+#   OS_ROM_HIGH=../../roms/atari_xegs/c101687.rom
+#   BASIC_ROM=../../roms/atari_xegs/c101687.rom
 
 PROFILE="${1:-interactive}"
 if [[ $# -gt 0 ]]; then
@@ -36,10 +35,9 @@ PASM_TRACE_FILE=""
 PASM_ATARI800XL_KEY_TRACE="0"
 PASM_ATARI800XL_KB_EVENTS="0"
 KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/atari800xl/host_keyboard_atari800xl.yaml}"
-OS_ROM_LOW="${OS_ROM_LOW:-../../roms/atari800xl/ATARIXL_C000.ROM}"
-OS_ROM_HIGH="${OS_ROM_HIGH:-../../roms/atari800xl/ATARIXL_D800.ROM}"
-SELFTEST_ROM="${SELFTEST_ROM:-../../roms/atari800xl/ATARIXL_SELFTEST.ROM}"
-BASIC_ROM="${BASIC_ROM:-../../roms/atari_xegs/AtariBasic.rom}"
+OS_ROM_LOW="${OS_ROM_LOW:-../../roms/atari_xegs/c101687.rom}"
+OS_ROM_HIGH="${OS_ROM_HIGH:-../../roms/atari_xegs/c101687.rom}"
+BASIC_ROM="${BASIC_ROM:-../../roms/atari_xegs/c101687.rom}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -129,24 +127,17 @@ fi
 if [[ ! -f "${SYSTEM_DIR_ABS}/${BASIC_ROM}" && ! -f "${BASIC_ROM}" ]]; then
   echo "Warning: BASIC ROM not found (${BASIC_ROM})." >&2
 fi
-if [[ ! -f "${SYSTEM_DIR_ABS}/${SELFTEST_ROM}" && ! -f "${SELFTEST_ROM}" ]]; then
-  echo "Warning: self-test ROM not found (${SELFTEST_ROM})." >&2
-fi
-
-# Materialize ROM path overrides into a temp system YAML for codegen
-# (do not mutate repository files in-place).
 TMP_SYSTEM="${SYSTEM_DIR_ABS}/.tmp_atari_xegs_system_${$}_$RANDOM.yaml"
 touch "${TMP_SYSTEM}"
 trap 'rm -f "${TMP_SYSTEM}"' EXIT
 OS_ROM_LOW_GEN="$(resolve_path_for_gen "${OS_ROM_LOW}")"
 OS_ROM_HIGH_GEN="$(resolve_path_for_gen "${OS_ROM_HIGH}")"
-SELFTEST_ROM_GEN="$(resolve_path_for_gen "${SELFTEST_ROM}")"
 BASIC_ROM_GEN="$(resolve_path_for_gen "${BASIC_ROM}")"
-python - "${SYSTEM}" "${TMP_SYSTEM}" "${OS_ROM_LOW_GEN}" "${OS_ROM_HIGH_GEN}" "${SELFTEST_ROM_GEN}" "${BASIC_ROM_GEN}" <<'PY'
+python - "${SYSTEM}" "${TMP_SYSTEM}" "${OS_ROM_LOW_GEN}" "${OS_ROM_HIGH_GEN}" "${BASIC_ROM_GEN}" <<'PY'
 import sys
 import yaml
 
-src_path, dst_path, os_low, os_high, selftest_rom, basic_rom = sys.argv[1:7]
+src_path, dst_path, os_low, os_high, basic_rom = sys.argv[1:6]
 
 with open(src_path, "r", encoding="utf-8") as f:
     data = yaml.safe_load(f)
@@ -156,42 +147,6 @@ for rom in rom_images:
     name = str(rom.get("name", ""))
     if name == "atari_xegs_basic":
         rom["file"] = basic_rom
-    elif name == "atari_xegs_selftest":
-        rom["file"] = selftest_rom
-    elif name == "atari_xegs_os_low":
-        rom["file"] = os_low
-    elif name == "atari_xegs_os_high":
-        rom["file"] = os_high
-
-with open(dst_path, "w", encoding="utf-8") as f:
-    yaml.safe_dump(data, f, sort_keys=False)
-PY
-SYSTEM_FOR_GEN="${TMP_SYSTEM}"
-
-echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
-TMP_SYSTEM="${SYSTEM_DIR_ABS}/.tmp_atari_xegs_system_${$}_$RANDOM.yaml"
-touch "${TMP_SYSTEM}"
-trap 'rm -f "${TMP_SYSTEM}"' EXIT
-OS_ROM_LOW_GEN="$(resolve_path_for_gen "${OS_ROM_LOW}")"
-OS_ROM_HIGH_GEN="$(resolve_path_for_gen "${OS_ROM_HIGH}")"
-SELFTEST_ROM_GEN="$(resolve_path_for_gen "${SELFTEST_ROM}")"
-BASIC_ROM_GEN="$(resolve_path_for_gen "${BASIC_ROM}")"
-python - "${SYSTEM}" "${TMP_SYSTEM}" "${OS_ROM_LOW_GEN}" "${OS_ROM_HIGH_GEN}" "${SELFTEST_ROM_GEN}" "${BASIC_ROM_GEN}" <<'PY'
-import sys
-import yaml
-
-src_path, dst_path, os_low, os_high, selftest_rom, basic_rom = sys.argv[1:7]
-
-with open(src_path, "r", encoding="utf-8") as f:
-    data = yaml.safe_load(f)
-
-rom_images = data.get("memory", {}).get("rom_images", [])
-for rom in rom_images:
-    name = str(rom.get("name", ""))
-    if name == "atari_xegs_basic":
-        rom["file"] = basic_rom
-    elif name == "atari_xegs_selftest":
-        rom["file"] = selftest_rom
     elif name == "atari_xegs_os_low":
         rom["file"] = os_low
     elif name == "atari_xegs_os_high":
@@ -224,7 +179,7 @@ cmake --build "${BUILD_DIR}" --config "${CMAKE_BUILD_TYPE}"
 echo "[3/3] Running Rust debugger (linked backend)"
 echo "    profile=${PROFILE} memory_size=${MEMORY_SIZE} start_pc=${START_PC:-<reset-vector>} run_speed=${RUN_SPEED} cmake_build_type=${CMAKE_BUILD_TYPE}"
 echo "    os_rom_low=${OS_ROM_LOW} os_rom_high=${OS_ROM_HIGH}"
-echo "    basic_rom=${BASIC_ROM} selftest_rom=${SELFTEST_ROM}"
+echo "    basic_rom=${BASIC_ROM}"
 
 BUILD_DIR_ABS="$(cd "$(dirname "${BUILD_DIR}")" && pwd)/$(basename "${BUILD_DIR}")"
 CMAKE_CONFIG_BUILD_DIR="${BUILD_DIR}/${CMAKE_BUILD_TYPE}"

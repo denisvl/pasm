@@ -12,7 +12,6 @@ if not defined RUN_SPEED set "RUN_SPEED=realtime"
 if not defined KEYBOARD_MAP set "KEYBOARD_MAP=examples/hosts/atari800xl/host_keyboard_atari800xl.yaml"
 if not defined OS_ROM_LOW set "OS_ROM_LOW=../../roms/atari_xegs/c101687.rom"
 if not defined OS_ROM_HIGH set "OS_ROM_HIGH=../../roms/atari_xegs/c101687.rom"
-if not defined SELFTEST_ROM set "SELFTEST_ROM=../../roms/atari_xegs/c101687.rom"
 if not defined BASIC_ROM set "BASIC_ROM=../../roms/atari_xegs/c101687.rom"
 if not defined HOST_BACKEND set "HOST_BACKEND=glfw"
 if not defined VCPKG_TARGET_TRIPLET set "VCPKG_TARGET_TRIPLET=x64-windows"
@@ -99,7 +98,7 @@ for %%I in ("%CMAKE_CONFIG_BUILD_DIR%") do set "CMAKE_CONFIG_BUILD_DIR_ABS=%%~fI
 
 echo [1/3] Generating emulator -^> %OUTPUT_DIR%
 set "TMP_SYSTEM=%SYSTEM_DIR%\.tmp_atari_xegs_system_%RANDOM%%RANDOM%.yaml"
-uv run python -c "import yaml,sys; src,dst,osl,osh,st,bas=sys.argv[1:7]; data=yaml.safe_load(open(src,'r',encoding='utf-8')); imgs=((data.get('memory') or {}).get('rom_images') or []); [rom.__setitem__('file', bas if str(rom.get('name',''))=='atari_xegs_basic' else st if str(rom.get('name',''))=='atari_xegs_selftest' else osl if str(rom.get('name',''))=='atari_xegs_os_low' else osh if str(rom.get('name',''))=='atari_xegs_os_high' else rom.get('file')) for rom in imgs]; yaml.safe_dump(data,open(dst,'w',encoding='utf-8'),sort_keys=False)" "%SYSTEM%" "%TMP_SYSTEM%" "%OS_ROM_LOW%" "%OS_ROM_HIGH%" "%SELFTEST_ROM%" "%BASIC_ROM%"
+uv run python -c "import yaml,sys; src,dst,osl,osh,bas=sys.argv[1:6]; data=yaml.safe_load(open(src,'r',encoding='utf-8')); imgs=((data.get('memory') or {}).get('rom_images') or []); [rom.__setitem__('file', bas if str(rom.get('name',''))=='atari_xegs_basic' else osl if str(rom.get('name',''))=='atari_xegs_os_low' else osh if str(rom.get('name',''))=='atari_xegs_os_high' else rom.get('file')) for rom in imgs]; yaml.safe_dump(data,open(dst,'w',encoding='utf-8'),sort_keys=False)" "%SYSTEM%" "%TMP_SYSTEM%" "%OS_ROM_LOW%" "%OS_ROM_HIGH%" "%BASIC_ROM%"
 if errorlevel 1 exit /b %errorlevel%
 
 uv run python -m src.main generate ^

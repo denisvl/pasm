@@ -80,8 +80,8 @@ pasm generate \
 Behavior-capable YAML files (`processor`, `ic`, `device`, `host`) require:
 - `headers[]`
 - `include_paths[]`
-- `linked_libraries[]` entries with exactly one of `name` or `path`
-- `library_paths[]`
+- `linked_libraries` as either a flat list or a platform map with `common` / `win32` / `win64` / `linux`
+- `library_paths` as either a flat list or a platform map with `common` / `win32` / `win64` / `linux`
 
 Merge rule in generation:
 - deterministic union in order: processor, then `--ic` order, then `--device` order, then `--host` order

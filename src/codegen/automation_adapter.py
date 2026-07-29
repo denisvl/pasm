@@ -977,6 +977,7 @@ static emu_automation_result_t {cpu_prefix}_automation_read_current_instruction(
             NULL, 0u,
             NULL, 0u,
             NULL, 0u,
+            NULL, 0u,
             NULL, 0u) != 0) {{
         return EMU_AUTOMATION_ADAPTER_ERROR;
     }}
@@ -1034,6 +1035,7 @@ static emu_automation_result_t {cpu_prefix}_automation_read_registers(
             &core,
             NULL, 0u,
             rows, count,
+            NULL, 0u,
             NULL, 0u,
             NULL, 0u,
             NULL, 0u,

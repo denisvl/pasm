@@ -299,91 +299,189 @@
           }
         },
         "linked_libraries": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "name"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "path"
+                    ]
+                  }
+                ]
               }
             },
-            "oneOf": [
-              {
-                "required": [
-                  "name"
-                ]
-              },
-              {
-                "required": [
-                  "path"
-                ]
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "common": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "oneOf": [
+                      {
+                        "required": [
+                          "name"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "path"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "win32": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "oneOf": [
+                      {
+                        "required": [
+                          "name"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "path"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "win64": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "oneOf": [
+                      {
+                        "required": [
+                          "name"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "path"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "linux": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "oneOf": [
+                      {
+                        "required": [
+                          "name"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "path"
+                        ]
+                      }
+                    ]
+                  }
+                }
               }
-            ]
-          }
-        },
-        "win_linked_libraries": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              }
-            },
-            "oneOf": [
-              {
-                "required": [
-                  "name"
-                ]
-              },
-              {
-                "required": [
-                  "path"
-                ]
-              }
-            ]
-          }
-        },
-        "linux_linked_libraries": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              }
-            },
-            "oneOf": [
-              {
-                "required": [
-                  "name"
-                ]
-              },
-              {
-                "required": [
-                  "path"
-                ]
-              }
-            ]
-          }
+            }
+          ]
         },
         "library_paths": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "common": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "win32": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "win64": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "linux": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     },

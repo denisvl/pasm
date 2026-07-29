@@ -174,6 +174,7 @@ FALLBACK_PROCESSORS_BY_DIR = {
     "atari65xe": "examples/processors/mos6502.yaml",
     "atari800xe": "examples/processors/mos6502.yaml",
     "atari800xl": "examples/processors/mos6502.yaml",
+    "atari_xegs": "examples/processors/mos6502.yaml",
     "bbcmicro": "examples/processors/mos6502.yaml",
     "c1541": "examples/processors/mos6502.yaml",
     "c64": "examples/processors/mos6510.yaml",
@@ -206,6 +207,10 @@ FALLBACK_CARTRIDGE_BY_DIR = {
         "../../roms/atari2600/Pitfall! (1982) (Activision) [!].a26",
     ),
     "atari800xl": (
+        "examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml",
+        "../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom",
+    ),
+    "atari_xegs": (
         "examples/cartridges/atari800xl/atari800xl_cart_8k_none.yaml",
         "../../roms/atari800xl/Star_Raiders_1979_Atari_US.rom",
     ),

@@ -34,6 +34,7 @@ from src.codegen.split_layout import (
     system_ident,
     system_unit_basenames,
 )
+from src.codegen.build_system import _flatten_platform_values_for_host
 from src.logging_utils import logger
 
 
@@ -465,6 +466,7 @@ class EmulatorGenerator:
         )
         has_cartridge = bool(self.isa_data.get("cartridge"))
         has_floppy = bool(self.isa_data.get("floppy"))
+        floppy_decl = '    const char *floppy_file = NULL;' if has_floppy else ""
         cart_usage_line = (
             '    printf("  --cart-rom <file>  Load cartridge ROM file (overrides generated default)\\n");'
             if has_cartridge
@@ -740,17 +742,14 @@ int main(int argc, char *argv[]) {{
             keyboard_usage_line=keyboard_usage_line,
             cart_usage_line=cart_usage_line,
             floppy_usage_line=floppy_usage_line,
-            floppy_decl=('    const char *floppy_file = NULL;' if has_floppy else ""),
             cart_default_decl=cart_default_decl,
             keyboard_cli_parse=keyboard_cli_parse,
             floppy_cli_parse=floppy_cli_parse,
             cart_cli_parse=cart_cli_parse,
-            floppy_cli_parse=floppy_cli_parse,
             floppy_decl=floppy_decl,
             floppy_load_block=floppy_load_block,
             keyboard_required_check=keyboard_required_check,
             keyboard_load_block=keyboard_load_block,
-            floppy_load_block=floppy_load_block,
             cart_load_block=cart_load_block,
         )
 
@@ -823,7 +822,7 @@ exit /b 0
         system_meta = self.isa_data.get("system", {}).get("metadata", {})
         memory = self.isa_data.get("memory", {})
         coding = self.isa_data.get("coding", {})
-        linked_libraries = coding.get("linked_libraries", [])
+        linked_libraries = _flatten_platform_values_for_host(coding.get("linked_libraries", []))
         link_library_names: List[str] = []
         link_library_files: List[str] = []
         for lib in linked_libraries:
@@ -905,7 +904,7 @@ exit /b 0
                 "automation_adapter": f"src/{self.cpu_name}_automation_adapter.h",
             },
             "link": {
-                "library_paths": list(coding.get("library_paths", [])),
+                "library_paths": _flatten_platform_values_for_host(coding.get("library_paths", [])),
                 "library_names": link_library_names,
                 "library_files": link_library_files,
             },

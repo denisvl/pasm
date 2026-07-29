@@ -277,10 +277,18 @@ coding:
   headers: ["stdint.h", "my_header.h"]
   include_paths: ["./include"]
   linked_libraries:
-    - name: "m"
-    - path: "./lib/libcustom.a"
-  library_paths: ["./lib"]
+    common:
+      - path: "./lib/libcustom.a"
+    linux:
+      - name: "m"
+    win64:
+      - name: "custom_win64"
+  library_paths:
+    common: ["./lib"]
+    win64: ["./lib/win64"]
 ```
+
+Legacy flat lists are still accepted and are treated as `common`.
 
 Generation merge semantics:
 - order: processor, `--ic` order, `--device` order, `--host` order, then cartridge

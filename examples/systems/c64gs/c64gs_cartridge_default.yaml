@@ -28,6 +28,7 @@ memory:
     file: ../../roms/64gs/64gs.390852-01.bin
     target_region: ROM_BASIC
     offset: 0
+    load_size: 8192
   - name: c64gs_kernal_rom
     file: ../../roms/64gs/64gs.390852-01.bin
     target_region: ROM_KERNAL
@@ -63,31 +64,49 @@ components:
   - c64_pla
   - c64_main_ram
   devices:
+  - keyboard_c64
   - joystick_c64
   - video_c64
   - tv
+  - speaker
   hosts:
   - host_c64
   cartridge: c64_cart0
 connections:
 - from:
-    component: c64_cia1
+    component: c64_pla
     kind: callback
-    name: keyboard_read_row
+    name: keyboard_row
   to:
     component: keyboard_c64
     kind: callback
     name: read_row
 - from:
-    component: c64_cia1
+    component: keyboard_c64
     kind: callback
-    name: joystick_read
+    name: host_matrix
+  to:
+    component: host_c64
+    kind: callback
+    name: keyboard_matrix
+- from:
+    component: c64_pla
+    kind: callback
+    name: joystick_port
   to:
     component: joystick_c64
     kind: callback
-    name: read_state
+    name: read_port
 - from:
-    component: c64_vic_ii
+    component: joystick_c64
+    kind: callback
+    name: host_port
+  to:
+    component: host_c64
+    kind: callback
+    name: joystick_port
+- from:
+    component: c64_pla
     kind: signal
     name: frame_ready
   to:
@@ -103,15 +122,7 @@ connections:
     kind: handler
     name: on_frame_present
 - from:
-    component: c64_vic_ii
-    kind: signal
-    name: irq_edge
-  to:
-    component: host_c64_stub
-    kind: handler
-    name: irq_edge
-- from:
-    component: c64_sid
+    component: c64_pla
     kind: signal
     name: audio_level
   to:
@@ -123,7 +134,7 @@ connections:
     kind: signal
     name: frame_present
   to:
-    component: host_c64_stub
+    component: host_c64
     kind: handler
     name: video_frame
 - from:
@@ -131,6 +142,6 @@ connections:
     kind: signal
     name: pcm_sample
   to:
-    component: host_c64_stub
+    component: host_c64
     kind: handler
-    name: on_audio_level
+    name: audio_pcm

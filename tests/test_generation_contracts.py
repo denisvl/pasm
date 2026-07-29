@@ -613,6 +613,107 @@ def test_build_system_normalizes_windows_paths_for_cross_platform_outputs():
     assert '"D:/Development/vcpkg/installed/x64-windows/lib/SDL2.lib"' in makefile
 
 
+def test_build_system_emits_platform_scoped_link_entries():
+    isa = _base_isa("PlatformLink8")
+    isa["coding"] = {
+        "headers": [],
+        "include_paths": [],
+        "linked_libraries": {
+            "common": [{"name": "commonlib"}],
+            "win32": [{"name": "legacy32"}],
+            "win64": [{"name": "zlib"}],
+            "linux": [{"name": "m"}],
+        },
+        "library_paths": {
+            "common": ["./lib/common"],
+            "win64": ["./lib/win64"],
+            "linux": ["./lib/linux"],
+        },
+    }
+
+    cmake = generate_cmake(isa, "PlatformLink8")
+
+    assert "commonlib" in cmake
+    assert "$<$<PLATFORM_ID:Linux>:m>" in cmake
+    assert '$<$<AND:$<PLATFORM_ID:Windows>,$<EQUAL:${CMAKE_SIZEOF_VOID_P},4>>:legacy32>' in cmake
+    assert '$<$<AND:$<PLATFORM_ID:Windows>,$<EQUAL:${CMAKE_SIZEOF_VOID_P},8>>:zlib>' in cmake
+    assert "$<$<PLATFORM_ID:Linux>:\"./lib/linux\">" in cmake
+    assert '$<$<AND:$<PLATFORM_ID:Windows>,$<EQUAL:${CMAKE_SIZEOF_VOID_P},8>>:"./lib/win64">' in cmake
+
+
+def test_build_system_makefile_uses_current_platform_link_entries():
+    isa = _base_isa("PlatformMake8")
+    isa["coding"] = {
+        "headers": [],
+        "include_paths": [],
+        "linked_libraries": {
+            "common": [{"name": "commonlib"}],
+            "win64": [{"name": "zlib"}],
+            "linux": [{"name": "m"}],
+        },
+        "library_paths": {
+            "common": ["./lib/common"],
+            "win64": ["./lib/win64"],
+            "linux": ["./lib/linux"],
+        },
+    }
+
+    makefile = generate_makefile(isa, "PlatformMake8")
+
+    assert '-L"./lib/common"' in makefile
+    assert "-lcommonlib" in makefile
+    if sys.platform.startswith("linux"):
+        assert '-L"./lib/linux"' in makefile
+        assert "-lm" in makefile
+        assert "-lzlib" not in makefile
+    elif sys.platform == "win32" and sys.maxsize > 2**32:
+        assert '-L"./lib/win64"' in makefile
+        assert "-lzlib" in makefile
+        assert "-lm" not in makefile
+
+
+def test_loader_normalizes_platform_scoped_coding_blocks(tmp_path):
+    loader = yaml_loader.ProcessorSystemLoader()
+    processor_path = tmp_path / "processor.yaml"
+    host_path = tmp_path / "host.yaml"
+    processor_path.write_text("", encoding="utf-8")
+    host_path.write_text("", encoding="utf-8")
+
+    processor_coding = loader._resolve_coding_paths(
+        {
+            "headers": [],
+            "include_paths": [],
+            "linked_libraries": {"common": [{"name": "base"}], "linux": [{"name": "m"}]},
+            "library_paths": {"common": ["./common-lib"]},
+        },
+        str(processor_path),
+    )
+    host_coding = loader._resolve_coding_paths(
+        {
+            "headers": [],
+            "include_paths": [],
+            "linked_libraries": {"linux": [{"name": "pthread"}], "win64": [{"name": "zlib"}]},
+            "library_paths": {"linux": ["./linux-lib"], "win64": ["./win64-lib"]},
+        },
+        str(host_path),
+    )
+
+    merged = loader._merge_coding([processor_coding, host_coding])
+
+    assert merged["linked_libraries"] == {
+        "common": [{"name": "base"}],
+        "win32": [],
+        "win64": [{"name": "zlib"}],
+        "linux": [{"name": "m"}, {"name": "pthread"}],
+    }
+    assert merged["library_paths"] == {
+        "common": [str((tmp_path / "common-lib").resolve())],
+        "win32": [],
+        "win64": [str((tmp_path / "win64-lib").resolve())],
+        "linux": [str((tmp_path / "linux-lib").resolve())],
+    }
+
+
 def test_build_system_uses_backend_target_for_sdl2_linkage():
     isa = _base_isa("BackendTarget8")
     isa["hosts"] = [

@@ -29,6 +29,8 @@ HOOK_NAMES = {
     "port_write_post",
 }
 
+CODING_PLATFORM_KEYS = ("common", "win32", "win64", "linux")
+
 DISPLAY_TEMPLATE_TOKEN_RE = re.compile(
     r"\{([A-Za-z_][A-Za-z0-9_]*)(?::([A-Za-z_][A-Za-z0-9_]*))?\}"
 )
@@ -749,7 +751,7 @@ class ProcessorSystemLoader:
         if not isinstance(coding, dict):
             raise ValidationError(f"{context} validation failed:\ncoding must be an object")
 
-        for field in ("headers", "include_paths", "library_paths"):
+        for field in ("headers", "include_paths"):
             values = coding.get(field, [])
             if not isinstance(values, list) or not all(
                 isinstance(item, str) and item.strip() for item in values
@@ -758,33 +760,91 @@ class ProcessorSystemLoader:
                     f"{context} validation failed:\ncoding.{field} must be a list of non-empty strings"
                 )
 
-        libs = coding.get("linked_libraries", [])
-        if not isinstance(libs, list):
+        self._validate_coding_platform_string_list(
+            coding.get("library_paths", []), "coding.library_paths", context
+        )
+        self._validate_coding_platform_library_list(
+            coding.get("linked_libraries", []), "coding.linked_libraries", context
+        )
+
+    def _validate_coding_platform_string_list(
+        self, value: Any, field_name: str, context: str
+    ) -> None:
+        if isinstance(value, list):
+            if not all(isinstance(item, str) and item.strip() for item in value):
+                raise ValidationError(
+                    f"{context} validation failed:\n"
+                    f"{field_name} must be a list of non-empty strings"
+                )
+            return
+        if not isinstance(value, dict):
             raise ValidationError(
-                f"{context} validation failed:\ncoding.linked_libraries must be a list"
+                f"{context} validation failed:\n"
+                f"{field_name} must be either a list of non-empty strings or an object"
             )
+        unknown = sorted(set(value.keys()) - set(CODING_PLATFORM_KEYS))
+        if unknown:
+            raise ValidationError(
+                f"{context} validation failed:\n"
+                f"{field_name} contains unsupported platform keys: {unknown}"
+            )
+        for platform, items in value.items():
+            if not isinstance(items, list) or not all(
+                isinstance(item, str) and item.strip() for item in items
+            ):
+                raise ValidationError(
+                    f"{context} validation failed:\n"
+                    f"{field_name}.{platform} must be a list of non-empty strings"
+                )
+
+    def _validate_coding_platform_library_list(
+        self, value: Any, field_name: str, context: str
+    ) -> None:
+        if isinstance(value, list):
+            self._validate_library_entries(value, field_name, context)
+            return
+        if not isinstance(value, dict):
+            raise ValidationError(
+                f"{context} validation failed:\n"
+                f"{field_name} must be either a list or an object"
+            )
+        unknown = sorted(set(value.keys()) - set(CODING_PLATFORM_KEYS))
+        if unknown:
+            raise ValidationError(
+                f"{context} validation failed:\n"
+                f"{field_name} contains unsupported platform keys: {unknown}"
+            )
+        for platform, items in value.items():
+            if not isinstance(items, list):
+                raise ValidationError(
+                    f"{context} validation failed:\n"
+                    f"{field_name}.{platform} must be a list"
+                )
+            self._validate_library_entries(items, f"{field_name}.{platform}", context)
+
+    def _validate_library_entries(self, libs: list[Any], field_name: str, context: str) -> None:
         for idx, lib in enumerate(libs):
             if not isinstance(lib, dict):
                 raise ValidationError(
                     f"{context} validation failed:\n"
-                    f"coding.linked_libraries[{idx}] must be an object"
+                    f"{field_name}[{idx}] must be an object"
                 )
             name = lib.get("name")
             path = lib.get("path")
             if bool(name) == bool(path):
                 raise ValidationError(
                     f"{context} validation failed:\n"
-                    f"coding.linked_libraries[{idx}] must define exactly one of 'name' or 'path'"
+                    f"{field_name}[{idx}] must define exactly one of 'name' or 'path'"
                 )
             if name is not None and (not isinstance(name, str) or not name.strip()):
                 raise ValidationError(
                     f"{context} validation failed:\n"
-                    f"coding.linked_libraries[{idx}].name must be a non-empty string"
+                    f"{field_name}[{idx}].name must be a non-empty string"
                 )
             if path is not None and (not isinstance(path, str) or not path.strip()):
                 raise ValidationError(
                     f"{context} validation failed:\n"
-                    f"coding.linked_libraries[{idx}].path must be a non-empty string"
+                    f"{field_name}[{idx}].path must be a non-empty string"
                 )
 
     def _resolve_coding_paths(self, coding: Dict[str, Any], source_path: str) -> Dict[str, Any]:
@@ -800,50 +860,89 @@ class ProcessorSystemLoader:
                     resolved.append(str((base_dir / path).resolve()))
             return resolved
 
-        resolved_libs = []
-        for lib in coding.get("linked_libraries", []):
-            if "name" in lib:
-                resolved_libs.append({"name": str(lib["name"])})
-            else:
-                path = Path(str(lib["path"]))
-                if path.is_absolute():
-                    resolved_libs.append({"path": str(path)})
+        def _resolve_library_entries(items: list[Dict[str, Any]]) -> list[Dict[str, str]]:
+            resolved_libs = []
+            for lib in items:
+                if "name" in lib:
+                    resolved_libs.append({"name": str(lib["name"])})
                 else:
-                    resolved_libs.append({"path": str((base_dir / path).resolve())})
+                    path = Path(str(lib["path"]))
+                    if path.is_absolute():
+                        resolved_libs.append({"path": str(path)})
+                    else:
+                        resolved_libs.append({"path": str((base_dir / path).resolve())})
+            return resolved_libs
+
+        linked_libraries = coding.get("linked_libraries", [])
+        if isinstance(linked_libraries, dict):
+            resolved_linked_libraries = {
+                platform: _resolve_library_entries(linked_libraries.get(platform, []))
+                for platform in CODING_PLATFORM_KEYS
+                if linked_libraries.get(platform)
+            }
+        else:
+            resolved_linked_libraries = _resolve_library_entries(linked_libraries)
+
+        library_paths = coding.get("library_paths", [])
+        if isinstance(library_paths, dict):
+            resolved_library_paths = {
+                platform: _resolve_paths([str(item) for item in library_paths.get(platform, [])])
+                for platform in CODING_PLATFORM_KEYS
+                if library_paths.get(platform)
+            }
+        else:
+            resolved_library_paths = _resolve_paths([str(item) for item in library_paths])
 
         return {
             "headers": [str(item) for item in coding.get("headers", [])],
             "include_paths": _resolve_paths([str(item) for item in coding.get("include_paths", [])]),
-            "linked_libraries": resolved_libs,
-            "library_paths": _resolve_paths([str(item) for item in coding.get("library_paths", [])]),
+            "linked_libraries": resolved_linked_libraries,
+            "library_paths": resolved_library_paths,
         }
 
     def _merge_coding(self, sources: List[Dict[str, Any]]) -> Dict[str, Any]:
         merged = {
             "headers": [],
             "include_paths": [],
-            "linked_libraries": [],
-            "library_paths": [],
+            "linked_libraries": {platform: [] for platform in CODING_PLATFORM_KEYS},
+            "library_paths": {platform: [] for platform in CODING_PLATFORM_KEYS},
         }
         seen_scalars = {
             "headers": set(),
             "include_paths": set(),
-            "library_paths": set(),
+            "library_paths": {platform: set() for platform in CODING_PLATFORM_KEYS},
         }
-        seen_libs: set[str] = set()
+        seen_libs = {platform: set() for platform in CODING_PLATFORM_KEYS}
 
         for source in sources:
-            for field in ("headers", "include_paths", "library_paths"):
+            for field in ("headers", "include_paths"):
                 for value in source.get(field, []):
                     if value not in seen_scalars[field]:
                         seen_scalars[field].add(value)
                         merged[field].append(value)
 
-            for lib in source.get("linked_libraries", []):
-                key = json.dumps(lib, sort_keys=True)
-                if key not in seen_libs:
-                    seen_libs.add(key)
-                    merged["linked_libraries"].append(copy.deepcopy(lib))
+            raw_library_paths = source.get("library_paths", [])
+            library_paths_by_platform = (
+                raw_library_paths if isinstance(raw_library_paths, dict) else {"common": raw_library_paths}
+            )
+            for platform in CODING_PLATFORM_KEYS:
+                for value in library_paths_by_platform.get(platform, []):
+                    if value not in seen_scalars["library_paths"][platform]:
+                        seen_scalars["library_paths"][platform].add(value)
+                        merged["library_paths"][platform].append(value)
+
+            raw_linked_libraries = source.get("linked_libraries", [])
+            linked_libraries_by_platform = (
+                raw_linked_libraries
+                if isinstance(raw_linked_libraries, dict)
+                else {"common": raw_linked_libraries}
+            )
+            for platform in CODING_PLATFORM_KEYS:
+                for lib in linked_libraries_by_platform.get(platform, []):
+                    key = json.dumps(lib, sort_keys=True)
+                    if key not in seen_libs[platform]:
+                        seen_libs[platform].add(key)
+                        merged["linked_libraries"][platform].append(copy.deepcopy(lib))
 
         return merged
 

@@ -1,11 +1,15 @@
 """Build system generator (CMake, Makefile)."""
 
+import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 from .templates import get_template
 from .cpu_hooks import HOOK_NAMES
 from .split_layout import all_system_sources, system_ident
+
+
+CODING_PLATFORM_KEYS = ("common", "win32", "win64", "linux")
 
 
 def _hooks_enabled(isa_data: Dict[str, Any]) -> bool:
@@ -51,6 +55,48 @@ def _single_host_backend_target(isa_data: Dict[str, Any]) -> Optional[str]:
     if target not in {"sdl2", "stub", "glfw"}:
         raise ValueError(f"unsupported host backend target for build generation: {target}")
     return target
+
+
+def _coding_entries_by_platform(
+    value: Any,
+    *,
+    default_platform: str = "common",
+) -> dict[str, list[Any]]:
+    if isinstance(value, dict):
+        return {
+            platform: list(value.get(platform, []))
+            for platform in CODING_PLATFORM_KEYS
+            if value.get(platform)
+        }
+    if not value:
+        return {}
+    return {default_platform: list(value)}
+
+
+def _current_platform_key() -> str:
+    if sys.platform.startswith("linux"):
+        return "linux"
+    if sys.platform == "win32":
+        return "win64" if sys.maxsize > 2**32 else "win32"
+    return "common"
+
+
+def _cmake_platform_expr(platform: str, entry: str) -> str:
+    if platform == "common":
+        return entry
+    if platform == "linux":
+        return f"$<$<PLATFORM_ID:Linux>:{entry}>"
+    if platform == "win32":
+        return f'$<$<AND:$<PLATFORM_ID:Windows>,$<EQUAL:${{CMAKE_SIZEOF_VOID_P}},4>>:{entry}>'
+    if platform == "win64":
+        return f'$<$<AND:$<PLATFORM_ID:Windows>,$<EQUAL:${{CMAKE_SIZEOF_VOID_P}},8>>:{entry}>'
+    raise ValueError(f"unsupported coding platform: {platform}")
+
+
+def _flatten_platform_values_for_host(value: Any) -> list[Any]:
+    by_platform = _coding_entries_by_platform(value)
+    current = _current_platform_key()
+    return list(by_platform.get("common", [])) + list(by_platform.get(current, []))
 
 
 def generate_cmake(
@@ -107,8 +153,8 @@ def generate_cmake(
         overlay_include_dir_str = str(overlay_include_dir)
         if overlay_include_dir_str not in include_paths:
             include_paths.append(overlay_include_dir_str)
-    library_paths = coding.get("library_paths", [])
-    linked_libraries = coding.get("linked_libraries", [])
+    library_paths = _coding_entries_by_platform(coding.get("library_paths", []))
+    linked_libraries = _coding_entries_by_platform(coding.get("linked_libraries", []))
     backend_target = _single_host_backend_target(isa_data)
     uses_sdl2_backend = backend_target == "sdl2"
     uses_glfw_backend = backend_target == "glfw"
@@ -266,40 +312,51 @@ find_package(Threads REQUIRED)
         )
 
     extra_link_dirs = ""
-    if library_paths:
+    cmake_link_dirs: list[str] = []
+    for platform in CODING_PLATFORM_KEYS:
+        for path in library_paths.get(platform, []):
+            cmake_link_dirs.append(_cmake_platform_expr(platform, f'"{_cmake_path(path)}"'))
+    if cmake_link_dirs:
         extra_link_dirs = (
             f"target_link_directories({project_name}_test PRIVATE\n"
-            + "\n".join(f'    "{_cmake_path(path)}"' for path in library_paths)
+            + "\n".join(f"    {entry}" for entry in cmake_link_dirs)
             + "\n)\n"
         )
 
     cmake_lib_entries: list[str] = []
     has_explicit_sdl2_link = False
     has_explicit_glfw_link = False
-    for lib in linked_libraries:
-        if "name" in lib:
-            name = str(lib["name"])
-            if name == "SDL2":
-                if uses_sdl2_backend:
+    for platform in CODING_PLATFORM_KEYS:
+        for lib in linked_libraries.get(platform, []):
+            if "name" in lib:
+                name = str(lib["name"])
+                if name == "SDL2":
+                    if uses_sdl2_backend:
+                        has_explicit_sdl2_link = True
+                        cmake_lib_entries.append(
+                            _cmake_platform_expr(platform, "${PASM_SDL2_LINK_TARGET}")
+                        )
+                    else:
+                        cmake_lib_entries.append(_cmake_platform_expr(platform, "SDL2"))
+                elif name.lower() == "glfw":
+                    if uses_glfw_backend:
+                        has_explicit_glfw_link = True
+                        cmake_lib_entries.append(
+                            _cmake_platform_expr(platform, "${PASM_GLFW_LINK_TARGET}")
+                        )
+                    else:
+                        cmake_lib_entries.append(_cmake_platform_expr(platform, name))
+                else:
+                    cmake_lib_entries.append(_cmake_platform_expr(platform, name))
+            elif "path" in lib:
+                path_str = str(lib["path"])
+                if "sdl2" in path_str.lower():
                     has_explicit_sdl2_link = True
-                    cmake_lib_entries.append("${PASM_SDL2_LINK_TARGET}")
-                else:
-                    cmake_lib_entries.append("SDL2")
-            elif name.lower() == "glfw":
-                if uses_glfw_backend:
+                if "glfw" in path_str.lower():
                     has_explicit_glfw_link = True
-                    cmake_lib_entries.append("${PASM_GLFW_LINK_TARGET}")
-                else:
-                    cmake_lib_entries.append(name)
-            else:
-                cmake_lib_entries.append(name)
-        elif "path" in lib:
-            path_str = str(lib["path"])
-            if "sdl2" in path_str.lower():
-                has_explicit_sdl2_link = True
-            if "glfw" in path_str.lower():
-                has_explicit_glfw_link = True
-            cmake_lib_entries.append(f'"{_cmake_path(path_str)}"')   
+                cmake_lib_entries.append(
+                    _cmake_platform_expr(platform, f'"{_cmake_path(path_str)}"')
+                )
     if uses_sdl2_backend and not has_explicit_sdl2_link:
         cmake_lib_entries.append("${PASM_SDL2_LINK_TARGET}")
     if uses_glfw_backend and not has_explicit_glfw_link:
@@ -442,13 +499,13 @@ def generate_makefile(
     include_flags = " ".join(
         f'-I\"{_make_path(path)}\"' for path in coding.get("include_paths", [])
     )
-    link_dir_flags = " ".join(
-        f'-L\"{_make_path(path)}\"' for path in coding.get("library_paths", [])
-    )
+    make_library_paths = _flatten_platform_values_for_host(coding.get("library_paths", []))
+    make_linked_libraries = _flatten_platform_values_for_host(coding.get("linked_libraries", []))
+    link_dir_flags = " ".join(f'-L\"{_make_path(path)}\"' for path in make_library_paths)
     link_lib_flags_parts: list[str] = []
     has_explicit_sdl2_link = False
     has_explicit_glfw_link = False
-    for lib in coding.get("linked_libraries", []):
+    for lib in make_linked_libraries:
         if "name" in lib:
             lib_name = str(lib["name"])
             if lib_name == "SDL2":
