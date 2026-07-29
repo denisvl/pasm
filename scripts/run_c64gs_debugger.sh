@@ -85,7 +85,6 @@ if [[ "${PROFILE}" == "default" ]]; then
     fi
     HOST="examples/hosts/c64/c64_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/mos6510_c64gs_default"
-    gen_default
 elif [[ "${PROFILE}" == "interactive" ]]; then
     if [[ "${USE_CARTRIDGE}" == "0" ]]; then
         SYSTEM="examples/systems/c64gs/c64gs_interactive.yaml"
@@ -94,7 +93,6 @@ elif [[ "${PROFILE}" == "interactive" ]]; then
     fi
     HOST="examples/hosts/c64/c64_host_hal_interactive.yaml"
     DEFAULT_OUTPUT="generated/mos6510_c64gs_sdl"
-    gen_interactive
 else
     echo "Unsupported profile: ${PROFILE}" >&2
     echo "Use: default | interactive" >&2

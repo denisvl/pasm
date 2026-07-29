@@ -4,7 +4,7 @@ set -euo pipefail
 # One-shot helper: generate + build + run PASM Rust debugger for Sega Master System BIOS only.
 #
 # Usage:
-#   scripts/run_sms_bios_debugger.sh
+#   scripts/run_sms_bios_debugger.sh [interactive|default]
 #
 # Optional env overrides:
 #   START_PC=0x0000
@@ -16,6 +16,7 @@ set -euo pipefail
 #   RUN_SPEED=realtime|max
 #   CMAKE_BUILD_TYPE=Release|Debug
 
+PROFILE="${1:-interactive}"
 START_PC="${START_PC:-0x0000}"
 MEMORY_SIZE="${MEMORY_SIZE:-65536}"
 EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
@@ -31,18 +32,35 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
 PROCESSOR="examples/processors/z80.yaml"
-SYSTEM="examples/systems/sms/sms_bios_interactive.yaml"
 IC_BUS="examples/ics/sms/sms_cpu_bus.yaml"
 IC_RAM="examples/ics/sms/sms_main_ram.yaml"
 IC_VDP="examples/ics/sms/sms_vdp_sega315_5124.yaml"
 IC_JOY="examples/ics/sms/sms_joypad_io.yaml"
 IC_PSG="examples/ics/sms/sms_psg_sn76489.yaml"
+IC_CXA="examples/ics/sms/sms_cxa1145.yaml"
+DEVICE_CTRL="examples/devices/sms/sms_controller.yaml"
 DEVICE_VIDEO="examples/devices/sms/sms_video.yaml"
 DEVICE_SPK="examples/devices/sms/sms_speaker.yaml"
+DEVICE_TV="examples/devices/common/tv_crt_mono.yaml"
 HOST="examples/hosts/sms/sms_host_hal_interactive.yaml"
 SYSTEM_DIR="examples/systems"
 
-DEFAULT_OUTPUT="generated/z80_sms_bios_sdl"
+case "${PROFILE}" in
+  default)
+    SYSTEM="examples/systems/sms/sms_bios_interactive.yaml"
+    DEFAULT_OUTPUT="generated/z80_sms_bios_default"
+    ;;
+  interactive)
+    SYSTEM="examples/systems/sms/sms_bios_interactive.yaml"
+    DEFAULT_OUTPUT="generated/z80_sms_bios_sdl"
+    ;;
+  *)
+    echo "Unsupported profile: ${PROFILE}" >&2
+    echo "Use: default | interactive" >&2
+    exit 2
+    ;;
+esac
+
 OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
@@ -57,8 +75,11 @@ uv run python -m src.main generate \
   --ic "${IC_VDP}" \
   --ic "${IC_JOY}" \
   --ic "${IC_PSG}" \
+  --ic "${IC_CXA}" \
+  --device "${DEVICE_CTRL}" \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
+  --device "${DEVICE_TV}" \
   --host "${HOST}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
   --output "${OUTPUT_DIR}"

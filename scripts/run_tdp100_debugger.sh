@@ -56,6 +56,7 @@ DEVICE_GP="examples/devices/coco1/coco_gameport.yaml"
 DEVICE_VIDEO="examples/devices/coco1/coco_video.yaml"
 DEVICE_SPK="examples/devices/coco1/coco_speaker.yaml"
 DEVICE_CASS="examples/devices/common/cassette_transport.yaml"
+DEVICE_TV="examples/devices/common/tv_crt_mono.yaml"
 
 case "${PROFILE}" in
   default)
@@ -174,6 +175,7 @@ uv run python -m src.main generate \
   --device "${DEVICE_VIDEO}" \
   --device "${DEVICE_SPK}" \
   --device "${DEVICE_CASS}" \
+  --device "${DEVICE_TV}" \
   --host "${HOST}" \
   --host-backend "${HOST_BACKEND:-glfw}" \
   "${GEN_CARTRIDGE_ARGS[@]}" \

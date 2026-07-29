@@ -125,38 +125,30 @@ fi
 
 OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
-mkdir -p "$(dirname "${OUTPUT_DIR}")"
+mkdir -p "${OUTPUT_DIR}" "${BUILD_DIR}"
 OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
 BUILD_DIR_ABS="$(cd "$(dirname "${BUILD_DIR}")" && pwd)/$(basename "${BUILD_DIR}")"
 
 echo "[1/3] Generating emulator -> ${OUTPUT_DIR}"
-if [[ "${PROFILE}" == "interactive" ]]; then
-  uv run python -m src.main generate \
-    --processor "${PROCESSOR}" \
-    --system "${SYSTEM}" \
-    --ic "${IC_PLA}" \
-    --ic "${IC_VIC}" \
-    --ic "${IC_SID}" \
-    --ic "${IC_CIA1}" \
-    --ic "${IC_CIA2}" \
-    --ic "${IC_COLOR_RAM}" \
-    --ic "${IC_MAIN_RAM}" \
-    --device "${DEVICE_KB}" \
-    --device "${DEVICE_JOY}" \
-    --device "${DEVICE_VIDEO}" \
-    --device "${DEVICE_TV}" \
-    --device "${DEVICE_SPK}" \
-    --host "${HOST_INTERACTIVE}" \
-    --host-backend "${HOST_BACKEND}" \
-    "${GEN_CARTRIDGE_ARGS[@]}" \
-    --output "${OUTPUT_DIR}"
-else
-  uv run python -m src.main generate \
-    --processor "${PROCESSOR}" \
-    --system "${SYSTEM}" \
-    "${GEN_CARTRIDGE_ARGS[@]}" \
-    --output "${OUTPUT_DIR}"
-fi
+uv run python -m src.main generate \
+  --processor "${PROCESSOR}" \
+  --system "${SYSTEM}" \
+  --ic "${IC_PLA}" \
+  --ic "${IC_VIC}" \
+  --ic "${IC_SID}" \
+  --ic "${IC_CIA1}" \
+  --ic "${IC_CIA2}" \
+  --ic "${IC_COLOR_RAM}" \
+  --ic "${IC_MAIN_RAM}" \
+  --device "${DEVICE_KB}" \
+  --device "${DEVICE_JOY}" \
+  --device "${DEVICE_VIDEO}" \
+  --device "${DEVICE_TV}" \
+  --device "${DEVICE_SPK}" \
+  --host "${HOST_INTERACTIVE}" \
+  --host-backend "${HOST_BACKEND}" \
+  "${GEN_CARTRIDGE_ARGS[@]}" \
+  --output "${OUTPUT_DIR}"
 
 echo "[2/3] Building emulator with CMake -> ${BUILD_DIR}"
 cmake -S "${OUTPUT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"

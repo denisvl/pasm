@@ -39,7 +39,6 @@ export UV_CACHE_DIR="${UV_CACHE_DIR:-${REPO_ROOT}/.uv-cache}"
 mkdir -p "${UV_CACHE_DIR}"
 
 PROCESSOR="examples/processors/ricoh2a03.yaml"
-SYSTEM="examples/systems/nes/nes_interactive.yaml"
 HOST="examples/hosts/nes/nes_host_hal_interactive.yaml"
 IC_BUS="examples/ics/nes/nes_cpu_bus.yaml"
 IC_CTRL="examples/ics/nes/nes_controller_ports.yaml"
@@ -53,12 +52,17 @@ DEVICE_VIDEO="examples/devices/nes/nes_video.yaml"
 DEVICE_SPK="examples/devices/nes/nes_speaker.yaml"
 
 case "${PROFILE}" in
+  default)
+    SYSTEM="examples/systems/nes/nes_default.yaml"
+    DEFAULT_OUTPUT="generated/mos6502_nes_default"
+    ;;
   interactive)
+    SYSTEM="examples/systems/nes/nes_interactive.yaml"
     DEFAULT_OUTPUT="generated/mos6502_nes_interactive"
     ;;
   *)
     echo "Unsupported profile: ${PROFILE}" >&2
-    echo "Use: interactive" >&2
+    echo "Use: default | interactive" >&2
     exit 2
     ;;
 esac
