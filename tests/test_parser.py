@@ -922,6 +922,53 @@ def test_system_schema_accepts_automation_text_view_metadata():
     assert list(validator.iter_errors(system_data)) == []
 
 
+def test_system_schema_accepts_callback_backed_tile_name_table_text_view():
+    if yaml_loader.Draft7Validator is None:
+        pytest.skip("jsonschema not available")
+    schema = yaml_loader.load_schema("system")
+    validator = yaml_loader.Draft7Validator(schema)
+
+    system_data = {
+        "metadata": {"name": "AutomationCallbackTextSystem"},
+        "clock_hz": 3579545,
+        "memory": {"default_size": 65536},
+        "components": {
+            "ics": [],
+            "devices": [],
+            "hosts": [],
+        },
+        "connections": [],
+        "automation": {
+            "screen": {
+                "text_views": [
+                    {
+                        "id": "primary_text",
+                        "component": "vdp",
+                        "columns": 40,
+                        "rows": 24,
+                        "row_stride": 40,
+                        "memory": {
+                            "source": "callback",
+                            "component": "vdp",
+                            "read_callback": "read_text_cell",
+                            "callback_offset_mode": "cell_index",
+                            "base": 0x0000,
+                            "address_layout": "tile_name_table",
+                            "column_multiplier": 1,
+                        },
+                        "charset": "vdp_charset",
+                        "native_encoding": "screen_code",
+                        "unicode_map": "ascii",
+                    }
+                ]
+            },
+            "capabilities": ["screen.text_grid"],
+        },
+    }
+
+    assert list(validator.iter_errors(system_data)) == []
+
+
 def test_apple2_interactive_declares_automation_text_view():
     loader = yaml_loader.ProcessorSystemLoader()
     path = pathlib.Path("examples/systems/apple2/apple2_interactive.yaml")
@@ -934,6 +981,82 @@ def test_apple2_interactive_declares_automation_text_view():
     assert text_views[0]["memory"]["row_low_mask"] == 0x07
     assert text_views[0]["columns"] == 40
     assert text_views[0]["rows"] == 24
+
+
+@pytest.mark.parametrize(
+    "path_str",
+    [
+        "examples/systems/apple2/apple2_default.yaml",
+        "examples/systems/apple2/apple2_interactive.yaml",
+        "examples/systems/apple2plus/apple2plus_default.yaml",
+        "examples/systems/apple2plus/apple2plus_interactive.yaml",
+        "examples/systems/atari65xe/atari65xe_default.yaml",
+        "examples/systems/atari65xe/atari65xe_interactive.yaml",
+        "examples/systems/atari800xe/atari800xe_default.yaml",
+        "examples/systems/atari800xe/atari800xe_interactive.yaml",
+        "examples/systems/atari800xl/atari800xl_default.yaml",
+        "examples/systems/atari800xl/atari800xl_interactive.yaml",
+        "examples/systems/atari800xl/atari800xl_cartridge_default.yaml",
+        "examples/systems/atari800xl/atari800xl_cartridge_interactive.yaml",
+        "examples/systems/atari_xegs/atari_xegs_default.yaml",
+        "examples/systems/atari_xegs/atari_xegs_interactive.yaml",
+        "examples/systems/atari_xegs/atari_xegs_cartridge_default.yaml",
+        "examples/systems/atari_xegs/atari_xegs_cartridge_interactive.yaml",
+        "examples/systems/bbcmicro/bbc_micro_default.yaml",
+        "examples/systems/bbcmicro/bbc_micro_interactive.yaml",
+        "examples/systems/bbcmicro/bbc_micro_model_a_default.yaml",
+        "examples/systems/bbcmicro/bbc_micro_model_a_interactive.yaml",
+        "examples/systems/c64/c64_default.yaml",
+        "examples/systems/c64/c64_interactive.yaml",
+        "examples/systems/c64/c64_cartridge_default.yaml",
+        "examples/systems/c64/c64_cartridge_interactive.yaml",
+        "examples/systems/c64c/c64c_default.yaml",
+        "examples/systems/c64c/c64c_interactive.yaml",
+        "examples/systems/c64c/c64c_cartridge_default.yaml",
+        "examples/systems/c64c/c64c_cartridge_interactive.yaml",
+        "examples/systems/c64gs/c64gs_default.yaml",
+        "examples/systems/c64gs/c64gs_interactive.yaml",
+        "examples/systems/c64gs/c64gs_cartridge_default.yaml",
+        "examples/systems/c64gs/c64gs_cartridge_interactive.yaml",
+        "examples/systems/coco1/coco1_default.yaml",
+        "examples/systems/coco1/coco1_interactive.yaml",
+        "examples/systems/coco2/coco2_default.yaml",
+        "examples/systems/coco2/coco2_interactive.yaml",
+        "examples/systems/cpc464/cpc464_default.yaml",
+        "examples/systems/cpc464/cpc464_interactive.yaml",
+        "examples/systems/csx64/csx64_default.yaml",
+        "examples/systems/csx64/csx64_interactive.yaml",
+        "examples/systems/csx64/csx64_cartridge_default.yaml",
+        "examples/systems/csx64/csx64_cartridge_interactive.yaml",
+        "examples/systems/msx1/msx1_default.yaml",
+        "examples/systems/msx1/msx1_interactive.yaml",
+        "examples/systems/msx1/msx1_cartridge_default.yaml",
+        "examples/systems/msx1/msx1_cartridge_interactive.yaml",
+        "examples/systems/msx1/msx1_floppy_default.yaml",
+        "examples/systems/msx1/msx1_floppy_interactive.yaml",
+        "examples/systems/msx1_expanded/msx1_expanded_default.yaml",
+        "examples/systems/msx1_expanded/msx1_expanded_interactive.yaml",
+        "examples/systems/msx1_expanded/msx1_expanded_cartridge_default.yaml",
+        "examples/systems/msx1_expanded/msx1_expanded_cartridge_interactive.yaml",
+        "examples/systems/sg1000/sg1000_default.yaml",
+        "examples/systems/sg1000/sg1000_interactive.yaml",
+        "examples/systems/sg1000ii/sg1000ii_default.yaml",
+        "examples/systems/sg1000ii/sg1000ii_interactive.yaml",
+        "examples/systems/tdp100/tdp100_default.yaml",
+        "examples/systems/tdp100/tdp100_interactive.yaml",
+        "examples/systems/trs80_model4/trs80_model4_default.yaml",
+        "examples/systems/trs80_model4/trs80_model4_interactive.yaml",
+    ],
+)
+def test_selected_example_systems_declare_automation_text_views(path_str):
+    loader = yaml_loader.ProcessorSystemLoader()
+    path = pathlib.Path(path_str)
+    system_data = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    validated = loader.validate_system(system_data)
+    text_views = (((validated.get("automation") or {}).get("screen") or {}).get("text_views") or [])
+    assert text_views, path_str
+    assert text_views[0]["id"] == "primary_text"
 
 
 def test_cassette_source_schema_accepts_wav_cas_cdt_uef_and_line_in():
@@ -1451,4 +1574,3 @@ def test_example_c64_1541_subsystem_file_validates():
     assert all(pathlib.Path(path).is_absolute() for path in data["subsystem"]["media_backends"])
     assert all(pathlib.Path(path).is_absolute() for path in data["subsystem"]["bridge_devices"])
     assert all(pathlib.Path(path).is_absolute() for path in data["subsystem"]["core_devices"])
-

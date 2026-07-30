@@ -60,7 +60,10 @@ state:
     initial: "NULL"
 
 interfaces:
-  callbacks: []
+  callbacks:
+    - name: read_text_cell
+      args: [u32]
+      returns: u8
   handlers: []
   signals:
     - name: frame_ready
@@ -372,7 +375,19 @@ behavior:
               cpu_component_emit_signal(cpu, "vdp0", "irq_edge", irq_down, 1);
           }
       }
-  callback_handlers: {}
+  callback_handlers:
+    read_text_cell: |
+      uint8_t *vram = comp->vram;
+      uint16_t address = (uint16_t)((argc > 0u ? args[0] : 0u) & 0x3FFFu);
+      uint8_t mode_m1 = (uint8_t)((comp->reg1 >> 4) & 0x01u);
+      uint8_t mode_m2 = (uint8_t)((comp->reg1 >> 3) & 0x01u);
+      uint8_t mode_m3 = (uint8_t)((comp->reg0 >> 1) & 0x01u);
+      uint8_t is_text_mode = (uint8_t)((mode_m1 != 0u) && (mode_m2 == 0u) && (mode_m3 == 0u));
+      if (vram == NULL || is_text_mode == 0u) {
+          __result = 0x20u;
+      } else {
+          __result = (uint64_t)vram[address];
+      }
   handler_bodies: {}
 
 coding:

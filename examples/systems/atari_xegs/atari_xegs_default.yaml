@@ -80,6 +80,26 @@ components:
   - tv
   hosts:
   - host_atari800xl
+automation:
+  screen:
+    text_views:
+    - id: primary_text
+      component: atari800xl_antic
+      columns: 40
+      rows: 24
+      row_stride: 40
+      memory:
+        source: callback
+        component: atari800xl_antic
+        read_callback: read_text_cell
+        callback_offset_mode: cell_index
+        base: 0x0000
+        address_layout: linear
+        column_multiplier: 1
+      charset: atari_8bit_charset
+      native_encoding: atari_screen_code
+      unicode_map: ascii
+      unknown_policy: preserve_native
 connections: []
 audio:
   sample_rate: 44100

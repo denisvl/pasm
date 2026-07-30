@@ -68,6 +68,22 @@ components:
   cartridge: coco_cart0
   cassette: cassette_transport
   floppy: wd1793_fdc
+automation:
+  screen:
+    text_views:
+    - id: primary_text
+      component: coco_vdg_6847
+      columns: 32
+      rows: 16
+      row_stride: 32
+      memory:
+        source: system_memory
+        base: 0x0400
+        address_layout: linear
+      charset: coco_vdg_6847
+      native_encoding: coco_screen_code
+      unicode_map: coco_text
+      unknown_policy: preserve_native
 media_picker:
   open_action_id: EMU_MEDIA_PICKER
 cassette:

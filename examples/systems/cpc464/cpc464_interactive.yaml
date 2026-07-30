@@ -54,6 +54,26 @@ components:
   - host_cpc
   floppy: cpc_floppy_stub
   cassette: cassette_transport
+automation:
+  screen:
+    text_views:
+    - id: primary_text
+      component: cpc_gate_array
+      columns: 80
+      rows: 32
+      row_stride: 80
+      memory:
+        source: callback
+        component: cpc_gate_array
+        read_callback: read_text_cell
+        callback_offset_mode: cell_index
+        base: 0x0000
+        address_layout: linear
+        column_multiplier: 1
+      charset: amstrad_cpc_charset
+      native_encoding: amstrad_cpc_screen_code
+      unicode_map: ascii
+      unknown_policy: preserve_native
 media_picker:
   open_action_id: EMU_MEDIA_PICKER
 cassette:

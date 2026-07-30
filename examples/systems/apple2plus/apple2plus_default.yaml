@@ -32,4 +32,35 @@ components:
   devices: []
   hosts: []
 
+automation:
+  screen:
+    text_views:
+      - id: primary_text
+        component: apple2_video_softswitches
+        columns: 40
+        rows: 24
+        row_stride: 40
+        memory:
+          source: system_memory
+          base: 0x0400
+          alternate_base: 0x0800
+          address_layout: bit_interleaved_rows
+          row_low_mask: 0x07
+          row_low_shift: 7
+          row_high_shift: 3
+          row_high_multiplier: 0x28
+          column_multiplier: 1
+        charset: apple2_character_rom
+        native_encoding: apple2_screen_code
+        unicode_map: apple2_text
+        unknown_policy: preserve_native
+        mode_conditions:
+          text_switch: true
+          mixed_switch: false
+          page2_selects_alternate_base: true
+        attributes:
+          inverse_range: [0x00, 0x3F]
+          flash_range: [0x40, 0x7F]
+          normal_range: [0x80, 0xFF]
+
 connections: []

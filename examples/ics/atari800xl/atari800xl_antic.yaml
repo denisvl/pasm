@@ -337,6 +337,9 @@ interfaces:
     - name: request_nmi
       args: []
       returns: u8
+    - name: read_text_cell
+      args: [u32]
+      returns: u8
   handlers: []
   signals:
     - name: frame_ready
@@ -2906,7 +2909,108 @@ behavior:
       }
 
       (void)comp->keyboard_sticky;
-  callback_handlers: {}
+  callback_handlers:
+    read_text_cell: |
+      uint32_t cell_index = (uint32_t)(argc > 0u ? args[0] : 0u);
+      uint32_t target_row = cell_index / 40u;
+      uint32_t target_col = cell_index % 40u;
+      uint32_t text_row = 0u;
+      uint16_t dl_ptr = (uint16_t)((uint16_t)comp->antic_dlistl | ((uint16_t)comp->antic_dlisth << 8u));
+      uint16_t scan_addr = 0u;
+      uint32_t safety = 0u;
+      __result = 0x20u;
+      if (cell_index >= 960u) {
+          return;
+      }
+      if (dl_ptr < 0x0200u) {
+          uint64_t sdlst_args_lo[1] = { 0x0230u };
+          uint64_t sdlst_args_hi[1] = { 0x0231u };
+          uint16_t sdlst = (uint16_t)(
+              (uint16_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", sdlst_args_lo, 1) & 0xFFu) |
+              ((uint16_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", sdlst_args_hi, 1) & 0xFFu) << 8u)
+          );
+          if (sdlst >= 0x0200u) {
+              dl_ptr = sdlst;
+          }
+      }
+      while (safety < 2048u) {
+          uint64_t ir_args[1] = { (uint64_t)dl_ptr };
+          uint8_t ir = (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ir_args, 1) & 0xFFu);
+          uint8_t mode = (uint8_t)(ir & 0x0Fu);
+          uint32_t bytes_per_row = 0u;
+          uint8_t text_40col = 0u;
+          dl_ptr = (uint16_t)(dl_ptr + 1u);
+          safety += 1u;
+
+          if (mode == 0x01u) {
+              uint64_t lo_args[1] = { (uint64_t)dl_ptr };
+              uint64_t hi_args[1] = { (uint64_t)(uint16_t)(dl_ptr + 1u) };
+              uint16_t target = (uint16_t)(
+                  (uint16_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", lo_args, 1) & 0xFFu) |
+                  ((uint16_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", hi_args, 1) & 0xFFu) << 8u)
+              );
+              dl_ptr = (uint16_t)(dl_ptr + 2u);
+              if ((ir & 0x40u) != 0u) {
+                  break;
+              }
+              dl_ptr = target;
+              continue;
+          }
+
+          if (mode == 0x00u) {
+              continue;
+          }
+
+          if ((ir & 0x40u) != 0u) {
+              uint64_t lo_args[1] = { (uint64_t)dl_ptr };
+              uint64_t hi_args[1] = { (uint64_t)(uint16_t)(dl_ptr + 1u) };
+              scan_addr = (uint16_t)(
+                  (uint16_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", lo_args, 1) & 0xFFu) |
+                  ((uint16_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", hi_args, 1) & 0xFFu) << 8u)
+              );
+              dl_ptr = (uint16_t)(dl_ptr + 2u);
+          }
+
+          switch (mode) {
+              case 0x02u:
+              case 0x03u:
+              case 0x04u:
+              case 0x05u:
+                  bytes_per_row = 40u;
+                  text_40col = 1u;
+                  break;
+              case 0x06u:
+              case 0x07u:
+                  bytes_per_row = 20u;
+                  break;
+              case 0x08u:
+              case 0x09u:
+                  bytes_per_row = 10u;
+                  break;
+              case 0x0Au:
+              case 0x0Bu:
+              case 0x0Cu:
+                  bytes_per_row = 20u;
+                  break;
+              case 0x0Du:
+              case 0x0Eu:
+              case 0x0Fu:
+              default:
+                  bytes_per_row = 40u;
+                  break;
+          }
+
+          if (text_40col != 0u) {
+              if (text_row == target_row) {
+                  uint64_t read_args[1] = { (uint64_t)(uint16_t)(scan_addr + (uint16_t)target_col) };
+                  __result = cpu_component_call(cpu, "atari800xl_antic", "bus_read", read_args, 1) & 0xFFu;
+                  return;
+              }
+              text_row += 1u;
+          }
+
+          scan_addr = (uint16_t)(scan_addr + (uint16_t)bytes_per_row);
+      }
   handler_bodies: {}
 coding:
   headers: []

@@ -61,6 +61,27 @@ components:
   - host_msx
   cartridge: msx_cart0_expanded
   cassette: cassette_transport
+automation:
+  screen:
+    text_views:
+    - id: primary_text
+      component: vdp0
+      columns: 40
+      rows: 24
+      row_stride: 40
+      memory:
+        source: callback
+        component: vdp0
+        read_callback: read_text_cell
+        base: 0x0000
+        address_layout: tile_name_table
+        column_multiplier: 1
+      charset: tms9918a_charset
+      native_encoding: tms9918a_screen_code
+      unicode_map: ascii
+      unknown_policy: preserve_native
+      mode_conditions:
+        video_mode: text
 cassette:
   component: cassette_transport
   directory: examples/cassettes/msx1

@@ -88,6 +88,9 @@ interfaces:
     - name: crtc_read_reg
       args: [u8]
       returns: u8
+    - name: read_text_cell
+      args: [u32]
+      returns: u8
     - name: ppi_write_io_page
       args: [u16, u8]
       returns: u8
@@ -871,7 +874,70 @@ behavior:
           }
       }
   callback_handlers:
-    {}
+    read_text_cell: |
+      uint32_t cell_index = (uint32_t)(argc > 0u ? args[0] : 0u);
+      uint8_t *ram = cpu->comp_cpc464_ram.bytes;
+      uint32_t mode = (uint32_t)(comp->ga_mode & 0x03u);
+      uint16_t ma_start = 0x3000u;
+      uint32_t disp_chars = 40u;
+      uint32_t char_rows = 25u;
+      uint32_t hstart = 0u;
+      uint32_t vstart = 0u;
+      __result = 0x20u;
+      if (ram == NULL) {
+          return;
+      }
+      if (cell_index >= 80u * 32u) {
+          return;
+      }
+      {
+          uint64_t cb12[1] = { 12u };
+          uint64_t cb13[1] = { 13u };
+          uint64_t cb1[1] = { 1u };
+          uint64_t cb6[1] = { 6u };
+          uint64_t cb8[1] = { 8u };
+          uint8_t r1;
+          uint8_t r6;
+          uint8_t r8;
+          ma_start = (uint16_t)(((uint16_t)cpu_component_call(cpu, "cpc_gate_array", "crtc_read_reg", cb12, 1) << 8u)
+              | (uint16_t)cpu_component_call(cpu, "cpc_gate_array", "crtc_read_reg", cb13, 1));
+          r1 = (uint8_t)cpu_component_call(cpu, "cpc_gate_array", "crtc_read_reg", cb1, 1);
+          r6 = (uint8_t)cpu_component_call(cpu, "cpc_gate_array", "crtc_read_reg", cb6, 1);
+          r8 = (uint8_t)cpu_component_call(cpu, "cpc_gate_array", "crtc_read_reg", cb8, 1);
+          disp_chars = (r1 == 0u) ? 40u : (uint32_t)r1;
+          char_rows = (r6 == 0u) ? 25u : (uint32_t)r6;
+          hstart = (uint32_t)((r8 >> 4u) & 0x03u);
+          vstart = (uint32_t)(r8 & 0x03u);
+      }
+      if (disp_chars > 80u) disp_chars = 80u;
+      if (char_rows > 32u) char_rows = 32u;
+      if (mode > 2u) {
+          return;
+      }
+      {
+          uint32_t target_row = cell_index / 80u;
+          uint32_t target_col = cell_index % 80u;
+          uint16_t ma = ma_start;
+          if (target_row >= char_rows || target_row < vstart) {
+              return;
+          }
+          if (target_col >= disp_chars) {
+              return;
+          }
+          {
+              uint32_t visible_row = target_row - vstart;
+              ma = (uint16_t)(ma + (uint16_t)(visible_row * disp_chars));
+          }
+          {
+              uint16_t ma_char = (uint16_t)((ma + (uint16_t)(hstart + target_col)) & 0x73FFu);
+              uint16_t j = (uint16_t)(ma_char << 1u);
+              uint16_t addr = (uint16_t)(
+                  (j & 0x07FEu)
+                  | ((j & 0x6000u) << 1u)
+              );
+              __result = ((uint64_t)addr < cpu->memory_size) ? (uint64_t)ram[addr] : 0x20u;
+          }
+      }
   handler_bodies: {}
 
 coding:
