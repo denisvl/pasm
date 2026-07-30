@@ -1,0 +1,55 @@
+metadata:
+  id: cv_bus0
+  type: bus_interface
+  model: colecovision_cpu_bus
+  version: "1.0"
+
+clock_hz: 3579545
+
+state: []
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: ram_window
+        start: 0x6000
+        size: 0x0800
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      (void)cpu;
+    destroy: |
+      (void)cpu;
+    mem_read_pre: |
+      if (addr >= 0x6000u && addr < 0x6800u) {
+          uint64_t cb_args[1] = { (uint64_t)addr };
+          return (uint8_t)cpu_component_dispatch_callback(cpu, "cv_ram0", "ram_read", cb_args, 1);
+      }
+      return 0u;
+    mem_write_pre: |
+      if (addr >= 0x6000u && addr < 0x6800u) {
+          uint64_t cb_args[2] = { (uint64_t)addr, (uint64_t)value };
+          (void)cpu_component_dispatch_callback(cpu, "cv_ram0", "ram_write", cb_args, 2);
+          return;
+      }
+    step_pre: |
+      (void)cpu;
+    step_post: |
+      (void)cpu;
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []
