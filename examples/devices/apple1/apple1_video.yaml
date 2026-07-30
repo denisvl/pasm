@@ -1,0 +1,73 @@
+metadata:
+  id: apple1_video
+  type: video
+  model: apple1_text_terminal
+  version: '1.0'
+state:
+- name: cursor_x
+  type: uint8_t
+  initial: '0'
+- name: cursor_y
+  type: uint8_t
+  initial: '0'
+- name: width
+  type: uint8_t
+  initial: '40'
+- name: height
+  type: uint8_t
+  initial: '24'
+interfaces:
+  callbacks:
+  - name: display_char
+    args: [u8]
+    returns: void
+  handlers: []
+  signals: []
+behavior:
+  snippets:
+    init: |
+      (void)cpu;
+    reset: |
+      comp->cursor_x = 0u;
+      comp->cursor_y = 0u;
+    destroy: |
+      (void)comp;
+    display_char: |
+      uint8_t ch = (uint8_t)(args[0] & 0xFFu);
+      // Handle control characters
+      if (ch == 0x0D) { // CR
+        comp->cursor_x = 0;
+        return;
+      }
+      if (ch == 0x0A) { // LF
+        if (comp->cursor_y + 1 >= comp->height) {
+          // Scroll up - in a real implementation this would shift the screen buffer
+          comp->cursor_y = comp->height - 1;
+        } else {
+          comp->cursor_y++;
+        }
+        return;
+      }
+      if (ch == 0x08) { // BS
+        if (comp->cursor_x > 0) {
+          comp->cursor_x--;
+        }
+        return;
+      }
+      // Printable character (Apple I is uppercase only)
+      // In a real implementation, this would write to a screen buffer
+      // and the host would render it
+      comp->cursor_x++;
+      if (comp->cursor_x >= comp->width) {
+        comp->cursor_x = 0;
+        if (comp->cursor_y + 1 >= comp->height) {
+          comp->cursor_y = comp->height - 1;
+        } else {
+          comp->cursor_y++;
+        }
+      }
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

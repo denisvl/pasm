@@ -1,0 +1,145 @@
+metadata:
+  name: Apple1InteractiveSystem
+  title: PASM Apple I
+  version: '0.1'
+
+clock_hz: 1023000
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: RAM_MAIN
+      start: 0x0000
+      size: 0xC000
+      read_write: true
+    - name: IO_REGION
+      start: 0xC000
+      size: 0x3F00
+      read_write: true
+    - name: ROM_WOZMON
+      start: 0xFF00
+      size: 0x0100
+      read_only: true
+  rom_images:
+    - name: wozmon_rom
+      file: ../../roms/apple/wozmon.bin
+      target_region: ROM_WOZMON
+      offset: 0
+
+hooks: {}
+
+components:
+  ics:
+    - apple1_pia_6820
+    - apple1_char_rom
+    - apple1_cassette_io
+  devices:
+    - apple1_keyboard
+    - apple1_video
+    - cassette_transport_nomotor
+  hosts:
+    - host_apple1
+  cassette: apple1_cassette_io
+
+cassette:
+  component: apple1_cassette_io
+  directory: examples/cassettes/apple1
+  allowed_extensions: [yaml, wav]
+  sources:
+    - kind: file
+      source_type: ../../cassette_sources/wav_file.yaml
+      component: apple1_cassette_io
+      label: Tape File
+      allowed_extensions: [yaml, wav]
+    - kind: line_in
+      source_type: ../../cassette_sources/line_in.yaml
+      component: apple1_cassette_io
+      label: Line In
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+
+connections:
+  - from:
+      component: apple1_keyboard
+      kind: callback
+      name: host_key
+    to:
+      component: host_apple1
+      kind: callback
+      name: keyboard_ascii
+  - from:
+      component: apple1_pia_6820
+      kind: callback
+      name: keyboard_ascii
+    to:
+      component: apple1_keyboard
+      kind: callback
+      name: read_key
+  - from:
+      component: apple1_pia_6820
+      kind: callback
+      name: display_ready
+    to:
+      component: apple1_video
+      kind: callback
+      name: display_char
+  - from:
+      component: apple1_cassette_io
+      kind: callback
+      name: cassette_input_bit
+    to:
+      component: cassette_transport_nomotor
+      kind: handler
+      name: on_output_sample
+  - from:
+      component: cassette_transport_nomotor
+      kind: signal
+      name: playback_sample
+    to:
+      component: apple1_cassette_io
+      kind: callback
+      name: cassette_input_bit
+  - from:
+      component: apple1_video
+      kind: signal
+      name: frame_present
+    to:
+      component: host_apple1
+      kind: handler
+      name: video_frame
+  - from:
+      component: apple1_cassette_io
+      kind: signal
+      name: cassette_output
+    to:
+      component: host_apple1
+      kind: handler
+      name: audio_pcm
+
+automation:
+  screen:
+    text_views:
+      - id: primary_text
+        component: apple1_video
+        columns: 40
+        rows: 24
+        row_stride: 40
+        memory:
+          source: system_memory
+          base: 0xD000
+          address_layout: linear
+        charset: apple1_character_rom
+        native_encoding: ascii
+        unicode_map: ascii
+        unknown_policy: preserve_native

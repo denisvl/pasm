@@ -1,0 +1,64 @@
+metadata:
+  id: apple1_cassette_io
+  type: io_controller
+  model: apple1_cassette_interface
+  version: "1.0"
+
+state:
+  - name: cassette_in
+    type: uint8_t
+    initial: "0"
+  - name: cassette_out
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: cassette_input_bit
+      args: [u8]
+      returns: void
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cassette_io
+        start: 0xC020
+        size: 0x0002
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      comp->cassette_in = 0;
+      comp->cassette_out = 0;
+    destroy: |
+      /* No dynamic allocations to clean up */
+    mem_read_pre: |
+      if (addr == 0xC020) {
+        /* Read cassette input (bit 7 = CA1 state) */
+        return (comp->cassette_in << 7) | 0x7F;
+      }
+      return 0xFF;
+    mem_write_pre: |
+      if (addr == 0xC021) {
+        /* Write cassette output (bit 7 -> CA2) */
+        comp->cassette_out = (value >> 7) & 0x01;
+        /* Forward to PIA CA2 */
+        cpu_component_call(cpu, "apple1_pia_6820", "cassette_output", &comp->cassette_out, 1);
+        /* Forward to cassette device */
+        cpu_component_call(cpu, "apple1_cassette", "write_bit", &comp->cassette_out, 1);
+      }
+    cassette_input_bit: |
+      comp->cassette_in = arg0;
+      /* Forward to PIA CA1 */
+      cpu_component_call(cpu, "apple1_pia_6820", "cassette_input", &arg0, 1);
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

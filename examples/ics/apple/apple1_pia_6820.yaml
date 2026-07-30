@@ -1,0 +1,147 @@
+metadata:
+  id: apple1_pia_6820
+  type: io_controller
+  model: pia_6820
+  version: "1.0"
+
+state:
+  - name: pra
+    type: uint8_t
+    initial: "0x00"
+  - name: cra
+    type: uint8_t
+    initial: "0x00"
+  - name: prb
+    type: uint8_t
+    initial: "0x00"
+  - name: crb
+    type: uint8_t
+    initial: "0x00"
+  - name: kbd_ready
+    type: uint8_t
+    initial: "0"
+  - name: disp_ready
+    type: uint8_t
+    initial: "0"
+  - name: ca1_input
+    type: uint8_t
+    initial: "0"
+  - name: ca2_output
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: keyboard_ascii
+      args: [u8]
+      returns: void
+    - name: ca1_input
+      args: [u8]
+      returns: void
+    - name: display_ready
+      args: []
+      returns: void
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: pia_registers
+        start: 0xD010
+        size: 0x0004
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      comp->pra = 0x00;
+      comp->cra = 0x00;
+      comp->prb = 0x00;
+      comp->crb = 0x00;
+      comp->kbd_ready = 0;
+      comp->disp_ready = 0;
+      comp->ca1_input = 0;
+      comp->ca2_output = 0;
+    destroy: |
+      /* No dynamic allocations to clean up */
+    mem_read_pre: |
+      uint16_t reg = addr & 0x03u;
+      switch (reg) {
+          case 0x00: // PRA - Peripheral Register A
+              // Bit 7 = keyboard ready flag, bits 0-6 = keyboard/display data
+              return (comp->kbd_ready ? 0x80u : 0x00u) | (comp->pra & 0x7Fu);
+          case 0x01: // CRA - Control Register A
+              return comp->cra;
+          case 0x02: // PRB - Peripheral Register B
+              return comp->prb;
+          case 0x03: // CRB - Control Register B
+              return comp->crb;
+      }
+      return 0u;
+    mem_write_pre: |
+      uint16_t reg = addr & 0x03u;
+      switch (reg) {
+          case 0x00: // PRA - Peripheral Register A
+              // Write: Display data output (bits 0-6)
+              comp->pra = value & 0x7Fu;
+              comp->disp_ready = 1;
+              cpu_component_call(cpu, "apple1_video", "display_char", &value, 1);
+              return;
+          case 0x01: // CRA - Control Register A
+              comp->cra = value;
+              // CA2 output control
+              if (value & 0x08u) {  /* CA2 high */
+                comp->ca2_output = 1;
+              } else {
+                comp->ca2_output = 0;
+              }
+              /* Forward CA2 to ACI card via edge connector */
+              cpu_component_call(cpu, "apple1_aci_card", "set_ca2", &comp->ca2_output, 1);
+              return;
+          case 0x02: // PRB - Peripheral Register B
+              // Write: Display control (bit 0 = clear, bit 1 = strobe)
+              comp->prb = value;
+              if (value & 0x01u) {
+                  comp->kbd_ready = 0; // Clear keyboard ready
+                  comp->pra &= 0x7Fu;
+              }
+              if (value & 0x02u) {
+                  comp->disp_ready = 0; // Clear display ready
+              }
+              return;
+          case 0x03: // CRB - Control Register B
+              comp->crb = value;
+              // CB1 (keyboard strobe) interrupt control: bits 0-1
+              // CB2 (display strobe) control: bits 2-3
+              return;
+      }
+    keyboard_ascii: |
+      comp->pra = arg0 & 0x7Fu;
+      comp->kbd_ready = 1;
+      comp->pra |= 0x80u;  /* Set ready flag in bit 7 */
+      /* Trigger IRQ if CB1 interrupt enabled */
+      if (comp->crb & 0x01u) {
+        cpu_request_irq(cpu);
+      }
+    ca1_input: |
+      comp->ca1_input = arg0;
+      if (arg0 && (comp->cra & 0x01u)) {  /* CA1 interrupt enabled */
+        comp->cra |= 0x80u;  /* Set IRQA2 */
+        cpu_request_irq(cpu);
+      }
+    display_ready: |
+      comp->disp_ready = 1;
+      comp->prb |= 0x02u;
+      /* Trigger IRQ if CB2 interrupt enabled */
+      if (comp->crb & 0x04u) {
+        cpu_request_irq(cpu);
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

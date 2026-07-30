@@ -1,0 +1,56 @@
+component:
+  type: ic
+  manufacturer: "Apple"
+  part_number: "Speaker Toggle"
+  name: "apple1_speaker_toggle"
+  description: "Apple I Speaker Toggle - Simple speaker driven by PIA CB2 (or memory-mapped at 0xC030 like Apple II). The Apple I speaker is toggled by writing to a memory address or via PIA CB2 line."
+
+memory:
+  base_address: 0xC030
+  size: 1
+  mapping: "linear"
+  readable: false
+  writable: true
+
+registers: []
+
+behavior:
+  init: |
+    comp->speaker_state = 0;
+    comp->toggle_count = 0;
+
+  reset: |
+    comp->speaker_state = 0;
+    comp->toggle_count = 0;
+
+  mem_write_pre: |
+    /* Any write to 0xC030 toggles the speaker */
+    comp->speaker_state ^= 1;
+    comp->toggle_count++;
+    /* Emit speaker signal to audio device */
+    cpu_component_call(cpu, "apple1_speaker", "toggle", &comp->speaker_state, 1);
+
+  callbacks:
+    - name: "pia_cb2_toggle"
+      description: "Called by PIA when CB2 toggles (alternative speaker drive)"
+      parameters:
+        - name: "state"
+          type: "uint8_t"
+          description: "CB2 state (0 or 1)"
+      body: |
+        comp->speaker_state = state;
+        cpu_component_call(cpu, "apple1_speaker", "set_state", &state, 1);
+
+  signals:
+    - name: "speaker_toggle"
+      direction: "out"
+      description: "Speaker toggle signal to audio device"
+    - name: "speaker_state"
+      direction: "out"
+      description: "Current speaker state (0 or 1)"
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

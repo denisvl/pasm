@@ -1,0 +1,85 @@
+metadata:
+  id: apple1_char_rom
+  type: rom
+  model: signetics_2513
+  version: "1.0"
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: get_char_row
+      args: [u8, u8]
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges: []
+
+behavior:
+  snippets:
+    init: |
+      /* Load the Apple I character generator ROM (Signetics 2513, 512 bytes). */
+      comp->rom_data = NULL;
+      comp->rom_size = 0;
+      const char *rom_rel = "../../roms/apple1/apple1_char_rom.bin";
+      char rom_path[1024];
+      const char *sysdir = getenv("PASM_SYSTEM_DIR");
+      FILE *fp = NULL;
+      if (sysdir != NULL && sysdir[0] != '\0') {
+          snprintf(rom_path, sizeof(rom_path), "%s/%s", sysdir, rom_rel);
+          fp = fopen(rom_path, "rb");
+      }
+      if (fp == NULL) {
+          /* Fallback: path relative to CWD (repo root). */
+          snprintf(rom_path, sizeof(rom_path), "examples/roms/apple1/apple1_char_rom.bin");
+          fp = fopen(rom_path, "rb");
+      }
+      if (fp == NULL) {
+          fprintf(stderr, "[apple1_char_rom] failed to open character ROM: %s\n", rom_path);
+      } else {
+          fseek(fp, 0, SEEK_END);
+          long sz = ftell(fp);
+          fseek(fp, 0, SEEK_SET);
+          if (sz > 0) {
+              comp->rom_data = (uint8_t *)malloc((size_t)sz);
+              if (comp->rom_data != NULL) {
+                  size_t got = fread(comp->rom_data, 1, (size_t)sz, fp);
+                  comp->rom_size = (uint32_t)got;
+              }
+          }
+          fclose(fp);
+          if (comp->rom_data == NULL) {
+              fprintf(stderr, "[apple1_char_rom] failed to read character ROM (%ld bytes)\n", sz);
+          }
+      }
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      comp->rom_size = 0
+    get_char_row: |
+      if (comp->rom_data != NULL && comp->rom_size > 0) {
+          uint16_t addr = ((uint16_t)arg0 << 3) | (arg1 & 0x07u);
+          if (addr < comp->rom_size) {
+              return comp->rom_data[addr];
+          }
+      }
+      return 0x00;
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

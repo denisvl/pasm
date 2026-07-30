@@ -1,0 +1,45 @@
+component:
+  type: ic
+  manufacturer: "Generic"
+  part_number: "MK4096"
+  name: "apple1_main_ram"
+  description: "Apple I Main RAM - 8KB (8 x MK4096 4Kx1 DRAM) at 0x0000-0x1FFF. Directly mapped to CPU address space."
+
+memory:
+  base_address: 0x0000
+  size: 8192
+  mapping: "linear"
+  readable: true
+  writable: true
+
+registers: []
+
+behavior:
+  init: |
+    /* RAM is zero-initialized by calloc in generated code */
+    comp->size = 8192;
+
+  reset: |
+    /* RAM contents preserved on reset (like real Apple I) */
+    /* Optionally clear on power-on only */
+    if (comp->power_on) {
+      memset(comp->memory, 0, comp->size);
+      comp->power_on = 0;
+    }
+
+  mem_read_pre: |
+    if (addr < comp->size) {
+      return comp->memory[addr];
+    }
+    return 0xFF;  /* Floating bus */
+
+  mem_write_pre: |
+    if (addr < comp->size) {
+      comp->memory[addr] = value;
+    }
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

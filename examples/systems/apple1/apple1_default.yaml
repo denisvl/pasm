@@ -1,0 +1,71 @@
+metadata:
+  name: Apple1DefaultSystem
+  title: PASM Apple I
+  version: "0.1"
+
+clock_hz: 1023000
+reset_delay_seconds: 0
+
+memory:
+  default_size: 65536
+  regions:
+    - name: RAM_MAIN
+      start: 0x0000
+      size: 0xC000
+      read_write: true
+    - name: IO_REGION
+      start: 0xC000
+      size: 0x3F00
+      read_write: true
+    - name: ROM_WOZMON
+      start: 0xFF00
+      size: 0x0100
+      read_only: true
+  rom_images:
+    - name: wozmon_rom
+      file: ../../roms/apple/wozmon.bin
+      target_region: ROM_WOZMON
+      offset: 0
+
+hooks: {}
+
+components:
+  ics:
+    - apple1_pia_6820
+    - apple1_char_rom
+    - apple1_cassette_io
+  devices:
+    - apple1_keyboard
+    - apple1_video
+    - cassette_transport_nomotor
+  hosts: []
+  cassette: apple1_cassette_io
+
+cassette:
+  component: apple1_cassette_io
+  directory: examples/cassettes/apple1
+  allowed_extensions: [yaml, wav]
+  sources:
+    - kind: file
+      source_type: ../../cassette_sources/wav_file.yaml
+      component: apple1_cassette_io
+      label: Tape File
+      allowed_extensions: [yaml, wav]
+    - kind: line_in
+      source_type: ../../cassette_sources/line_in.yaml
+      component: apple1_cassette_io
+      label: Line In
+  controls:
+    picker_action_id: EMU_MEDIA_PICKER
+    play_action_id: EMU_CASSETTE_PLAY
+    pause_action_id: EMU_CASSETTE_PAUSE
+    stop_action_id: EMU_CASSETTE_STOP
+    record_action_id: EMU_CASSETTE_RECORD
+    volume_up_action_id: EMU_CASSETTE_VOL_UP
+    volume_down_action_id: EMU_CASSETTE_VOL_DOWN
+    bass_up_action_id: EMU_CASSETTE_BASS_UP
+    bass_down_action_id: EMU_CASSETTE_BASS_DOWN
+    treble_up_action_id: EMU_CASSETTE_TREBLE_UP
+    treble_down_action_id: EMU_CASSETTE_TREBLE_DOWN
+
+connections: []
