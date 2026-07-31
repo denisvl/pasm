@@ -132,12 +132,14 @@ class EmulatorGenerator:
             )
         return resolved
 
-    def generate(self, output_dir: str, dispatch_mode: str = "switch") -> None:
+    def generate(self, output_dir: str, dispatch_mode: str = "switch", is_subsystem: bool = False) -> None:
         """Generate the emulator to the output directory.
 
         :param output_dir: Target directory for generated C files and build scripts.
         :param dispatch_mode: Dispatch strategy
             (``switch``, ``threaded``, or ``both``).
+        :param is_subsystem: If True, skip generating host HAL implementation
+            (subsystems use the host HAL from the main system).
         """
 
         if dispatch_mode not in {"switch", "threaded", "both"}:
@@ -219,22 +221,26 @@ class EmulatorGenerator:
 
         # Generate CPU implementation content (owned by split core TU).
         logger.info("  - Generating cpu_core.c...")
+        exclude_sections = [
+            "HOST_HAL_IMPL",
+            "INPUT_RUNTIME",
+            "CARTRIDGE_PICKER_RUNTIME",
+            "COMPONENT_RUNTIME",
+            "COMPONENT_LIFECYCLE",
+            "COMPONENT_DISPATCH",
+            "COMPONENT_ROUTING",
+            "COMPONENT_CONNECTIONS",
+        ]
+        if is_subsystem:
+            # Subsystems don't generate their own host HAL; they use the main system's
+            pass  # HOST_HAL_IMPL already in exclude_sections
         impl_code = generate_cpu_impl(
             isa_data_for_codegen,
             self.cpu_name,
             dispatch_mode=dispatch_mode,
             include_loader_impls=False,
             include_interrupt_impls=False,
-            exclude_split_sections=[
-                "HOST_HAL_IMPL",
-                "INPUT_RUNTIME",
-                "CARTRIDGE_PICKER_RUNTIME",
-                "COMPONENT_RUNTIME",
-                "COMPONENT_LIFECYCLE",
-                "COMPONENT_DISPATCH",
-                "COMPONENT_ROUTING",
-                "COMPONENT_CONNECTIONS",
-            ],
+            exclude_split_sections=exclude_sections,
         )
         (src_dir / f"{self.cpu_name}_core.c").write_text(impl_code)
 
@@ -294,9 +300,9 @@ class EmulatorGenerator:
         # Prune stale split system-side units from prior naming prefixes.
         ic_basenames = ic_unit_basenames(self.isa_data, self.system_prefix)
         current_split_units = {
-            f"{name}.c" for name in (system_unit_basenames(self.system_prefix) + ic_basenames)
+            f"{name}.c" for name in (system_unit_basenames(self.system_prefix, self.isa_data) + ic_basenames)
         }
-        current_split_headers = {f"{name}.h" for name in system_unit_basenames(self.system_prefix)}
+        current_split_headers = {f"{name}.h" for name in system_unit_basenames(self.system_prefix, self.isa_data)}
         for suffix in SYSTEM_UNIT_SUFFIXES:
             for stale_path in src_dir.glob(f"*_{suffix}.c"):
                 stem = stale_path.stem
@@ -335,8 +341,11 @@ class EmulatorGenerator:
 
         # Transitional split system-side units (to be populated incrementally).
         logger.info("  - Generating split system units...")
-        for basename in system_unit_basenames(self.system_prefix):
+        for basename in system_unit_basenames(self.system_prefix, self.isa_data):
             suffix = basename[len(self.system_prefix) + 1 :]
+            # Skip host_glue for subsystems - they use the main system's host HAL
+            if is_subsystem and suffix == "host_glue":
+                continue
             unit_body = emit_split_unit(isa_data_for_codegen, self.cpu_name, suffix)
             (src_dir / f"{basename}.c").write_text(unit_body)
         for component in list(self.isa_data.get("ics", []) or []):
@@ -885,7 +894,7 @@ exit /b 0
                 "system_sources": [
                     f"src/{name}.c"
                     for name in (
-                        system_unit_basenames(self.system_prefix)
+                        system_unit_basenames(self.system_prefix, self.isa_data)
                         + ic_unit_basenames(self.isa_data, self.system_prefix)
                     )
                 ],
@@ -992,7 +1001,9 @@ def generate_from_subsystem(
         cartridge_rom_path=None,
         host_backend_target=None,
     )
-    generator.generate(output_dir, dispatch_mode=dispatch_mode)
+    # Subsystems should not generate their own host HAL implementation;
+    # they use the host HAL from the main system.
+    generator.generate(output_dir, dispatch_mode=dispatch_mode, is_subsystem=True)
     _namespace_generated_subsystem_output(
         generator,
         Path(output_dir),

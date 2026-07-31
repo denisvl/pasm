@@ -62,14 +62,20 @@ def system_ident(system_name: str, cpu_prefix: str) -> str:
     return out or "system"
 
 
-def system_unit_basenames(system_prefix: str) -> List[str]:
+def system_unit_basenames(system_prefix: str, isa_data: Dict[str, Any] | None = None) -> List[str]:
     """Ordered system-side split compilation units."""
-    return [f"{system_prefix}_{unit.suffix}" for unit in SYSTEM_UNITS]
+    units = list(SYSTEM_UNITS)
+    # Exclude host_glue if the system has no hosts
+    if isa_data is not None:
+        has_hosts = bool(isa_data.get("hosts"))
+        if not has_hosts:
+            units = [u for u in units if u.suffix != "host_glue"]
+    return [f"{system_prefix}_{unit.suffix}" for unit in units]
 
 
-def system_unit_sources(system_prefix: str) -> List[str]:
+def system_unit_sources(system_prefix: str, isa_data: Dict[str, Any] | None = None) -> List[str]:
     """Ordered system-side split C source file paths (without debug ABI/hook units)."""
-    return [f"src/{name}.c" for name in system_unit_basenames(system_prefix)]
+    return [f"src/{name}.c" for name in system_unit_basenames(system_prefix, isa_data)]
 
 
 def ic_unit_basenames(isa_data: Dict[str, Any], system_prefix: str) -> List[str]:
@@ -86,6 +92,6 @@ def ic_unit_basenames(isa_data: Dict[str, Any], system_prefix: str) -> List[str]
 
 def all_system_sources(isa_data: Dict[str, Any], system_prefix: str) -> List[str]:
     """Ordered system-side split sources including per-IC units."""
-    base = system_unit_sources(system_prefix)
+    base = system_unit_sources(system_prefix, isa_data)
     ic_sources = [f"src/{name}.c" for name in ic_unit_basenames(isa_data, system_prefix)]
     return base + ic_sources
