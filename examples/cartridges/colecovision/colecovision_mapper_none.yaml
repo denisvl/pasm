@@ -1,0 +1,69 @@
+metadata:
+  id: cv_cart0
+  type: cartridge_mapper
+  model: colecovision_mapper_none
+  version: "1.0"
+
+allowed_extensions:
+  - col
+  - rom
+  - bin
+
+state:
+  - name: rom_data
+    type: uint8_t *
+    initial: "NULL"
+  - name: rom_size
+    type: uint32_t
+    initial: "0"
+
+interfaces:
+  callbacks: []
+  handlers: []
+  signals: []
+
+maps:
+  memory:
+    ranges:
+      - name: cart_window
+        start: 0x8000
+        size: 0x8000
+        access: [read]
+
+behavior:
+  snippets:
+    destroy: |
+      if (comp->rom_data != NULL) {
+          free(comp->rom_data);
+          comp->rom_data = NULL;
+      }
+      comp->rom_size = 0u;
+    mem_read_pre: |
+      if (addr >= 0x8000u && addr <= 0xFFFFu) {
+          if (comp->rom_data == NULL || comp->rom_size == 0u) {
+              return 0xFFu;
+          }
+          /*
+           * ColecoVision "no mapper" cartridges are 8K/16K/24K/32K and are
+           * mirrored through the 0x8000-0xFFFF window by the bus wiring.
+           * Use power-of-two masking when possible, fallback to modulo.
+           */
+          {
+              uint32_t off = (uint32_t)(addr - 0x8000u);
+              uint32_t size = comp->rom_size;
+              if ((size & (size - 1u)) == 0u) {
+                  off = off & (size - 1u);
+              } else {
+                  off = off % size;
+              }
+              return comp->rom_data[off];
+          }
+      }
+  callback_handlers: {}
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

@@ -1,0 +1,222 @@
+metadata:
+  id: cv_joy0
+  type: io_controller
+  model: colecovision_pad_ports
+  version: "1.0"
+
+state:
+  - name: joy1_up
+    type: uint8_t
+    initial: "1"
+  - name: joy1_down
+    type: uint8_t
+    initial: "1"
+  - name: joy1_left
+    type: uint8_t
+    initial: "1"
+  - name: joy1_right
+    type: uint8_t
+    initial: "1"
+  - name: joy1_btn_a
+    type: uint8_t
+    initial: "1"
+  - name: joy1_btn_b
+    type: uint8_t
+    initial: "1"
+  - name: joy2_up
+    type: uint8_t
+    initial: "1"
+  - name: joy2_down
+    type: uint8_t
+    initial: "1"
+  - name: joy2_left
+    type: uint8_t
+    initial: "1"
+  - name: joy2_right
+    type: uint8_t
+    initial: "1"
+  - name: joy2_btn_a
+    type: uint8_t
+    initial: "1"
+  - name: joy2_btn_b
+    type: uint8_t
+    initial: "1"
+  - name: keypad_row
+    type: uint8_t
+    initial: "0"
+  - name: keypad1_col
+    type: uint8_t
+    initial: "0"
+  - name: keypad2_col
+    type: uint8_t
+    initial: "0"
+  - name: keypad1_state
+    type: uint16_t
+    initial: "0"
+  - name: keypad2_state
+    type: uint16_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: joy1_read
+      args: []
+      returns: u8
+    - name: joy2_read
+      args: []
+      returns: u8
+    - name: keypad1_read
+      args: []
+      returns: u8
+    - name: keypad2_read
+      args: []
+      returns: u8
+  handlers: []
+  signals: []
+
+maps:
+  ports:
+    read:
+      - name: joy_port_fc_read
+        mask: 0x00E1
+        value: 0x00C0
+      - name: joy_port_fd_read
+        mask: 0x00E1
+        value: 0x00C1
+    write:
+      - name: joy_port_fc_write
+        mask: 0x00E1
+        value: 0x00C0
+      - name: joy_port_fd_write
+        mask: 0x00E1
+        value: 0x00C1
+
+behavior:
+  snippets:
+    port_read_post: |
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xE1u);
+      uint8_t v = 0xFFu;
+
+      if (p == 0xC0u) {
+          /* Controller 1 joystick + buttons.
+             Bit 0 = right, 1 = left, 2 = down, 3 = up,
+             4 = fire A, 5 = fire B, 6 = keypad col 0,
+             7 = keypad col 1 (active low). */
+          v = 0xFFu;
+          if (comp->joy1_right == 0u) v &= (uint8_t)~0x01u;
+          if (comp->joy1_left  == 0u) v &= (uint8_t)~0x02u;
+          if (comp->joy1_down  == 0u) v &= (uint8_t)~0x04u;
+          if (comp->joy1_up    == 0u) v &= (uint8_t)~0x08u;
+          if (comp->joy1_btn_a == 0u) v &= (uint8_t)~0x10u;
+          if (comp->joy1_btn_b == 0u) v &= (uint8_t)~0x20u;
+
+          /* Keypad column bits 6-7 based on selected row. */
+          uint8_t kp = (uint8_t)cpu_component_call(cpu, "cv_joy0", "keypad1_read", NULL, 0);
+          v = (uint8_t)((v & 0x3Fu) | (uint8_t)(kp & 0xC0u));
+      } else if (p == 0xC1u) {
+          /* Controller 2 joystick + buttons (same layout as controller 1). */
+          v = 0xFFu;
+          if (comp->joy2_right == 0u) v &= (uint8_t)~0x01u;
+          if (comp->joy2_left  == 0u) v &= (uint8_t)~0x02u;
+          if (comp->joy2_down  == 0u) v &= (uint8_t)~0x04u;
+          if (comp->joy2_up    == 0u) v &= (uint8_t)~0x08u;
+          if (comp->joy2_btn_a == 0u) v &= (uint8_t)~0x10u;
+          if (comp->joy2_btn_b == 0u) v &= (uint8_t)~0x20u;
+
+          /* Keypad column bits 6-7 based on selected row. */
+          uint8_t kp = (uint8_t)cpu_component_call(cpu, "cv_joy0", "keypad2_read", NULL, 0);
+          v = (uint8_t)((v & 0x3Fu) | (uint8_t)(kp & 0xC0u));
+      }
+      value = v;
+      return value;
+    port_write_pre: |
+      uint8_t p = (uint8_t)(((uint16_t)port) & 0xE1u);
+
+      if (p == 0xC0u || p == 0xC1u) {
+          /* Writing to controller port selects keypad row.
+             Bits 0-3 select the active row for keypad scanning. */
+          comp->keypad_row = (uint8_t)(value & 0x0Fu);
+      }
+  callback_handlers:
+    joy1_read: |
+      uint8_t v = 0xFFu;
+      if (comp->joy1_right == 0u) v &= (uint8_t)~0x01u;
+      if (comp->joy1_left  == 0u) v &= (uint8_t)~0x02u;
+      if (comp->joy1_down  == 0u) v &= (uint8_t)~0x04u;
+      if (comp->joy1_up    == 0u) v &= (uint8_t)~0x08u;
+      if (comp->joy1_btn_a == 0u) v &= (uint8_t)~0x10u;
+      if (comp->joy1_btn_b == 0u) v &= (uint8_t)~0x20u;
+      return v;
+    joy2_read: |
+      uint8_t v = 0xFFu;
+      if (comp->joy2_right == 0u) v &= (uint8_t)~0x01u;
+      if (comp->joy2_left  == 0u) v &= (uint8_t)~0x02u;
+      if (comp->joy2_down  == 0u) v &= (uint8_t)~0x04u;
+      if (comp->joy2_up    == 0u) v &= (uint8_t)~0x08u;
+      if (comp->joy2_btn_a == 0u) v &= (uint8_t)~0x10u;
+      if (comp->joy2_btn_b == 0u) v &= (uint8_t)~0x20u;
+      return v;
+    keypad1_read: |
+      /* ColecoVision keypad is a 3x4 matrix (12 keys).
+         Rows are selected by writing to the controller port (bits 0-3).
+         Returns bits 6-7 as column data (active low).
+         Row selection: bit0=row0, bit1=row1, bit2=row2, bit3=row3.
+         Column data: bit6=col0, bit7=col1 (for 3-column keypad). */
+      uint8_t row = comp->keypad_row;
+      uint16_t kp = comp->keypad1_state;
+      uint8_t col = 0xC0u;
+
+      /* Each row has 3 keys. We encode column bits as:
+         bit6 = col0 pressed, bit7 = col1 pressed (active low).
+         For a 3-column keypad we use bit6 and bit7 for cols 0-1,
+         and the joystick bit pattern for col2 is handled by BIOS. */
+      if ((row & 0x01u) != 0u) {
+          /* Row 0: keys 1, 2, 3 */
+          if ((kp & 0x0001u) != 0u) col &= (uint8_t)~0x40u; /* key 1 = col0 */
+          if ((kp & 0x0002u) != 0u) col &= (uint8_t)~0x80u; /* key 2 = col1 */
+      }
+      if ((row & 0x02u) != 0u) {
+          /* Row 1: keys 4, 5, 6 */
+          if ((kp & 0x0004u) != 0u) col &= (uint8_t)~0x40u; /* key 4 = col0 */
+          if ((kp & 0x0008u) != 0u) col &= (uint8_t)~0x80u; /* key 5 = col1 */
+      }
+      if ((row & 0x04u) != 0u) {
+          /* Row 2: keys 7, 8, 9 */
+          if ((kp & 0x0010u) != 0u) col &= (uint8_t)~0x40u; /* key 7 = col0 */
+          if ((kp & 0x0020u) != 0u) col &= (uint8_t)~0x80u; /* key 8 = col1 */
+      }
+      if ((row & 0x08u) != 0u) {
+          /* Row 3: keys *, 0, # */
+          if ((kp & 0x0040u) != 0u) col &= (uint8_t)~0x40u; /* key * = col0 */
+          if ((kp & 0x0080u) != 0u) col &= (uint8_t)~0x80u; /* key 0 = col1 */
+      }
+      return col;
+    keypad2_read: |
+      uint8_t row = comp->keypad_row;
+      uint16_t kp = comp->keypad2_state;
+      uint8_t col = 0xC0u;
+
+      if ((row & 0x01u) != 0u) {
+          if ((kp & 0x0001u) != 0u) col &= (uint8_t)~0x40u;
+          if ((kp & 0x0002u) != 0u) col &= (uint8_t)~0x80u;
+      }
+      if ((row & 0x02u) != 0u) {
+          if ((kp & 0x0004u) != 0u) col &= (uint8_t)~0x40u;
+          if ((kp & 0x0008u) != 0u) col &= (uint8_t)~0x80u;
+      }
+      if ((row & 0x04u) != 0u) {
+          if ((kp & 0x0010u) != 0u) col &= (uint8_t)~0x40u;
+          if ((kp & 0x0020u) != 0u) col &= (uint8_t)~0x80u;
+      }
+      if ((row & 0x08u) != 0u) {
+          if ((kp & 0x0040u) != 0u) col &= (uint8_t)~0x40u;
+          if ((kp & 0x0080u) != 0u) col &= (uint8_t)~0x80u;
+      }
+      return col;
+  handler_bodies: {}
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

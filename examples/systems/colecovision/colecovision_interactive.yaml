@@ -1,0 +1,160 @@
+metadata:
+  name: Z80ColecoVisionInteractiveSystem
+  title: PASM ColecoVision
+  version: '0.1'
+clock_hz: 3579545
+reset_delay_seconds: 0
+memory:
+  default_size: 65536
+  regions:
+  - name: BIOS_ROM_8K
+    start: 0
+    size: 8192
+    read_only: true
+  - name: RAM_MAIN_1K
+    start: 24576
+    size: 1024
+    read_write: true
+  - name: CART_ROM_32K
+    start: 32768
+    size: 32768
+    read_only: true
+hooks:
+  pre_fetch:
+    enabled: false
+  post_decode:
+    enabled: false
+  post_execute:
+    enabled: false
+  port_read_pre:
+    enabled: false
+  port_read_post:
+    enabled: false
+  port_write_pre:
+    enabled: false
+  port_write_post:
+    enabled: false
+components:
+  ics:
+  - cv_bus0
+  - cv_ram0
+  - cv_vdp0
+  - cv_joy0
+  - cv_psg0
+  devices:
+  - video_sms
+  - tv
+  hosts:
+  - host_colecovision
+  cartridge: cv_cart0
+automation:
+  screen:
+    text_views:
+    - id: primary_text
+      component: cv_vdp0
+      columns: 40
+      rows: 24
+      row_stride: 40
+      memory:
+        source: callback
+        component: cv_vdp0
+        read_callback: read_text_cell
+        base: 0x0000
+        address_layout: tile_name_table
+        column_multiplier: 1
+      charset: tms9918a_charset
+      native_encoding: tms9918a_screen_code
+      unicode_map: ascii
+      unknown_policy: preserve_native
+      mode_conditions:
+        video_mode: text
+connections:
+- from:
+    component: cv_joy0
+    kind: callback
+    name: joy1_read
+  to:
+    component: host_colecovision
+    kind: callback
+    name: read_joy1
+- from:
+    component: cv_joy0
+    kind: callback
+    name: joy2_read
+  to:
+    component: host_colecovision
+    kind: callback
+    name: read_joy2
+- from:
+    component: cv_vdp0
+    kind: signal
+    name: frame_ready
+  to:
+    component: video_sms
+    kind: handler
+    name: on_frame_ready
+- from:
+    component: video_sms
+    kind: signal
+    name: frame_present
+  to:
+    component: tv
+    kind: handler
+    name: on_frame_present
+- from:
+    component: cv_vdp0
+    kind: signal
+    name: irq_edge
+  to:
+    component: host_colecovision
+    kind: handler
+    name: irq_edge
+- from:
+    component: cv_psg0
+    kind: signal
+    name: pcm_sample_s16
+  to:
+    component: tv
+    kind: handler
+    name: on_pcm_s16
+- from:
+    component: tv
+    kind: signal
+    name: frame_present
+  to:
+    component: host_colecovision
+    kind: handler
+    name: video_frame
+- from:
+    component: tv
+    kind: signal
+    name: pcm_sample_s16
+  to:
+    component: host_colecovision
+    kind: handler
+    name: audio_pcm_s16
+audio:
+  sample_rate: 44100
+  format: s16le
+  channels: 1
+integrations:
+  profile: colecovision_interactive
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
+  - component: tv
+    model: generic_crt_tv_stereo
+  - component: tv
+    model: generic_lcd_tv_stereo
+  - component: monitor
+    model: generic_crt_monitor_green
+  - component: monitor
+    model: generic_crt_monitor_color
+  - component: monitor
+    model: generic_lcd_monitor
+  - component: monitor
+    model: generic_lcd_monitor_with_speakers
