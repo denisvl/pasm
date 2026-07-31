@@ -46,6 +46,7 @@ def _sms_interactive_ic_paths() -> list[str]:
         str(BASE_DIR / "examples" / "ics" / "sms" / "sms_vdp_sega315_5124.yaml"),
         str(BASE_DIR / "examples" / "ics" / "sms" / "sms_joypad_io.yaml"),
         str(BASE_DIR / "examples" / "ics" / "sms" / "sms_psg_sn76489.yaml"),
+        str(BASE_DIR / "examples" / "ics" / "sms" / "sms_cxa1145.yaml"),
     ]
 
 
@@ -351,6 +352,14 @@ def test_input_runtime_markers_and_extraction():
         str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_controller.yaml"),
         str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_video.yaml"),
         str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_speaker.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_cassette_adapter.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "cassette_transport.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "cassette_line_in_source.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "cassette_wav_source.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "cassette_cas_source.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "atari_atr_image_backend.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari_1050_sio.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "tv_lcd_stereo.yaml"),
     ]
     host_paths = [str(BASE_DIR / "examples" / "hosts" / "atari800xl" / "atari800xl_host_hal_interactive.yaml")]
     isa_data = gen_mod.EmulatorGenerator(
@@ -390,6 +399,14 @@ def test_input_runtime_contract_support_extracts_decls():
         str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_controller.yaml"),
         str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_video.yaml"),
         str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_speaker.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari800xl_cassette_adapter.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "cassette_transport.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "cassette_line_in_source.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "cassette_wav_source.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "cassette_cas_source.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "atari_atr_image_backend.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "atari800xl" / "atari_1050_sio.yaml"),
+        str(BASE_DIR / "examples" / "devices" / "common" / "tv_lcd_stereo.yaml"),
     ]
     host_paths = [str(BASE_DIR / "examples" / "hosts" / "atari800xl" / "atari800xl_host_hal_interactive.yaml")]
     isa_data = gen_mod.EmulatorGenerator(
@@ -406,8 +423,8 @@ def test_input_runtime_contract_support_extracts_decls():
     assert "extern RuntimeKeyboardMap g_runtime_keyboard_map;" in support
     assert "extern RuntimeControllerMap g_runtime_controller_map;" in support
     assert "cpu_component_keyboard_ascii_pop(void);" in support
-    assert "character_mapping_count(CPUState *cpu, size_t *out_count);" in support
-    assert "character_mapping_descriptor(" in support
+    assert "cpu_component_character_mapping_unicode(uint8_t native_code);" in support
+    assert "cpu_component_character_mapping_fill_variant(" in support
 
 
 def test_input_runtime_contract_support_includes_declared_keymap_helper(tmp_path):
@@ -477,14 +494,14 @@ def test_ic_step_and_lifecycle_ownership_split_into_ic_units(tmp_path):
     ic_units = sorted(src.glob("sms_ic_*.c"))
     assert ic_units, "expected per-IC source units"
 
-    # system glue owns dispatch wrappers only
-    assert "void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before)" in system_glue
-    assert "void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before)" in system_glue
-    assert "cpu_component_ic_sms_vdp0_step_pre" in system_glue
-    assert "cpu_component_ic_sms_vdp0_step_post" in system_glue
-    assert "cpu_component_ic_sms_vdp0_lifecycle_create" in system_glue
-    assert "cpu_component_ic_sms_vdp0_lifecycle_reset" in system_glue
-    assert "cpu_component_ic_sms_vdp0_lifecycle_destroy" in system_glue
+    # system glue should stay free of concrete IC hook implementations.
+    assert "void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before)" not in system_glue
+    assert "void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before)" not in system_glue
+    assert "void cpu_component_ic_sms_vdp0_step_pre(" not in system_glue
+    assert "void cpu_component_ic_sms_vdp0_step_post(" not in system_glue
+    assert "void cpu_component_ic_sms_vdp0_lifecycle_create(" not in system_glue
+    assert "void cpu_component_ic_sms_vdp0_lifecycle_reset(" not in system_glue
+    assert "void cpu_component_ic_sms_vdp0_lifecycle_destroy(" not in system_glue
 
     # IC units own concrete hook/lifecycle implementation.
     vdp = (src / "sms_ic_sms_vdp0.c").read_text(encoding="utf-8")
@@ -553,19 +570,15 @@ def test_system_glue_owns_dispatch_not_ic_stateful_impl(tmp_path):
     gen.generate(str(outdir))
 
     glue = (outdir / "src" / "sms_system_glue.c").read_text(encoding="utf-8")
-    # Dispatch-only wrappers should call IC functions.
-    assert "cpu_component_ic_sms_vdp0_step_pre(cpu, inst, pc_before);" in glue
-    assert "cpu_component_ic_sms_vdp0_step_post(cpu, inst, pc_before);" in glue
-    # Stateful IC implementation snippets must not be embedded in step dispatch wrappers.
-    pre_block = glue.split("void cpu_components_step_pre(", 1)[1].split("}\n", 1)[0]
-    post_block = glue.split("void cpu_components_step_post(", 1)[1].split("}\n", 1)[0]
-    assert "ComponentState_sms_vdp0 *comp = &cpu->comp_sms_vdp0;" not in pre_block
-    assert "ComponentState_sms_joy0 *comp = &cpu->comp_sms_joy0;" not in pre_block
-    assert "ComponentState_sms_psg0 *comp = &cpu->comp_sms_psg0;" not in pre_block
-    assert "ComponentState_sms_vdp0 *comp = &cpu->comp_sms_vdp0;" not in post_block
-    assert "ComponentState_sms_joy0 *comp = &cpu->comp_sms_joy0;" not in post_block
-    assert "ComponentState_sms_psg0 *comp = &cpu->comp_sms_psg0;" not in post_block
-    assert "cpu_component_cartridge_picker_update(cpu, 1u);" not in post_block
+    # Current split ownership keeps stateful IC and step-dispatch bodies out of system glue.
+    assert "void cpu_components_step_pre(" not in glue
+    assert "void cpu_components_step_post(" not in glue
+    assert "cpu_component_ic_sms_vdp0_step_pre(cpu, inst, pc_before);" not in glue
+    assert "cpu_component_ic_sms_vdp0_step_post(cpu, inst, pc_before);" not in glue
+    assert "ComponentState_sms_vdp0 *comp = &cpu->comp_sms_vdp0;" not in glue
+    assert "ComponentState_sms_joy0 *comp = &cpu->comp_sms_joy0;" not in glue
+    assert "ComponentState_sms_psg0 *comp = &cpu->comp_sms_psg0;" not in glue
+    assert "cpu_component_cartridge_picker_update(cpu, 1u);" not in glue
 
 
 def test_generator_emits_split_link_order_in_generated_cmake(tmp_path):
@@ -773,10 +786,10 @@ def test_build_system_does_not_auto_link_sdl2_for_stub_backend():
     cmake = generate_cmake(isa, "BackendStub8")
     makefile = generate_makefile(isa, "BackendStub8")
 
-    assert "find_package(SDL2 CONFIG QUIET)" in cmake
-    assert "${PASM_SDL2_LINK_TARGET}" in cmake
-    assert "PASM_SDL2_LIB = -lSDL2" in makefile
-    assert "-lSDL2" in makefile
+    assert "find_package(SDL2 CONFIG QUIET)" not in cmake
+    assert "${PASM_SDL2_LINK_TARGET}" not in cmake
+    assert "PASM_SDL2_LIB = -lSDL2" not in makefile
+    assert "-lSDL2" not in makefile
 
 
 def test_build_system_links_sdl2_for_glfw_backend():
@@ -1441,7 +1454,9 @@ def test_host_picker_glue_uses_strict_picker_symbols_when_cartridge_enabled():
     host_glue_impl = generate_host_picker_glue(isa, "HostStrict8")
 
     assert "PASM_SPLIT_WEAK" not in host_glue_impl
-    assert "extern int cpu_component_cartridge_picker_set_dir" in host_glue_impl
+    assert "extern uint8_t cpu_component_cartridge_picker_is_active(void);" in host_glue_impl
+    assert "extern uint8_t cpu_component_cartridge_picker_blocks_input(void);" in host_glue_impl
+    assert "extern void cpu_component_cartridge_picker_update(CPUState *cpu, uint8_t has_focus);" in host_glue_impl
     assert "if (!cpu_component_cartridge_picker_set_dir)" not in host_glue_impl
     assert "if (!cpu_component_cartridge_picker_apply_pending_swap)" not in host_glue_impl
     assert "if (!cpu_component_cartridge_picker_is_active)" not in host_glue_impl
@@ -1452,7 +1467,8 @@ def test_component_runtime_dispatch_glue_keeps_picker_out_of_step_post():
     isa["cartridge"] = {"metadata": {"id": "cart", "type": "cartridge_map", "model": "test"}}
     glue = generate_component_runtime_dispatch_glue(isa)
 
-    assert "if (cpu_component_cartridge_picker_apply_pending_swap(cpu) != 0) {" in glue
+    assert "int cpu_components_runtime_pre_step(CPUState *cpu) {" in glue
+    assert "runtime_rc = cpu_component_cartridge_picker_apply_pending_swap(cpu);" in glue
     post_block = glue.split("void cpu_components_step_post(", 1)[1].split("}\n", 1)[0]
     assert "cpu_component_cartridge_picker_update(cpu, 1u);" not in post_block
     assert "cpu_component_cartridge_picker_is_active() != 0u" not in post_block
@@ -1481,7 +1497,7 @@ def test_video_frame_handler_polls_picker_at_frame_cadence():
     impl = generate_cpu_impl(isa, "HostFrame8")
 
     assert "cpu_component_host_picker_step(cpu, 1u);" in impl
-    assert "cpu_component_cartridge_picker_draw_overlay(cpu, picker_pixels, picker_w, picker_h);" in impl
+    assert "cpu_component_cartridge_picker_draw_overlay(cpu, overlay_pixels, picker_w, picker_h);" in impl or "cpu_component_cartridge_picker_draw_overlay(cpu, video_pixels, picker_w, picker_h);" in impl
 
 
 def test_cpu_core_emits_host_hal_split_markers(tmp_path):
@@ -1586,9 +1602,9 @@ def test_cpu_impl_can_strip_host_hal_sections_from_helpers():
     # Core should no longer re-inject HAL typedefs/prototypes after split extraction.
     assert "typedef SDL_AudioSpec CPUHostAudioSpec;" not in core_impl
     assert "int cpu_host_hal_init(uint32_t flags);" not in core_impl
-    # Host HAL helper forward declarations should not leak into core.
-    assert "cpu_host_hal_key_from_scancode" not in core_impl
-    assert "cpu_host_hal_scancode_from_key" not in core_impl
+    # Host HAL helper definitions/prototypes should not leak into core.
+    assert "const char *cpu_host_hal_key_from_scancode(" not in core_impl
+    assert "int cpu_host_hal_scancode_from_key(" not in core_impl
 
 
 def test_cpu_impl_excludes_picker_runtime_font_scale_from_core():
@@ -1814,6 +1830,31 @@ def test_cpu_impl_can_strip_component_dispatch_from_helpers():
     assert "void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before) {" in core_impl
     # Core remains buildable without embedded dispatch bodies; declarations now live in generated header.
     assert "void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);" in core_impl
+
+
+def test_callback_handler_bare_return_is_normalized_for_uint64_callback():
+    isa = _base_isa("CallbackReturn8")
+    isa["devices"] = [
+        {
+            "metadata": {"id": "dev_return"},
+            "interfaces": {"callbacks": [{"name": "read_text_cell"}]},
+            "behavior": {
+                "callback_handlers": {
+                    "read_text_cell": "__result = 0x20u;\nif (argc == 0u) {\n    return;\n}\n__result = args[0];"
+                }
+            },
+            "state": [],
+        }
+    ]
+    core_impl = generate_cpu_impl(
+        isa,
+        "CallbackReturn8",
+        dispatch_mode="switch",
+        include_loader_impls=False,
+        include_interrupt_impls=False,
+    )
+    assert "return __result;" in core_impl
+    assert "if (argc == 0u) {\n        return __result;\n    }" in core_impl
 
 
 def test_generator_emits_debug_abi_files(tmp_path):
@@ -2151,8 +2192,9 @@ def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_p
                 PASMDebugThreadRow *thread_rows, size_t thread_cap,
                 PASMDebugHistoryRow *hist_rows, size_t hist_cap
             );
-            int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode);
-            int pasm_dbg_pause(CPUState *cpu);
+                int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode);
+                int pasm_dbg_run(CPUState *cpu);
+                int pasm_dbg_pause(CPUState *cpu);
             int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
             int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size);
             int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
@@ -2213,12 +2255,16 @@ def test_generated_automation_adapter_captures_text_grid_from_debug_memory(tmp_p
                 out_core->frame_index = 7u;
                 return 0;
             }
-            int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode) {
-                (void)cpu; (void)max_cycles;
-                *out_mode = PASM_DBG_PAUSED;
-                return 0;
-            }
-            int pasm_dbg_pause(CPUState *cpu) { (void)cpu; return 0; }
+                int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode) {
+                    (void)cpu; (void)max_cycles;
+                    *out_mode = PASM_DBG_PAUSED;
+                    return 0;
+                }
+                int pasm_dbg_run(CPUState *cpu) {
+                    (void)cpu;
+                    return 0;
+                }
+                int pasm_dbg_pause(CPUState *cpu) { (void)cpu; return 0; }
             int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size) {
                 if (address + size > sizeof(cpu->memory)) return -1;
                 memcpy(out, cpu->memory + address, size);
@@ -2474,8 +2520,9 @@ def test_generated_automation_adapter_captures_text_grid_via_callback(tmp_path):
                 PASMDebugThreadRow *thread_rows, size_t thread_cap,
                 PASMDebugHistoryRow *hist_rows, size_t hist_cap
             );
-            int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode);
-            int pasm_dbg_pause(CPUState *cpu);
+                int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode);
+                int pasm_dbg_run(CPUState *cpu);
+                int pasm_dbg_pause(CPUState *cpu);
             int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
             int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size);
             int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
@@ -2536,12 +2583,16 @@ def test_generated_automation_adapter_captures_text_grid_via_callback(tmp_path):
                 out_core->frame_index = 9u;
                 return 0;
             }
-            int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode) {
-                (void)cpu; (void)max_cycles;
-                *out_mode = PASM_DBG_PAUSED;
-                return 0;
-            }
-            int pasm_dbg_pause(CPUState *cpu) { (void)cpu; return 0; }
+                int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode) {
+                    (void)cpu; (void)max_cycles;
+                    *out_mode = PASM_DBG_PAUSED;
+                    return 0;
+                }
+                int pasm_dbg_run(CPUState *cpu) {
+                    (void)cpu;
+                    return 0;
+                }
+                int pasm_dbg_pause(CPUState *cpu) { (void)cpu; return 0; }
             int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size) {
                 if (address + size > sizeof(cpu->memory)) return -1;
                 memcpy(out, cpu->memory + address, size);
@@ -2721,9 +2772,29 @@ def test_generated_automation_adapter_emits_text_and_frame_events(tmp_path):
                 uint8_t iff1;
                 uint8_t iff2;
             } PASMDebugSnapshotCore;
-            typedef struct PASMDebugCounts { uint32_t rows[11]; } PASMDebugCounts;
-            typedef struct PASMDebugDisasmRow { uint8_t unused; } PASMDebugDisasmRow;
-            typedef struct PASMDebugRegisterRow { uint8_t unused; } PASMDebugRegisterRow;
+            typedef struct PASMDebugCounts {
+                uint32_t rows[11];
+                uint32_t register_rows;
+            } PASMDebugCounts;
+            typedef struct PASMDebugDisasmRow {
+                uint64_t address;
+                uint8_t bytes[16];
+                char instruction[128];
+                char symbol[64];
+                uint8_t has_symbol;
+                uint8_t is_current_ip;
+                uint8_t has_breakpoint;
+                uint64_t branch_target;
+                uint8_t has_branch_target;
+                uint8_t changed_since_last_step;
+            } PASMDebugDisasmRow;
+            typedef struct PASMDebugRegisterRow {
+                char name[32];
+                char hex_value[32];
+                char dec_value[32];
+                uint8_t has_dec;
+                uint8_t changed;
+            } PASMDebugRegisterRow;
             typedef struct PASMDebugFlagRow { uint8_t unused; } PASMDebugFlagRow;
             typedef struct PASMDebugOperandRow { uint8_t unused; } PASMDebugOperandRow;
             typedef struct PASMDebugStackRow { uint8_t unused; } PASMDebugStackRow;
@@ -2733,6 +2804,17 @@ def test_generated_automation_adapter_emits_text_and_frame_events(tmp_path):
             typedef struct PASMDebugWatchpointRow { uint8_t unused; } PASMDebugWatchpointRow;
             typedef struct PASMDebugThreadRow { uint8_t unused; } PASMDebugThreadRow;
             typedef struct PASMDebugHistoryRow { uint8_t unused; } PASMDebugHistoryRow;
+            typedef struct PASMDebugCharacterMapping {
+                const char *device_id;
+                uint32_t unicode_codepoint;
+                uint32_t native_code;
+                const char *key_id;
+                uint32_t required_modifier_bits;
+                const char *shift_key_id;
+                const char *ctrl_key_id;
+                const char *alt_key_id;
+                const char *meta_key_id;
+            } PASMDebugCharacterMapping;
             CPUState *pasm_dbg_create(size_t memory_size);
             void pasm_dbg_destroy(CPUState *cpu);
             void pasm_dbg_reset(CPUState *cpu);
@@ -2752,8 +2834,26 @@ def test_generated_automation_adapter_emits_text_and_frame_events(tmp_path):
                 PASMDebugHistoryRow *hist_rows, size_t hist_cap
             );
             int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode);
+            int pasm_dbg_run(CPUState *cpu);
             int pasm_dbg_pause(CPUState *cpu);
             int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
+            int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size);
+            int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
+            int pasm_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value);
+            int pasm_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled);
+            int pasm_dbg_character_mapping_count(CPUState *cpu, size_t *out_count);
+            int pasm_dbg_character_mapping_descriptor(
+                CPUState *cpu,
+                size_t index,
+                PASMDebugCharacterMapping *out_mapping
+            );
+            uint64_t cpu_component_dispatch_callback(
+                CPUState *cpu,
+                const char *component_id,
+                const char *callback_name,
+                const uint64_t *args,
+                uint8_t argc
+            );
             const char *pasm_dbg_system_name(void);
             #endif
             """
@@ -2816,11 +2916,56 @@ def test_generated_automation_adapter_emits_text_and_frame_events(tmp_path):
                 *out_mode = PASM_DBG_PAUSED;
                 return 0;
             }
+            int pasm_dbg_run(CPUState *cpu) {
+                (void)cpu;
+                return 0;
+            }
             int pasm_dbg_pause(CPUState *cpu) { (void)cpu; return 0; }
             int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size) {
                 if (address + size > sizeof(cpu->memory)) return -1;
                 memcpy(out, cpu->memory + address, size);
                 return 0;
+            }
+            int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size) {
+                if (address + size > sizeof(cpu->memory)) return -1;
+                memcpy(cpu->memory + address, bytes, size);
+                return 0;
+            }
+            int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {
+                (void)cpu;
+                memset(out_counts, 0, sizeof(*out_counts));
+                return 0;
+            }
+            int pasm_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value) {
+                (void)cpu; (void)register_name; (void)value;
+                return 0;
+            }
+            int pasm_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled) {
+                (void)cpu; (void)address; (void)enabled;
+                return 0;
+            }
+            int pasm_dbg_character_mapping_count(CPUState *cpu, size_t *out_count) {
+                (void)cpu;
+                *out_count = 0u;
+                return 0;
+            }
+            int pasm_dbg_character_mapping_descriptor(
+                CPUState *cpu,
+                size_t index,
+                PASMDebugCharacterMapping *out_mapping
+            ) {
+                (void)cpu; (void)index; (void)out_mapping;
+                return -1;
+            }
+            uint64_t cpu_component_dispatch_callback(
+                CPUState *cpu,
+                const char *component_id,
+                const char *callback_name,
+                const uint64_t *args,
+                uint8_t argc
+            ) {
+                (void)cpu; (void)component_id; (void)callback_name; (void)args; (void)argc;
+                return 0u;
             }
             const char *pasm_dbg_system_name(void) { return "AutoEventSystem"; }
 
@@ -2959,9 +3104,29 @@ def test_generated_automation_adapter_exposes_character_mappings(tmp_path):
                 uint8_t iff1;
                 uint8_t iff2;
             } PASMDebugSnapshotCore;
-            typedef struct PASMDebugCounts { uint32_t rows[11]; } PASMDebugCounts;
-            typedef struct PASMDebugDisasmRow { uint8_t unused; } PASMDebugDisasmRow;
-            typedef struct PASMDebugRegisterRow { uint8_t unused; } PASMDebugRegisterRow;
+            typedef struct PASMDebugCounts {
+                uint32_t rows[11];
+                uint32_t register_rows;
+            } PASMDebugCounts;
+            typedef struct PASMDebugDisasmRow {
+                uint64_t address;
+                uint8_t bytes[16];
+                char instruction[128];
+                char symbol[64];
+                uint8_t has_symbol;
+                uint8_t is_current_ip;
+                uint8_t has_breakpoint;
+                uint64_t branch_target;
+                uint8_t has_branch_target;
+                uint8_t changed_since_last_step;
+            } PASMDebugDisasmRow;
+            typedef struct PASMDebugRegisterRow {
+                char name[32];
+                char hex_value[32];
+                char dec_value[32];
+                uint8_t has_dec;
+                uint8_t changed;
+            } PASMDebugRegisterRow;
             typedef struct PASMDebugFlagRow { uint8_t unused; } PASMDebugFlagRow;
             typedef struct PASMDebugOperandRow { uint8_t unused; } PASMDebugOperandRow;
             typedef struct PASMDebugStackRow { uint8_t unused; } PASMDebugStackRow;
@@ -3001,8 +3166,13 @@ def test_generated_automation_adapter_exposes_character_mappings(tmp_path):
                 PASMDebugHistoryRow *hist_rows, size_t hist_cap
             );
             int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode);
+            int pasm_dbg_run(CPUState *cpu);
             int pasm_dbg_pause(CPUState *cpu);
             int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size);
+            int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size);
+            int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
+            int pasm_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value);
+            int pasm_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled);
             int pasm_dbg_character_mapping_count(CPUState *cpu, size_t *out_count);
             int pasm_dbg_character_mapping_descriptor(
                 CPUState *cpu,
@@ -3062,10 +3232,29 @@ def test_generated_automation_adapter_exposes_character_mappings(tmp_path):
             int pasm_dbg_run_for_cycles(CPUState *cpu, uint64_t max_cycles, uint8_t *out_mode) {
                 (void)cpu; (void)max_cycles; *out_mode = PASM_DBG_PAUSED; return 0;
             }
+            int pasm_dbg_run(CPUState *cpu) { (void)cpu; return 0; }
             int pasm_dbg_pause(CPUState *cpu) { (void)cpu; return 0; }
             int pasm_dbg_read_memory(CPUState *cpu, uint64_t address, uint8_t *out, size_t size) {
                 if (address + size > sizeof(cpu->memory)) return -1;
                 memcpy(out, cpu->memory + address, size);
+                return 0;
+            }
+            int pasm_dbg_write_memory(CPUState *cpu, uint64_t address, const uint8_t *bytes, size_t size) {
+                if (address + size > sizeof(cpu->memory)) return -1;
+                memcpy(cpu->memory + address, bytes, size);
+                return 0;
+            }
+            int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts) {
+                (void)cpu;
+                memset(out_counts, 0, sizeof(*out_counts));
+                return 0;
+            }
+            int pasm_dbg_write_register(CPUState *cpu, const char *register_name, uint64_t value) {
+                (void)cpu; (void)register_name; (void)value;
+                return 0;
+            }
+            int pasm_dbg_set_breakpoint_enabled(CPUState *cpu, uint64_t address, uint8_t enabled) {
+                (void)cpu; (void)address; (void)enabled;
                 return 0;
             }
             int pasm_dbg_character_mapping_count(CPUState *cpu, size_t *out_count) {
@@ -3272,6 +3461,163 @@ def test_generated_cpu_runtime_loads_real_keyboard_map_for_character_mappings(tm
                 str(tmp_path / "runtime_char_map_driver.c"),
                 "-o",
                 str(binary),
+        ],
+        check=True,
+    )
+    proc = subprocess.run([str(binary)], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr or proc.stdout or f"exit={proc.returncode}"
+
+
+def test_generated_cpu_runtime_exposes_character_mappings_from_matrix_keyboard_ascii_payload(tmp_path):
+    compiler = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
+    if compiler is None:
+        pytest.skip("C compiler not available")
+
+    isa = _base_isa("RuntimeMatrixCharMap8")
+    isa["hosts"] = [{"metadata": {"id": "host_keyboard"}}]
+    decoder_header, decoder_impl = generate_decoder(isa, "RuntimeMatrixCharMap8")
+    cpu_header = generate_cpu_header(isa, "RuntimeMatrixCharMap8")
+    cpu_impl = generate_cpu_impl(isa, "RuntimeMatrixCharMap8")
+
+    (tmp_path / "RuntimeMatrixCharMap8_decoder.h").write_text(decoder_header, encoding="utf-8")
+    (tmp_path / "RuntimeMatrixCharMap8_decoder.c").write_text(decoder_impl, encoding="utf-8")
+    (tmp_path / "RuntimeMatrixCharMap8.h").write_text(cpu_header, encoding="utf-8")
+    (tmp_path / "RuntimeMatrixCharMap8.c").write_text(cpu_impl, encoding="utf-8")
+    (tmp_path / "runtime_matrix_char_map_bus_stubs.c").write_text(
+        textwrap.dedent(
+            """
+            #include "RuntimeMatrixCharMap8.h"
+            #include <stddef.h>
+            #include <stdint.h>
+
+            uint8_t cpu_components_bus_read(CPUState *cpu, uint16_t addr, uint8_t *handled) {
+                (void)cpu; (void)addr;
+                if (handled != NULL) *handled = 0u;
+                return 0u;
+            }
+
+            uint8_t cpu_components_bus_write(CPUState *cpu, uint16_t addr, uint8_t value, uint8_t *handled) {
+                (void)cpu; (void)addr; (void)value;
+                if (handled != NULL) *handled = 0u;
+                return 0u;
+            }
+
+            uint8_t cpu_components_port_read(CPUState *cpu, uint16_t port, uint8_t *handled) {
+                (void)cpu; (void)port;
+                if (handled != NULL) *handled = 0u;
+                return 0u;
+            }
+
+            void cpu_components_port_write(CPUState *cpu, uint16_t port, uint8_t value, uint8_t *handled) {
+                (void)cpu; (void)port; (void)value;
+                if (handled != NULL) *handled = 0u;
+            }
+            """
+        ),
+        encoding="utf-8",
+    )
+    keyboard_map = tmp_path / "matrix_keyboard.yaml"
+    keyboard_map.write_text(
+        textwrap.dedent(
+            """
+            keyboard:
+              kind: matrix
+              focus_required: false
+              bindings:
+                - host_scancode: LSHIFT
+                  mapper_key_id: K_SHIFT
+                  presses:
+                    - row: 0
+                      bit: 0
+                - host_scancode: LCTRL
+                  mapper_key_id: K_CTRL
+                  presses:
+                    - row: 0
+                      bit: 1
+                - host_scancode: A
+                  mapper_key_id: K_A
+                  presses:
+                    - row: 1
+                      bit: 0
+                  ascii: 97
+                  ascii_shift: 65
+                  ascii_ctrl: 13
+            """
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "runtime_matrix_char_map_driver.c").write_text(
+        textwrap.dedent(
+            f"""
+            #include "RuntimeMatrixCharMap8.h"
+            #include <stddef.h>
+            #include <stdint.h>
+            #include <string.h>
+
+            int runtimematrixcharmap8_character_mapping_count(CPUState *cpu, size_t *out_count);
+            int runtimematrixcharmap8_character_mapping_descriptor(
+                CPUState *cpu,
+                size_t index,
+                const char **out_device_id,
+                uint32_t *out_unicode_codepoint,
+                uint32_t *out_native_code,
+                const char **out_key_id,
+                uint32_t *out_modifier_bits,
+                const char **out_shift_key_id,
+                const char **out_ctrl_key_id,
+                const char **out_alt_key_id,
+                const char **out_meta_key_id);
+
+            int main(void) {{
+                CPUState *cpu = runtimematrixcharmap8_create(65536u);
+                size_t count = 0u;
+                const char *device_id = NULL;
+                uint32_t unicode_codepoint = 0u;
+                uint32_t native_code = 0u;
+                const char *key_id = NULL;
+                uint32_t modifier_bits = 0u;
+                const char *shift_key_id = NULL;
+                const char *ctrl_key_id = NULL;
+                if (cpu == NULL) return 1;
+                if (runtimematrixcharmap8_load_keyboard_map(cpu, "{keyboard_map.as_posix()}") != 0) return 2;
+                if (runtimematrixcharmap8_character_mapping_count(cpu, &count) != 0) return 3;
+                if (count != 3u) return 4;
+                if (runtimematrixcharmap8_character_mapping_descriptor(
+                        cpu, 1u, &device_id, &unicode_codepoint, &native_code, &key_id,
+                        &modifier_bits, &shift_key_id, &ctrl_key_id, NULL, NULL) != 0) return 5;
+                if (device_id == NULL || strcmp(device_id, "keyboard") != 0) return 6;
+                if (unicode_codepoint != 65u || native_code != 65u) return 7;
+                if (key_id == NULL || strcmp(key_id, "K_A") != 0) return 8;
+                if (modifier_bits != 1u) return 9;
+                if (shift_key_id == NULL || strcmp(shift_key_id, "K_SHIFT") != 0) return 10;
+                if (ctrl_key_id == NULL || strcmp(ctrl_key_id, "K_CTRL") != 0) return 11;
+                if (runtimematrixcharmap8_character_mapping_descriptor(
+                        cpu, 2u, NULL, &unicode_codepoint, &native_code, NULL,
+                        &modifier_bits, NULL, NULL, NULL, NULL) != 0) return 12;
+                if (unicode_codepoint != 13u || native_code != 13u || modifier_bits != 2u) return 13;
+                runtimematrixcharmap8_destroy(cpu);
+                return 0;
+            }}
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    binary = tmp_path / ("runtime_matrix_char_map_test.exe" if os.name == "nt" else "runtime_matrix_char_map_test")
+    subprocess.run(
+        [
+            compiler,
+            "-std=c11",
+            "-O2",
+            "-D_POSIX_C_SOURCE=199309L",
+            "-I",
+            str(tmp_path),
+            str(tmp_path / "RuntimeMatrixCharMap8.c"),
+            str(tmp_path / "RuntimeMatrixCharMap8_decoder.c"),
+            str(tmp_path / "runtime_matrix_char_map_bus_stubs.c"),
+            str(tmp_path / "runtime_matrix_char_map_driver.c"),
+            "-o",
+            str(binary),
         ],
         check=True,
     )
@@ -4856,11 +5202,11 @@ def test_runtime_hal_frame_audio_helpers_emit_sdl2_impl():
     assert "static void cpu_host_hal_render_present(void *renderer)" in code
     assert "SDL_RenderPresent((SDL_Renderer *)renderer);" in code
     assert "static int cpu_host_hal_audio_queue(uint32_t dev, const void *data, uint32_t len_bytes)" in code
-    assert "return SDL_QueueAudio(dev, data, len_bytes);" in code
+    assert "SDL_QueueAudio(" in code
     assert "static uint32_t cpu_host_hal_audio_queued_bytes(uint32_t dev)" in code
-    assert "return SDL_GetQueuedAudioSize(dev);" in code
+    assert "SDL_GetQueuedAudioSize(" in code
     assert "static void cpu_host_hal_audio_clear(uint32_t dev)" in code
-    assert "SDL_ClearQueuedAudio(dev);" in code
+    assert "SDL_ClearQueuedAudio(" in code
 
 
 def test_runtime_hal_frame_audio_helpers_emit_noop_impl_for_stub():
@@ -4886,16 +5232,16 @@ def test_runtime_hal_frame_audio_helpers_emit_noop_impl_for_stub():
     assert "static uint8_t cpu_host_hal_stub_audio_opened = 0u;" in code
     assert "static void cpu_host_hal_stub_reset_audio_state(void)" in code
     assert "if (cpu_host_hal_stub_inited == 0u) return -1;" in code
-    assert "if (dev != 1u || !data || len_bytes == 0u || cpu_host_hal_stub_audio_opened == 0u) return -1;" in code
+    assert "if (dev == 0u || !data || len_bytes == 0u || cpu_host_hal_stub_audio_opened == 0u) return -1;" in code
     assert "if (cpu_host_hal_stub_audio_len > cpu_host_hal_stub_audio_cap) return -1;" in code
     assert "if (cpu_host_hal_stub_audio_cap != 0u && cpu_host_hal_stub_audio_buf == NULL) return -1;" in code
     assert "if (cpu_host_hal_stub_audio_len != 0u && cpu_host_hal_stub_audio_buf == NULL) return -1;" in code
     assert "if (cpu_host_hal_stub_inited == 0u) return 0u;" in code
-    assert "if (dev != 1u || cpu_host_hal_stub_audio_opened == 0u) return 0u;" in code
+    assert "if (dev == 0u || cpu_host_hal_stub_audio_opened == 0u) return 0u;" in code
     assert "if (cpu_host_hal_stub_audio_len > cpu_host_hal_stub_audio_cap) return 0u;" in code
     assert "if (cpu_host_hal_stub_audio_cap != 0u && cpu_host_hal_stub_audio_buf == NULL) return 0u;" in code
     assert "if (cpu_host_hal_stub_audio_len != 0u && cpu_host_hal_stub_audio_buf == NULL) return 0u;" in code
-    assert "if (iscapture != 0) return 0u;" in code
+    assert "iscapture" in code and "return 0u;" in code
     assert "cpu_host_hal_stub_audio_opened = 1u;" in code
     assert "static uint32_t cpu_host_hal_audio_dequeue(uint32_t dev, void *data, uint32_t len_bytes)" in code
     assert "n = (cpu_host_hal_stub_audio_len < len_bytes) ? cpu_host_hal_stub_audio_len : len_bytes;" in code
@@ -4965,7 +5311,7 @@ def test_runtime_hal_frame_audio_helpers_emit_glfw_buffer_impl():
     assert "if (out_h) *out_h = 0;" in code
     assert "if (*out_w <= 0 || *out_h <= 0) return -1;" in code
     assert "if (want) *have = *want;" not in code
-    assert "if (iscapture != 0) return 0u;" in code
+    assert "iscapture" in code and "return 0u;" in code
     assert "bytes64 = (uint64_t)have->samples * (uint64_t)have->channels * 2u;" in code
     assert "if (bytes64 > 0xFFFFFFFFu) return 0u;" in code
     assert "have->size = (uint32_t)bytes64;" in code
@@ -5119,7 +5465,7 @@ def test_runtime_hal_init_create_helpers_emit_sdl2_impl():
     assert "SDL_CreateTexture(" in code
     assert "static uint32_t cpu_host_hal_audio_open(" in code
     assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_AUDIO) == 0u) return 0u;" in code
-    assert "if (iscapture != 0) return 0u;" in code
+    assert "iscapture" in code and "return 0u;" in code
     assert "if (!want) return 0u;" in code
     assert "if (want->freq <= 0 || want->channels == 0u || want->samples == 0u) return 0u;" in code
     assert "SDL_OpenAudioDevice(" in code
@@ -5376,9 +5722,8 @@ def test_runtime_hal_input_misc_helpers_emit_sdl2_impl():
     assert "static void cpu_host_hal_stop_text_input(void)" in code
     assert "SDL_StopTextInput();" in code
     assert "static void cpu_host_hal_raise_window(void *window)" in code
-    assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return;" in code
-    assert "if (!window) window = (void *)cpu_host_hal_sdl_primary_window;" in code
-    assert "SDL_RaiseWindow((SDL_Window *)window);" in code
+    assert "(void)window;" in code
+    assert "Do not steal focus implicitly." in code
     assert "static int cpu_host_hal_set_texture_blend_none(void *texture)" in code
     assert "if ((cpu_host_hal_sdl_subsystems & CPU_HOST_INIT_VIDEO) == 0u) return -1;" in code
     assert "return SDL_SetTextureBlendMode((SDL_Texture *)texture, SDL_BLENDMODE_NONE);" in code

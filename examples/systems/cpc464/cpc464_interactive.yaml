@@ -74,18 +74,24 @@ automation:
       native_encoding: amstrad_cpc_screen_code
       unicode_map: ascii
       unknown_policy: preserve_native
+  capabilities:
+  - screen.text_grid
+  - input.keyboard_matrix
+  - input.controller
+  - media.cassette
+  - media.floppy
 media_picker:
   open_action_id: EMU_MEDIA_PICKER
 cassette:
   component: cassette_transport
   directory: examples/cassettes/cpc464
-  allowed_extensions: [yaml, wav, cdt]
+  allowed_extensions: [yaml, wav, mp3, cdt]
   sources:
     - kind: file
       source_type: ../../cassette_sources/wav_file.yaml
       component: cassette_transport
       label: Tape File
-      allowed_extensions: [yaml, wav]
+      allowed_extensions: [yaml, wav, mp3]
     - kind: file
       source_type: ../../cassette_sources/cdt_file.yaml
       component: cassette_transport

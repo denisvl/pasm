@@ -271,3 +271,6 @@ uv run python examples/automation/capture_text_and_screenshot.py \
   --frames 10 \
   --screenshot framebuffer.png
 ```
+
+For per-family known-good flows across Python, Rust, and MCP consumers, see
+[emulator_automation_example_flows.md](./emulator_automation_example_flows.md).

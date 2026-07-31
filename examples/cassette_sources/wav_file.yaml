@@ -9,4 +9,4 @@ source:
   kind: file
   label: Tape File
   source_component: cassette_wav_source
-  allowed_extensions: [yaml, wav]
+  allowed_extensions: [yaml, wav, mp3]

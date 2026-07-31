@@ -90,16 +90,22 @@ automation:
         inverse_range: [0x00, 0x3F]
         flash_range: [0x40, 0x7F]
         normal_range: [0x80, 0xFF]
+  capabilities:
+  - screen.text_grid
+  - input.keyboard
+  - input.controller
+  - media.cassette
+  - media.floppy
 cassette:
   component: apple2_cassette_adapter
   directory: examples/cassettes/apple2
-  allowed_extensions: [yaml, wav]
+  allowed_extensions: [yaml, wav, mp3]
   sources:
     - kind: file
       source_type: ../../cassette_sources/wav_file.yaml
       component: apple2_cassette_adapter
       label: Tape File
-      allowed_extensions: [yaml, wav]
+      allowed_extensions: [yaml, wav, mp3]
     - kind: line_in
       source_type: ../../cassette_sources/line_in.yaml
       component: apple2_cassette_adapter

@@ -114,6 +114,11 @@ def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, st
     )
     keyboard_map_required = interactive_host_backend and has_keyboard_callbacks
     has_cartridge = bool(isa_data.get("cartridge"))
+    automation = (isa_data.get("system", {}) or {}).get("automation", {}) or {}
+    screen = automation.get("screen", {}) or {}
+    framebuffer = screen.get("framebuffer", {}) or {}
+    has_framebuffer = isinstance(framebuffer, dict) and bool(framebuffer)
+    framebuffer_pixel_format = str(framebuffer.get("pixel_format", "rgba8888")).strip().lower()
     focus_host_blocks: List[str] = []
     for host in hosts:
         comp_id = str(host.get("metadata", {}).get("id", "")).strip()
@@ -200,6 +205,8 @@ def generate_debug_abi(isa_data: Dict[str, Any], cpu_name: str) -> tuple[str, st
         focus_impl=focus_impl,
         keyboard_map_required=keyboard_map_required,
         has_cartridge=has_cartridge,
+        has_framebuffer=has_framebuffer,
+        framebuffer_pixel_format=framebuffer_pixel_format,
     )
     return header, impl
 
@@ -377,6 +384,16 @@ typedef struct {{
     const char *meta_key_id;
 }} PASMDebugCharacterMapping;
 
+typedef struct {{
+    uint64_t frame_number;
+    uint32_t width;
+    uint32_t height;
+    uint32_t stride_bytes;
+    uint32_t pixel_format;
+    const uint8_t *pixels;
+    size_t pixel_size;
+}} PASMDebugFramebuffer;
+
 int {cpu_prefix}_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
 int {cpu_prefix}_dbg_snapshot_fill(
     CPUState *cpu,
@@ -414,7 +431,10 @@ int {cpu_prefix}_dbg_set_pc(CPUState *cpu, uint64_t address);
 int {cpu_prefix}_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
 int {cpu_prefix}_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
 int {cpu_prefix}_dbg_focus_host_window(CPUState *cpu);
+int {cpu_prefix}_dbg_cassette_debug_action(CPUState *cpu, uint8_t action);
 int {cpu_prefix}_dbg_pump_host_events(CPUState *cpu);
+int {cpu_prefix}_dbg_capture_framebuffer(CPUState *cpu, PASMDebugFramebuffer *out_framebuffer);
+void {cpu_prefix}_dbg_release_framebuffer(CPUState *cpu, PASMDebugFramebuffer *framebuffer);
 int {cpu_prefix}_character_mapping_count(CPUState *cpu, size_t *out_count);
 int {cpu_prefix}_character_mapping_descriptor(
     CPUState *cpu,
@@ -438,6 +458,7 @@ int pasm_dbg_load_rom(CPUState *cpu, const char *filename, uint16_t address);
 int pasm_dbg_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path);
 int pasm_dbg_set_cartridge_dir(CPUState *cpu, const char *path);
+int pasm_dbg_set_cassette_dir(CPUState *cpu, const char *path);
 int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path);
 int pasm_dbg_load_controller_map(CPUState *cpu, const char *path);
 int pasm_dbg_snapshot_counts(CPUState *cpu, PASMDebugCounts *out_counts);
@@ -477,7 +498,10 @@ int pasm_dbg_set_pc(CPUState *cpu, uint64_t address);
 int pasm_dbg_set_overlay_enabled(CPUState *cpu, uint8_t enabled);
 int pasm_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled);
 int pasm_dbg_focus_host_window(CPUState *cpu);
+int pasm_dbg_cassette_debug_action(CPUState *cpu, uint8_t action);
 int pasm_dbg_pump_host_events(CPUState *cpu);
+int pasm_dbg_capture_framebuffer(CPUState *cpu, PASMDebugFramebuffer *out_framebuffer);
+void pasm_dbg_release_framebuffer(CPUState *cpu, PASMDebugFramebuffer *framebuffer);
 int pasm_dbg_character_mapping_count(CPUState *cpu, size_t *out_count);
 int pasm_dbg_character_mapping_descriptor(
     CPUState *cpu,
@@ -527,6 +551,8 @@ def _generate_impl(
     focus_impl: str,
     keyboard_map_required: bool,
     has_cartridge: bool,
+    has_framebuffer: bool,
+    framebuffer_pixel_format: str,
 ) -> str:
     has_components = bool(
         isa_data.get("ics")
@@ -672,6 +698,82 @@ def _generate_impl(
         str(isa_data.get("system", {}).get("metadata", {}).get("name", "system"))
     )
     flag_count = len(flags)
+    if framebuffer_pixel_format == "bgra8888":
+        framebuffer_pixel_format_id = "2u"
+    elif framebuffer_pixel_format == "rgb565":
+        framebuffer_pixel_format_id = "3u"
+    elif framebuffer_pixel_format == "index8":
+        framebuffer_pixel_format_id = "4u"
+    else:
+        framebuffer_pixel_format_id = "1u"
+    framebuffer_bridge_decl = ""
+    framebuffer_bridge_impl = "\n".join(
+        [
+            f"int {cpu_prefix}_dbg_capture_framebuffer(CPUState *cpu, PASMDebugFramebuffer *out_framebuffer) {{",
+            "    (void)cpu;",
+            "    (void)out_framebuffer;",
+            "    return -1;",
+            "}",
+            "",
+            f"void {cpu_prefix}_dbg_release_framebuffer(CPUState *cpu, PASMDebugFramebuffer *framebuffer) {{",
+            "    (void)cpu;",
+            "    (void)framebuffer;",
+            "}",
+        ]
+    )
+    if has_framebuffer:
+        framebuffer_bridge_decl = "\n".join(
+            [
+                "extern int cpu_debug_capture_framebuffer(",
+                "    CPUState *cpu,",
+                "    const uint8_t **out_pixels,",
+                "    size_t *out_pixel_size,",
+                "    uint32_t *out_width,",
+                "    uint32_t *out_height,",
+                "    uint32_t *out_stride_bytes,",
+                "    uint64_t *out_frame_number",
+                ");",
+            ]
+        )
+        framebuffer_bridge_impl = "\n".join(
+            [
+                f"int {cpu_prefix}_dbg_capture_framebuffer(CPUState *cpu, PASMDebugFramebuffer *out_framebuffer) {{",
+                "    const uint8_t *pixels = NULL;",
+                "    size_t pixel_size = 0u;",
+                "    uint32_t width = 0u;",
+                "    uint32_t height = 0u;",
+                "    uint32_t stride_bytes = 0u;",
+                "    uint64_t frame_number = 0u;",
+                "    if (cpu == NULL || out_framebuffer == NULL) return -1;",
+                "    memset(out_framebuffer, 0, sizeof(*out_framebuffer));",
+                "    if (cpu_debug_capture_framebuffer(",
+                "            cpu,",
+                "            &pixels,",
+                "            &pixel_size,",
+                "            &width,",
+                "            &height,",
+                "            &stride_bytes,",
+                "            &frame_number) != 0) {",
+                "        return -1;",
+                "    }",
+                "    out_framebuffer->frame_number = frame_number;",
+                "    out_framebuffer->width = width;",
+                "    out_framebuffer->height = height;",
+                "    out_framebuffer->stride_bytes = stride_bytes;",
+                f"    out_framebuffer->pixel_format = {framebuffer_pixel_format_id};",
+                "    out_framebuffer->pixels = pixels;",
+                "    out_framebuffer->pixel_size = pixel_size;",
+                "    return 0;",
+                "}",
+                "",
+                f"void {cpu_prefix}_dbg_release_framebuffer(CPUState *cpu, PASMDebugFramebuffer *framebuffer) {{",
+                "    (void)cpu;",
+                "    if (framebuffer == NULL) return;",
+                "    framebuffer->pixels = NULL;",
+                "    framebuffer->pixel_size = 0u;",
+                "}",
+            ]
+        )
 
     return f"""/*
  * Auto-generated Debug ABI
@@ -683,8 +785,10 @@ def _generate_impl(
 #include <stdio.h>
 #include <string.h>
 #include "{cpu_name}_debug_abi.h"
+extern int cpu_component_cassette_picker_debug_action(CPUState *cpu, uint8_t action);
 {host_focus_decl}
 {host_pump_decl}
+{framebuffer_bridge_decl}
 
 static void dbg_copy(char *dst, size_t cap, const char *src) {{
     if (!dst || cap == 0) return;
@@ -1485,6 +1589,11 @@ int {cpu_prefix}_dbg_get_overlay_enabled(CPUState *cpu, uint8_t *out_enabled) {{
 
 {focus_impl}
 
+int {cpu_prefix}_dbg_cassette_debug_action(CPUState *cpu, uint8_t action) {{
+    if (!cpu) return -1;
+    return cpu_component_cassette_picker_debug_action(cpu, action);
+}}
+
 {host_pump_body}
 
 CPUState *pasm_dbg_create(size_t memory_size) {{
@@ -1516,6 +1625,10 @@ int pasm_dbg_load_cartridge_rom(CPUState *cpu, const char *path) {{
 
 int pasm_dbg_set_cartridge_dir(CPUState *cpu, const char *path) {{
     return {cpu_prefix}_set_cartridge_dir(cpu, path);
+}}
+
+int pasm_dbg_set_cassette_dir(CPUState *cpu, const char *path) {{
+    return {cpu_prefix}_set_cassette_dir(cpu, path);
 }}
 
 int pasm_dbg_load_keyboard_map(CPUState *cpu, const char *path) {{
@@ -1672,8 +1785,20 @@ int pasm_dbg_focus_host_window(CPUState *cpu) {{
     return {cpu_prefix}_dbg_focus_host_window(cpu);
 }}
 
+int pasm_dbg_cassette_debug_action(CPUState *cpu, uint8_t action) {{
+    return {cpu_prefix}_dbg_cassette_debug_action(cpu, action);
+}}
+
 int pasm_dbg_pump_host_events(CPUState *cpu) {{
     return {cpu_prefix}_dbg_pump_host_events(cpu);
+}}
+
+int pasm_dbg_capture_framebuffer(CPUState *cpu, PASMDebugFramebuffer *out_framebuffer) {{
+    return {cpu_prefix}_dbg_capture_framebuffer(cpu, out_framebuffer);
+}}
+
+void pasm_dbg_release_framebuffer(CPUState *cpu, PASMDebugFramebuffer *framebuffer) {{
+    {cpu_prefix}_dbg_release_framebuffer(cpu, framebuffer);
 }}
 
 uint8_t pasm_dbg_requires_keyboard_map(void) {{
@@ -1695,4 +1820,6 @@ const char *pasm_dbg_system_name(void) {{
 uint8_t pasm_dbg_architecture(void) {{
     return (uint8_t){architecture_const};
 }}
+
+{framebuffer_bridge_impl}
 """

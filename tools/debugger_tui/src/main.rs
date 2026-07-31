@@ -55,6 +55,7 @@ fn build_backend() -> Result<Box<dyn DebuggerBackend>, String> {
             let system_dir = parse_arg("--system-dir");
             let cart_rom = parse_arg("--cart-rom");
             let cartridge_dir = parse_arg("--cartridge-dir");
+            let cassette_dir = parse_arg("--cassette-dir");
             let floppy = parse_arg("--floppy");
             let keyboard_map = parse_arg("--keyboard-map");
             let controller_map = parse_arg("--controller-map");
@@ -68,6 +69,7 @@ fn build_backend() -> Result<Box<dyn DebuggerBackend>, String> {
                 system_dir.as_deref(),
                 cart_rom.as_deref(),
                 cartridge_dir.as_deref(),
+                cassette_dir.as_deref(),
                 keyboard_map.as_deref(),
                 controller_map.as_deref(),
                 start_pc,

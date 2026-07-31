@@ -84,18 +84,37 @@ automation:
       native_encoding: coco_screen_code
       unicode_map: coco_text
       unknown_policy: preserve_native
+  readiness:
+    default_recipe: boot_to_basic_ok
+    recipes:
+      - id: boot_to_basic_ok
+        reset: cold
+        warmup_frames: 180
+        stable_frames: 2
+        media_defaults:
+          cassette: empty
+          floppy: empty
+        wait_for_text:
+          view: primary_text
+          contains: "OK"
+  capabilities:
+  - screen.text_grid
+  - input.keyboard_matrix
+  - input.controller
+  - media.cassette
+  - media.floppy
 media_picker:
   open_action_id: EMU_MEDIA_PICKER
 cassette:
   component: cassette_transport
   directory: examples/cassettes/coco1
-  allowed_extensions: [yaml, wav, cas]
+  allowed_extensions: [yaml, wav, mp3, cas]
   sources:
     - kind: file
       source_type: ../../cassette_sources/wav_file.yaml
       component: cassette_transport
       label: Tape File
-      allowed_extensions: [yaml, wav]
+      allowed_extensions: [yaml, wav, mp3]
     - kind: file
       source_type: ../../cassette_sources/coco_cas_file.yaml
       component: cassette_transport

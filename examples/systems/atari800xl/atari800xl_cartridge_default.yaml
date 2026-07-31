@@ -82,6 +82,9 @@ components:
   - speaker
   - atari800xl_cassette_adapter
   - cassette_transport
+  - cassette_line_in_source
+  - cassette_wav_source
+  - cassette_cas_source
   - tv
   hosts:
   - host_atari800xl
@@ -107,16 +110,37 @@ automation:
       native_encoding: atari_screen_code
       unicode_map: ascii
       unknown_policy: preserve_native
+  readiness:
+    default_recipe: boot_to_basic_ready
+    recipes:
+      - id: boot_to_basic_ready
+        reset: cold
+        warmup_frames: 180
+        stable_frames: 2
+        media_defaults:
+          cassette: empty
+          floppy: empty
+          cartridge: inserted
+        wait_for_text:
+          view: primary_text
+          contains: "READY"
+  capabilities:
+  - screen.text_grid
+  - input.keyboard
+  - input.controller
+  - media.cassette
+  - media.floppy
+  - media.cartridge
 cassette:
   component: atari800xl_cassette_adapter
   directory: examples/cassettes/atari800xl
-  allowed_extensions: [yaml, wav, cas]
+  allowed_extensions: [yaml, wav, mp3, cas]
   sources:
     - kind: file
       source_type: ../../cassette_sources/wav_file.yaml
       component: atari800xl_cassette_adapter
       label: Tape File
-      allowed_extensions: [yaml, wav]
+      allowed_extensions: [yaml, wav, mp3]
     - kind: file
       source_type: ../../cassette_sources/cas_file.yaml
       component: atari800xl_cassette_adapter

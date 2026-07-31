@@ -735,6 +735,9 @@
                 "source_handler": {
                   "type": "string"
                 },
+                "source_signal": {
+                  "type": "string"
+                },
                 "width": {
                   "type": "integer",
                   "minimum": 1
@@ -742,6 +745,14 @@
                 "height": {
                   "type": "integer",
                   "minimum": 1
+                },
+                "crop_x": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "crop_y": {
+                  "type": "integer",
+                  "minimum": 0
                 },
                 "pixel_format": {
                   "type": "string",
@@ -881,6 +892,111 @@
         "input": {
           "type": "object",
           "additionalProperties": true
+        },
+        "readiness": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "default_recipe": {
+              "type": "string"
+            },
+            "recipes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "reset": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "cold",
+                      "warm"
+                    ]
+                  },
+                  "warmup_frames": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "stable_frames": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "media_defaults": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "cartridge": {
+                        "type": "string",
+                        "enum": [
+                          "empty",
+                          "inserted"
+                        ]
+                      },
+                      "cassette": {
+                        "type": "string",
+                        "enum": [
+                          "empty",
+                          "inserted"
+                        ]
+                      },
+                      "floppy": {
+                        "type": "string",
+                        "enum": [
+                          "empty",
+                          "inserted"
+                        ]
+                      }
+                    }
+                  },
+                  "wait_for_text": {
+                    "type": "object",
+                    "required": [
+                      "view",
+                      "contains"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "view": {
+                        "type": "string"
+                      },
+                      "contains": {
+                        "type": "string"
+                      },
+                      "case_sensitive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "wait_for_framebuffer": {
+                    "type": "object",
+                    "required": [
+                      "state"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "nonblank",
+                          "frame_progress"
+                        ]
+                      }
+                    }
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
         },
         "capabilities": {
           "type": "array",

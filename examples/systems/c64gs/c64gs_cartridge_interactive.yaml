@@ -88,6 +88,11 @@ automation:
       native_encoding: c64_screen_code
       unicode_map: c64_screen_text
       unknown_policy: preserve_native
+  capabilities:
+  - screen.text_grid
+  - input.keyboard_matrix
+  - input.controller
+  - media.cartridge
 connections:
 - from:
     component: c64_pla

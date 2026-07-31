@@ -13,4 +13,6 @@ components:
   ics: []
   devices: []
   hosts: []
+automation:
+  capabilities: []
 connections: []

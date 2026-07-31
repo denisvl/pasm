@@ -58,6 +58,8 @@ DEVICE_VIDEO="examples/devices/atari800xl/atari800xl_video.yaml"
 DEVICE_SPEAKER="examples/devices/atari800xl/atari800xl_speaker.yaml"
 DEVICE_CASSETTE_ADAPTER="examples/devices/atari800xl/atari800xl_cassette_adapter.yaml"
 DEVICE_CASSETTE_TRANSPORT="examples/devices/common/cassette_transport.yaml"
+DEVICE_CASSETTE_LINE_IN="examples/devices/common/cassette_line_in_source.yaml"
+DEVICE_CASSETTE_WAV="examples/devices/common/cassette_wav_source.yaml"
 DEVICE_TV="examples/devices/common/tv_crt_mono.yaml"
 SYSTEM_DIR="examples/systems/atari800xe"
 
@@ -82,9 +84,9 @@ esac
 : "${OUTPUT_DIR:=${DEFAULT_OUTPUT}}"
 BUILD_DIR="${OUTPUT_DIR}/build"
 SYSTEM_DIR_ABS="$(cd "$(dirname "${SYSTEM}")" && pwd)"
-OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
 OUTPUT_PARENT="$(dirname "${OUTPUT_DIR}")"
-mkdir -p "${OUTPUT_PARENT}"
+mkdir -p "${OUTPUT_DIR}" "${BUILD_DIR}"
+OUTPUT_DIR_ABS="$(cd "$(dirname "${OUTPUT_DIR}")" && pwd)/$(basename "${OUTPUT_DIR}")"
 
 if [[ -z "${EXTRA_CMAKE_ARGS}" ]]; then
   if [[ -n "${VCPKG_ROOT:-}" ]]; then
@@ -155,6 +157,8 @@ uv run python -m src.main generate \
   --device "${DEVICE_SPEAKER}" \
   --device "${DEVICE_CASSETTE_ADAPTER}" \
   --device "${DEVICE_CASSETTE_TRANSPORT}" \
+  --device "${DEVICE_CASSETTE_LINE_IN}" \
+  --device "${DEVICE_CASSETTE_WAV}" \
   --device "${DEVICE_TV}" \
   --host "${HOST}" \
   --host-backend "${HOST_BACKEND}" \

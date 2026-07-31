@@ -262,6 +262,14 @@ def _single_host_backend_target(isa_data: Dict[str, Any]) -> str:
     return target
 
 
+def _normalize_callback_handler_line(raw_line: str) -> str:
+    stripped = raw_line.strip()
+    if stripped == "return;":
+        indent = raw_line[: len(raw_line) - len(raw_line.lstrip())]
+        return f"{indent}return __result;"
+    return raw_line
+
+
 def generate_cpu_impl(
     isa_data: Dict[str, Any],
     cpu_name: str,
@@ -1834,6 +1842,10 @@ def _generate_cartridge_rom_loader(isa_data: Dict[str, Any], cpu_prefix: str) ->
             "    (void)path;\n"
             "    return -1;\n"
             "}\n"
+            f"int {cpu_prefix}_set_cassette_dir(CPUState *cpu, const char *path) {{\n"
+            "    (void)cpu;\n"
+            "    return cpu_component_host_picker_set_dir(path);\n"
+            "}\n"
         )
 
     comp_id = str(cartridge.get("metadata", {}).get("id", "cartridge"))
@@ -1905,6 +1917,11 @@ def _generate_cartridge_rom_loader(isa_data: Dict[str, Any], cpu_prefix: str) ->
         "}",
         "",
         f"int {cpu_prefix}_set_cartridge_dir(CPUState *cpu, const char *path) {{",
+        "    (void)cpu;",
+        "    return cpu_component_host_picker_set_dir(path);",
+        "}",
+        "",
+        f"int {cpu_prefix}_set_cassette_dir(CPUState *cpu, const char *path) {{",
         "    (void)cpu;",
         "    return cpu_component_host_picker_set_dir(path);",
         "}",
@@ -2239,6 +2256,40 @@ def _generate_ic_runtime_blocks(
         lines.append(f"{indent}}}")
         return "\n".join(lines)
 
+    automation = (isa_data.get("system", {}) or {}).get("automation", {}) or {}
+    screen_automation = automation.get("screen", {}) or {}
+    framebuffer_automation = screen_automation.get("framebuffer", {}) or {}
+    framebuffer_component_id = (
+        str(framebuffer_automation.get("source_component", "")).strip()
+        if isinstance(framebuffer_automation, dict)
+        else ""
+    )
+    framebuffer_signal_name = (
+        str(framebuffer_automation.get("source_signal", "")).strip()
+        if isinstance(framebuffer_automation, dict)
+        else ""
+    )
+    framebuffer_handler_name = (
+        str(framebuffer_automation.get("source_handler", "")).strip()
+        if isinstance(framebuffer_automation, dict)
+        else ""
+    )
+    framebuffer_declared_width = int(framebuffer_automation.get("width", 0) or 0)
+    framebuffer_declared_height = int(framebuffer_automation.get("height", 0) or 0)
+    framebuffer_crop_x = int(framebuffer_automation.get("crop_x", 0) or 0)
+    framebuffer_crop_y = int(framebuffer_automation.get("crop_y", 0) or 0)
+    framebuffer_pixel_format = (
+        str(framebuffer_automation.get("pixel_format", "rgba8888")).strip().lower()
+        if isinstance(framebuffer_automation, dict)
+        else ""
+    )
+    framebuffer_bytes_per_pixel = {
+        "rgba8888": 4,
+        "bgra8888": 4,
+        "rgb565": 2,
+        "index8": 1,
+    }.get(framebuffer_pixel_format, 4)
+
     helper_lines: List[str] = [
         "void cpu_components_step_pre(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);",
         "void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);",
@@ -2280,6 +2331,9 @@ def _generate_ic_runtime_blocks(
         "    uint8_t ascii_queue[64];",
         "    uint8_t ascii_q_head;",
         "    uint8_t ascii_q_len;",
+        "    uint64_t emulator_action_queue[16];",
+        "    uint8_t emulator_action_q_head;",
+        "    uint8_t emulator_action_q_len;",
         "} RuntimeKeyboardMap;",
         "",
         "static RuntimeKeyboardMap g_runtime_keyboard_map = {0};",
@@ -2298,6 +2352,42 @@ def _generate_ic_runtime_blocks(
         "static uint8_t cpu_host_hal_joystick_hat(int joy_index, int hat);",
         "",
     ]
+    if framebuffer_component_id and (framebuffer_handler_name or framebuffer_signal_name):
+        helper_lines.extend(
+            [
+                "static uint8_t *g_runtime_automation_framebuffer_pixels = NULL;",
+                "static size_t g_runtime_automation_framebuffer_pixel_capacity = 0u;",
+                "static size_t g_runtime_automation_framebuffer_pixel_size = 0u;",
+                "static uint32_t g_runtime_automation_framebuffer_width = 0u;",
+                "static uint32_t g_runtime_automation_framebuffer_height = 0u;",
+                "static uint32_t g_runtime_automation_framebuffer_stride_bytes = 0u;",
+                "static uint64_t g_runtime_automation_framebuffer_frame_number = 0u;",
+                "static uint8_t g_runtime_automation_framebuffer_valid = 0u;",
+                "",
+                "int cpu_debug_capture_framebuffer(",
+                "    CPUState *cpu,",
+                "    const uint8_t **out_pixels,",
+                "    size_t *out_pixel_size,",
+                "    uint32_t *out_width,",
+                "    uint32_t *out_height,",
+                "    uint32_t *out_stride_bytes,",
+                "    uint64_t *out_frame_number",
+                ") {",
+                "    (void)cpu;",
+                "    if (out_pixels == NULL || out_pixel_size == NULL || out_width == NULL ||",
+                "        out_height == NULL || out_stride_bytes == NULL || out_frame_number == NULL) return -1;",
+                "    if (g_runtime_automation_framebuffer_valid == 0u || g_runtime_automation_framebuffer_pixels == NULL) return -1;",
+                "    *out_pixels = g_runtime_automation_framebuffer_pixels;",
+                "    *out_pixel_size = g_runtime_automation_framebuffer_pixel_size;",
+                "    *out_width = g_runtime_automation_framebuffer_width;",
+                "    *out_height = g_runtime_automation_framebuffer_height;",
+                "    *out_stride_bytes = g_runtime_automation_framebuffer_stride_bytes;",
+                "    *out_frame_number = g_runtime_automation_framebuffer_frame_number;",
+                "    return 0;",
+                "}",
+                "",
+            ]
+        )
 
     if host_uses_sdl2_backend:
         helper_lines.append("/* PASM_SPLIT_BEGIN:HOST_HAL_IMPL */")
@@ -6240,6 +6330,38 @@ def _generate_ic_runtime_blocks(
             "    return 0u;",
             "}",
             "",
+            "void cpu_component_keyboard_emulator_action_queue_push_hash(uint64_t h) {",
+            "    uint8_t idx;",
+            "    if (h == 0ull) return;",
+            "    if (g_runtime_keyboard_map.emulator_action_q_len >= (uint8_t)(sizeof(g_runtime_keyboard_map.emulator_action_queue) / sizeof(g_runtime_keyboard_map.emulator_action_queue[0]))) {",
+            "        g_runtime_keyboard_map.emulator_action_q_head = (uint8_t)((g_runtime_keyboard_map.emulator_action_q_head + 1u) % (sizeof(g_runtime_keyboard_map.emulator_action_queue) / sizeof(g_runtime_keyboard_map.emulator_action_queue[0])));",
+            "        g_runtime_keyboard_map.emulator_action_q_len -= 1u;",
+            "    }",
+            "    idx = (uint8_t)((g_runtime_keyboard_map.emulator_action_q_head + g_runtime_keyboard_map.emulator_action_q_len) % (sizeof(g_runtime_keyboard_map.emulator_action_queue) / sizeof(g_runtime_keyboard_map.emulator_action_queue[0])));",
+            "    g_runtime_keyboard_map.emulator_action_queue[idx] = h;",
+            "    g_runtime_keyboard_map.emulator_action_q_len += 1u;",
+            "}",
+            "",
+            "uint8_t cpu_component_keyboard_emulator_action_queue_consume_hash(uint64_t h) {",
+            "    uint8_t found = 0u;",
+            "    uint8_t out_len = 0u;",
+            "    uint64_t tmp[16];",
+            "    while (g_runtime_keyboard_map.emulator_action_q_len > 0u) {",
+            "        uint64_t cur = g_runtime_keyboard_map.emulator_action_queue[g_runtime_keyboard_map.emulator_action_q_head];",
+            "        g_runtime_keyboard_map.emulator_action_q_head = (uint8_t)((g_runtime_keyboard_map.emulator_action_q_head + 1u) % (sizeof(g_runtime_keyboard_map.emulator_action_queue) / sizeof(g_runtime_keyboard_map.emulator_action_queue[0])));",
+            "        g_runtime_keyboard_map.emulator_action_q_len -= 1u;",
+            "        if (found == 0u && cur == h) {",
+            "            found = 1u;",
+            "            continue;",
+            "        }",
+            "        if (out_len < (uint8_t)(sizeof(tmp) / sizeof(tmp[0]))) tmp[out_len++] = cur;",
+            "    }",
+            "    g_runtime_keyboard_map.emulator_action_q_head = 0u;",
+            "    g_runtime_keyboard_map.emulator_action_q_len = out_len;",
+            "    for (uint8_t i = 0u; i < out_len; ++i) g_runtime_keyboard_map.emulator_action_queue[i] = tmp[i];",
+            "    return found;",
+            "}",
+            "",
             "static RuntimeKeyboardBinding *cpu_component_runtime_binding_for_host_key(const char *host_key_name, uint8_t shift_mode, uint8_t create_if_missing) {",
             "    if (host_key_name == NULL || host_key_name[0] == '\\0') return NULL;",
             "    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {",
@@ -6578,11 +6700,6 @@ def _generate_ic_runtime_blocks(
             "        }",
             "        if (g_runtime_keyboard_map.kind == 1u) {",
             "            if (has_mapper != 0u) {",
-            "                if (b->has_ascii != 0u || b->has_ascii_shift != 0u || b->has_ascii_ctrl != 0u) {",
-            "                    fprintf(stderr, \"Keyboard map parse error: matrix binding cannot define ascii payload\\n\");",
-            "                    cpu_component_runtime_keyboard_clear();",
-            "                    return -1;",
-            "                }",
             "                if (b->press_count == 0u) { fprintf(stderr, \"Keyboard map parse error: matrix binding missing presses\\n\"); cpu_component_runtime_keyboard_clear(); return -1; }",
             "                for (uint8_t p = 0u; p < b->press_count; ++p) {",
             "                    if (b->presses[p].bit > 7u) { fprintf(stderr, \"Keyboard map parse error: matrix binding bit out of range\\n\"); cpu_component_runtime_keyboard_clear(); return -1; }",
@@ -7085,6 +7202,10 @@ def _generate_ic_runtime_blocks(
             "        } else {",
             "            continue;",
             "        }",
+            "        if (b->emulator_key_id[0] != '\\0') {",
+            "            cpu_component_keyboard_emulator_action_queue_push_hash(cpu_component_hash_str(b->emulator_key_id));",
+            "            return;",
+            "        }",
             "        if (controlled != 0u && b->has_ascii_ctrl != 0u) out = b->ascii_ctrl;",
             "        else if (shifted != 0u && b->has_ascii_shift != 0u) out = b->ascii_shift;",
             "        else if (b->has_ascii != 0u) out = b->ascii;",
@@ -7162,7 +7283,7 @@ def _generate_ic_runtime_blocks(
             "    (void)cpu;",
             "    if (out_count == NULL) return -1;",
             "    *out_count = 0u;",
-            "    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return -1;",
+            "    if (g_runtime_keyboard_map.loaded == 0u) return -1;",
             "    for (size_t i = 0u; i < g_runtime_keyboard_map.binding_count; ++i) {",
             "        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];",
             "        size_t cursor = count;",
@@ -7192,7 +7313,7 @@ def _generate_ic_runtime_blocks(
             "    const char **out_meta_key_id) {",
             "    size_t cursor = 0u;",
             "    (void)cpu;",
-            "    if (g_runtime_keyboard_map.loaded == 0u || g_runtime_keyboard_map.kind != 2u) return -1;",
+            "    if (g_runtime_keyboard_map.loaded == 0u) return -1;",
             "    if (out_shift_key_id != NULL) *out_shift_key_id = cpu_component_character_mapping_modifier_key_id(1u);",
             "    if (out_ctrl_key_id != NULL) *out_ctrl_key_id = cpu_component_character_mapping_modifier_key_id(2u);",
             "    if (out_alt_key_id != NULL) *out_alt_key_id = NULL;",
@@ -7504,7 +7625,17 @@ def _generate_ic_runtime_blocks(
                 "        if (any_nav == 0u) g_runtime_cartridge_picker.input_blocked = 0u;",
                 "    }",
                 "    if (g_runtime_cartridge_picker.active == 0u) return;",
-                "    if (!ks || key_count <= 0) return;",
+                "    if (!ks || key_count <= 0) {",
+                "        g_runtime_cassette_picker.action_prev = 0u;",
+                "        g_runtime_cassette_picker.play_prev = 0u;",
+                "        g_runtime_cassette_picker.pause_prev = 0u;",
+                "        g_runtime_cassette_picker.stop_prev = 0u;",
+                "        g_runtime_cassette_picker.record_prev = 0u;",
+                "        g_runtime_cassette_picker.vol_up_prev = 0u;",
+                "        g_runtime_cassette_picker.vol_down_prev = 0u;",
+                "        if (g_runtime_cassette_picker.input_blocked != 0u) g_runtime_cassette_picker.input_blocked = 0u;",
+                "        return;",
+                "    }",
                 "    up = ((size_t)CPU_HOST_SCANCODE(UP) < (size_t)key_count && ks[CPU_HOST_SCANCODE(UP)] != 0u) ? 1u : 0u;",
                 "    down = ((size_t)CPU_HOST_SCANCODE(DOWN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(DOWN)] != 0u) ? 1u : 0u;",
                 "    enter = (((size_t)CPU_HOST_SCANCODE(RETURN) < (size_t)key_count && ks[CPU_HOST_SCANCODE(RETURN)] != 0u) || ((size_t)CPU_HOST_SCANCODE(KP_ENTER) < (size_t)key_count && ks[CPU_HOST_SCANCODE(KP_ENTER)] != 0u)) ? 1u : 0u;",
@@ -8003,6 +8134,18 @@ def _generate_ic_runtime_blocks(
                 "    return 0;",
                 "#endif",
                 "}",
+                "int cpu_component_cassette_picker_set_dir(const char *path) {",
+                "    if (path == NULL || path[0] == '\\0') return -1;",
+                "    snprintf(g_runtime_cassette_picker.directory, sizeof(g_runtime_cassette_picker.directory), \"%s\", path);",
+                "    g_runtime_cassette_picker.active = 0u;",
+                "    g_runtime_cassette_picker.input_blocked = 0u;",
+                "    g_runtime_cassette_picker.pending_load = 0u;",
+                "    g_runtime_cassette_picker.pending_source_index = 0u;",
+                "    g_runtime_cassette_picker.pending_source_kind = 0u;",
+                "    g_runtime_cassette_picker.pending_path[0] = '\\0';",
+                "    g_runtime_cassette_picker.selected = 0u;",
+                "    return 0;",
+                "}",
                 "uint8_t cpu_component_cassette_picker_is_active(void) { return g_runtime_cassette_picker.active; }",
                 "uint8_t cpu_component_cassette_picker_blocks_input(void) { return (uint8_t)(g_runtime_cassette_picker.active != 0u || g_runtime_cassette_picker.input_blocked != 0u); }",
                 "uint8_t cpu_component_cassette_picker_overlay_visible(void) {",
@@ -8265,7 +8408,17 @@ def _generate_ic_runtime_blocks(
                 "            }",
                 "        }",
                 "    }",
-                "    if (!ks || key_count <= 0) return;",
+                "    if (!ks || key_count <= 0) {",
+                "        g_runtime_cassette_picker.action_prev = 0u;",
+                "        g_runtime_cassette_picker.play_prev = 0u;",
+                "        g_runtime_cassette_picker.pause_prev = 0u;",
+                "        g_runtime_cassette_picker.stop_prev = 0u;",
+                "        g_runtime_cassette_picker.record_prev = 0u;",
+                "        g_runtime_cassette_picker.vol_up_prev = 0u;",
+                "        g_runtime_cassette_picker.vol_down_prev = 0u;",
+                "        if (g_runtime_cassette_picker.input_blocked != 0u) g_runtime_cassette_picker.input_blocked = 0u;",
+                "        return;",
+                "    }",
                 "    if (raw_picker_keys_enabled < 0) {",
                 "        const char *env = getenv(\"PASM_EMU_CASSETTE_PICKER_RAW_KEYS\");",
                 "        raw_picker_keys_enabled = (env == NULL || env[0] == '\\0' || env[0] != '0') ? 1 : 0;",
@@ -8471,6 +8624,113 @@ def _generate_ic_runtime_blocks(
                 "    g_runtime_cassette_picker.nav_enter_prev = enter;",
                 "    g_runtime_cassette_picker.nav_esc_prev = esc;",
                 "}",
+                "int cpu_component_cassette_picker_debug_action(CPUState *cpu, uint8_t action) {",
+                "    if (cpu == NULL) return -1;",
+                "    cpu_component_cassette_picker_sync_state(cpu);",
+                "    switch (action) {",
+                "        case 1u: {",
+                "            if (g_runtime_cassette_picker.active != 0u) {",
+                "                g_runtime_cassette_picker.active = 0u;",
+                "                g_runtime_cassette_picker.input_blocked = 1u;",
+                "                g_runtime_cassette_picker.entry_count = 0u;",
+                "                g_runtime_cassette_picker.selected = 0u;",
+                "                g_runtime_media_picker_active_kind = CPU_MEDIA_PICKER_NONE;",
+                "                return 0;",
+                "            }",
+                "            {",
+                "                int scan_rc = cpu_component_cassette_picker_scan_dir();",
+                "                if (scan_rc != 0) return -1;",
+                "                g_runtime_cassette_picker.active = 1u;",
+                "                g_runtime_cassette_picker.input_blocked = 1u;",
+                "                g_runtime_cassette_picker.selected = 0u;",
+                "                g_runtime_media_picker_active_kind = CPU_MEDIA_PICKER_CASSETTE;",
+                "                g_runtime_cassette_picker.nav_up_prev = 0u;",
+                "                g_runtime_cassette_picker.nav_down_prev = 0u;",
+                "                g_runtime_cassette_picker.nav_left_prev = 0u;",
+                "                g_runtime_cassette_picker.nav_right_prev = 0u;",
+                "                g_runtime_cassette_picker.nav_enter_prev = 0u;",
+                "                g_runtime_cassette_picker.nav_esc_prev = 0u;",
+                "                return 0;",
+                "            }",
+                "        }",
+                "        case 2u:",
+                "            if (g_runtime_cassette_picker.active == 0u || g_runtime_cassette_picker.entry_count == 0u) return -1;",
+                "            if (g_runtime_cassette_picker.selected == 0u) g_runtime_cassette_picker.selected = g_runtime_cassette_picker.entry_count - 1u; else g_runtime_cassette_picker.selected -= 1u;",
+                "            return 0;",
+                "        case 3u:",
+                "            if (g_runtime_cassette_picker.active == 0u || g_runtime_cassette_picker.entry_count == 0u) return -1;",
+                "            g_runtime_cassette_picker.selected = (g_runtime_cassette_picker.selected + 1u) % g_runtime_cassette_picker.entry_count;",
+                "            return 0;",
+                "        case 4u:",
+                "            if (g_runtime_cassette_picker.active == 0u || g_runtime_cassette_picker.entry_count == 0u) return -1;",
+                "            {",
+                "                const RuntimeCassetteEntry *sel = &g_runtime_cassette_picker.entries[g_runtime_cassette_picker.selected];",
+                "                snprintf(g_runtime_cassette_picker.active_component_id, sizeof(g_runtime_cassette_picker.active_component_id), \"%s\", sel->component_id);",
+                "                snprintf(g_runtime_cassette_picker.active_source_component_id, sizeof(g_runtime_cassette_picker.active_source_component_id), \"%s\", sel->source_component_id);",
+                "                g_runtime_cassette_picker.active_source_kind = sel->source_kind;",
+                "                g_runtime_cassette_picker.active_source_index = sel->source_index;",
+                "                snprintf(g_runtime_cassette_picker.active_source_model, sizeof(g_runtime_cassette_picker.active_source_model), \"%s\", sel->source_model);",
+                "                snprintf(g_runtime_cassette_picker.active_source_label, sizeof(g_runtime_cassette_picker.active_source_label), \"%s\", sel->source_label);",
+                "                g_runtime_cassette_picker.pending_source_index = sel->source_index;",
+                "                g_runtime_cassette_picker.pending_source_kind = sel->source_kind;",
+                "                snprintf(g_runtime_cassette_picker.pending_path, sizeof(g_runtime_cassette_picker.pending_path), \"%s\", sel->media_path);",
+                "                snprintf(g_runtime_cassette_picker.loaded_name, sizeof(g_runtime_cassette_picker.loaded_name), \"%s\", (sel->source_kind == 1u) ? sel->source_label : sel->file_name);",
+                "                g_runtime_cassette_picker.status_now_cycle = cpu->total_cycles;",
+                "                g_runtime_cassette_picker.status_until_cycle = cpu->total_cycles + (uint64_t)(CPU_SYSTEM_CLOCK_HZ * 10u);",
+                "                g_runtime_cassette_picker.pending_load = 1u;",
+                "                g_runtime_cassette_picker.active = 0u;",
+                "                g_runtime_cassette_picker.input_blocked = 1u;",
+                "                g_runtime_cassette_picker.entry_count = 0u;",
+                "                g_runtime_cassette_picker.selected = 0u;",
+                "                g_runtime_media_picker_active_kind = CPU_MEDIA_PICKER_NONE;",
+                "                return cpu_component_cassette_picker_apply_pending_load(cpu);",
+                "            }",
+                "        case 5u:",
+                "            if (g_runtime_cassette_picker.active == 0u) return -1;",
+                "            g_runtime_cassette_picker.active = 0u;",
+                "            g_runtime_cassette_picker.input_blocked = 1u;",
+                "            g_runtime_cassette_picker.entry_count = 0u;",
+                "            g_runtime_cassette_picker.selected = 0u;",
+                "            g_runtime_media_picker_active_kind = CPU_MEDIA_PICKER_NONE;",
+                "            return 0;",
+                "        case 6u:",
+                "            if (g_runtime_cassette_picker.active_component_id[0] == '\\0') return -1;",
+                "            {",
+                "                uint64_t args[1] = { 1u };",
+                "                (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, \"set_transport_mode\", args, 1);",
+                (
+                    "                (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, \"set_motor\", args, 1);"
+                    if cassette_play_sets_motor
+                    else ""
+                ),
+                "                g_runtime_cassette_picker.transport_mode = 1u;",
+                (
+                    "                g_runtime_cassette_picker.motor_on = 1u;"
+                    if cassette_play_sets_motor
+                    else ""
+                ),
+                "                return 0;",
+                "            }",
+                "        case 7u:",
+                "            if (g_runtime_cassette_picker.active_component_id[0] == '\\0') return -1;",
+                "            if (g_runtime_cassette_picker.volume_percent < 100u) g_runtime_cassette_picker.volume_percent = (uint8_t)((g_runtime_cassette_picker.volume_percent + 5u > 100u) ? 100u : g_runtime_cassette_picker.volume_percent + 5u);",
+                "            {",
+                "                uint64_t args[1] = { g_runtime_cassette_picker.volume_percent };",
+                "                (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, \"set_volume\", args, 1);",
+                "                return 0;",
+                "            }",
+                "        case 8u:",
+                "            if (g_runtime_cassette_picker.active_component_id[0] == '\\0') return -1;",
+                "            g_runtime_cassette_picker.volume_percent = (uint8_t)((g_runtime_cassette_picker.volume_percent >= 5u) ? (g_runtime_cassette_picker.volume_percent - 5u) : 0u);",
+                "            {",
+                "                uint64_t args[1] = { g_runtime_cassette_picker.volume_percent };",
+                "                (void)cpu_component_dispatch_callback(cpu, g_runtime_cassette_picker.active_component_id, \"set_volume\", args, 1);",
+                "                return 0;",
+                "            }",
+                "        default:",
+                "            return -1;",
+                "    }",
+                "}",
                 "void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) {",
                 "    char status_line[256];",
                 "    char current_time[16];",
@@ -8535,11 +8795,14 @@ def _generate_ic_runtime_blocks(
     else:
         helper_lines.extend(
             [
+                "int cpu_component_cassette_picker_set_dir(const char *path) { (void)path; return -1; }",
                 "int cpu_component_cassette_picker_apply_pending_load(CPUState *cpu) { (void)cpu; return 0; }",
                 "static void cpu_component_cassette_picker_sync_state(CPUState *cpu) { (void)cpu; }",
                 "uint8_t cpu_component_cassette_picker_is_active(void) { return 0u; }",
                 "uint8_t cpu_component_cassette_picker_overlay_visible(void) { return 0u; }",
+                "uint8_t cpu_component_cassette_picker_blocks_input(void) { return 0u; }",
                 "void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus) { (void)cpu; (void)has_focus; }",
+                "int cpu_component_cassette_picker_debug_action(CPUState *cpu, uint8_t action) { (void)cpu; (void)action; return -1; }",
                 "void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h) { (void)cpu; (void)pixels; (void)w; (void)h; }",
                 "",
             ]
@@ -8758,6 +9021,18 @@ def _generate_ic_runtime_blocks(
                 "    closedir(d);",
                 "    return 0;",
                 "#endif",
+                "}",
+                "int cpu_component_floppy_picker_set_dir(const char *path) {",
+                "    cpu_component_floppy_picker_init_runtime();",
+                "    if (path == NULL || path[0] == '\\0') return -1;",
+                "    snprintf(g_runtime_floppy_picker.directory, sizeof(g_runtime_floppy_picker.directory), \"%s\", path);",
+                "    g_runtime_floppy_picker.active = 0u;",
+                "    g_runtime_floppy_picker.input_blocked = 0u;",
+                "    g_runtime_floppy_picker.pending_load = 0u;",
+                "    g_runtime_floppy_picker.pending_eject = 0u;",
+                "    g_runtime_floppy_picker.pending_path[0] = '\\0';",
+                "    g_runtime_floppy_picker.selected = 0u;",
+                "    return 0;",
                 "}",
                 f"int {cpu_prefix}_load_floppy_media(CPUState *cpu, const char *path) {{",
                 "    if (cpu == NULL || path == NULL || path[0] == '\\0') return -1;",
@@ -9124,6 +9399,7 @@ def _generate_ic_runtime_blocks(
                 f"int {cpu_prefix}_load_floppy_media(CPUState *cpu, const char *path) {{ (void)cpu; (void)path; return -1; }}",
                 "int pasm_dbg_load_floppy_media(CPUState *cpu, const char *path) { (void)cpu; (void)path; return -1; }",
                 "int cpu_component_floppy_picker_load_path(CPUState *cpu, const char *path) { (void)cpu; (void)path; return -1; }",
+                "int cpu_component_floppy_picker_set_dir(const char *path) { (void)path; return -1; }",
                 "int cpu_component_floppy_picker_apply_pending_load(CPUState *cpu) { (void)cpu; return 0; }",
                 "uint8_t cpu_component_floppy_picker_is_active(void) { return 0u; }",
                 "uint8_t cpu_component_floppy_picker_overlay_visible(void) { return 0u; }",
@@ -9239,7 +9515,8 @@ def _generate_ic_runtime_blocks(
                 pass
             if body:
                 for raw_line in body.splitlines():
-                    helper_lines.append(f"    {raw_line.rstrip()}" if raw_line.strip() else "")
+                    normalized = _normalize_callback_handler_line(raw_line.rstrip())
+                    helper_lines.append(f"    {normalized}" if normalized.strip() else "")
             else:
                 # Fallback for callbacks without explicit handler code:
                 # if there is a declared callback->callback connection for this
@@ -9310,6 +9587,70 @@ def _generate_ic_runtime_blocks(
             helper_lines.append("    (void)argc;")
             helper_lines.append(f"    ComponentState_{comp_ident} *comp = &cpu->comp_{comp_ident};")
             helper_lines.append(f'    cpu->active_component_id = "{_escape_c_string(comp_id)}";')
+            if comp_id == framebuffer_component_id and framebuffer_handler_name and handler_name == framebuffer_handler_name:
+                helper_lines.append("    if (argc >= 4u && args[1] != 0u) {")
+                helper_lines.append(
+                    f"        uint32_t fb_width = (uint32_t)((args[2] & 0xFFFFFFFFu) != 0u ? (args[2] & 0xFFFFFFFFu) : {framebuffer_declared_width}u);"
+                )
+                helper_lines.append(
+                    f"        uint32_t fb_height = (uint32_t)((args[3] & 0xFFFFFFFFu) != 0u ? (args[3] & 0xFFFFFFFFu) : {framebuffer_declared_height}u);"
+                )
+                helper_lines.append(
+                    f"        uint32_t fb_out_width = (uint32_t)({framebuffer_declared_width}u != 0u ? {framebuffer_declared_width}u : fb_width);"
+                )
+                helper_lines.append(
+                    f"        uint32_t fb_out_height = (uint32_t)({framebuffer_declared_height}u != 0u ? {framebuffer_declared_height}u : fb_height);"
+                )
+                helper_lines.append(f"        uint32_t fb_crop_x = (uint32_t){framebuffer_crop_x}u;")
+                helper_lines.append(f"        uint32_t fb_crop_y = (uint32_t){framebuffer_crop_y}u;")
+                helper_lines.append(
+                    f"        size_t fb_need = (size_t)fb_out_width * (size_t)fb_out_height * (size_t){framebuffer_bytes_per_pixel}u;"
+                )
+                helper_lines.append("        if (fb_need != 0u) {")
+                helper_lines.append("            if (fb_need > g_runtime_automation_framebuffer_pixel_capacity) {")
+                helper_lines.append("                uint8_t *nb = (uint8_t *)realloc(g_runtime_automation_framebuffer_pixels, fb_need);")
+                helper_lines.append("                if (nb != NULL) {")
+                helper_lines.append("                    g_runtime_automation_framebuffer_pixels = nb;")
+                helper_lines.append("                    g_runtime_automation_framebuffer_pixel_capacity = fb_need;")
+                helper_lines.append("                }")
+                helper_lines.append("            }")
+                helper_lines.append(
+                    "            if (g_runtime_automation_framebuffer_pixels != NULL && g_runtime_automation_framebuffer_pixel_capacity >= fb_need) {"
+                )
+                helper_lines.append("                const uint8_t *fb_src = (const uint8_t *)(uintptr_t)args[1];")
+                helper_lines.append(
+                    f"                size_t fb_src_stride = (size_t)fb_width * (size_t){framebuffer_bytes_per_pixel}u;"
+                )
+                helper_lines.append("                if (fb_crop_x == 0u && fb_crop_y == 0u && fb_out_width == fb_width && fb_out_height == fb_height) {")
+                helper_lines.append("                    memcpy(g_runtime_automation_framebuffer_pixels, fb_src, fb_need);")
+                helper_lines.append("                } else if (fb_crop_x + fb_out_width <= fb_width && fb_crop_y + fb_out_height <= fb_height) {")
+                helper_lines.append("                    for (uint32_t fb_row = 0u; fb_row < fb_out_height; ++fb_row) {")
+                helper_lines.append(
+                    f"                        const uint8_t *fb_src_row = fb_src + (((size_t)(fb_crop_y + fb_row) * fb_src_stride) + ((size_t)fb_crop_x * (size_t){framebuffer_bytes_per_pixel}u));"
+                )
+                helper_lines.append(
+                    f"                        uint8_t *fb_dst_row = g_runtime_automation_framebuffer_pixels + ((size_t)fb_row * (size_t)fb_out_width * (size_t){framebuffer_bytes_per_pixel}u);"
+                )
+                helper_lines.append(
+                    f"                        memcpy(fb_dst_row, fb_src_row, (size_t)fb_out_width * (size_t){framebuffer_bytes_per_pixel}u);"
+                )
+                helper_lines.append("                    }")
+                helper_lines.append("                } else {")
+                helper_lines.append("                    memset(g_runtime_automation_framebuffer_pixels, 0, fb_need);")
+                helper_lines.append("                }")
+                helper_lines.append("                g_runtime_automation_framebuffer_pixel_size = fb_need;")
+                helper_lines.append("                g_runtime_automation_framebuffer_width = fb_out_width;")
+                helper_lines.append("                g_runtime_automation_framebuffer_height = fb_out_height;")
+                helper_lines.append(
+                    f"                g_runtime_automation_framebuffer_stride_bytes = fb_out_width * {framebuffer_bytes_per_pixel}u;"
+                )
+                helper_lines.append(
+                    "                g_runtime_automation_framebuffer_frame_number = (uint64_t)(args[0] & 0xFFFFFFFFFFFFFFFFull);"
+                )
+                helper_lines.append("                g_runtime_automation_framebuffer_valid = 1u;")
+                helper_lines.append("            }")
+                helper_lines.append("        }")
+                helper_lines.append("    }")
             if handler_name == "video_frame":
                 helper_lines.append("    uint64_t overlay_args_local[8];")
                 state_fields = {
@@ -9430,7 +9771,7 @@ def _generate_ic_runtime_blocks(
             "        g_cb_route_cache[h].to_name = conn->to_name;",
             "        return cpu_component_dispatch_callback(cpu, conn->to_component, conn->to_name, args, argc);",
             "    }",
-            "    return 0;",
+            "    return cpu_component_dispatch_callback(cpu, source_component, callback_name, args, argc);",
             "}",
             "",
             "void cpu_component_emit_signal(",
@@ -9443,6 +9784,54 @@ def _generate_ic_runtime_blocks(
             "    uint64_t __src_h = cpu_component_hash_str(source_component);",
             "    uint64_t __name_h = cpu_component_hash_str(signal_name);",
             "    uint64_t __rkey = __src_h ^ ((__name_h << 1u) | (__name_h >> 63u));",
+        ]
+    )
+    if framebuffer_component_id and framebuffer_signal_name:
+        helper_lines.extend(
+            [
+            f"    if (source_component != NULL && signal_name != NULL && strcmp(source_component, \"{_escape_c_string(framebuffer_component_id)}\") == 0 && strcmp(signal_name, \"{_escape_c_string(framebuffer_signal_name)}\") == 0 && argc >= 4u && args[1] != 0u) {{",
+            f"        uint32_t fb_width = (uint32_t)((args[2] & 0xFFFFFFFFu) != 0u ? (args[2] & 0xFFFFFFFFu) : {framebuffer_declared_width}u);",
+            f"        uint32_t fb_height = (uint32_t)((args[3] & 0xFFFFFFFFu) != 0u ? (args[3] & 0xFFFFFFFFu) : {framebuffer_declared_height}u);",
+            f"        uint32_t fb_out_width = (uint32_t)({framebuffer_declared_width}u != 0u ? {framebuffer_declared_width}u : fb_width);",
+            f"        uint32_t fb_out_height = (uint32_t)({framebuffer_declared_height}u != 0u ? {framebuffer_declared_height}u : fb_height);",
+            f"        uint32_t fb_crop_x = (uint32_t){framebuffer_crop_x}u;",
+            f"        uint32_t fb_crop_y = (uint32_t){framebuffer_crop_y}u;",
+            f"        size_t fb_need = (size_t)fb_out_width * (size_t)fb_out_height * (size_t){framebuffer_bytes_per_pixel}u;",
+            "        if (fb_need != 0u) {",
+            "            if (fb_need > g_runtime_automation_framebuffer_pixel_capacity) {",
+            "                uint8_t *nb = (uint8_t *)realloc(g_runtime_automation_framebuffer_pixels, fb_need);",
+            "                if (nb != NULL) {",
+            "                    g_runtime_automation_framebuffer_pixels = nb;",
+            "                    g_runtime_automation_framebuffer_pixel_capacity = fb_need;",
+            "                }",
+            "            }",
+            "            if (g_runtime_automation_framebuffer_pixels != NULL && g_runtime_automation_framebuffer_pixel_capacity >= fb_need) {",
+            "                const uint8_t *fb_src = (const uint8_t *)(uintptr_t)args[1];",
+            f"                size_t fb_src_stride = (size_t)fb_width * (size_t){framebuffer_bytes_per_pixel}u;",
+            "                if (fb_crop_x == 0u && fb_crop_y == 0u && fb_out_width == fb_width && fb_out_height == fb_height) {",
+            "                    memcpy(g_runtime_automation_framebuffer_pixels, fb_src, fb_need);",
+            "                } else if (fb_crop_x + fb_out_width <= fb_width && fb_crop_y + fb_out_height <= fb_height) {",
+            "                    for (uint32_t fb_row = 0u; fb_row < fb_out_height; ++fb_row) {",
+            f"                        const uint8_t *fb_src_row = fb_src + (((size_t)(fb_crop_y + fb_row) * fb_src_stride) + ((size_t)fb_crop_x * (size_t){framebuffer_bytes_per_pixel}u));",
+            f"                        uint8_t *fb_dst_row = g_runtime_automation_framebuffer_pixels + ((size_t)fb_row * (size_t)fb_out_width * (size_t){framebuffer_bytes_per_pixel}u);",
+            f"                        memcpy(fb_dst_row, fb_src_row, (size_t)fb_out_width * (size_t){framebuffer_bytes_per_pixel}u);",
+            "                    }",
+            "                } else {",
+            "                    memset(g_runtime_automation_framebuffer_pixels, 0, fb_need);",
+            "                }",
+            "                g_runtime_automation_framebuffer_pixel_size = fb_need;",
+            "                g_runtime_automation_framebuffer_width = fb_out_width;",
+            "                g_runtime_automation_framebuffer_height = fb_out_height;",
+            f"                g_runtime_automation_framebuffer_stride_bytes = fb_out_width * {framebuffer_bytes_per_pixel}u;",
+            "                g_runtime_automation_framebuffer_frame_number = (uint64_t)(args[0] & 0xFFFFFFFFFFFFFFFFull);",
+            "                g_runtime_automation_framebuffer_valid = 1u;",
+            "            }",
+            "        }",
+            "    }",
+            ]
+        )
+    helper_lines.extend(
+        [
             "    uintptr_t h = (uintptr_t)(__rkey & 255u);",
             "    if (g_sig_route_cache[h].from_component_hash == __src_h &&",
             "        g_sig_route_cache[h].from_name_hash == __name_h &&",

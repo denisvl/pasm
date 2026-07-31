@@ -135,6 +135,7 @@ int {cpu_prefix}_load_rom(CPUState *cpu, const char *filename, uint16_t address)
 int {cpu_prefix}_load_system_roms(CPUState *cpu, const char *system_base_dir);
 int {cpu_prefix}_load_cartridge_rom(CPUState *cpu, const char *path);
 int {cpu_prefix}_set_cartridge_dir(CPUState *cpu, const char *path);
+int {cpu_prefix}_set_cassette_dir(CPUState *cpu, const char *path);
 int {cpu_prefix}_load_floppy_media(CPUState *cpu, const char *path);
 int {cpu_prefix}_load_keyboard_map(CPUState *cpu, const char *path);
 int {cpu_prefix}_load_controller_map(CPUState *cpu, const char *path);
@@ -323,17 +324,73 @@ int {cpu_prefix}_load_rom(CPUState *cpu, const char *filename, uint16_t address)
 
 /* ===== Memory Access ===== */
 uint8_t {cpu_prefix}_read_byte(CPUState *cpu, uint16_t addr) {{
+    static int __trace_mem_read_addr_state = -1;
+    static uint16_t __trace_mem_read_addrs[16];
+    static size_t __trace_mem_read_addr_count = 0u;
+    static FILE *__trace_mem_read_fp = NULL;
     {{
         uint8_t __handled = 0u;
         uint8_t __value = cpu_components_bus_read(cpu, addr, &__handled);
         if (__handled != 0u) return __value;
+    }}
+    if (__trace_mem_read_addr_state < 0) {{
+        const char *__trace_addrs_env = getenv("PASM_TRACE_MEM_READ_ADDRS");
+        const char *__trace_addr_env = getenv("PASM_TRACE_MEM_READ_ADDR");
+        if (__trace_addrs_env != NULL && __trace_addrs_env[0] != '\\0') {{
+            char __trace_addrs_buf[256];
+            char *__trace_tok = NULL;
+            char *__trace_save = NULL;
+            (void)snprintf(__trace_addrs_buf, sizeof(__trace_addrs_buf), "%s", __trace_addrs_env);
+            __trace_tok = strtok_r(__trace_addrs_buf, ",", &__trace_save);
+            while (__trace_tok != NULL && __trace_mem_read_addr_count < (sizeof(__trace_mem_read_addrs) / sizeof(__trace_mem_read_addrs[0]))) {{
+                while (*__trace_tok == ' ' || *__trace_tok == '\t') __trace_tok++;
+                if (*__trace_tok != '\\0') {{
+                    __trace_mem_read_addrs[__trace_mem_read_addr_count++] = (uint16_t)(strtoul(__trace_tok, NULL, 0) & 0xFFFFu);
+                }}
+                __trace_tok = strtok_r(NULL, ",", &__trace_save);
+            }}
+        }} else if (__trace_addr_env != NULL && __trace_addr_env[0] != '\\0') {{
+            __trace_mem_read_addrs[0] = (uint16_t)(strtoul(__trace_addr_env, NULL, 0) & 0xFFFFu);
+            __trace_mem_read_addr_count = 1u;
+        }}
+        if (__trace_mem_read_addr_count > 0u) {{
+            __trace_mem_read_addr_state = 1;
+            const char *__trace_path_env = getenv("PASM_TRACE_MEM_READ_FILE");
+            if (__trace_path_env != NULL && __trace_path_env[0] != '\\0') {{
+                __trace_mem_read_fp = fopen(__trace_path_env, "a");
+            }}
+            if (__trace_mem_read_fp == NULL) {{
+                __trace_mem_read_fp = stdout;
+            }}
+        }} else {{
+            __trace_mem_read_addr_state = 0;
+        }}
     }}
     if (addr >= cpu->memory_size) {{
         cpu->error_code = CPU_ERROR_INVALID_MEMORY;
         return 0xFF;
     }}
 {memory_read_guard}
-    return cpu->memory[addr];
+    {{
+        uint8_t __value = cpu->memory[addr];
+        if (__trace_mem_read_addr_state == 1) {{
+            for (size_t __i = 0u; __i < __trace_mem_read_addr_count; ++__i) {{
+                if (__trace_mem_read_addrs[__i] == addr) {{
+                    fprintf(
+                        __trace_mem_read_fp,
+                        "mem_read pc=%04X addr=%04X val=%02X cyc=%llu\\n",
+                        (unsigned)cpu->pc,
+                        (unsigned)addr,
+                        (unsigned)__value,
+                        (unsigned long long)cpu->total_cycles
+                    );
+                    fflush(__trace_mem_read_fp);
+                    break;
+                }}
+            }}
+        }}
+        return __value;
+    }}
 }}
 
 void {cpu_prefix}_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {{
@@ -384,6 +441,22 @@ void {cpu_prefix}_write_byte(CPUState *cpu, uint16_t addr, uint8_t value) {{
         return;
     }}
 {memory_write_guard}
+    if (__trace_mem_write_addr_state == 1) {{
+        for (size_t __i = 0u; __i < __trace_mem_write_addr_count; ++__i) {{
+            if (__trace_mem_write_addrs[__i] == addr) {{
+                fprintf(
+                    __trace_mem_write_fp,
+                    "mem_write pc=%04X addr=%04X val=%02X cyc=%llu\\n",
+                    (unsigned)cpu->pc,
+                    (unsigned)addr,
+                    (unsigned)value,
+                    (unsigned long long)cpu->total_cycles
+                );
+                fflush(__trace_mem_write_fp);
+                break;
+            }}
+        }}
+    }}
     cpu->memory[addr] = value;
 }}
 

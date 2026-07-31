@@ -315,6 +315,7 @@ behavior:
           uint8_t is_zx_wav = (uint8_t)(strcmp(source_model, "common_zx_wav_file_source") == 0 ? 1u : 0u);
           char wav_path[1024];
           const char *open_path = path;
+          const char *open_ext = NULL;
           FILE *fp = NULL;
           uint8_t *buf = NULL;
           long file_size = 0;
@@ -394,6 +395,95 @@ behavior:
               if (wav_path[0] == '\0') return 0u;
               open_path = wav_path;
           }
+          open_ext = strrchr(open_path, '.');
+          if (open_ext == NULL) return 0u;
+          if (strcmp(open_ext, ".mp3") == 0) {
+              mpg123_handle *mh = NULL;
+              int err = MPG123_OK;
+              long decoded_rate = 0;
+              int decoded_channels = 0;
+              int decoded_encoding = 0;
+              size_t decoded_size = 0u;
+              size_t decoded_cap = 0u;
+              unsigned char *decoded = NULL;
+              if (mpg123_init() != MPG123_OK) return 0u;
+              mh = mpg123_new(NULL, &err);
+              if (mh == NULL) {
+                  mpg123_exit();
+                  return 0u;
+              }
+              if (mpg123_open(mh, open_path) != MPG123_OK) {
+                  mpg123_delete(mh);
+                  mpg123_exit();
+                  return 0u;
+              }
+              if (mpg123_getformat(mh, &decoded_rate, &decoded_channels, &decoded_encoding) != MPG123_OK) {
+                  mpg123_close(mh);
+                  mpg123_delete(mh);
+                  mpg123_exit();
+                  return 0u;
+              }
+              if (decoded_rate <= 0 || decoded_channels <= 0) {
+                  mpg123_close(mh);
+                  mpg123_delete(mh);
+                  mpg123_exit();
+                  return 0u;
+              }
+              if (mpg123_format_none(mh) != MPG123_OK ||
+                  mpg123_format(mh, decoded_rate, MPG123_MONO, MPG123_ENC_SIGNED_16) != MPG123_OK) {
+                  mpg123_close(mh);
+                  mpg123_delete(mh);
+                  mpg123_exit();
+                  return 0u;
+              }
+              for (;;) {
+                  unsigned char chunk[8192];
+                  size_t done = 0u;
+                  int rc = mpg123_read(mh, chunk, sizeof(chunk), &done);
+                  if (done > 0u) {
+                      if (decoded_size + done > decoded_cap) {
+                          size_t new_cap = decoded_cap == 0u ? 65536u : decoded_cap;
+                          while (new_cap < decoded_size + done) new_cap *= 2u;
+                          {
+                              unsigned char *new_decoded = (unsigned char *)realloc(decoded, new_cap);
+                              if (new_decoded == NULL) {
+                                  if (decoded != NULL) free(decoded);
+                                  mpg123_close(mh);
+                                  mpg123_delete(mh);
+                                  mpg123_exit();
+                                  return 0u;
+                              }
+                              decoded = new_decoded;
+                              decoded_cap = new_cap;
+                          }
+                      }
+                      memcpy(decoded + decoded_size, chunk, done);
+                      decoded_size += done;
+                  }
+                  if (rc == MPG123_DONE) break;
+                  if (rc != MPG123_OK && rc != MPG123_NEW_FORMAT) {
+                      if (decoded != NULL) free(decoded);
+                      mpg123_close(mh);
+                      mpg123_delete(mh);
+                      mpg123_exit();
+                      return 0u;
+                  }
+              }
+              mpg123_close(mh);
+              mpg123_delete(mh);
+              mpg123_exit();
+              if (decoded == NULL || decoded_size < 2u) {
+                  if (decoded != NULL) free(decoded);
+                  return 0u;
+              }
+              buf = (uint8_t *)decoded;
+              file_size = (long)decoded_size;
+              data_offset = 0u;
+              data_length = (uint32_t)decoded_size;
+              sample_rate = (uint32_t)decoded_rate;
+              channels = 1u;
+              bits_per_sample = 16u;
+          } else {
           fp = fopen(open_path, "rb");
           if (fp == NULL) return 0u;
           if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return 0u; }
@@ -433,6 +523,7 @@ behavior:
           if (data_offset == 0u || data_length == 0u || sample_rate == 0u || channels == 0u || (bits_per_sample != 8u && bits_per_sample != 16u)) {
               free(buf);
               return 0u;
+          }
           }
           comp->wav_data = buf;
           comp->wav_data_offset = data_offset;
@@ -1331,7 +1422,17 @@ behavior:
   handler_bodies: {}
 
 coding:
-  headers: []
+  headers:
+    - stdio.h
+    - stdlib.h
+    - string.h
+    - mpg123.h
   include_paths: []
-  linked_libraries: []
+  linked_libraries:
+    win32:
+      - name: mpg123
+    win64:
+      - name: mpg123
+    linux:
+      - name: mpg123
   library_paths: []

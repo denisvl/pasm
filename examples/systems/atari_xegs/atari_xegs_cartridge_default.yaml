@@ -101,4 +101,20 @@ automation:
       native_encoding: atari_screen_code
       unicode_map: ascii
       unknown_policy: preserve_native
+  readiness:
+    default_recipe: boot_to_basic_ready
+    recipes:
+      - id: boot_to_basic_ready
+        reset: cold
+        warmup_frames: 180
+        stable_frames: 2
+        media_defaults:
+          cartridge: inserted
+        wait_for_text:
+          view: primary_text
+          contains: "READY"
+  capabilities:
+  - screen.text_grid
+  - input.controller
+  - media.cartridge
 connections: []

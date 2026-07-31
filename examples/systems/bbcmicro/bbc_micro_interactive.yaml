@@ -88,16 +88,21 @@ automation:
       unknown_policy: preserve_native
       mode_conditions:
         video_mode: 7
+  capabilities:
+  - screen.text_grid
+  - input.keyboard_matrix
+  - media.cassette
+  - media.floppy
 cassette:
   component: bbc_micro_cassette_adapter
   directory: examples/cassettes/bbcmicro
-  allowed_extensions: [yaml, wav, uef]
+  allowed_extensions: [yaml, wav, mp3, uef]
   sources:
     - kind: file
       source_type: ../../cassette_sources/wav_file.yaml
       component: bbc_micro_cassette_adapter
       label: Tape File
-      allowed_extensions: [yaml, wav]
+      allowed_extensions: [yaml, wav, mp3]
     - kind: file
       source_type: ../../cassette_sources/uef_file.yaml
       component: bbc_micro_cassette_adapter

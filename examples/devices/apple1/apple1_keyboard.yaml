@@ -12,9 +12,6 @@ interfaces:
   - name: read_key
     args: []
     returns: u8
-  - name: host_key
-    args: []
-    returns: u8
   handlers: []
   signals: []
 behavior:
@@ -23,12 +20,59 @@ behavior:
       (void)cpu;
     reset: |
       comp->last_key = 0u;
+    step_post: |
+      uint8_t pending = (uint8_t)cpu_component_call(cpu, "apple1_pia_6820", "keyboard_ready", NULL, 0);
+      static int trace_init = -1;
+      static FILE *trace_fp = NULL;
+      const char *trace_env = cpu_host_hal_getenv("PASM_APPLE1_KEY_TRACE");
+      int trace_on = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
+      if (trace_init < 0) {
+        trace_init = 1;
+        if (trace_on != 0) {
+          const char *trace_path = cpu_host_hal_getenv("PASM_APPLE1_KEY_TRACE_FILE");
+          if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+          if (trace_fp == NULL) trace_fp = stderr;
+        }
+      }
+      if (pending != 0u) {
+        if (trace_on != 0) {
+          fprintf(trace_fp, "apple1_keyboard pia_busy=1 last=%02X\n", (unsigned)comp->last_key);
+          fflush(trace_fp);
+        }
+        return;
+      }
+      uint8_t key = (uint8_t)cpu_component_call(cpu, "host_apple1", "keyboard_ascii", NULL, 0);
+      if (trace_on != 0 && key != 0u) {
+        fprintf(trace_fp, "apple1_keyboard host_key=%02X last=%02X\n", (unsigned)key, (unsigned)comp->last_key);
+        fflush(trace_fp);
+      }
+      if (key == 0u) {
+        comp->last_key = 0u;
+      } else if (key == comp->last_key) {
+        if (trace_on != 0) {
+          fprintf(trace_fp, "apple1_keyboard suppress repeat key=%02X\n", (unsigned)key);
+          fflush(trace_fp);
+        }
+      } else {
+        comp->last_key = key;
+        {
+          uint64_t call_args[1] = { (uint64_t)key };
+          if (trace_on != 0) {
+            fprintf(trace_fp, "apple1_keyboard pia key=%02X\n", (unsigned)key);
+            fflush(trace_fp);
+          }
+          cpu_component_call(cpu, "apple1_pia_6820", "keyboard_ascii", call_args, 1);
+        }
+      }
     destroy: |
       (void)comp;
+  callback_handlers:
     read_key: |
-      return (uint8_t)cpu_component_call(cpu, "apple1_keyboard", "host_key", NULL, 0);
+      return (uint8_t)cpu_component_call(cpu, "host_apple1", "keyboard_ascii", NULL, 0);
+  handler_bodies: {}
 coding:
-  headers: []
+  headers:
+  - stdio.h
   include_paths: []
   linked_libraries: []
   library_paths: []

@@ -33,4 +33,5 @@ pub trait DebuggerBackend {
     fn set_overlay_enabled(&mut self, enabled: bool) -> Result<(), String>;
     fn overlay_enabled(&mut self) -> Result<bool, String>;
     fn focus_emulator_window(&mut self) -> Result<(), String>;
+    fn cassette_debug_action(&mut self, action: u8) -> Result<(), String>;
 }

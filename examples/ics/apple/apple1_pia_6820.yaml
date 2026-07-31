@@ -8,10 +8,16 @@ state:
   - name: pra
     type: uint8_t
     initial: "0x00"
+  - name: ddra
+    type: uint8_t
+    initial: "0x00"
   - name: cra
     type: uint8_t
     initial: "0x00"
   - name: prb
+    type: uint8_t
+    initial: "0x00"
+  - name: ddrb
     type: uint8_t
     initial: "0x00"
   - name: crb
@@ -35,6 +41,9 @@ interfaces:
     - name: keyboard_ascii
       args: [u8]
       returns: void
+    - name: keyboard_ready
+      args: []
+      returns: u8
     - name: ca1_input
       args: [u8]
       returns: void
@@ -56,8 +65,10 @@ behavior:
   snippets:
     init: |
       comp->pra = 0x00;
+      comp->ddra = 0x00;
       comp->cra = 0x00;
       comp->prb = 0x00;
+      comp->ddrb = 0x00;
       comp->crb = 0x00;
       comp->kbd_ready = 0;
       comp->disp_ready = 0;
@@ -66,29 +77,135 @@ behavior:
     destroy: |
       /* No dynamic allocations to clean up */
     mem_read_pre: |
+      static int trace_init = -1;
+      static FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_APPLE1_PIA_TRACE");
+      int trace_on = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
+      if (trace_init < 0) {
+          trace_init = 1;
+          if (trace_on != 0) {
+              const char *trace_path = getenv("PASM_APPLE1_PIA_TRACE_FILE");
+              if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
+      }
       uint16_t reg = addr & 0x03u;
       switch (reg) {
-          case 0x00: // PRA - Peripheral Register A
-              // Bit 7 = keyboard ready flag, bits 0-6 = keyboard/display data
-              return (comp->kbd_ready ? 0x80u : 0x00u) | (comp->pra & 0x7Fu);
-          case 0x01: // CRA - Control Register A
-              return comp->cra;
-          case 0x02: // PRB - Peripheral Register B
-              return comp->prb;
-          case 0x03: // CRB - Control Register B
+          case 0x00: // KBD ($D010)
+              if ((comp->cra & 0x04u) == 0u) {
+                  if (trace_on != 0) {
+                      fprintf(trace_fp, "apple1_pia read D010 ddr=%02X cra=%02X pc=%04X\n",
+                          (unsigned)comp->ddra,
+                          (unsigned)comp->cra,
+                          (unsigned)cpu->pc);
+                      fflush(trace_fp);
+                  }
+                  return comp->ddra;
+              }
+              // Bit 7 = keyboard ready strobe, bits 0-6 = key data.
+              // Reading the key register consumes the pending key.
+              {
+                  uint8_t result = (comp->kbd_ready ? 0x80u : 0x00u) | (comp->pra & 0x7Fu);
+                  if (trace_on != 0) {
+                      fprintf(trace_fp, "apple1_pia read D010 data=%02X pra=%02X ready=%u cra=%02X pc=%04X\n",
+                          (unsigned)result,
+                          (unsigned)comp->pra,
+                          (unsigned)comp->kbd_ready,
+                          (unsigned)comp->cra,
+                          (unsigned)cpu->pc);
+                      fflush(trace_fp);
+                  }
+                  comp->kbd_ready = 0;
+                  comp->cra &= 0x7Fu;
+                  return result;
+              }
+          case 0x01: // KBDCR ($D011)
+              // Control bits remain in the low 7 bits; bit 7 is the input-ready flag.
+              if (trace_on != 0) {
+                  fprintf(trace_fp, "apple1_pia read D011 data=%02X ready=%u pra=%02X cra=%02X pc=%04X\n",
+                      (unsigned)((comp->cra & 0x7Fu) | (comp->kbd_ready ? 0x80u : 0x00u)),
+                      (unsigned)comp->kbd_ready,
+                      (unsigned)comp->pra,
+                      (unsigned)comp->cra,
+                      (unsigned)cpu->pc);
+                  fflush(trace_fp);
+              }
+              return (comp->cra & 0x7Fu) | (comp->kbd_ready ? 0x80u : 0x00u);
+          case 0x02: // DSP ($D012)
+              if ((comp->crb & 0x04u) == 0u) {
+                  if (trace_on != 0) {
+                      fprintf(trace_fp, "apple1_pia read D012 ddr=%02X crb=%02X pc=%04X\n",
+                          (unsigned)comp->ddrb,
+                          (unsigned)comp->crb,
+                          (unsigned)cpu->pc);
+                      fflush(trace_fp);
+                  }
+                  return comp->ddrb;
+              }
+              {
+                  uint8_t result = (comp->prb & 0x7Fu) | (comp->disp_ready ? 0x80u : 0x00u);
+                  if (trace_on != 0) {
+                      fprintf(trace_fp, "apple1_pia read D012 data=%02X ready=%u prb=%02X crb=%02X pc=%04X\n",
+                          (unsigned)result,
+                          (unsigned)comp->disp_ready,
+                          (unsigned)comp->prb,
+                          (unsigned)comp->crb,
+                          (unsigned)cpu->pc);
+                      fflush(trace_fp);
+                  }
+                  return result;
+              }
+          case 0x03: // DSPCR ($D013)
               return comp->crb;
       }
       return 0u;
     mem_write_pre: |
+      static int trace_init = -1;
+      static FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_APPLE1_PIA_TRACE");
+      int trace_on = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
+      if (trace_init < 0) {
+          trace_init = 1;
+          if (trace_on != 0) {
+              const char *trace_path = getenv("PASM_APPLE1_PIA_TRACE_FILE");
+              if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+              if (trace_fp == NULL) trace_fp = stderr;
+          }
+      }
       uint16_t reg = addr & 0x03u;
       switch (reg) {
-          case 0x00: // PRA - Peripheral Register A
-              // Write: Display data output (bits 0-6)
+          case 0x00: // KBD ($D010)
+              if ((comp->cra & 0x04u) == 0u) {
+                  if (trace_on != 0) {
+                      fprintf(trace_fp, "apple1_pia write D010 ddr=%02X old=%02X pc=%04X\n",
+                          (unsigned)value,
+                          (unsigned)comp->ddra,
+                          (unsigned)cpu->pc);
+                      fflush(trace_fp);
+                  }
+                  comp->ddra = value;
+                  return;
+              }
+              if (trace_on != 0) {
+                  fprintf(trace_fp, "apple1_pia write D010 pra=%02X old=%02X cra=%02X pc=%04X\n",
+                      (unsigned)(value & 0x7Fu),
+                      (unsigned)comp->pra,
+                      (unsigned)comp->cra,
+                      (unsigned)cpu->pc);
+                  fflush(trace_fp);
+              }
               comp->pra = value & 0x7Fu;
-              comp->disp_ready = 1;
-              cpu_component_call(cpu, "apple1_video", "display_char", &value, 1);
               return;
-          case 0x01: // CRA - Control Register A
+          case 0x01: // KBDCR ($D011)
+              if (trace_on != 0) {
+                  fprintf(trace_fp, "apple1_pia write D011 cra=%02X old=%02X ready=%u pra=%02X pc=%04X\n",
+                      (unsigned)value,
+                      (unsigned)comp->cra,
+                      (unsigned)comp->kbd_ready,
+                      (unsigned)comp->pra,
+                      (unsigned)cpu->pc);
+                  fflush(trace_fp);
+              }
               comp->cra = value;
               // CA2 output control
               if (value & 0x08u) {  /* CA2 high */
@@ -96,52 +213,94 @@ behavior:
               } else {
                 comp->ca2_output = 0;
               }
-              /* Forward CA2 to ACI card via edge connector */
-              cpu_component_call(cpu, "apple1_aci_card", "set_ca2", &comp->ca2_output, 1);
               return;
-          case 0x02: // PRB - Peripheral Register B
-              // Write: Display control (bit 0 = clear, bit 1 = strobe)
-              comp->prb = value;
+          case 0x02: // DSP ($D012)
+              if ((comp->crb & 0x04u) == 0u) {
+                  if (trace_on != 0) {
+                      fprintf(trace_fp, "apple1_pia write D012 ddr=%02X old=%02X pc=%04X\n",
+                          (unsigned)value,
+                          (unsigned)comp->ddrb,
+                          (unsigned)cpu->pc);
+                      fflush(trace_fp);
+                  }
+                  comp->ddrb = value;
+                  return;
+              }
+              if (trace_on != 0) {
+                  fprintf(trace_fp, "apple1_pia write D012 data=%02X old=%02X ready=%u crb=%02X pc=%04X\n",
+                      (unsigned)(value & 0x7Fu),
+                      (unsigned)comp->prb,
+                      (unsigned)comp->disp_ready,
+                      (unsigned)comp->crb,
+                      (unsigned)cpu->pc);
+                  fflush(trace_fp);
+              }
+              comp->prb = value & 0x7Fu;
+              comp->disp_ready = 0;
+              {
+                uint64_t call_args[1] = { (uint64_t)(value & 0x7Fu) };
+                cpu_component_call(cpu, "apple1_video", "display_char", call_args, 1);
+              }
+              return;
+          case 0x03: // DSPCR ($D013)
+              comp->crb = value;
               if (value & 0x01u) {
-                  comp->kbd_ready = 0; // Clear keyboard ready
+                  comp->kbd_ready = 0;
                   comp->pra &= 0x7Fu;
               }
               if (value & 0x02u) {
-                  comp->disp_ready = 0; // Clear display ready
+                  comp->disp_ready = 0;
               }
               return;
-          case 0x03: // CRB - Control Register B
-              comp->crb = value;
-              // CB1 (keyboard strobe) interrupt control: bits 0-1
-              // CB2 (display strobe) control: bits 2-3
-              return;
       }
+  callback_handlers:
     keyboard_ascii: |
-      comp->pra = arg0 & 0x7Fu;
-      comp->kbd_ready = 1;
-      comp->pra |= 0x80u;  /* Set ready flag in bit 7 */
-      /* Trigger IRQ if CB1 interrupt enabled */
-      if (comp->crb & 0x01u) {
-        cpu_request_irq(cpu);
+      static int trace_init = -1;
+      static FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_APPLE1_PIA_TRACE");
+      int trace_on = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
+      if (trace_init < 0) {
+        trace_init = 1;
+        if (trace_on != 0) {
+          const char *trace_path = getenv("PASM_APPLE1_PIA_TRACE_FILE");
+          if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+          if (trace_fp == NULL) trace_fp = stderr;
+        }
       }
+      comp->pra = (uint8_t)(args[0] & 0x7Fu);
+      comp->kbd_ready = 1;
+      comp->cra |= 0x80u;
+      if (trace_on != 0) {
+        fprintf(trace_fp, "apple1_pia keyboard_ascii arg=%02X pra=%02X ready=%u cra=%02X pc=%04X\n",
+          (unsigned)(args[0] & 0xFFu),
+          (unsigned)comp->pra,
+          (unsigned)comp->kbd_ready,
+          (unsigned)comp->cra,
+          (unsigned)cpu->pc);
+        fflush(trace_fp);
+      }
+    keyboard_ready: |
+      return (uint64_t)(comp->kbd_ready != 0u ? 1u : 0u);
     ca1_input: |
-      comp->ca1_input = arg0;
-      if (arg0 && (comp->cra & 0x01u)) {  /* CA1 interrupt enabled */
-        comp->cra |= 0x80u;  /* Set IRQA2 */
-        cpu_request_irq(cpu);
+      comp->ca1_input = (uint8_t)(args[0] & 0xFFu);
+      if (comp->ca1_input && (comp->cra & 0x01u)) {
+        comp->cra |= 0x80u;
+        cpu->irq_pending = true;
+        cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
       }
     display_ready: |
       comp->disp_ready = 1;
       comp->prb |= 0x02u;
-      /* Trigger IRQ if CB2 interrupt enabled */
       if (comp->crb & 0x04u) {
-        cpu_request_irq(cpu);
+        cpu->irq_pending = true;
+        cpu->interrupt_pending = (bool)(cpu->nmi_pending || cpu->irq_pending);
       }
-  callback_handlers: {}
   handler_bodies: {}
 
 coding:
-  headers: []
+  headers:
+    - stdio.h
+    - stdlib.h
   include_paths: []
   linked_libraries: []
   library_paths: []

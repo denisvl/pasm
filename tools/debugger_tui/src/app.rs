@@ -414,6 +414,26 @@ impl App {
                 self.backend.focus_emulator_window()?;
                 self.last_message = Some("Requested emulator window focus".to_string());
             }
+            Action::ToggleCassettePicker => {
+                self.backend.cassette_debug_action(1u8)?;
+                self.last_message = Some("Toggled cassette picker".to_string());
+                self.refresh()?;
+            }
+            Action::CassettePlay => {
+                self.backend.cassette_debug_action(6u8)?;
+                self.last_message = Some("Cassette play".to_string());
+                self.refresh()?;
+            }
+            Action::CassetteVolumeUp => {
+                self.backend.cassette_debug_action(7u8)?;
+                self.last_message = Some("Cassette volume up".to_string());
+                self.refresh()?;
+            }
+            Action::CassetteVolumeDown => {
+                self.backend.cassette_debug_action(8u8)?;
+                self.last_message = Some("Cassette volume down".to_string());
+                self.refresh()?;
+            }
             Action::ToggleBreakpoint => {
                 let addr = self
                     .selected_disasm_address()

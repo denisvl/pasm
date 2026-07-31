@@ -98,10 +98,17 @@ automation:
       native_encoding: c64_screen_code
       unicode_map: c64_screen_text
       unknown_policy: preserve_native
+  capabilities:
+  - screen.text_grid
+  - input.keyboard_matrix
+  - input.controller
+  - media.cassette
+  - media.floppy
+  - media.cartridge
 cassette:
   component: datasette_c64
   directory: examples/cassettes/c64
-  allowed_extensions: [yaml, wav]
+  allowed_extensions: [yaml, wav, mp3]
   controls:
     picker_action_id: EMU_CASSETTE_PICKER
     play_action_id: EMU_CASSETTE_PLAY

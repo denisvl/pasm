@@ -72,5 +72,26 @@ automation:
         native_encoding: c64_screen_code
         unicode_map: c64_screen_text
         unknown_policy: preserve_native
+  readiness:
+    default_recipe: boot_to_ready
+    recipes:
+      - id: boot_to_ready
+        reset: cold
+        warmup_frames: 180
+        stable_frames: 2
+        media_defaults:
+          cassette: empty
+          floppy: empty
+          cartridge: empty
+        wait_for_text:
+          view: primary_text
+          contains: "READY."
+  capabilities:
+    - screen.text_grid
+    - input.keyboard_matrix
+    - input.controller
+    - media.cassette
+    - media.floppy
+    - media.cartridge
 
 connections: []

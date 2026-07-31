@@ -40,6 +40,8 @@ def emit_ic_unit(isa_data: Dict[str, Any], cpu_name: str, component: Dict[str, A
     """Emit a per-IC split compilation unit."""
     comp_id = str((component.get("metadata") or {}).get("id", "ic")).strip() or "ic"
     comp_ident = _to_ident(comp_id)
+    read_guard = _component_memory_guard(component, "read")
+    write_guard = _component_memory_guard(component, "write")
     read_body = _rewrite_memory_read_block(_component_snippet_block(component, "mem_read_pre"))
     write_body = _rewrite_memory_write_block(_component_snippet_block(component, "mem_write_pre"))
     port_read_pre = _rewrite_port_read_block(_component_snippet_block(component, "port_read_pre"))
@@ -84,12 +86,14 @@ def emit_ic_unit(isa_data: Dict[str, Any], cpu_name: str, component: Dict[str, A
         "",
         f"uint8_t cpu_component_ic_{comp_ident}_bus_read(CPUState *cpu, uint16_t addr, uint8_t *handled) {{",
         "    if (handled != NULL) *handled = 0u;",
+        f"{read_guard}",
         f"{read_body}",
         "    return 0u;",
         "}",
         "",
         f"uint8_t cpu_component_ic_{comp_ident}_bus_write(CPUState *cpu, uint16_t addr, uint8_t value, uint8_t *handled) {{",
         "    if (handled != NULL) *handled = 0u;",
+        f"{write_guard}",
         f"{write_body}",
         "    return 0u;",
         "}",
@@ -240,6 +244,36 @@ def _rewrite_memory_write_block(block: str) -> str:
         "do { if (handled != NULL) *handled = 1u; return 1u; } while (0);",
         block,
     )
+
+
+def _component_memory_guard(component: Dict[str, Any], access_kind: str) -> str:
+    maps = component.get("maps") or {}
+    memory = maps.get("memory") or {}
+    ranges = memory.get("ranges") or []
+    predicates: List[str] = []
+    for entry in ranges:
+        if not isinstance(entry, dict):
+            continue
+        access = entry.get("access") or []
+        if access:
+            access_values = {str(item).strip().lower() for item in access if str(item).strip()}
+            if access_kind not in access_values:
+                continue
+        try:
+            start = int(entry.get("start", 0))
+            size = int(entry.get("size", 0))
+        except (TypeError, ValueError):
+            continue
+        if size <= 0:
+            continue
+        end = start + size
+        if end <= 0x10000:
+            predicates.append(f"(addr >= 0x{start:04X}u && addr < 0x{end:04X}u)")
+        else:
+            predicates.append(f"(addr >= 0x{start:04X}u)")
+    if not predicates:
+        return ""
+    return f"    if (!({' || '.join(predicates)})) return 0u;"
 
 
 def _rewrite_port_read_block(block: str) -> str:
@@ -722,6 +756,7 @@ def generate_host_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
             step_lines.append("    cpu_component_cartridge_picker_update(cpu, has_focus);\n")
             overlay_lines.append("    cpu_component_cartridge_picker_draw_overlay(cpu, pixels, w, h);\n")
         if has_cassette:
+            extern_lines.append("extern int cpu_component_cassette_picker_set_dir(const char *path);\n")
             extern_lines.append("extern uint8_t cpu_component_cassette_picker_blocks_input(void);\n")
             extern_lines.append("extern void cpu_component_cassette_picker_update(CPUState *cpu, uint8_t has_focus);\n")
             extern_lines.append("extern void cpu_component_cassette_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n")
@@ -729,6 +764,7 @@ def generate_host_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
             step_lines.append("    cpu_component_cassette_picker_update(cpu, has_focus);\n")
             overlay_lines.append("    cpu_component_cassette_picker_draw_overlay(cpu, pixels, w, h);\n")
         if has_floppy:
+            extern_lines.append("extern int cpu_component_floppy_picker_set_dir(const char *path);\n")
             extern_lines.append("extern uint8_t cpu_component_floppy_picker_blocks_input(void);\n")
             extern_lines.append("extern void cpu_component_floppy_picker_update(CPUState *cpu, uint8_t has_focus);\n")
             extern_lines.append("extern void cpu_component_floppy_picker_draw_overlay(CPUState *cpu, uint32_t *pixels, uint32_t w, uint32_t h);\n\n")
@@ -747,8 +783,12 @@ def generate_host_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
             + "\n"
             + extern_block
             + "int cpu_component_host_picker_set_dir(const char *path) {\n"
-            "    (void)path;\n"
-            "    return 0;\n"
+            "    int rc = -1;\n"
+            "    if (path == NULL || path[0] == '\\0') return -1;\n"
+            + ("    rc = cpu_component_cassette_picker_set_dir(path);\n" if has_cassette else "")
+            + ("    if (rc != 0) rc = cpu_component_floppy_picker_set_dir(path);\n" if has_floppy else "")
+            + ("    if (rc != 0) rc = cpu_component_cartridge_picker_set_dir(path);\n" if has_cartridge else "")
+            + "    return rc;\n"
             "}\n\n"
             "uint8_t cpu_component_host_picker_is_active(void) {\n"
             f"    return (uint8_t)({active_expr});\n"
@@ -802,6 +842,10 @@ def generate_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
     """Generate split picker/runtime ownership for cartridge/cassette media UI."""
     picker_runtime = generate_cartridge_picker_runtime_glue(isa_data, cpu_name)
     input_runtime_support = generate_input_runtime_contract_support(isa_data, cpu_name)
+    input_runtime_support = input_runtime_support.replace(
+        "uint8_t cpu_component_keyboard_emulator_action_queue_consume_hash(uint64_t h);",
+        "static uint8_t cpu_component_keyboard_emulator_action_queue_consume_hash(uint64_t h);",
+    )
     host_hal_support = generate_host_hal_contract_support(isa_data, cpu_name)
     overlay_include = (
         "#include <pasm_overlay.h>\n\n"
@@ -812,6 +856,35 @@ def generate_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
     keyboard_runtime = ""
     if has_input_runtime:
         keyboard_runtime = (
+            "static uint64_t cpu_component_hash_str(const char *s) {\n"
+            "    uint64_t h = 1469598103934665603ull;\n"
+            "    const unsigned char *p = (const unsigned char *)s;\n"
+            "    if (p == NULL) return 0ull;\n"
+            "    while (*p != 0u) {\n"
+            "        h ^= (uint64_t)(*p++);\n"
+            "        h *= 1099511628211ull;\n"
+            "    }\n"
+            "    return h;\n"
+            "}\n\n"
+            "static uint8_t cpu_component_keyboard_emulator_action_queue_consume_hash(uint64_t h) {\n"
+            "    uint8_t found = 0u;\n"
+            "    uint8_t out_len = 0u;\n"
+            "    uint64_t tmp[16];\n"
+            "    while (g_runtime_keyboard_map.emulator_action_q_len > 0u) {\n"
+            "        uint64_t cur = g_runtime_keyboard_map.emulator_action_queue[g_runtime_keyboard_map.emulator_action_q_head];\n"
+            "        g_runtime_keyboard_map.emulator_action_q_head = (uint8_t)((g_runtime_keyboard_map.emulator_action_q_head + 1u) % (sizeof(g_runtime_keyboard_map.emulator_action_queue) / sizeof(g_runtime_keyboard_map.emulator_action_queue[0])));\n"
+            "        g_runtime_keyboard_map.emulator_action_q_len -= 1u;\n"
+            "        if (found == 0u && cur == h) {\n"
+            "            found = 1u;\n"
+            "            continue;\n"
+            "        }\n"
+            "        if (out_len < (uint8_t)(sizeof(tmp) / sizeof(tmp[0]))) tmp[out_len++] = cur;\n"
+            "    }\n"
+            "    g_runtime_keyboard_map.emulator_action_q_head = 0u;\n"
+            "    g_runtime_keyboard_map.emulator_action_q_len = out_len;\n"
+            "    for (uint8_t i = 0u; i < out_len; ++i) g_runtime_keyboard_map.emulator_action_queue[i] = tmp[i];\n"
+            "    return found;\n"
+            "}\n\n"
             "uint8_t cpu_component_keyboard_host_shift_down(const uint8_t *host_keys, size_t host_key_count) {\n"
             "    if (host_keys == NULL || host_key_count == 0u) return 0u;\n"
             "    if ((size_t)CPU_HOST_SCANCODE(LSHIFT) < host_key_count && host_keys[CPU_HOST_SCANCODE(LSHIFT)] != 0u) return 1u;\n"
@@ -842,8 +915,9 @@ def generate_picker_glue(isa_data: Dict[str, Any], cpu_name: str) -> str:
             "uint8_t cpu_component_keyboard_emulator_action_pressed(const char *action_id, const uint8_t *host_keys, size_t host_key_count, uint8_t has_focus) {\n"
             "    if (g_runtime_keyboard_map.loaded == 0u) return 0u;\n"
             "    if (!action_id || action_id[0] == '\\0') return 0u;\n"
-            "    if (!host_keys || host_key_count == 0u) return 0u;\n"
             "    if (g_runtime_keyboard_map.focus_required != 0u && has_focus == 0u) return 0u;\n"
+            "    if (cpu_component_keyboard_emulator_action_queue_consume_hash(cpu_component_hash_str(action_id)) != 0u) return 1u;\n"
+            "    if (!host_keys || host_key_count == 0u) return 0u;\n"
             "    for (size_t i = 0; i < g_runtime_keyboard_map.binding_count; ++i) {\n"
             "        const RuntimeKeyboardBinding *b = &g_runtime_keyboard_map.bindings[i];\n"
             "        if (b->emulator_key_id[0] == '\\0') continue;\n"

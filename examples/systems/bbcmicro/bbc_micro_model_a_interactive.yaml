@@ -87,10 +87,14 @@ automation:
       unknown_policy: preserve_native
       mode_conditions:
         video_mode: 7
+  capabilities:
+  - screen.text_grid
+  - input.keyboard_matrix
+  - media.cassette
 cassette:
   component: bbc_micro_cassette_adapter
   directory: examples/cassettes/bbcmicro
-  allowed_extensions: [yaml, wav]
+  allowed_extensions: [yaml, wav, mp3]
   controls:
     picker_action_id: EMU_CASSETTE_PICKER
     play_action_id: EMU_CASSETTE_PLAY

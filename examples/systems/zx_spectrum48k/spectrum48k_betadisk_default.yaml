@@ -71,12 +71,41 @@ components:
   - host0
   cassette: cassette_transport_nomotor
   floppy: wd1793_fdc
+automation:
+  screen:
+    framebuffer:
+      source_component: video0
+      source_signal: frame_ready
+      crop_x: 48
+      crop_y: 48
+      width: 256
+      height: 192
+      pixel_format: rgba8888
+  readiness:
+    default_recipe: boot_to_live_frame
+    recipes:
+      - id: boot_to_live_frame
+        reset: cold
+        warmup_frames: 8
+        stable_frames: 2
+        media_defaults:
+          cassette: empty
+          floppy: empty
+        wait_for_framebuffer:
+          state: nonblank
+  capabilities:
+  - screen.framebuffer
+  - screen.bitmap_attributes
+  - input.keyboard_matrix
+  - input.controller
+  - media.cassette
+  - media.floppy
 media_picker:
   open_action_id: EMU_MEDIA_PICKER
 cassette:
   component: cassette_transport_nomotor
   directory: examples/cassettes/zx_spectrum48k
-  allowed_extensions: [yaml, wav, tap, tzx]
+  allowed_extensions: [yaml, wav, mp3, tap, tzx]
   sources:
     - kind: line_in
       source_type: ../../cassette_sources/line_in.yaml
@@ -86,7 +115,7 @@ cassette:
       source_type: ../../cassette_sources/zx_wav_file.yaml
       component: cassette_transport_nomotor
       label: ZX WAV Tape
-      allowed_extensions: [yaml, wav]
+      allowed_extensions: [yaml, wav, mp3]
     - kind: file
       source_type: ../../cassette_sources/zx_tap_file.yaml
       component: cassette_transport_nomotor

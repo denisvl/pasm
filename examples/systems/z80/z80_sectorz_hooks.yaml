@@ -43,5 +43,7 @@ components:
   devices: []
   hosts: []
 
-connections: []
+automation:
+  capabilities: []
 
+connections: []

@@ -63,6 +63,29 @@ components:
   hosts:
   - host_sms
   cartridge: sms_cart0
+automation:
+  screen:
+    framebuffer:
+      source_component: video_sms
+      source_handler: on_frame_ready
+      width: 256
+      height: 192
+      pixel_format: rgba8888
+  readiness:
+    default_recipe: boot_to_live_frame
+    recipes:
+      - id: boot_to_live_frame
+        reset: cold
+        warmup_frames: 8
+        stable_frames: 2
+        media_defaults:
+          cartridge: inserted
+        wait_for_framebuffer:
+          state: nonblank
+  capabilities:
+  - screen.framebuffer
+  - input.controller
+  - media.cartridge
 connections:
 - from:
     component: sms_joy0

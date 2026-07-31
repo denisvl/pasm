@@ -1,0 +1,190 @@
+metadata:
+  id: apple1_aci_card
+  type: cassette_transport
+  model: apple1_cassette_interface_card
+  version: "1.0"
+
+state:
+  - name: output_level
+    type: uint8_t
+    initial: "0"
+  - name: output_flip
+    type: uint8_t
+    initial: "0"
+
+interfaces:
+  callbacks:
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: select_source
+      args: [u8, u8, ptr, ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: set_transport_mode
+      args: [u8]
+      returns: u8
+    - name: set_motor
+      args: [u8]
+      returns: u8
+    - name: set_volume
+      args: [u8]
+      returns: u8
+    - name: set_bass
+      args: [u8]
+      returns: u8
+    - name: set_treble
+      args: [u8]
+      returns: u8
+    - name: sample_input
+      args: [u8, u64]
+      returns: u8
+    - name: query_transport_state
+      args: []
+      returns: u64
+    - name: query_selected_source_kind
+      args: []
+      returns: u64
+    - name: query_selected_source_model
+      args: []
+      returns: u64
+  handlers:
+    - name: on_output_sample
+      args: [u8, u64]
+  signals:
+    - name: cassette_write
+      args: [u8, u64]
+
+maps:
+  memory:
+    ranges:
+      - name: aci_io
+        start: 0xC000
+        size: 0x0100
+        access: [read, write]
+
+behavior:
+  snippets:
+    init: |
+      comp->output_level = 0u;
+      comp->output_flip = 0u;
+    reset: |
+      comp->output_level = 0u;
+      comp->output_flip = 0u;
+    destroy: |
+      (void)cpu;
+    mem_read_pre: |
+      static int trace_init = -1;
+      static FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_APPLE1_ACI_TRACE");
+      int trace_on = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
+      if (trace_init < 0) {
+        trace_init = 1;
+        if (trace_on != 0) {
+          const char *trace_path = getenv("PASM_APPLE1_ACI_TRACE_FILE");
+          if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+          if (trace_fp == NULL) trace_fp = stderr;
+        }
+      }
+      if (addr >= 0xC000u && addr <= 0xC0FFu) {
+        uint8_t return_byte = cpu->memory[0xC100u + (addr & 0x00FFu)];
+        comp->output_flip ^= 1u;
+        comp->output_level = (uint8_t)(comp->output_flip != 0u ? 255u : 0u);
+        {
+          uint64_t sig_args[2] = { (uint64_t)comp->output_level, cpu->total_cycles };
+          cpu_component_emit_signal(cpu, "apple1_aci_card", "cassette_write", sig_args, 2);
+        }
+        if ((addr & 0x00FFu) >= 0x80u) {
+          uint64_t tape_args[2] = { 0x80u, cpu->total_cycles };
+          uint8_t tape_level = (uint8_t)cpu_component_dispatch_callback(cpu, "apple1_aci_card", "sample_input", tape_args, 2);
+          uint16_t sample_addr = (uint16_t)(0xC100u + (addr & 0x00FEu) + (tape_level >= 128u ? 1u : 0u));
+          return_byte = cpu->memory[sample_addr];
+          if (trace_on != 0) {
+            fprintf(trace_fp, "aci read pc=%04X addr=%04X tape=%u sample_addr=%04X val=%02X cyc=%llu\n",
+              (unsigned)cpu->pc,
+              (unsigned)addr,
+              (unsigned)tape_level,
+              (unsigned)sample_addr,
+              (unsigned)return_byte,
+              (unsigned long long)cpu->total_cycles);
+            fflush(trace_fp);
+          }
+        } else if (trace_on != 0) {
+          fprintf(trace_fp, "aci read pc=%04X addr=%04X rom_addr=%04X val=%02X cyc=%llu\n",
+            (unsigned)cpu->pc,
+            (unsigned)addr,
+            (unsigned)(0xC100u + (addr & 0x00FFu)),
+            (unsigned)return_byte,
+            (unsigned long long)cpu->total_cycles);
+          fflush(trace_fp);
+        }
+        return return_byte;
+      }
+      return 0xFFu;
+    mem_write_pre: |
+      static int trace_init = -1;
+      static FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_APPLE1_ACI_TRACE");
+      int trace_on = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
+      if (trace_init < 0) {
+        trace_init = 1;
+        if (trace_on != 0) {
+          const char *trace_path = getenv("PASM_APPLE1_ACI_TRACE_FILE");
+          if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+          if (trace_fp == NULL) trace_fp = stderr;
+        }
+      }
+      if (addr >= 0xC000u && addr <= 0xC0FFu) {
+        (void)value;
+        comp->output_flip ^= 1u;
+        comp->output_level = (uint8_t)(comp->output_flip != 0u ? 255u : 0u);
+        {
+          uint64_t sig_args[2] = { (uint64_t)comp->output_level, cpu->total_cycles };
+          cpu_component_emit_signal(cpu, "apple1_aci_card", "cassette_write", sig_args, 2);
+        }
+        if (trace_on != 0) {
+          fprintf(trace_fp, "aci write pc=%04X addr=%04X flip=%u level=%u cyc=%llu\n",
+            (unsigned)cpu->pc,
+            (unsigned)addr,
+            (unsigned)comp->output_flip,
+            (unsigned)comp->output_level,
+            (unsigned long long)cpu->total_cycles);
+          fflush(trace_fp);
+        }
+      }
+  callback_handlers:
+    select_source: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "select_source", args, argc);
+    load_media: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "load_media", args, argc);
+    unload_media: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "unload_media", args, argc);
+    set_transport_mode: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_transport_mode", args, argc);
+    set_motor: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_motor", args, argc);
+    set_volume: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_volume", args, argc);
+    set_bass: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_bass", args, argc);
+    set_treble: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_treble", args, argc);
+    sample_input: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "sample_input", args, argc);
+    query_transport_state: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_transport_state", args, argc);
+    query_selected_source_kind: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_selected_source_kind", args, argc);
+    query_selected_source_model: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_selected_source_model", args, argc);
+  handler_bodies:
+    on_output_sample: |
+      (void)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "push_output_sample", args, argc);
+
+coding:
+  headers: []
+  include_paths: []
+  linked_libraries: []
+  library_paths: []

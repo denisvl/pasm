@@ -251,7 +251,7 @@ keyboard:
     ascii_shift: 0
     ascii_ctrl: 0
   - host_scancode: F11
-    emulator_key_id: EMU_CASSETTE_PICKER
+    emulator_key_id: EMU_MEDIA_PICKER
     ascii: 0
     ascii_shift: 0
     ascii_ctrl: 0

@@ -118,10 +118,17 @@ automation:
       native_encoding: c64_screen_code
       unicode_map: c64_screen_text
       unknown_policy: preserve_native
+  capabilities:
+  - screen.text_grid
+  - input.keyboard_matrix
+  - input.controller
+  - media.cassette
+  - media.floppy
+  - media.cartridge
 cassette:
   component: datasette_c64
   directory: examples/cassettes/c64
-  allowed_extensions: [yaml, wav, tap]
+  allowed_extensions: [yaml, wav, mp3, tap]
   sources:
     - kind: line_in
       source_type: ../../cassette_sources/line_in.yaml
@@ -131,7 +138,7 @@ cassette:
       source_type: ../../cassette_sources/wav_file.yaml
       component: datasette_c64
       label: Tape File
-      allowed_extensions: [yaml, wav]
+      allowed_extensions: [yaml, wav, mp3]
     - kind: file
       source_type: ../../cassette_sources/tap_file.yaml
       component: datasette_c64

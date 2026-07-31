@@ -82,10 +82,16 @@ automation:
       unknown_policy: preserve_native
       mode_conditions:
         video_mode: text
+  capabilities:
+  - screen.text_grid
+  - input.keyboard_matrix
+  - input.controller
+  - media.cassette
+  - media.cartridge
 cassette:
   component: cassette_transport
   directory: examples/cassettes/msx1
-  allowed_extensions: [yaml, wav, cas, tsx]
+  allowed_extensions: [yaml, wav, mp3, cas, tsx]
   controls:
     picker_action_id: EMU_CASSETTE_PICKER
     play_action_id: EMU_CASSETTE_PLAY
@@ -107,7 +113,7 @@ cassette:
       source_type: ../../cassette_sources/wav_file.yaml
       component: cassette_transport
       label: Tape File
-      allowed_extensions: [yaml, wav]
+      allowed_extensions: [yaml, wav, mp3]
     - kind: file
       source_type: ../../cassette_sources/msx_cas_file.yaml
       component: cassette_transport

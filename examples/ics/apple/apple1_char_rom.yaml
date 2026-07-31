@@ -27,10 +27,10 @@ maps:
 behavior:
   snippets:
     init: |
-      /* Load the Apple I character generator ROM (Signetics 2513, 512 bytes). */
+      /* Load the Apple I character generator ROM (Signetics 2513 replacement image). */
       comp->rom_data = NULL;
       comp->rom_size = 0;
-      const char *rom_rel = "../../roms/apple1/apple1_char_rom.bin";
+      const char *rom_rel = "../../roms/apple1/2513_Apple-1.bin";
       char rom_path[1024];
       const char *sysdir = getenv("PASM_SYSTEM_DIR");
       FILE *fp = NULL;
@@ -40,7 +40,7 @@ behavior:
       }
       if (fp == NULL) {
           /* Fallback: path relative to CWD (repo root). */
-          snprintf(rom_path, sizeof(rom_path), "examples/roms/apple1/apple1_char_rom.bin");
+          snprintf(rom_path, sizeof(rom_path), "examples/roms/apple1/2513_Apple-1.bin");
           fp = fopen(rom_path, "rb");
       }
       if (fp == NULL) {
@@ -66,20 +66,47 @@ behavior:
           free(comp->rom_data);
           comp->rom_data = NULL;
       }
-      comp->rom_size = 0
+      comp->rom_size = 0;
+  callback_handlers:
     get_char_row: |
+      uint8_t glyph = (uint8_t)(args[0] & 0x3Fu);
+      uint8_t row = (uint8_t)(args[1] & 0x07u);
       if (comp->rom_data != NULL && comp->rom_size > 0) {
-          uint16_t addr = ((uint16_t)arg0 << 3) | (arg1 & 0x07u);
+          uint16_t addr = ((uint16_t)glyph << 3) | row;
           if (addr < comp->rom_size) {
-              return comp->rom_data[addr];
+              uint8_t rom_row = comp->rom_data[addr];
+              if (rom_row != 0u || comp->rom_size < 512u) {
+                  return (uint8_t)((rom_row & 0x1Fu) << 1u);
+              }
           }
       }
-      return 0x00;
-  callback_handlers: {}
+      {
+          static const char apple1_ascii_map[64] = {
+              '@','A','B','C','D','E','F','G',
+              'H','I','J','K','L','M','N','O',
+              'P','Q','R','S','T','U','V','W',
+              'X','Y','Z','[','\\',']','^','_',
+              ' ','!','"','#','$','%','&','\'',
+              '(',')','*','+',',','-','.','/',
+              '0','1','2','3','4','5','6','7',
+              '8','9',':',';','<','=','>','?'
+          };
+          char ch = apple1_ascii_map[glyph];
+          const uint8_t *overlay = pasm_overlay_glyph(ch);
+          if (overlay == NULL) {
+              return 0x00u;
+          }
+          if (row == 0u) {
+              return 0x00u;
+          }
+          return (uint8_t)(overlay[row - 1u] << 1u);
+      }
+      return 0x00u;
   handler_bodies: {}
 
 coding:
-  headers: []
+  headers:
+    - pasm_overlay_draw.h
   include_paths: []
   linked_libraries: []
   library_paths: []

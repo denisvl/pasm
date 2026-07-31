@@ -6,6 +6,11 @@ and an MCP server for structured emulator automation.
 These instructions are for coding agents working in this repo, especially
 Codex under VS Code.
 
+## Repo Skills
+
+When adding or extending a machine under `examples/systems/`, use the local
+Codex skill `create-system` in `.codex/skills/create-system/`.
+
 ## Preferred Emulator Interaction Path
 
 When you need to inspect, control, test, or script a generated emulator, prefer

@@ -13,19 +13,33 @@ memory:
       start: 0x0000
       size: 0xC000
       read_write: true
-    - name: IO_REGION
+    - name: IO_REGION_LOW
       start: 0xC000
-      size: 0x3F00
+      size: 0x0100
+      read_write: true
+    - name: ROM_ACI
+      start: 0xC100
+      size: 0x0100
+      read_only: true
+    - name: IO_REGION_HIGH
+      start: 0xC200
+      size: 0x3D00
       read_write: true
     - name: ROM_WOZMON
       start: 0xFF00
       size: 0x0100
       read_only: true
   rom_images:
+    - name: aci_rom
+      file: ../../roms/apple1/aci.rom
+      target_region: ROM_ACI
+      offset: 0
+      load_size: 0x0100
     - name: wozmon_rom
-      file: ../../roms/apple/wozmon.bin
+      file: ../../roms/apple1/wozmon.bin
       target_region: ROM_WOZMON
       offset: 0
+      load_size: 0x0100
 
 hooks: {}
 
@@ -33,27 +47,27 @@ components:
   ics:
     - apple1_pia_6820
     - apple1_char_rom
-    - apple1_cassette_io
+    - apple1_aci_card
   devices:
     - apple1_keyboard
     - apple1_video
     - cassette_transport_nomotor
   hosts: []
-  cassette: apple1_cassette_io
+  cassette: apple1_aci_card
 
 cassette:
-  component: apple1_cassette_io
+  component: apple1_aci_card
   directory: examples/cassettes/apple1
-  allowed_extensions: [yaml, wav]
+  allowed_extensions: [yaml, wav, mp3]
   sources:
     - kind: file
       source_type: ../../cassette_sources/wav_file.yaml
-      component: apple1_cassette_io
+      component: apple1_aci_card
       label: Tape File
-      allowed_extensions: [yaml, wav]
+      allowed_extensions: [yaml, wav, mp3]
     - kind: line_in
       source_type: ../../cassette_sources/line_in.yaml
-      component: apple1_cassette_io
+      component: apple1_aci_card
       label: Line In
   controls:
     picker_action_id: EMU_MEDIA_PICKER

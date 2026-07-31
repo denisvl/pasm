@@ -24,6 +24,10 @@ EXTRA_CARGO_ARGS="${EXTRA_CARGO_ARGS:-}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 RUN_SPEED="${RUN_SPEED:-realtime}"
 HOST_BACKEND="${HOST_BACKEND:-glfw}"
+KEYBOARD_MAP="${KEYBOARD_MAP:-examples/hosts/apple1/host_keyboard_apple1.yaml}"
+JOYSTICK_KEYBOARD_MAP="${JOYSTICK_KEYBOARD_MAP:-examples/hosts/apple1/host_keyboard_apple1_joystick.yaml}"
+CONTROLLER_MAP="${CONTROLLER_MAP:-examples/hosts/apple1/host_controller_apple1.yaml}"
+CASSETTE_DIR="${CASSETTE_DIR:-examples/cassettes/apple1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -34,7 +38,7 @@ SYSTEM_DIR="examples/systems/apple1"
 export PASM_SYSTEM_DIR="${SYSTEM_DIR}"
 IC_PIA="examples/ics/apple/apple1_pia_6820.yaml"
 IC_CHAR_ROM="examples/ics/apple/apple1_char_rom.yaml"
-IC_CASSETTE="examples/ics/apple/apple1_cassette_io.yaml"
+IC_CASSETTE="examples/ics/apple/apple1_aci_card.yaml"
 DEVICE_KB="examples/devices/apple1/apple1_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/apple1/apple1_video.yaml"
 DEVICE_CASSETTE="examples/devices/common/cassette_transport_nomotor.yaml"
@@ -95,12 +99,18 @@ RUN_ARGS=(
   --run-speed "${RUN_SPEED}"
 )
 if [[ "${PROFILE}" == "interactive" ]]; then
-  RUN_ARGS+=(--keyboard-map "examples/hosts/apple1/host_keyboard_apple1.yaml")
-  if [[ -f "examples/hosts/apple1/host_keyboard_apple1_joystick.yaml" ]]; then
-    RUN_ARGS+=(--joystick-keyboard-map "examples/hosts/apple1/host_keyboard_apple1_joystick.yaml")
+  KB_PATH="${KEYBOARD_MAP}"
+  if [[ -n "${JOYSTICK_KEYBOARD_MAP}" && -f "${JOYSTICK_KEYBOARD_MAP}" ]]; then
+    MERGED_KB="/tmp/pasm_apple1_keyboard_merged.yaml"
+    python3 scripts/merge_keyboard_maps.py "${KEYBOARD_MAP}" "${JOYSTICK_KEYBOARD_MAP}" > "${MERGED_KB}"
+    KB_PATH="${MERGED_KB}"
   fi
-  if [[ -f "examples/hosts/apple1/host_controller_apple1.yaml" ]]; then
-    RUN_ARGS+=(--controller-map "examples/hosts/apple1/host_controller_apple1.yaml")
+  RUN_ARGS+=(--keyboard-map "${KB_PATH}")
+  if [[ -n "${CONTROLLER_MAP}" && -f "${CONTROLLER_MAP}" ]]; then
+    RUN_ARGS+=(--controller-map "${CONTROLLER_MAP}")
+  fi
+  if [[ -n "${CASSETTE_DIR}" && -d "${CASSETTE_DIR}" ]]; then
+    RUN_ARGS+=(--cassette-dir "${CASSETTE_DIR}")
   fi
 fi
 if [[ -n "${START_PC}" ]]; then

@@ -34,6 +34,18 @@ components:
   hosts:
   - host_atari2600
   cartridge: atari2600_cart0
+automation:
+  screen:
+    framebuffer:
+      source_component: video_atari2600
+      source_handler: on_frame_ready
+      width: 160
+      height: 192
+      pixel_format: rgba8888
+  capabilities:
+  - screen.framebuffer
+  - input.controller
+  - media.cartridge
 connections:
 - from:
     component: atari2600_tia

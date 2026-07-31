@@ -82,6 +82,9 @@ components:
     - c64_d64_image_backend
   hosts: []
 
+automation:
+  capabilities: []
+
 connections: []
 
 integrations:

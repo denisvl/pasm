@@ -90,7 +90,7 @@ def test_msx1_interactive_component_graph_validates():
     )
     assert data["system"]["metadata"]["name"] == "Z80MSX1InteractiveSystem"
     assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_msx"]
-    assert data["cassette"]["allowed_extensions"] == ["yaml", "wav", "cas", "tsx"]
+    assert data["cassette"]["allowed_extensions"] == ["yaml", "wav", "mp3", "cas", "tsx"]
     assert [src["source_component"] for src in data["cassette"]["sources"]] == [
         "cassette_line_in_source",
         "cassette_wav_source",

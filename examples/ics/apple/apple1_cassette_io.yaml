@@ -1,24 +1,58 @@
 metadata:
   id: apple1_cassette_io
-  type: io_controller
-  model: apple1_cassette_interface
+  type: cassette_transport
+  model: apple1_cassette_adapter
   version: "1.0"
 
 state:
-  - name: cassette_in
-    type: uint8_t
-    initial: "0"
-  - name: cassette_out
+  - name: output_level
     type: uint8_t
     initial: "0"
 
 interfaces:
   callbacks:
-    - name: cassette_input_bit
+    - name: load_media
+      args: [ptr]
+      returns: u8
+    - name: select_source
+      args: [u8, u8, ptr, ptr]
+      returns: u8
+    - name: unload_media
+      args: []
+      returns: u8
+    - name: set_transport_mode
       args: [u8]
-      returns: void
-  handlers: []
-  signals: []
+      returns: u8
+    - name: set_motor
+      args: [u8]
+      returns: u8
+    - name: set_volume
+      args: [u8]
+      returns: u8
+    - name: set_bass
+      args: [u8]
+      returns: u8
+    - name: set_treble
+      args: [u8]
+      returns: u8
+    - name: sample_input
+      args: [u8, u64]
+      returns: u8
+    - name: query_transport_state
+      args: []
+      returns: u64
+    - name: query_selected_source_kind
+      args: []
+      returns: u64
+    - name: query_selected_source_model
+      args: []
+      returns: u64
+  handlers:
+    - name: on_output_sample
+      args: [u8, u64]
+  signals:
+    - name: cassette_write
+      args: [u8, u64]
 
 maps:
   memory:
@@ -31,31 +65,54 @@ maps:
 behavior:
   snippets:
     init: |
-      comp->cassette_in = 0;
-      comp->cassette_out = 0;
+      comp->output_level = 0u;
+    reset: |
+      comp->output_level = 0u;
     destroy: |
-      /* No dynamic allocations to clean up */
+      (void)cpu;
     mem_read_pre: |
-      if (addr == 0xC020) {
-        /* Read cassette input (bit 7 = CA1 state) */
-        return (comp->cassette_in << 7) | 0x7F;
+      if (addr == 0xC020u) {
+        uint64_t tape_args[2] = { 0x80u, cpu->total_cycles };
+        uint8_t tape_level = (uint8_t)cpu_component_dispatch_callback(cpu, "apple1_cassette_io", "sample_input", tape_args, 2);
+        return (tape_level >= 128u) ? 0xFFu : 0x7Fu;
       }
-      return 0xFF;
+      return 0xFFu;
     mem_write_pre: |
-      if (addr == 0xC021) {
-        /* Write cassette output (bit 7 -> CA2) */
-        comp->cassette_out = (value >> 7) & 0x01;
-        /* Forward to PIA CA2 */
-        cpu_component_call(cpu, "apple1_pia_6820", "cassette_output", &comp->cassette_out, 1);
-        /* Forward to cassette device */
-        cpu_component_call(cpu, "apple1_cassette", "write_bit", &comp->cassette_out, 1);
+      if (addr == 0xC021u) {
+        comp->output_level = (uint8_t)((value & 0x80u) != 0u ? 255u : 0u);
+        {
+          uint64_t sig_args[2] = { (uint64_t)comp->output_level, cpu->total_cycles };
+          cpu_component_emit_signal(cpu, "apple1_cassette_io", "cassette_write", sig_args, 2);
+        }
       }
-    cassette_input_bit: |
-      comp->cassette_in = arg0;
-      /* Forward to PIA CA1 */
-      cpu_component_call(cpu, "apple1_pia_6820", "cassette_input", &arg0, 1);
-  callback_handlers: {}
-  handler_bodies: {}
+  callback_handlers:
+    select_source: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "select_source", args, argc);
+    load_media: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "load_media", args, argc);
+    unload_media: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "unload_media", args, argc);
+    set_transport_mode: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_transport_mode", args, argc);
+    set_motor: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_motor", args, argc);
+    set_volume: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_volume", args, argc);
+    set_bass: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_bass", args, argc);
+    set_treble: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "set_treble", args, argc);
+    sample_input: |
+      return (uint8_t)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "sample_input", args, argc);
+    query_transport_state: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_transport_state", args, argc);
+    query_selected_source_kind: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_selected_source_kind", args, argc);
+    query_selected_source_model: |
+      return cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "query_selected_source_model", args, argc);
+  handler_bodies:
+    on_output_sample: |
+      (void)cpu_component_dispatch_callback(cpu, "cassette_transport_nomotor", "push_output_sample", args, argc);
 
 coding:
   headers: []

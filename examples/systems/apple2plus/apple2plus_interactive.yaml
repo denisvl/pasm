@@ -86,10 +86,16 @@ automation:
         inverse_range: [0x00, 0x3F]
         flash_range: [0x40, 0x7F]
         normal_range: [0x80, 0xFF]
+  capabilities:
+  - screen.text_grid
+  - input.keyboard
+  - input.controller
+  - media.cassette
+  - media.floppy
 cassette:
   component: apple2_cassette_adapter
   directory: examples/cassettes/apple2plus
-  allowed_extensions: [yaml, wav]
+  allowed_extensions: [yaml, wav, mp3]
   controls:
     picker_action_id: EMU_CASSETTE_PICKER
     play_action_id: EMU_CASSETTE_PLAY

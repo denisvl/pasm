@@ -51,6 +51,18 @@ components:
   hosts:
   - host_famicom
   cartridge: famicom_cart0
+automation:
+  screen:
+    framebuffer:
+      source_component: video_nes
+      source_handler: on_frame_ready
+      width: 256
+      height: 240
+      pixel_format: rgba8888
+  capabilities:
+  - screen.framebuffer
+  - input.controller
+  - media.cartridge
 connections:
 - from:
     component: nes_cart_bridge

@@ -79,16 +79,34 @@ automation:
       native_encoding: trs80_model4_screen_code
       unicode_map: trs80_model4_text
       unknown_policy: preserve_native
+  readiness:
+    default_recipe: boot_to_basic_ready
+    recipes:
+      - id: boot_to_basic_ready
+        reset: cold
+        warmup_frames: 300
+        stable_frames: 2
+        media_defaults:
+          cassette: empty
+          floppy: empty
+        wait_for_text:
+          view: primary_text
+          contains: "READY"
+  capabilities:
+  - screen.text_grid
+  - input.keyboard_matrix
+  - media.cassette
+  - media.floppy
 cassette:
   component: cassette_transport
   directory: examples/cassettes/trs80_model4
-  allowed_extensions: [yaml, wav]
+  allowed_extensions: [yaml, wav, mp3]
   sources:
     - kind: file
       source_type: ../../cassette_sources/wav_file.yaml
       component: cassette_transport
       label: Tape File
-      allowed_extensions: [yaml, wav]
+      allowed_extensions: [yaml, wav, mp3]
     - kind: line_in
       source_type: ../../cassette_sources/line_in.yaml
       component: cassette_transport

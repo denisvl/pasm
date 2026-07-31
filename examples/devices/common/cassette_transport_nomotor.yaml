@@ -197,6 +197,7 @@ behavior:
           comp->selected_source_component = NULL;
       }
       (void)cpu;
+  handler_bodies:
     on_output_sample: |
       uint64_t cycle = (argc > 1u) ? args[1] : cpu->total_cycles;
       if (argc < 1u) return;
@@ -211,12 +212,35 @@ behavior:
           uint64_t sig_args[2] = { (uint64_t)comp->output_level, cycle };
           cpu_component_emit_signal(cpu, "cassette_transport_nomotor", "tape_output_level", sig_args, 2);
       }
+  callback_handlers:
     select_source: |
       const char *model = (argc > 2u && args[2] != 0u) ? (const char *)(uintptr_t)args[2] : NULL;
       const char *source_component = (argc > 3u && args[3] != 0u) ? (const char *)(uintptr_t)args[3] : NULL;
-      FILE *trace_fp = NULL;
-      const char *trace_env = getenv("PASM_EMU_CASSETTE_TRACE");
-      if (trace_env != NULL && trace_env[0] != '\0' && strcmp(trace_env, "0") != 0) {
+      comp->selected_source_kind = (argc > 0u) ? (uint8_t)(args[0] & 0xFFu) : 0u;
+      if (comp->selected_source_model != NULL) {
+          free(comp->selected_source_model);
+          comp->selected_source_model = NULL;
+      }
+      if (comp->selected_source_component != NULL) {
+          free(comp->selected_source_component);
+          comp->selected_source_component = NULL;
+      }
+      if (model != NULL && model[0] != '\0') {
+          comp->selected_source_model = strdup(model);
+          if (comp->selected_source_model == NULL) return 0u;
+      }
+      if (source_component != NULL && source_component[0] != '\0') {
+          comp->selected_source_component = strdup(source_component);
+          if (comp->selected_source_component == NULL) return 0u;
+      }
+      if (
+          comp->selected_source_component != NULL &&
+          comp->selected_source_component[0] != '\0' &&
+          strcmp(comp->selected_source_component, "cassette_transport_nomotor") != 0
+      ) {
+          (void)cpu_component_dispatch_callback(cpu, comp->selected_source_component, "select_source", args, argc);
+      }
+      return 1u;
     load_media: |
       if (argc < 1u || args[0] == 0u) return 0u;
       {
@@ -552,34 +576,6 @@ behavior:
       }
       return 1u;
 
-  callback_handlers:
-    load_media: load_media
-    select_source: select_source
-    unload_media: unload_media
-    set_transport_mode: set_transport_mode
-    set_motor: set_motor
-    set_volume: set_volume
-    set_bass: set_bass
-    set_treble: set_treble
-    sample_input: sample_input
-    query_transport_state: query_transport_state
-    query_selected_source_kind: query_selected_source_kind
-    query_selected_source_model: query_selected_source_model
-    query_edge_count: query_edge_count
-    query_edge_initial_level: query_edge_initial_level
-    query_edge_fp: query_edge_fp
-    query_sample_rate: query_sample_rate
-    query_playhead_samples: query_playhead_samples
-    query_leader_start_sample: query_leader_start_sample
-    query_leader_start_index: query_leader_start_index
-    query_leader_end_sample: query_leader_end_sample
-    query_leader_end_index: query_leader_end_index
-    query_playback_level: query_playback_level
-    query_volume_percent: query_volume_percent
-    set_playhead_fp: set_playhead_fp
-    push_output_sample: push_output_sample
-  handler_bodies:
-    on_output_sample: on_output_sample
 coding:
   headers:
     - stdio.h

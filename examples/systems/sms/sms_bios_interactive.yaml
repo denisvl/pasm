@@ -58,6 +58,17 @@ components:
   - tv
   hosts:
   - host_sms
+automation:
+  screen:
+    framebuffer:
+      source_component: video_sms
+      source_handler: on_frame_ready
+      width: 256
+      height: 192
+      pixel_format: rgba8888
+  capabilities:
+  - screen.framebuffer
+  - input.controller
 connections:
 - from:
     component: sms_joy0

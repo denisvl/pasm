@@ -64,6 +64,10 @@ automation:
       unknown_policy: preserve_native
       mode_conditions:
         video_mode: text
+  capabilities:
+  - screen.text_grid
+  - input.controller
+  - media.cartridge
 connections:
 - from:
     component: sg_joy0

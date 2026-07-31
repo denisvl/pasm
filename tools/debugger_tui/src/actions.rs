@@ -13,6 +13,10 @@ pub enum Action {
     ToggleHistory,
     ToggleOverlay,
     FocusEmulator,
+    ToggleCassettePicker,
+    CassettePlay,
+    CassetteVolumeUp,
+    CassetteVolumeDown,
     ToggleBreakpoint,
     SelectNextPane,
     SelectPrevPane,
@@ -26,6 +30,13 @@ pub enum Action {
 }
 
 pub fn map_key_event(ev: KeyEvent) -> Action {
+    if ev.modifiers.contains(KeyModifiers::CONTROL) {
+        match ev.code {
+            KeyCode::PageDown => return Action::PageDown,
+            KeyCode::PageUp => return Action::PageUp,
+            _ => {}
+        }
+    }
     if let KeyCode::Char(ch) = ev.code {
         let lower = ch.to_ascii_lowercase();
         if ev.modifiers.contains(KeyModifiers::CONTROL) && lower == 'c' {
@@ -49,17 +60,19 @@ pub fn map_key_event(ev: KeyEvent) -> Action {
 
     match ev.code {
         KeyCode::F(9) => Action::RunPause,
+        KeyCode::F(10) => Action::CassettePlay,
         KeyCode::F(4) => Action::RunToCursor,
         KeyCode::Tab => Action::SelectNextPane,
         KeyCode::BackTab => Action::SelectPrevPane,
         KeyCode::Down => Action::ScrollDown,
         KeyCode::Up => Action::ScrollUp,
-        KeyCode::PageDown => Action::PageDown,
-        KeyCode::PageUp => Action::PageUp,
+        KeyCode::PageDown => Action::CassetteVolumeDown,
+        KeyCode::PageUp => Action::CassetteVolumeUp,
         KeyCode::F(3) => Action::StepOut,
         KeyCode::F(7) => Action::StepInto,
         KeyCode::F(8) => Action::StepOver,
         KeyCode::F(5) => Action::Reset,
+        KeyCode::F(11) => Action::ToggleCassettePicker,
         _ => Action::Noop,
     }
 }
@@ -96,11 +109,27 @@ mod tests {
             Action::RunToCursor
         );
         assert_eq!(
+            map_key_event(KeyEvent::new(KeyCode::F(11), KeyModifiers::NONE)),
+            Action::ToggleCassettePicker
+        );
+        assert_eq!(
+            map_key_event(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE)),
+            Action::CassettePlay
+        );
+        assert_eq!(
             map_key_event(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)),
-            Action::PageUp
+            Action::CassetteVolumeUp
         );
         assert_eq!(
             map_key_event(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)),
+            Action::CassetteVolumeDown
+        );
+        assert_eq!(
+            map_key_event(KeyEvent::new(KeyCode::PageUp, KeyModifiers::CONTROL)),
+            Action::PageUp
+        );
+        assert_eq!(
+            map_key_event(KeyEvent::new(KeyCode::PageDown, KeyModifiers::CONTROL)),
             Action::PageDown
         );
         assert_eq!(

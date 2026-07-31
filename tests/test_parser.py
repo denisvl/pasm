@@ -713,7 +713,16 @@ def test_runtime_keyboard_map_schema_accepts_valid_matrix_and_ascii_maps():
         "keyboard": {
             "kind": "matrix",
             "focus_required": True,
-            "bindings": [{"host_key": "A", "mapper_key_id": "k_a", "presses": [{"row": 1, "bit": 0}]}],
+            "bindings": [
+                {
+                    "host_key": "A",
+                    "mapper_key_id": "k_a",
+                    "presses": [{"row": 1, "bit": 0}],
+                    "ascii": 97,
+                    "ascii_shift": 65,
+                    "ascii_ctrl": 1,
+                }
+            ],
         }
     }
     ascii_map = {
@@ -1059,6 +1068,247 @@ def test_selected_example_systems_declare_automation_text_views(path_str):
     assert text_views[0]["id"] == "primary_text"
 
 
+@pytest.mark.parametrize(
+    "path_str",
+    [
+        "examples/systems/apple2/apple2_default.yaml",
+        "examples/systems/apple2/apple2_interactive.yaml",
+        "examples/systems/apple2plus/apple2plus_default.yaml",
+        "examples/systems/apple2plus/apple2plus_interactive.yaml",
+        "examples/systems/atari65xe/atari65xe_default.yaml",
+        "examples/systems/atari65xe/atari65xe_interactive.yaml",
+        "examples/systems/atari800xe/atari800xe_default.yaml",
+        "examples/systems/atari800xe/atari800xe_interactive.yaml",
+        "examples/systems/atari800xl/atari800xl_cartridge_default.yaml",
+        "examples/systems/atari800xl/atari800xl_cartridge_interactive.yaml",
+        "examples/systems/atari800xl/atari800xl_default.yaml",
+        "examples/systems/atari800xl/atari800xl_interactive.yaml",
+        "examples/systems/atari_xegs/atari_xegs_cartridge_default.yaml",
+        "examples/systems/atari_xegs/atari_xegs_cartridge_interactive.yaml",
+        "examples/systems/atari_xegs/atari_xegs_default.yaml",
+        "examples/systems/atari_xegs/atari_xegs_interactive.yaml",
+        "examples/systems/bbcmicro/bbc_micro_default.yaml",
+        "examples/systems/bbcmicro/bbc_micro_interactive.yaml",
+        "examples/systems/bbcmicro/bbc_micro_model_a_default.yaml",
+        "examples/systems/bbcmicro/bbc_micro_model_a_interactive.yaml",
+        "examples/systems/c64/c64_cartridge_default.yaml",
+        "examples/systems/c64/c64_cartridge_interactive.yaml",
+        "examples/systems/c64/c64_default.yaml",
+        "examples/systems/c64/c64_interactive.yaml",
+        "examples/systems/c64c/c64c_cartridge_default.yaml",
+        "examples/systems/c64c/c64c_cartridge_interactive.yaml",
+        "examples/systems/c64c/c64c_default.yaml",
+        "examples/systems/c64c/c64c_interactive.yaml",
+        "examples/systems/c64gs/c64gs_cartridge_default.yaml",
+        "examples/systems/c64gs/c64gs_cartridge_interactive.yaml",
+        "examples/systems/c64gs/c64gs_default.yaml",
+        "examples/systems/c64gs/c64gs_interactive.yaml",
+        "examples/systems/coco1/coco1_default.yaml",
+        "examples/systems/coco1/coco1_interactive.yaml",
+        "examples/systems/coco2/coco2_default.yaml",
+        "examples/systems/coco2/coco2_interactive.yaml",
+        "examples/systems/cpc464/cpc464_default.yaml",
+        "examples/systems/cpc464/cpc464_interactive.yaml",
+        "examples/systems/csx64/csx64_cartridge_default.yaml",
+        "examples/systems/csx64/csx64_cartridge_interactive.yaml",
+        "examples/systems/csx64/csx64_default.yaml",
+        "examples/systems/csx64/csx64_interactive.yaml",
+        "examples/systems/msx1/msx1_cartridge_default.yaml",
+        "examples/systems/msx1/msx1_cartridge_interactive.yaml",
+        "examples/systems/msx1/msx1_default.yaml",
+        "examples/systems/msx1/msx1_floppy_default.yaml",
+        "examples/systems/msx1/msx1_floppy_interactive.yaml",
+        "examples/systems/msx1/msx1_interactive.yaml",
+        "examples/systems/msx1_expanded/msx1_expanded_cartridge_default.yaml",
+        "examples/systems/msx1_expanded/msx1_expanded_cartridge_interactive.yaml",
+        "examples/systems/msx1_expanded/msx1_expanded_default.yaml",
+        "examples/systems/msx1_expanded/msx1_expanded_interactive.yaml",
+        "examples/systems/sg1000/sg1000_default.yaml",
+        "examples/systems/sg1000/sg1000_interactive.yaml",
+        "examples/systems/sg1000ii/sg1000ii_default.yaml",
+        "examples/systems/sg1000ii/sg1000ii_interactive.yaml",
+        "examples/systems/tdp100/tdp100_default.yaml",
+        "examples/systems/tdp100/tdp100_interactive.yaml",
+        "examples/systems/trs80_model4/trs80_model4_default.yaml",
+        "examples/systems/trs80_model4/trs80_model4_interactive.yaml",
+    ],
+)
+def test_selected_text_view_systems_declare_text_grid_capability(path_str):
+    loader = yaml_loader.ProcessorSystemLoader()
+    path = pathlib.Path(path_str)
+    system_data = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    validated = loader.validate_system(system_data)
+    automation = validated.get("automation") or {}
+    text_views = ((automation.get("screen") or {}).get("text_views") or [])
+    capabilities = automation.get("capabilities") or []
+
+    assert text_views, path_str
+    assert "screen.text_grid" in capabilities
+
+
+@pytest.mark.parametrize(
+    ("path_str", "expected_capabilities"),
+    [
+        (
+            "examples/systems/apple2/apple2_default.yaml",
+            {"screen.text_grid", "input.keyboard", "input.controller", "media.cassette", "media.floppy"},
+        ),
+        (
+            "examples/systems/atari800xl/atari800xl_cartridge_default.yaml",
+            {"screen.text_grid", "input.keyboard", "input.controller", "media.cassette", "media.floppy", "media.cartridge"},
+        ),
+        (
+            "examples/systems/bbcmicro/bbc_micro_default.yaml",
+            {"screen.text_grid", "input.keyboard_matrix", "media.cassette", "media.floppy"},
+        ),
+        (
+            "examples/systems/c64/c64_default.yaml",
+            {"screen.text_grid", "input.keyboard_matrix", "input.controller", "media.cassette", "media.floppy", "media.cartridge"},
+        ),
+        (
+            "examples/systems/cpc464/cpc464_default.yaml",
+            {"screen.text_grid", "input.keyboard_matrix", "input.controller", "media.cassette", "media.floppy"},
+        ),
+        (
+            "examples/systems/msx1/msx1_cartridge_default.yaml",
+            {"screen.text_grid", "input.keyboard_matrix", "input.controller", "media.cassette", "media.cartridge"},
+        ),
+        (
+            "examples/systems/sg1000/sg1000_default.yaml",
+            {"screen.text_grid", "input.controller", "media.cartridge"},
+        ),
+        (
+            "examples/systems/trs80_model4/trs80_model4_default.yaml",
+            {"screen.text_grid", "input.keyboard_matrix", "media.cassette", "media.floppy"},
+        ),
+    ],
+)
+def test_selected_text_view_systems_declare_expected_automation_capabilities(path_str, expected_capabilities):
+    loader = yaml_loader.ProcessorSystemLoader()
+    path = pathlib.Path(path_str)
+    system_data = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    validated = loader.validate_system(system_data)
+    capabilities = set((validated.get("automation") or {}).get("capabilities") or [])
+
+    assert expected_capabilities.issubset(capabilities), path_str
+
+
+@pytest.mark.parametrize(
+    "path_str",
+    [
+        "examples/systems/c1541/c1541_default.yaml",
+        "examples/systems/keymapper_tool/keymapper_tool_interactive.yaml",
+        "examples/systems/mc6809/mc6809_default.yaml",
+        "examples/systems/minimal8/minimal8_default.yaml",
+        "examples/systems/mos6502/mos6502_default.yaml",
+        "examples/systems/mos6509/mos6509_default.yaml",
+        "examples/systems/mos6510/mos6510_default.yaml",
+        "examples/systems/simple8/simple8_default.yaml",
+        "examples/systems/simple_cpu/simple_cpu_default.yaml",
+        "examples/systems/z80/z80_default.yaml",
+        "examples/systems/z80/z80_sectorz_hooks.yaml",
+    ],
+)
+def test_selected_negative_capability_systems_declare_empty_automation_capabilities(path_str):
+    loader = yaml_loader.ProcessorSystemLoader()
+    path = pathlib.Path(path_str)
+    system_data = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    validated = loader.validate_system(system_data)
+    automation = validated.get("automation") or {}
+    capabilities = automation.get("capabilities")
+
+    assert capabilities == [], path_str
+
+
+@pytest.mark.parametrize(
+    "path_str",
+    [
+        "examples/systems/atari2600/atari2600_default.yaml",
+        "examples/systems/atari2600/atari2600_interactive.yaml",
+        "examples/systems/famicom/famicom_default.yaml",
+        "examples/systems/famicom/famicom_interactive.yaml",
+        "examples/systems/nes/nes_default.yaml",
+        "examples/systems/nes/nes_interactive.yaml",
+        "examples/systems/sms/sms_bios_interactive.yaml",
+        "examples/systems/sms/sms_default.yaml",
+        "examples/systems/sms/sms_interactive.yaml",
+        "examples/systems/sms2/sms2_default.yaml",
+        "examples/systems/sms2/sms2_interactive.yaml",
+        "examples/systems/sm3/sm3_default.yaml",
+        "examples/systems/sm3/sm3_interactive.yaml",
+        "examples/systems/zx_spectrum48k/spectrum48k_default.yaml",
+        "examples/systems/zx_spectrum48k/spectrum48k_interactive.yaml",
+        "examples/systems/zx_spectrum48k/spectrum48k_betadisk_default.yaml",
+        "examples/systems/zx_spectrum48k/spectrum48k_betadisk_interactive.yaml",
+    ],
+)
+def test_selected_example_systems_declare_automation_framebuffer_and_capabilities(path_str):
+    loader = yaml_loader.ProcessorSystemLoader()
+    path = pathlib.Path(path_str)
+    system_data = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    validated = loader.validate_system(system_data)
+    automation = validated.get("automation") or {}
+    screen = automation.get("screen") or {}
+    framebuffer = screen.get("framebuffer") or {}
+    capabilities = automation.get("capabilities") or []
+
+    assert framebuffer, path_str
+    assert framebuffer["source_component"]
+    assert framebuffer["width"] >= 1
+    assert framebuffer["height"] >= 1
+    assert framebuffer["pixel_format"] in {"rgba8888", "bgra8888", "rgb565", "index8"}
+    assert "screen.framebuffer" in capabilities
+
+
+@pytest.mark.parametrize(
+    "path_str",
+    [
+        "examples/systems/apple2/apple2_default.yaml",
+        "examples/systems/atari2600/atari2600_default.yaml",
+        "examples/systems/atari800xl/atari800xl_default.yaml",
+        "examples/systems/bbcmicro/bbc_micro_default.yaml",
+        "examples/systems/c64/c64_default.yaml",
+        "examples/systems/coco1/coco1_default.yaml",
+        "examples/systems/cpc464/cpc464_default.yaml",
+        "examples/systems/msx1/msx1_default.yaml",
+        "examples/systems/nes/nes_default.yaml",
+        "examples/systems/sg1000/sg1000_default.yaml",
+        "examples/systems/sms/sms_default.yaml",
+        "examples/systems/tdp100/tdp100_default.yaml",
+        "examples/systems/trs80_model4/trs80_model4_default.yaml",
+        "examples/systems/zx_spectrum48k/spectrum48k_default.yaml",
+    ],
+)
+def test_selected_example_systems_declare_automation_readiness_recipes(path_str):
+    loader = yaml_loader.ProcessorSystemLoader()
+    path = pathlib.Path(path_str)
+    system_data = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    validated = loader.validate_system(system_data)
+    readiness = ((validated.get("automation") or {}).get("readiness") or {})
+    recipes = readiness.get("recipes") or []
+    default_recipe = next(
+        (recipe for recipe in recipes if recipe["id"] == readiness.get("default_recipe")),
+        None,
+    )
+    capabilities = set((validated.get("automation") or {}).get("capabilities") or [])
+    expected_media_keys = {
+        capability.removeprefix("media.")
+        for capability in capabilities
+        if capability.startswith("media.")
+        and capability in {"media.cartridge", "media.cassette", "media.floppy"}
+    }
+
+    assert readiness.get("default_recipe"), path_str
+    assert recipes, path_str
+    assert default_recipe is not None, path_str
+    assert set((default_recipe.get("media_defaults") or {}).keys()) == expected_media_keys, path_str
+
+
 def test_cassette_source_schema_accepts_wav_cas_cdt_uef_and_line_in():
     if yaml_loader.Draft7Validator is None:
         pytest.skip("jsonschema not available")
@@ -1229,7 +1479,7 @@ def test_system_loader_resolves_cassette_source_type_relative_to_system_yaml(tmp
             "  kind: file\n"
             "  label: Tape File\n"
             "  source_component: cassette_wav_source\n"
-            "  allowed_extensions: [yaml, wav]\n"
+            "  allowed_extensions: [yaml, wav, mp3]\n"
         ),
         encoding="utf-8",
     )
@@ -1312,7 +1562,7 @@ def test_system_loader_resolves_cassette_source_type_relative_to_system_yaml(tmp
             "    - source_type: ../../cassette_sources/wav_file.yaml\n"
             "      kind: file\n"
             "      component: cassette_transport\n"
-            "      allowed_extensions: [yaml, wav]\n"
+            "      allowed_extensions: [yaml, wav, mp3]\n"
             "    - source_type: ../../cassette_sources/cas_file.yaml\n"
             "      kind: file\n"
             "      component: cassette_transport\n"
@@ -1357,7 +1607,7 @@ def test_system_loader_resolves_cassette_source_type_relative_to_system_yaml(tmp
     assert pathlib.Path(sources[4]["source_type"]) == (cassette_sources_dir / "line_in.yaml").resolve()
     assert sources[0]["kind"] == "file"
     assert sources[0]["label"] == "Tape File"
-    assert sources[0]["allowed_extensions"] == ["yaml", "wav"]
+    assert sources[0]["allowed_extensions"] == ["yaml", "wav", "mp3"]
     assert sources[0]["source_component"] == "cassette_wav_source"
     assert sources[1]["kind"] == "file"
     assert sources[1]["label"] == "CAS Tape"

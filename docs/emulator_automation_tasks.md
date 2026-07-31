@@ -230,6 +230,73 @@ UX Follow-Up or post-plan integration work unless explicitly requested.
       current text-grid source model, likely as framebuffer inspection or OCR,
       not as declarative text-cell capture.
 
+## System Adaptations for Automation
+
+- [x] Add declarative framebuffer-view metadata for systems where text-grid is
+      intentionally out of scope
+      Atari 2600, NES/Famicom, SMS/SMS2/SM3, and ZX Spectrum example systems
+      now declare stable framebuffer metadata and explicit automation
+      capabilities so observation/input consumers do not depend on ad hoc host
+      assumptions.
+- [ ] Add bitmap-text / OCR-oriented observation metadata for framebuffer-text systems
+      ZX Spectrum-family systems need a separate automation path from
+      text-cell capture, likely built around framebuffer regions, attribute
+      planes, and optional OCR helpers rather than native character-cell reads.
+- [ ] Audit and complete machine character mappings for logical `type_text(...)`
+      Every text-capable system should have an explicit automation-usable
+      character map covering letters, digits, common punctuation, Enter,
+      Break/Escape, and any required modifier combinations used by monitor,
+      BASIC, or shell workflows. The runtime/codegen now supports
+      ASCII-bearing matrix keyboard maps in addition to the older pure-ascii
+      map kind; the remaining work is to populate those ASCII payloads across
+      the text-capable host keyboard YAMLs and then enforce family coverage in
+      tests.
+- [ ] Audit and complete controller-map coverage for game-oriented systems
+      Console and joystick-driven systems should expose stable controller-map
+      YAMLs and default control IDs so coding-agent automation can inject
+      gameplay/menu input without host-specific keyboard assumptions.
+- [x] Add per-system automation capability declarations and negative cases
+      Graphics-first example systems now declare framebuffer-oriented
+      capabilities. Text-view systems should likewise declare
+      `screen.text_grid` explicitly, with additional input/media capabilities
+      added per family instead of being inferred from host naming. All current
+      text-view example systems now declare `screen.text_grid` explicitly. The
+      remaining work is to refine per-family input/media capability metadata
+      and cover tooling systems plus intentionally capability-negative
+      harnesses.
+- [x] Add real-adapter smoke tests for each adapted system family
+      For each system family with automation metadata, add a focused generated
+      adapter test that proves the declared observation/input path works on a
+      real example system, not only in schema/codegen mocks. The focused
+      `tests/test_automation_real_adapter_smoke.py` coverage now exercises
+      representative real builds for text-grid families (Apple II, Atari 8-bit,
+      BBC Micro, C64, CoCo, CPC, MSX/TMS9918, SG-1000, TDP-100, TRS-80) and
+      framebuffer families (Atari 2600, NES, SMS, ZX Spectrum).
+- [x] Add boot/readiness recipes for automatable example systems
+      Systems that require ROM boot delay, warmup frames, menu dismissal, or
+      initial prompt detection should declare or document the expected
+      automation-ready state so higher-level tests and MCP tools can start from
+      consistent assumptions. The automation schema now admits declarative
+      readiness recipes, and representative default systems across text-grid
+      and framebuffer families declare boot recipes with warmup/stability
+      frames plus either prompt/text or nonblank-framebuffer readiness checks.
+- [ ] Audit media-backed systems for automation-friendly boot control
+      Cartridge, cassette, and floppy systems should expose enough structured
+      media state and boot-selection behavior for deterministic automation,
+      including empty-media defaults and explicit insertion/eject expectations.
+      Media-backed default example systems now declare structured readiness
+      `media_defaults` for inserted-vs-empty cartridge/cassette/floppy startup
+      assumptions. The remaining work is to wire higher-level consumers to use
+      that metadata directly and to decide whether interactive/cartridge/media
+      variant YAMLs should carry distinct boot recipes beyond the defaults.
+- [x] Add stable system-family example flows for automation consumers
+      Provide one short automation scenario per family, such as boot-to-BASIC,
+      type-and-run, joystick/menu navigation, or disk/tape load, so Python,
+      Rust, and MCP consumers have a known-good integration target. The flow
+      catalog now lives in `docs/emulator_automation_example_flows.md` and
+      maps representative text-grid and framebuffer families onto stable
+      Python, Rust, and MCP entrypoints.
+
 ## Immediate Next Candidates
 
 - [x] Thread event polling through one real adapter path

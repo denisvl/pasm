@@ -60,10 +60,10 @@ state:
 - name: display_inches
   type: uint32_t
   initial: '24'
-- name: left_level
+- name: level_left
   type: uint8_t
   initial: '128'
-- name: right_level
+- name: level_right
   type: uint8_t
   initial: '128'
 - name: gain_q8_8

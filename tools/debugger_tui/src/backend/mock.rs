@@ -413,6 +413,10 @@ impl DebuggerBackend for MockDebuggerBackend {
     fn focus_emulator_window(&mut self) -> Result<(), String> {
         Ok(())
     }
+
+    fn cassette_debug_action(&mut self, _action: u8) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 impl MockDebuggerBackend {

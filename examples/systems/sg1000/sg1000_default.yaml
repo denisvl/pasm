@@ -64,6 +64,22 @@ automation:
       unknown_policy: preserve_native
       mode_conditions:
         video_mode: text
+  readiness:
+    default_recipe: boot_to_live_text_screen
+    recipes:
+      - id: boot_to_live_text_screen
+        reset: cold
+        warmup_frames: 120
+        stable_frames: 2
+        media_defaults:
+          cartridge: inserted
+        wait_for_text:
+          view: primary_text
+          contains: "SEGA"
+  capabilities:
+  - screen.text_grid
+  - input.controller
+  - media.cartridge
 connections:
 - from:
     component: sg_joy0

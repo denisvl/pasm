@@ -16,6 +16,24 @@ def _automation_text_views(isa_data: Dict[str, Any]) -> list[dict[str, Any]]:
     return [view for view in views if isinstance(view, dict)]
 
 
+def _automation_framebuffer(isa_data: Dict[str, Any]) -> dict[str, Any] | None:
+    automation = (isa_data.get("system", {}) or {}).get("automation", {}) or {}
+    screen = automation.get("screen", {}) or {}
+    framebuffer = screen.get("framebuffer", {}) or {}
+    if not isinstance(framebuffer, dict):
+        return None
+    if not str(framebuffer.get("source_component", "")).strip():
+        return None
+    if not (
+        str(framebuffer.get("source_handler", "")).strip()
+        or str(framebuffer.get("source_signal", "")).strip()
+    ):
+        return None
+    if int(framebuffer.get("width", 0) or 0) <= 0 or int(framebuffer.get("height", 0) or 0) <= 0:
+        return None
+    return framebuffer
+
+
 def _first_supported_text_view(isa_data: Dict[str, Any]) -> dict[str, Any] | None:
     for view in _automation_text_views(isa_data):
         memory = view.get("memory", {}) or {}
@@ -105,6 +123,7 @@ def generate_automation_adapter(isa_data: Dict[str, Any], cpu_name: str) -> tupl
     system_name = _escape_c_string(
         isa_data.get("system", {}).get("metadata", {}).get("name", "system")
     )
+    framebuffer = _automation_framebuffer(isa_data)
     default_text_view = _first_supported_text_view(isa_data)
     supports_text_grid, text_view_rows = _c_text_view_table(_automation_text_views(isa_data))
     text_event_context_fields = ""
@@ -117,7 +136,16 @@ def generate_automation_adapter(isa_data: Dict[str, Any], cpu_name: str) -> tupl
             "\n    uint8_t last_text_cells_valid;"
         )
     text_grid_capability = "\n        EMU_AUTOMATION_CAP_SCREEN_TEXT_GRID |" if supports_text_grid else ""
+    framebuffer_capability = (
+        "\n        EMU_AUTOMATION_CAP_SCREEN_FRAMEBUFFER |" if framebuffer is not None else ""
+    )
     event_capability = "\n        EMU_AUTOMATION_CAP_EVENTS_FRAME_COMPLETED |"
+    framebuffer_adapter_members = (
+        f"\n    adapter.capture_framebuffer = {cpu_prefix}_automation_capture_framebuffer;"
+        f"\n    adapter.release_framebuffer = {cpu_prefix}_automation_release_framebuffer;"
+        if framebuffer is not None
+        else ""
+    )
     text_grid_adapter_members = (
         f"\n    adapter.capture_text_grid = {cpu_prefix}_automation_capture_text_grid;"
         f"\n    adapter.read_memory = {cpu_prefix}_automation_read_memory;"
@@ -130,6 +158,69 @@ def generate_automation_adapter(isa_data: Dict[str, Any], cpu_name: str) -> tupl
     event_adapter_members = (
         f"\n    adapter.poll_event = {cpu_prefix}_automation_poll_event;"
         f"\n    adapter.release_event = {cpu_prefix}_automation_release_event;"
+    )
+    framebuffer_impl = (
+        _generate_framebuffer_impl(cpu_name, cpu_prefix) if framebuffer is not None else ""
+    )
+    framebuffer_frame_counter_decl = (
+        f"""
+static int {cpu_prefix}_automation_framebuffer_frame_number(
+    {cpu_name}AutomationDebugContext *ctx,
+    uint64_t *out_frame_number)
+{{
+    PASMDebugFramebuffer framebuffer;
+    if (ctx == NULL || ctx->cpu == NULL || out_frame_number == NULL) return -1;
+    memset(&framebuffer, 0, sizeof(framebuffer));
+    if (pasm_dbg_capture_framebuffer(ctx->cpu, &framebuffer) != 0) return -1;
+    *out_frame_number = framebuffer.frame_number;
+    pasm_dbg_release_framebuffer(ctx->cpu, &framebuffer);
+    return 0;
+}}
+"""
+        if framebuffer is not None
+        else ""
+    )
+    framebuffer_frame_before_line = (
+        f"    if ({cpu_prefix}_automation_framebuffer_frame_number(ctx, &before_fb_frame) == 0) have_before_fb_frame = 1u;"
+        if framebuffer is not None
+        else ""
+    )
+    framebuffer_frame_after_block = (
+        f"""        if ({cpu_prefix}_automation_framebuffer_frame_number(ctx, &after_fb_frame) == 0 &&
+            (have_before_fb_frame == 0u || after_fb_frame > before_fb_frame)) {{
+            {cpu_prefix}_automation_emit_screen_events(ctx);
+            {cpu_prefix}_automation_push_event(
+                ctx,
+                EMU_AUTOMATION_EVENT_FRAME_COMPLETED,
+                0,
+                0,
+                NULL,
+                0u, 0u, 0u, 0u, 0u,
+                NULL, 0u, NULL);
+            (void)pasm_dbg_pause(ctx->cpu);
+            return EMU_AUTOMATION_OK;
+        }}
+"""
+        if framebuffer is not None
+        else ""
+    )
+    frame_index_completion_block = (
+        f"""        if (after.frame_index > before.frame_index) {{
+            {cpu_prefix}_automation_emit_screen_events(ctx);
+            {cpu_prefix}_automation_push_event(
+                ctx,
+                EMU_AUTOMATION_EVENT_FRAME_COMPLETED,
+                0,
+                0,
+                NULL,
+                0u, 0u, 0u, 0u, 0u,
+                NULL, 0u, NULL);
+            (void)pasm_dbg_pause(ctx->cpu);
+            return EMU_AUTOMATION_OK;
+        }}
+"""
+        if framebuffer is None
+        else ""
     )
     text_grid_impl = _generate_text_grid_impl(cpu_name, cpu_prefix, text_view_rows) if supports_text_grid else ""
     inspection_impl = _generate_inspection_impl(cpu_name, cpu_prefix)
@@ -257,6 +348,10 @@ static emu_automation_result_t {cpu_prefix}_automation_set_breakpoint(
     void *context,
     uint64_t address,
     uint8_t enabled);
+{f"""static int {cpu_prefix}_automation_framebuffer_frame_number(
+    {cpu_name}AutomationDebugContext *ctx,
+    uint64_t *out_frame_number);
+""" if framebuffer is not None else ""}
 
 static void {cpu_prefix}_automation_push_event(
     {cpu_name}AutomationDebugContext *ctx,
@@ -378,12 +473,13 @@ static emu_automation_result_t {cpu_prefix}_automation_describe(
     out_descriptor->video_standard = "";
     out_descriptor->adapter_version = "debug-abi-v1";
     out_descriptor->configured_memory_bytes = {memory_default_size}ull;
-    out_descriptor->capabilities.feature_bits ={event_capability}{text_grid_capability}
+    out_descriptor->capabilities.feature_bits ={event_capability}{framebuffer_capability}{text_grid_capability}
         EMU_AUTOMATION_CAP_EXEC_TIMING |
         EMU_AUTOMATION_CAP_INSPECT_MEMORY |
         EMU_AUTOMATION_CAP_INSPECT_MEMORY_WRITE |
         EMU_AUTOMATION_CAP_INSPECT_REGISTERS |
         EMU_AUTOMATION_CAP_EXEC_PAUSE |
+        EMU_AUTOMATION_CAP_EXEC_RESUME |
         EMU_AUTOMATION_CAP_EXEC_CURRENT_INSTRUCTION |
         EMU_AUTOMATION_CAP_EXEC_PROGRAM_COUNTER |
         EMU_AUTOMATION_CAP_DEBUG_BREAKPOINTS |
@@ -471,6 +567,24 @@ static emu_automation_result_t {cpu_prefix}_automation_pause(void *context)
     return EMU_AUTOMATION_OK;
 }}
 
+static emu_automation_result_t {cpu_prefix}_automation_resume(void *context)
+{{
+    {cpu_name}AutomationDebugContext *ctx = ({cpu_name}AutomationDebugContext *)context;
+    PASMDebugSnapshotCore before;
+    if (ctx == NULL || ctx->cpu == NULL) return EMU_AUTOMATION_INVALID_ARGUMENT;
+    if ({cpu_prefix}_automation_core_snapshot(ctx->cpu, &before) != 0) return EMU_AUTOMATION_ADAPTER_ERROR;
+    if (pasm_dbg_run(ctx->cpu) != 0) return EMU_AUTOMATION_ADAPTER_ERROR;
+    {cpu_prefix}_automation_push_event(
+        ctx,
+        EMU_AUTOMATION_EVENT_EXECUTION_STATE_CHANGED,
+        {cpu_prefix}_automation_map_mode(before.mode),
+        EMU_AUTOMATION_EXECUTION_RUNNING,
+        NULL,
+        0u, 0u, 0u, 0u, 0u,
+        NULL, 0u, NULL);
+    return EMU_AUTOMATION_OK;
+}}
+
 static emu_automation_result_t {cpu_prefix}_automation_reset(
     void *context,
     emu_automation_reset_kind_t kind)
@@ -502,6 +616,9 @@ static emu_automation_result_t {cpu_prefix}_automation_step_frame(void *context)
     {cpu_name}AutomationDebugContext *ctx = ({cpu_name}AutomationDebugContext *)context;
     PASMDebugSnapshotCore before;
     PASMDebugSnapshotCore after;
+    uint64_t before_fb_frame = 0u;
+    uint64_t after_fb_frame = 0u;
+    uint8_t have_before_fb_frame = 0u;
     uint64_t cycle_slice;
     uint64_t max_slices = 600u;
     uint8_t mode = PASM_DBG_ERROR;
@@ -510,6 +627,7 @@ static emu_automation_result_t {cpu_prefix}_automation_step_frame(void *context)
     if ({cpu_prefix}_automation_core_snapshot(ctx->cpu, &before) != 0) {{
         return EMU_AUTOMATION_ADAPTER_ERROR;
     }}
+{framebuffer_frame_before_line}
     cycle_slice = before.system_clock_hz / 600u;
     if (cycle_slice == 0u) cycle_slice = 1024u;
 
@@ -520,6 +638,7 @@ static emu_automation_result_t {cpu_prefix}_automation_step_frame(void *context)
         if ({cpu_prefix}_automation_core_snapshot(ctx->cpu, &after) != 0) {{
             return EMU_AUTOMATION_ADAPTER_ERROR;
         }}
+{framebuffer_frame_after_block}
         if (mode == PASM_DBG_PAUSED && after.frame_index == before.frame_index) {{
             {cpu_prefix}_automation_push_event(
                 ctx,
@@ -531,19 +650,7 @@ static emu_automation_result_t {cpu_prefix}_automation_step_frame(void *context)
                 NULL, 0u, NULL);
             return EMU_AUTOMATION_OK;
         }}
-        if (after.frame_index > before.frame_index) {{
-            {cpu_prefix}_automation_emit_screen_events(ctx);
-            {cpu_prefix}_automation_push_event(
-                ctx,
-                EMU_AUTOMATION_EVENT_FRAME_COMPLETED,
-                0,
-                0,
-                NULL,
-                0u, 0u, 0u, 0u, 0u,
-                NULL, 0u, NULL);
-            (void)pasm_dbg_pause(ctx->cpu);
-            return EMU_AUTOMATION_OK;
-        }}
+{frame_index_completion_block}
         if (mode == PASM_DBG_EXITED || mode == PASM_DBG_ERROR) {{
             return EMU_AUTOMATION_ADAPTER_ERROR;
         }}
@@ -564,6 +671,8 @@ static emu_automation_result_t {cpu_prefix}_automation_run_frames(
     return EMU_AUTOMATION_OK;
 }}
 
+{framebuffer_frame_counter_decl}
+{framebuffer_impl}
 {text_grid_impl}
 {inspection_impl}
 {text_event_impl}
@@ -639,6 +748,7 @@ static emu_automation_result_t {cpu_prefix}_automation_attach_context(
     adapter.character_mapping_count = {cpu_prefix}_automation_character_mapping_count;
     adapter.character_mapping_descriptor = {cpu_prefix}_automation_character_mapping_descriptor;
     adapter.pause = {cpu_prefix}_automation_pause;
+    adapter.resume = {cpu_prefix}_automation_resume;
     adapter.reset = {cpu_prefix}_automation_reset;
     adapter.step_frame = {cpu_prefix}_automation_step_frame;
     adapter.run_frames = {cpu_prefix}_automation_run_frames;
@@ -650,6 +760,7 @@ static emu_automation_result_t {cpu_prefix}_automation_attach_context(
     adapter.read_registers = {cpu_prefix}_automation_read_registers;
     adapter.write_register = {cpu_prefix}_automation_write_register;
     adapter.set_breakpoint = {cpu_prefix}_automation_set_breakpoint;
+{framebuffer_adapter_members}
 {text_grid_adapter_members}
 {event_adapter_members}
 
@@ -681,6 +792,59 @@ emu_automation_result_t {cpu_prefix}_automation_create(
 """
 
     return header, impl
+
+
+def _generate_framebuffer_impl(cpu_name: str, cpu_prefix: str) -> str:
+    return f"""
+static emu_automation_result_t {cpu_prefix}_automation_capture_framebuffer(
+    void *context,
+    emu_automation_framebuffer_snapshot_t *out_snapshot)
+{{
+    {cpu_name}AutomationDebugContext *ctx = ({cpu_name}AutomationDebugContext *)context;
+    PASMDebugFramebuffer framebuffer;
+    if (ctx == NULL || ctx->cpu == NULL || out_snapshot == NULL) {{
+        return EMU_AUTOMATION_INVALID_ARGUMENT;
+    }}
+    memset(&framebuffer, 0, sizeof(framebuffer));
+    if (pasm_dbg_capture_framebuffer(ctx->cpu, &framebuffer) != 0) {{
+        return EMU_AUTOMATION_UNSUPPORTED;
+    }}
+    memset(out_snapshot, 0, sizeof(*out_snapshot));
+    out_snapshot->struct_size = (uint32_t)sizeof(*out_snapshot);
+    out_snapshot->struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+    out_snapshot->frame.struct_size = (uint32_t)sizeof(out_snapshot->frame);
+    out_snapshot->frame.struct_version = EMU_AUTOMATION_STRUCT_VERSION;
+    out_snapshot->frame.frame_number = framebuffer.frame_number;
+    out_snapshot->width = framebuffer.width;
+    out_snapshot->height = framebuffer.height;
+    out_snapshot->stride_bytes = framebuffer.stride_bytes;
+    out_snapshot->pixel_format = (emu_automation_pixel_format_t)framebuffer.pixel_format;
+    out_snapshot->visible_area.x = 0u;
+    out_snapshot->visible_area.y = 0u;
+    out_snapshot->visible_area.width = framebuffer.width;
+    out_snapshot->visible_area.height = framebuffer.height;
+    out_snapshot->pixel_aspect_numerator = 1u;
+    out_snapshot->pixel_aspect_denominator = 1u;
+    out_snapshot->pixels = framebuffer.pixels;
+    out_snapshot->pixel_size = framebuffer.pixel_size;
+    return EMU_AUTOMATION_OK;
+}}
+
+static void {cpu_prefix}_automation_release_framebuffer(
+    void *context,
+    emu_automation_framebuffer_snapshot_t *snapshot)
+{{
+    {cpu_name}AutomationDebugContext *ctx = ({cpu_name}AutomationDebugContext *)context;
+    PASMDebugFramebuffer framebuffer;
+    if (ctx == NULL || ctx->cpu == NULL || snapshot == NULL) return;
+    memset(&framebuffer, 0, sizeof(framebuffer));
+    framebuffer.pixels = snapshot->pixels;
+    framebuffer.pixel_size = snapshot->pixel_size;
+    pasm_dbg_release_framebuffer(ctx->cpu, &framebuffer);
+    snapshot->pixels = NULL;
+    snapshot->pixel_size = 0u;
+}}
+"""
 
 
 def _generate_text_grid_impl(cpu_name: str, cpu_prefix: str, text_view_rows: str) -> str:

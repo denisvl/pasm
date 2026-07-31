@@ -37,7 +37,7 @@ def test_zx48_interactive_cassette_sources_include_tap_and_tzx():
         [str(path) for path in device_paths],
         [str(path) for path in host_paths],
     )
-    assert data["cassette"]["allowed_extensions"] == ["yaml", "wav", "tap", "tzx"]
+    assert data["cassette"]["allowed_extensions"] == ["yaml", "wav", "mp3", "tap", "tzx"]
     assert [src["source_component"] for src in data["cassette"]["sources"]] == [
         "cassette_line_in_source",
         "cassette_wav_source",

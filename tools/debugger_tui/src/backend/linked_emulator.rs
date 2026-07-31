@@ -17,6 +17,7 @@ unsafe extern "C" {
     fn pasm_dbg_load_system_roms(cpu: *mut CPUState, system_base_dir: *const c_char) -> c_int;
     fn pasm_dbg_load_cartridge_rom(cpu: *mut CPUState, path: *const c_char) -> c_int;
     fn pasm_dbg_set_cartridge_dir(cpu: *mut CPUState, path: *const c_char) -> c_int;
+    fn pasm_dbg_set_cassette_dir(cpu: *mut CPUState, path: *const c_char) -> c_int;
     fn pasm_dbg_load_floppy_media(cpu: *mut CPUState, path: *const c_char) -> c_int;
     fn pasm_dbg_load_keyboard_map(cpu: *mut CPUState, path: *const c_char) -> c_int;
     fn pasm_dbg_load_controller_map(cpu: *mut CPUState, path: *const c_char) -> c_int;
@@ -76,6 +77,7 @@ unsafe extern "C" {
     fn pasm_dbg_set_overlay_enabled(cpu: *mut CPUState, enabled: c_uchar) -> c_int;
     fn pasm_dbg_get_overlay_enabled(cpu: *mut CPUState, out_enabled: *mut c_uchar) -> c_int;
     fn pasm_dbg_focus_host_window(cpu: *mut CPUState) -> c_int;
+    fn pasm_dbg_cassette_debug_action(cpu: *mut CPUState, action: c_uchar) -> c_int;
 }
 
 pub struct LinkedEmulatorBackend {
@@ -84,11 +86,25 @@ pub struct LinkedEmulatorBackend {
     system_dir: Option<String>,
     cart_rom: Option<String>,
     cartridge_dir: Option<String>,
+    cassette_dir: Option<String>,
     keyboard_map: Option<String>,
     controller_map: Option<String>,
 }
 
 impl LinkedEmulatorBackend {
+    fn apply_cassette_dir(cpu: *mut CPUState, dir: &str) -> Result<(), String> {
+        let md = fs::metadata(dir).map_err(|e| format!("invalid --cassette-dir '{dir}': {e}"))?;
+        if !md.is_dir() {
+            return Err(format!("invalid --cassette-dir '{dir}': not a directory"));
+        }
+        let c_dir = CString::new(dir).map_err(|_| "invalid cassette dir path")?;
+        let rc = unsafe { pasm_dbg_set_cassette_dir(cpu, c_dir.as_ptr()) };
+        if rc != 0 {
+            return Err(format!("failed to set cassette dir '{dir}' (code {rc})"));
+        }
+        Ok(())
+    }
+
     fn env_auto_floppy_path() -> Option<String> {
         std::env::var("PASM_EMU_FLOPPY_AUTO_PATH")
             .ok()
@@ -320,6 +336,7 @@ impl LinkedEmulatorBackend {
         system_dir: Option<&str>,
         cart_rom: Option<&str>,
         cartridge_dir: Option<&str>,
+        cassette_dir: Option<&str>,
         keyboard_map: Option<&str>,
         controller_map: Option<&str>,
         start_pc: Option<u64>,
@@ -335,6 +352,7 @@ impl LinkedEmulatorBackend {
             system_dir: system_dir.map(ToOwned::to_owned),
             cart_rom: cart_rom.map(ToOwned::to_owned),
             cartridge_dir: cartridge_dir.map(ToOwned::to_owned),
+            cassette_dir: cassette_dir.map(ToOwned::to_owned),
             keyboard_map: keyboard_map.map(ToOwned::to_owned),
             controller_map: controller_map.map(ToOwned::to_owned),
         };
@@ -379,6 +397,9 @@ Use the directory that contains your system YAML (for example: examples/systems)
                 ));
             }
         }
+        if let Some(dir) = cassette_dir {
+            Self::apply_cassette_dir(backend.cpu, dir)?;
+        }
         let keyboard_required = unsafe { pasm_dbg_requires_keyboard_map() } != 0;
         if keyboard_required && keyboard_map.is_none() {
             return Err("missing required --keyboard-map <file>".to_string());
@@ -408,8 +429,16 @@ Use the directory that contains your system YAML (for example: examples/systems)
             }
         }
         Self::load_auto_floppy(backend.cpu)?;
-        if system_dir.is_some() || cart_rom.is_some() || keyboard_map.is_some() || controller_map.is_some() {
+        if system_dir.is_some()
+            || cart_rom.is_some()
+            || keyboard_map.is_some()
+            || controller_map.is_some()
+            || cassette_dir.is_some()
+        {
             unsafe { pasm_dbg_reset(backend.cpu) };
+            if let Some(dir) = cassette_dir {
+                Self::apply_cassette_dir(backend.cpu, dir)?;
+            }
             Self::load_auto_floppy(backend.cpu)?;
         }
         if let Some(pc) = start_pc {
@@ -752,6 +781,9 @@ impl DebuggerBackend for LinkedEmulatorBackend {
                 ));
             }
         }
+        if let Some(dir) = self.cassette_dir.as_deref() {
+            Self::apply_cassette_dir(self.cpu, dir)?;
+        }
         let keyboard_required = unsafe { pasm_dbg_requires_keyboard_map() } != 0;
         if keyboard_required && self.keyboard_map.is_none() {
             return Err("missing required --keyboard-map <file>".to_string());
@@ -781,8 +813,16 @@ impl DebuggerBackend for LinkedEmulatorBackend {
             }
         }
         Self::load_auto_floppy(self.cpu)?;
-        if self.system_dir.is_some() || self.cart_rom.is_some() || self.keyboard_map.is_some() || self.controller_map.is_some() {
+        if self.system_dir.is_some()
+            || self.cart_rom.is_some()
+            || self.keyboard_map.is_some()
+            || self.controller_map.is_some()
+            || self.cassette_dir.is_some()
+        {
             unsafe { pasm_dbg_reset(self.cpu) };
+            if let Some(dir) = self.cassette_dir.as_deref() {
+                Self::apply_cassette_dir(self.cpu, dir)?;
+            }
             Self::load_auto_floppy(self.cpu)?;
         }
         if let Some(pc) = self.start_pc {
@@ -890,5 +930,9 @@ impl DebuggerBackend for LinkedEmulatorBackend {
 
     fn focus_emulator_window(&mut self) -> Result<(), String> {
         self.check(unsafe { pasm_dbg_focus_host_window(self.cpu) })
+    }
+
+    fn cassette_debug_action(&mut self, action: u8) -> Result<(), String> {
+        self.check(unsafe { pasm_dbg_cassette_debug_action(self.cpu, action as c_uchar) })
     }
 }

@@ -2,72 +2,207 @@ metadata:
   id: apple1_video
   type: video
   model: apple1_text_terminal
-  version: '1.0'
+  version: "1.0"
+
 state:
-- name: cursor_x
-  type: uint8_t
-  initial: '0'
-- name: cursor_y
-  type: uint8_t
-  initial: '0'
-- name: width
-  type: uint8_t
-  initial: '40'
-- name: height
-  type: uint8_t
-  initial: '24'
+  - name: cursor_x
+    type: uint8_t
+    initial: "0"
+  - name: cursor_y
+    type: uint8_t
+    initial: "0"
+  - name: width
+    type: uint8_t
+    initial: "40"
+  - name: height
+    type: uint8_t
+    initial: "24"
+  - name: frame_count
+    type: uint32_t
+    initial: "0"
+  - name: framebuffer
+    type: uint32_t *
+    initial: "NULL"
+
 interfaces:
   callbacks:
-  - name: display_char
-    args: [u8]
-    returns: void
+    - name: display_char
+      args: [u8]
+      returns: void
   handlers: []
-  signals: []
+  signals:
+    - name: frame_present
+      args: [u32, u64, u32, u32]
+
 behavior:
   snippets:
     init: |
-      (void)cpu;
+      comp->framebuffer = (uint32_t *)malloc((size_t)280u * 192u * sizeof(uint32_t));
+      if (comp->framebuffer != NULL) {
+        memset(comp->framebuffer, 0, (size_t)280u * 192u * sizeof(uint32_t));
+      }
+      for (uint16_t i = 0u; i < 960u; ++i) {
+        cpu->memory[0xD000u + i] = 0x20u;
+      }
     reset: |
       comp->cursor_x = 0u;
       comp->cursor_y = 0u;
+      comp->frame_count = 0u;
+      for (uint16_t i = 0u; i < 960u; ++i) {
+        cpu->memory[0xD000u + i] = 0x20u;
+      }
+      if (comp->framebuffer != NULL) {
+        memset(comp->framebuffer, 0, (size_t)280u * 192u * sizeof(uint32_t));
+      }
+    step_post: |
+      if (comp->framebuffer != NULL &&
+          (cpu->debug_overlay_enabled != 0u || cpu_component_host_picker_is_active() != 0u)) {
+        uint64_t out_args[4] = {
+          (uint64_t)comp->frame_count,
+          (uint64_t)(uintptr_t)comp->framebuffer,
+          (uint64_t)280u,
+          (uint64_t)192u
+        };
+        cpu_component_emit_signal(cpu, "apple1_video", "frame_present", out_args, 4);
+      }
     destroy: |
-      (void)comp;
+      if (comp->framebuffer != NULL) {
+        free(comp->framebuffer);
+        comp->framebuffer = NULL;
+      }
+  callback_handlers:
     display_char: |
       uint8_t ch = (uint8_t)(args[0] & 0xFFu);
-      // Handle control characters
-      if (ch == 0x0D) { // CR
-        comp->cursor_x = 0;
-        return;
+      static int trace_init = -1;
+      static FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_APPLE1_VIDEO_TRACE");
+      int trace_on = (trace_env != NULL && trace_env[0] != '\0' && trace_env[0] != '0') ? 1 : 0;
+      if (trace_init < 0) {
+        trace_init = 1;
+        if (trace_on != 0) {
+          const char *trace_path = getenv("PASM_APPLE1_VIDEO_TRACE_FILE");
+          if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+          if (trace_fp == NULL) trace_fp = stderr;
+        }
       }
-      if (ch == 0x0A) { // LF
-        if (comp->cursor_y + 1 >= comp->height) {
-          // Scroll up - in a real implementation this would shift the screen buffer
-          comp->cursor_y = comp->height - 1;
+      uint32_t *fb = comp->framebuffer;
+      uint8_t redraw = 0u;
+      uint16_t cursor_index;
+      if (fb == NULL) return __result;
+
+      #define APPLE1_TEXT_BASE 0xD000u
+      #define APPLE1_COLS 40u
+      #define APPLE1_ROWS 24u
+      #define APPLE1_GLYPH_W 7u
+      #define APPLE1_GLYPH_H 8u
+      #define APPLE1_FB_W 280u
+      #define APPLE1_FB_H 192u
+      #define APPLE1_BG 0xFF000000u
+      #define APPLE1_FG 0xFFFFFFFFu
+
+      cursor_index = (uint16_t)(((uint16_t)comp->cursor_y * APPLE1_COLS) + (uint16_t)comp->cursor_x);
+
+      #define APPLE1_SCROLL_UP() \
+        do { \
+          memmove(&cpu->memory[APPLE1_TEXT_BASE], &cpu->memory[APPLE1_TEXT_BASE + APPLE1_COLS], (size_t)(APPLE1_COLS * (APPLE1_ROWS - 1u))); \
+          memset(&cpu->memory[APPLE1_TEXT_BASE + APPLE1_COLS * (APPLE1_ROWS - 1u)], 0x20, APPLE1_COLS); \
+          comp->cursor_y = (uint8_t)(APPLE1_ROWS - 1u); \
+        } while (0)
+
+      if (ch == 0x0D || ch == 0x0A) {
+        comp->cursor_x = 0u;
+        if (comp->cursor_y + 1u >= comp->height) {
+          APPLE1_SCROLL_UP();
         } else {
           comp->cursor_y++;
         }
-        return;
-      }
-      if (ch == 0x08) { // BS
-        if (comp->cursor_x > 0) {
+        redraw = 1u;
+      } else if (ch == 0x08) {
+        if (comp->cursor_x > 0u) {
           comp->cursor_x--;
+        } else if (comp->cursor_y > 0u) {
+          comp->cursor_y--;
+          comp->cursor_x = (uint8_t)(comp->width - 1u);
         }
-        return;
+        cursor_index = (uint16_t)(((uint16_t)comp->cursor_y * APPLE1_COLS) + (uint16_t)comp->cursor_x);
+        cpu->memory[APPLE1_TEXT_BASE + cursor_index] = 0x20u;
+        redraw = 1u;
+      } else {
+        if (ch < 0x20u) {
+          ch = 0x20u;
+        }
+        cpu->memory[APPLE1_TEXT_BASE + cursor_index] = ch;
+        comp->cursor_x++;
+        if (comp->cursor_x >= comp->width) {
+          comp->cursor_x = 0u;
+          if (comp->cursor_y + 1u >= comp->height) {
+            APPLE1_SCROLL_UP();
+          } else {
+            comp->cursor_y++;
+          }
+        }
+        redraw = 1u;
       }
-      // Printable character (Apple I is uppercase only)
-      // In a real implementation, this would write to a screen buffer
-      // and the host would render it
-      comp->cursor_x++;
-      if (comp->cursor_x >= comp->width) {
-        comp->cursor_x = 0;
-        if (comp->cursor_y + 1 >= comp->height) {
-          comp->cursor_y = comp->height - 1;
-        } else {
-          comp->cursor_y++;
+      if (trace_on != 0 && trace_fp != NULL) {
+        fprintf(
+          trace_fp,
+          "apple1_video display_char ch=%02X x=%u y=%u redraw=%u\n",
+          (unsigned)ch,
+          (unsigned)comp->cursor_x,
+          (unsigned)comp->cursor_y,
+          (unsigned)redraw
+        );
+        fflush(trace_fp);
+      }
+
+      if (redraw != 0u) {
+        for (uint32_t i = 0u; i < APPLE1_FB_W * APPLE1_FB_H; ++i) {
+          fb[i] = APPLE1_BG;
+        }
+        for (uint32_t row = 0u; row < APPLE1_ROWS; ++row) {
+          for (uint32_t col = 0u; col < APPLE1_COLS; ++col) {
+            uint8_t cell = cpu->memory[APPLE1_TEXT_BASE + row * APPLE1_COLS + col];
+            uint8_t glyph = (cell >= 0x20u) ? (uint8_t)(cell & 0x3Fu) : 0u;
+            for (uint32_t gy = 0u; gy < APPLE1_GLYPH_H; ++gy) {
+              uint64_t glyph_args[2] = { (uint64_t)glyph, (uint64_t)gy };
+              uint8_t bits = (uint8_t)cpu_component_call(cpu, "apple1_char_rom", "get_char_row", glyph_args, 2);
+              uint32_t py = row * APPLE1_GLYPH_H + gy;
+              uint32_t px = col * APPLE1_GLYPH_W;
+              if (py >= APPLE1_FB_H) continue;
+              for (uint32_t gx = 0u; gx < APPLE1_GLYPH_W; ++gx) {
+                uint8_t on = (uint8_t)((bits >> (6u - gx)) & 0x01u);
+                if (px + gx < APPLE1_FB_W) {
+                  fb[py * APPLE1_FB_W + px + gx] = (on != 0u) ? APPLE1_FG : APPLE1_BG;
+                }
+              }
+            }
+          }
+        }
+        if (comp->cursor_x < APPLE1_COLS && comp->cursor_y < APPLE1_ROWS) {
+          uint32_t cx = (uint32_t)comp->cursor_x * APPLE1_GLYPH_W;
+          uint32_t cy = (uint32_t)comp->cursor_y * APPLE1_GLYPH_H + (APPLE1_GLYPH_H - 1u);
+          if (cy < APPLE1_FB_H) {
+            for (uint32_t gx = 0u; gx < APPLE1_GLYPH_W && cx + gx < APPLE1_FB_W; ++gx) {
+              fb[cy * APPLE1_FB_W + cx + gx] = APPLE1_FG;
+            }
+          }
+        }
+        comp->frame_count++;
+        {
+          uint64_t out_args[4] = {
+            (uint64_t)comp->frame_count,
+            (uint64_t)(uintptr_t)fb,
+            (uint64_t)APPLE1_FB_W,
+            (uint64_t)APPLE1_FB_H
+          };
+          cpu_component_emit_signal(cpu, "apple1_video", "frame_present", out_args, 4);
         }
       }
+  handler_bodies: {}
+
 coding:
-  headers: []
+  headers:
+  - stdio.h
   include_paths: []
   linked_libraries: []
   library_paths: []

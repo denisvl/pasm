@@ -101,6 +101,9 @@ automation:
       native_encoding: atari_screen_code
       unicode_map: ascii
       unknown_policy: preserve_native
+  capabilities:
+  - screen.text_grid
+  - input.controller
 connections: []
 audio:
   sample_rate: 44100
