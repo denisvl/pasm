@@ -7856,7 +7856,7 @@ def _generate_ic_runtime_blocks(
                 "        char info[384];",
                 "        snprintf(info, sizeof(info), \"FILE: %s\", sel->file_name);",
                 "        int file_lines = cpu_component_cartridge_picker_draw_text_wrap(pixels, w, h, x, info_y, info, scale, 0xFFC8C8FFu, text_w, 6);",
-                "        if (file_lines <= 0) file_lincpu_component_cartridge_picker_set_dires = 1;",
+                "        if (file_lines <= 0) file_lines = 1;",
                 "        if (sel->description[0] != '\\0') {",
                 "            cpu_component_cartridge_picker_draw_text_fit(pixels, w, h, x, info_y + (file_lines * row_h), sel->description, scale, 0xFFDDDDDDu, text_w);",
                 "        }",
