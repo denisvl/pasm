@@ -42,6 +42,7 @@ IC_CASSETTE="examples/ics/apple/apple1_aci_card.yaml"
 DEVICE_KB="examples/devices/apple1/apple1_keyboard.yaml"
 DEVICE_VIDEO="examples/devices/apple1/apple1_video.yaml"
 DEVICE_CASSETTE="examples/devices/common/cassette_transport_nomotor.yaml"
+DEVICE_MONITOR="examples/devices/common/monitor_crt_green.yaml"
 HOST_INTERACTIVE="examples/hosts/apple1/apple1_host_hal_interactive.yaml"
 
 case "${PROFILE}" in
@@ -75,6 +76,7 @@ GEN_ARGS=(
   --device "${DEVICE_KB}"
   --device "${DEVICE_VIDEO}"
   --device "${DEVICE_CASSETTE}"
+  --device "${DEVICE_MONITOR}"
   --output "${OUTPUT_DIR}"
 )
 if [[ "${PROFILE}" == "interactive" ]]; then

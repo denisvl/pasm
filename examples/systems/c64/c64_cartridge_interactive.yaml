@@ -78,6 +78,9 @@ components:
   - keyboard_c64
   - joystick_c64
   - video_c64
+  - cassette_line_in_source
+  - cassette_wav_source
+  - cassette_zx_tap_source
   - tv
   hosts:
   - host_c64_sdl2
@@ -252,7 +255,7 @@ audio:
 integrations:
   profile: c64_cartridge_interactive
   subsystems:
-  - ../../subsystems/c64_1541_subsystem.yaml
+  - ../../examples/subsystems/c64_1541_subsystem.yaml
 display:
   default_component: tv
   default_model: generic_crt_tv_mono

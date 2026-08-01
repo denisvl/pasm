@@ -29,10 +29,20 @@ def _c64_interactive_paths():
         BASE_DIR / "examples" / "ics" / "c64" / "c64_main_ram.yaml",
     ]
     device_paths = [
-        BASE_DIR / "examples" / "devices" / "c64_keyboard.yaml",
-        BASE_DIR / "examples" / "devices" / "c64_joystick.yaml",
-        BASE_DIR / "examples" / "devices" / "c64_video.yaml",
-        BASE_DIR / "examples" / "devices" / "c64_speaker.yaml",
+        BASE_DIR / "examples" / "devices" / "c64" / "c64_keyboard.yaml",
+        BASE_DIR / "examples" / "devices" / "c64" / "c64_joystick.yaml",
+        BASE_DIR / "examples" / "devices" / "c64" / "c64_video.yaml",
+        BASE_DIR / "examples" / "devices" / "c64" / "c64_datasette.yaml",
+        BASE_DIR / "examples" / "devices" / "c64" / "c64_iec_bus.yaml",
+        BASE_DIR / "examples" / "devices" / "c64" / "c64_1541.yaml",
+        BASE_DIR / "examples" / "devices" / "c64" / "c64_1541_media.yaml",
+        BASE_DIR / "examples" / "devices" / "c64" / "c64_1541_dos.yaml",
+        BASE_DIR / "examples" / "devices" / "c64" / "c64_1541_core.yaml",
+        BASE_DIR / "examples" / "devices" / "common" / "c64_d64_image_backend.yaml",
+        BASE_DIR / "examples" / "devices" / "common" / "tv_crt_mono.yaml",
+        BASE_DIR / "examples" / "devices" / "common" / "cassette_line_in_source.yaml",
+        BASE_DIR / "examples" / "devices" / "common" / "cassette_wav_source.yaml",
+        BASE_DIR / "examples" / "devices" / "common" / "cassette_zx_tap_source.yaml",
     ]
     host_paths = [
         BASE_DIR / "examples" / "hosts" / "c64" / "c64_host_hal_interactive.yaml",
@@ -64,8 +74,17 @@ def test_c64_interactive_component_graph_validates():
         "keyboard_c64",
         "joystick_c64",
         "video_c64",
-        "speaker",
+        "datasette_c64",
+        "c64_iec_bus",
+        "c64_1541",
+        "c64_1541_media",
+        "c64_1541_dos",
+        "c64_1541_core",
+        "c64_d64_image_backend",
         "tv",
+        "cassette_line_in_source",
+        "cassette_wav_source",
+        "cassette_zx_tap_source",
     ]
     assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_c64"]
 
@@ -93,4 +112,4 @@ def test_generate_c64_interactive_with_components():
 
     assert "ComponentState_c64_pla" in cpu_h
     assert "ComponentState_c64_main_ram" in cpu_h
-    assert "cpu_component_emit_signal(cpu, \"c64_pla\", \"frame_ready\"" in pla_impl
+    assert 'cpu_component_emit_signal(cpu, "c64_pla", "frame_ready"' in pla_impl

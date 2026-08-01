@@ -98,6 +98,14 @@ automation:
   - screen.text_grid
   - input.keyboard_matrix
   - input.controller
+
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
   - media.cassette
 cassette:
   component: cassette_transport

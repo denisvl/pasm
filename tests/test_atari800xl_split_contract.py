@@ -57,7 +57,7 @@ def test_atari800xl_cart_detect_uses_trig3_high_when_present():
     antic = Path("examples/ics/atari800xl/atari800xl_antic.yaml").read_text(encoding="utf-8")
     assert "GTIA TRIG3 doubles as XL/XE cartridge detect." in antic
     assert "Match Atari800: a mapped cartridge drives TRIG3 high so the OS enters the cartridge boot path." in antic
-    assert "trig = 1u;" in antic
+    assert "cpu_component_call(cpu, \"atari800xl_antic\", \"cart_present\", NULL, 0)" in antic
 
 
 def test_atari800xl_queues_display_list_interrupts() -> None:
@@ -109,9 +109,9 @@ def test_atari800xl_queues_display_list_interrupts() -> None:
     assert "if ((mode == 0x0Du || mode == 0x0Eu) && gtia_mode_line != 0u) {" in antic
     assert "Minimal PMG overlay: enough to render status-panel/player text that" in antic
     assert "static const uint16_t gtia_track_addrs[19]" in antic
-    assert "comp->render_gtia_regs_by_line + reg_i * 262u" in antic
-    assert "uint8_t *gtia_line = comp->render_gtia_regs_by_line + hw_line;" in antic
-    assert "uint8_t line_pmbase = comp->render_pmbase_by_line[hw_line];" in antic
+    assert "comp->render_gtia_regs_next_by_line + reg_i * 262u" in antic
+    assert "uint8_t *gtia_line = (uniform_regs == 0u) ? (comp->render_gtia_regs_by_line + hw_line) : NULL;" in antic
+    assert "uint8_t line_pmbase = (uniform_regs != 0u) ? comp->antic_pmbase : comp->render_pmbase_by_line[hw_line];" in antic
     assert "uint8_t player_dma = (uint8_t)((dmactl & 0x08u) != 0u && (gractl & 0x02u) != 0u);" in antic
     assert "uint8_t missile_dma = (uint8_t)((dmactl & 0x04u) != 0u && (gractl & 0x01u) != 0u);" in antic
     assert "uint64_t frame_args[4] = {" in antic
@@ -120,6 +120,6 @@ def test_atari800xl_queues_display_list_interrupts() -> None:
     assert "Use live hardware color registers first. OS shadows are only a fallback." in antic
     assert "SDLST is a fallback while hardware DLIST still points into bootstrap/page-zero RAM." in antic
     assert "if ((uint64_t)dl_ptr < cpu->memory_size && dl_ptr >= 0x0200u)" in antic
-    assert "PASM_ATARI800XL_KEY_TRACE" in host
-    assert "atari800xl_live_key" in host
-    assert 'return (uint64_t)out;' in host
+    assert "PASM_DISABLE_DEADKEYS" in host
+    assert "key_ascii" in host
+    assert "return (uint64_t)queued;" in host

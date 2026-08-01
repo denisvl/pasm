@@ -203,6 +203,7 @@ CPU_IMPL_TEMPLATE = (
     LICENSE_HEADER
     + """
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -166,6 +166,8 @@ fn build_shortcut_lines(max_inner_width: u16) -> Vec<Line<'static>> {
         ("F3", "Out"),
         ("F5", "Reset"),
         ("F9", "RunPause"),
+        ("F10", "Play"),
+        ("F11", "Cassette"),
         ("H", "History"),
         ("I", "InstrInfo"),
         ("O", "Overlay"),

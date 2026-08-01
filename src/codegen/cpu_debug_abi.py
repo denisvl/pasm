@@ -562,11 +562,37 @@ def _generate_impl(
     )
     has_hosts = bool(isa_data.get("hosts"))
     host_pump_decl = "extern void cpu_host_hal_pump_events(void);" if has_hosts else ""
+    component_idle_tick_decl = (
+        "\n".join(
+            [
+                "extern int cpu_components_runtime_pre_step(CPUState *cpu);",
+                "extern void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);",
+            ]
+        )
+        if has_components
+        else ""
+    )
     host_pump_body = (
         "\n".join(
             [
                 f"int {cpu_prefix}_dbg_pump_host_events(CPUState *cpu) {{",
-                "    (void)cpu;",
+                "    if (!cpu) return -1;",
+                "    cpu_host_hal_pump_events();",
+                "    if (cpu_components_runtime_pre_step(cpu) != 0) return -1;",
+                "    {",
+                "        DecodedInstruction idle_inst = {0};",
+                "        idle_inst.pc = cpu->pc;",
+                "        cpu_components_step_post(cpu, &idle_inst, cpu->pc);",
+                "    }",
+                "    return 0;",
+                "}",
+            ]
+        )
+        if has_hosts and has_components
+        else "\n".join(
+            [
+                f"int {cpu_prefix}_dbg_pump_host_events(CPUState *cpu) {{",
+                "    if (!cpu) return -1;",
                 "    cpu_host_hal_pump_events();",
                 "    return 0;",
                 "}",
@@ -788,6 +814,7 @@ def _generate_impl(
 extern int cpu_component_cassette_picker_debug_action(CPUState *cpu, uint8_t action);
 {host_focus_decl}
 {host_pump_decl}
+{component_idle_tick_decl}
 {framebuffer_bridge_decl}
 
 static void dbg_copy(char *dst, size_t cap, const char *src) {{

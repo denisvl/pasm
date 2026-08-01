@@ -80,12 +80,12 @@ def test_generate_trs80_model4_moves_reset_delay_out_of_core(tmp_path):
     )
 
     cpu_impl = (outdir / "src" / "Z80_core.c").read_text(encoding="utf-8")
-    system_glue = (outdir / "src" / "trs80_model4_system_glue.c").read_text(
+    device_glue = (outdir / "src" / "trs80_model4_device_glue.c").read_text(
         encoding="utf-8"
     )
     assert "cpu_sleep_seconds(" not in cpu_impl
     assert "if (cpu->reset_delay_pending)" not in cpu_impl
-    assert "cpu->reset_delay_pending = false;" in system_glue
+    assert "cpu->reset_delay_pending = false;" in device_glue
 
 
 def test_codegen_has_no_cpu_name_substring_heuristics():

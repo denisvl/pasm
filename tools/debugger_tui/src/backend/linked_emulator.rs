@@ -93,11 +93,17 @@ pub struct LinkedEmulatorBackend {
 
 impl LinkedEmulatorBackend {
     fn apply_cassette_dir(cpu: *mut CPUState, dir: &str) -> Result<(), String> {
-        let md = fs::metadata(dir).map_err(|e| format!("invalid --cassette-dir '{dir}': {e}"))?;
+        let abs = fs::canonicalize(dir)
+            .map_err(|e| format!("invalid --cassette-dir '{dir}': {e}"))?;
+        let md = fs::metadata(&abs)
+            .map_err(|e| format!("invalid --cassette-dir '{dir}': {e}"))?;
         if !md.is_dir() {
             return Err(format!("invalid --cassette-dir '{dir}': not a directory"));
         }
-        let c_dir = CString::new(dir).map_err(|_| "invalid cassette dir path")?;
+        let abs_str = abs
+            .to_str()
+            .ok_or_else(|| "invalid cassette dir path".to_string())?;
+        let c_dir = CString::new(abs_str).map_err(|_| "invalid cassette dir path")?;
         let rc = unsafe { pasm_dbg_set_cassette_dir(cpu, c_dir.as_ptr()) };
         if rc != 0 {
             return Err(format!("failed to set cassette dir '{dir}' (code {rc})"));
@@ -438,6 +444,30 @@ Use the directory that contains your system YAML (for example: examples/systems)
             unsafe { pasm_dbg_reset(backend.cpu) };
             if let Some(dir) = cassette_dir {
                 Self::apply_cassette_dir(backend.cpu, dir)?;
+            }
+            if let Some(path) = keyboard_map {
+                let c_path = CString::new(path).map_err(|_| "invalid keyboard map path")?;
+                let rc = unsafe { pasm_dbg_load_keyboard_map(backend.cpu, c_path.as_ptr()) };
+                if rc != 0 {
+                    let hint = Self::keyboard_map_diagnostic(path)
+                        .map(|s| format!("; hint: {s}"))
+                        .unwrap_or_default();
+                    return Err(format!(
+                        "failed to load keyboard map from '{path}' after reset (code {rc}){hint}"
+                    ));
+                }
+            }
+            if let Some(path) = controller_map {
+                let c_path = CString::new(path).map_err(|_| "invalid controller map path")?;
+                let rc = unsafe { pasm_dbg_load_controller_map(backend.cpu, c_path.as_ptr()) };
+                if rc != 0 {
+                    let hint = Self::controller_map_diagnostic(path)
+                        .map(|s| format!("; hint: {s}"))
+                        .unwrap_or_default();
+                    return Err(format!(
+                        "failed to load controller map from '{path}' after reset (code {rc}){hint}"
+                    ));
+                }
             }
             Self::load_auto_floppy(backend.cpu)?;
         }

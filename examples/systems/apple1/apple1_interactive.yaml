@@ -52,6 +52,7 @@ components:
     - apple1_keyboard
     - apple1_video
     - cassette_transport_nomotor
+    - monitor
   hosts:
     - host_apple1
   cassette: apple1_aci_card
@@ -89,17 +90,24 @@ connections:
       kind: signal
       name: frame_present
     to:
+      component: monitor
+      kind: handler
+      name: on_frame_present
+  - from:
+      component: monitor
+      kind: signal
+      name: frame_present
+    to:
       component: host_apple1
       kind: handler
       name: video_frame
-  - from:
-      component: apple1_aci_card
-      kind: signal
-      name: cassette_write
-    to:
-      component: apple1_aci_card
-      kind: handler
-      name: on_output_sample
+display:
+  default_component: monitor
+  default_model: generic_crt_monitor_green
+  runtime_switchable: true
+  available_models:
+    - component: monitor
+      model: generic_crt_monitor_green
 automation:
   screen:
     text_views:

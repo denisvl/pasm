@@ -127,6 +127,22 @@ connections:
     kind: handler
     name: on_frame_present
 - from:
+    component: sms_psg0
+    kind: signal
+    name: pcm_sample_s16
+  to:
+    component: speaker
+    kind: handler
+    name: on_audio_level
+- from:
+    component: sms_psg0
+    kind: signal
+    name: pcm_sample_s16
+  to:
+    component: tv
+    kind: handler
+    name: on_audio_level
+- from:
     component: sms_vdp0
     kind: signal
     name: irq_edge
@@ -152,6 +168,14 @@ connections:
     name: video_frame
 - from:
     component: tv
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_sms
+    kind: handler
+    name: audio_pcm
+- from:
+    component: speaker
     kind: signal
     name: pcm_sample
   to:

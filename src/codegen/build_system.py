@@ -105,6 +105,7 @@ def generate_cmake(
     include_hooks: Optional[bool] = None,
     dispatch_mode: str = "switch",
     subsystem_builds: Optional[list[Dict[str, Any]]] = None,
+    is_subsystem: bool = False,
 ) -> str:
     """Generate CMakeLists.txt."""
 
@@ -124,7 +125,11 @@ def generate_cmake(
     )
     if has_hooks:
         cpu_core_extra_sources += f"\n    src/{cpu_name}_hooks.c"
-    system_source_lines = [f"    {path}\n" for path in all_system_sources(isa_data, system_prefix)]
+    # For subsystems, exclude host_glue from system sources (they use main system's host HAL)
+    if is_subsystem:
+        system_source_lines = [f"    {path}\n" for path in all_system_sources(isa_data, system_prefix) if not path.endswith("_host_glue.c")]
+    else:
+        system_source_lines = [f"    {path}\n" for path in all_system_sources(isa_data, system_prefix)]
     system_sources = "".join(system_source_lines)
     subsystem_builds = subsystem_builds or []
 
@@ -466,6 +471,7 @@ def generate_makefile(
     include_hooks: Optional[bool] = None,
     dispatch_mode: str = "switch",
     subsystem_builds: Optional[list[Dict[str, Any]]] = None,
+    is_subsystem: bool = False,
 ) -> str:
     """Generate Makefile."""
 
@@ -536,7 +542,13 @@ def generate_makefile(
     if uses_glfw_backend:
         opengl_make = "ifeq ($(OS),Windows_NT)\nPASM_GLFW_LIB = -lglfw3dll\nPASM_SDL2_LIB = -lSDL2\nPASM_OPENGL_LIB = -lopengl32\nPASM_WINMM_LIB = -lwinmm\nPASM_ALSA_LIB =\nPASM_PTHREAD_LIB =\nelse\nPASM_GLFW_LIB = -lglfw\nPASM_SDL2_LIB = -lSDL2\nPASM_OPENGL_LIB = -lGL\nPASM_WINMM_LIB =\nPASM_ALSA_LIB = -lasound\nPASM_PTHREAD_LIB = -pthread\nendif\n"
 
-    system_source_lines = " \\\n    ".join(all_system_sources(isa_data, system_prefix))
+    # For subsystems, exclude host_glue from system sources (they use main system's host HAL)
+    if is_subsystem:
+        system_source_lines = " \\\n    ".join(
+            path for path in all_system_sources(isa_data, system_prefix) if not path.endswith("_host_glue.c")
+        )
+    else:
+        system_source_lines = " \\\n    ".join(all_system_sources(isa_data, system_prefix))
     subsystem_dirs = [
         _make_path(str(item.get("cmake_subdir", "")))
         for item in subsystem_builds

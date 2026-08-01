@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
     unit_sources = [
         str(path)
         for path in src_dir.glob("*.c")
-        if path.name not in ("main.c", "test_cpu.c", "Z80_debug_abi.c")
+        if path.name not in ("main.c", "test_cpu.c", "Z80_debug_abi.c", "Z80_automation_adapter.c", "emu_automation.c")
     ]
     subprocess.check_call(
         [

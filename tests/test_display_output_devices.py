@@ -132,8 +132,8 @@ def test_display_models_share_literal_ids_for_runtime_replacement():
 def test_crt_display_models_define_glsl_shader():
     for path in COMMON_DEVICES.glob("*.yaml"):
         device = _load_device(path.name)
-        display = device["metadata"]["display"]
-        if display["technology"] != "crt":
+        display = device.get("metadata", {}).get("display")
+        if not display or display.get("technology") != "crt":
             continue
 
         shader = display["shader"]

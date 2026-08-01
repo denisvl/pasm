@@ -89,6 +89,7 @@ def _base_isa(name: str) -> dict:
                 "category": "control",
                 "encoding": {"opcode": 0x00, "mask": 0xFF, "length": 1},
                 "cycles": 1,
+                "timing_profile": {"total_tstates": 1, "bus_events": []},
                 "behavior": "(void)cpu;",
             }
         ],
@@ -188,6 +189,7 @@ def test_decoder_masks_are_rendered_as_hex_bitmasks():
 
 def test_cmake_template_does_not_reference_runtime_stub():
     isa = _base_isa("Build8")
+    isa["hosts"] = [{"metadata": {"id": "host_stub"}}]
     cmake = generate_cmake(isa, "Build8")
     assert "_runtime.c" in cmake
     assert "_debug_abi.c" in cmake
@@ -197,6 +199,7 @@ def test_cmake_template_does_not_reference_runtime_stub():
 
 def test_cmake_emits_linkable_emulator_library_target():
     isa = _base_isa("BuildLib8")
+    isa["hosts"] = [{"metadata": {"id": "host_stub"}}]
     cmake = generate_cmake(isa, "BuildLib8")
     assert "add_library(buildlib8_emu STATIC ${EMU_SOURCES})" not in cmake
     assert "add_executable(buildlib8_test src/main.c)" in cmake
@@ -269,6 +272,7 @@ def test_generator_emits_visual_studio_debug_helper_script(tmp_path):
 
 def test_makefile_emits_linkable_emulator_library_target():
     isa = _base_isa("BuildLib8")
+    isa["hosts"] = [{"metadata": {"id": "host_stub"}}]
     makefile = generate_makefile(isa, "BuildLib8")
     assert "EMU_LIB = libbuildlib8_emu.a" not in makefile
     assert "$(TARGET): $(MAIN_OBJ) $(SYSTEM_LIB) $(CPU_CORE_LIB)" in makefile
@@ -1131,7 +1135,7 @@ def test_runtime_blocks_writes_to_read_only_regions(tmp_path):
 
     harness_c = outdir / "rom_guard_harness.c"
     harness_c.write_text(
-        """
+        r"""
 #include <stdio.h>
 #include "MemRuntime8.h"
 
@@ -1148,10 +1152,10 @@ int main(void) {
     unsigned int rom = (unsigned int)memruntime8_read_byte(cpu, 0x8000);
     int err_after_rom = cpu->error_code;
 
-    printf("RAM=%02X\\n", ram);
-    printf("ROM=%02X\\n", rom);
-    printf("ERR_RAM=%d\\n", err_after_ram);
-    printf("ERR_ROM=%d\\n", err_after_rom);
+    printf("RAM=%02X\n", ram);
+    printf("ROM=%02X\n", rom);
+    printf("ERR_RAM=%d\n", err_after_ram);
+    printf("ERR_ROM=%d\n", err_after_rom);
 
     memruntime8_destroy(cpu);
     return 0;
@@ -1166,7 +1170,7 @@ int main(void) {
     split_runtime = next((outdir / "src").glob("*_runtime.c"))
     split_system_bus = next((outdir / "src").glob("*_system_bus.c"))
     split_system_glue = next((outdir / "src").glob("*_system_glue.c"))
-    split_host_glue = next((outdir / "src").glob("*_host_glue.c"))
+    # No host_glue for systems without hosts
     split_device_glue = next((outdir / "src").glob("*_device_glue.c"))
     subprocess.check_call(
         [
@@ -1181,7 +1185,6 @@ int main(void) {
             str(split_runtime),
             str(split_system_bus),
             str(split_system_glue),
-            str(split_host_glue),
             str(split_device_glue),
             str(harness_c),
             "-o",
@@ -1218,7 +1221,7 @@ def test_runtime_unpopulated_regions_return_open_bus_and_discard_writes(tmp_path
 
     harness_c = outdir / "open_bus_harness.c"
     harness_c.write_text(
-        """
+        r"""
 #include <stdio.h>
 #include "MemOpenBusRuntime8.h"
 
@@ -1231,9 +1234,9 @@ int main(void) {
     unsigned int backing = (unsigned int)cpu->memory[0x7000];
     int err = cpu->error_code;
 
-    printf("API=%02X\\n", api);
-    printf("BACKING=%02X\\n", backing);
-    printf("ERR=%d\\n", err);
+    printf("API=%02X\n", api);
+    printf("BACKING=%02X\n", backing);
+    printf("ERR=%d\n", err);
 
     memopenbusruntime8_destroy(cpu);
     return 0;
@@ -1248,7 +1251,7 @@ int main(void) {
     split_runtime = next((outdir / "src").glob("*_runtime.c"))
     split_system_bus = next((outdir / "src").glob("*_system_bus.c"))
     split_system_glue = next((outdir / "src").glob("*_system_glue.c"))
-    split_host_glue = next((outdir / "src").glob("*_host_glue.c"))
+    # No host_glue for systems without hosts
     split_device_glue = next((outdir / "src").glob("*_device_glue.c"))
     subprocess.check_call(
         [
@@ -1263,7 +1266,6 @@ int main(void) {
             str(split_runtime),
             str(split_system_bus),
             str(split_system_glue),
-            str(split_host_glue),
             str(split_device_glue),
             str(harness_c),
             "-o",
@@ -1389,6 +1391,46 @@ def test_generator_moves_cartridge_loader_into_runtime_unit(tmp_path):
     assert "int cartruntime8_set_cartridge_dir(CPUState *cpu, const char *path)" in runtime_impl
 
 
+def test_generator_keeps_cassette_dir_runtime_entry_without_cartridge(tmp_path):
+    isa = _base_isa("CassetteRuntime8")
+    isa["devices"] = [
+        {
+            "metadata": {"id": "cassette_transport", "type": "cassette", "model": "transport"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {
+                "headers": [],
+                "include_paths": [],
+                "linked_libraries": [],
+                "library_paths": [],
+            },
+        }
+    ]
+    isa["cassette"] = {
+        "component": "cassette_transport",
+        "directory": "examples/cassettes/apple1",
+        "allowed_extensions": ["wav"],
+        "sources": [
+            {
+                "kind": "file",
+                "source_type": "../../cassette_sources/wav_file.yaml",
+                "component": "cassette_transport",
+                "label": "Tape File",
+                "allowed_extensions": ["wav"],
+            }
+        ],
+        "controls": {"picker_action_id": "EMU_MEDIA_PICKER"},
+    }
+    processor_path, system_path = write_pair_from_legacy(tmp_path, "cassette_runtime8", isa)
+    outdir = tmp_path / "cassette_runtime8_out"
+    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+
+    runtime_impl = next((outdir / "src").glob("*_runtime.c")).read_text(encoding="utf-8")
+    assert "int cassetteruntime8_set_cassette_dir(CPUState *cpu, const char *path)" in runtime_impl
+    assert "return cpu_component_host_picker_set_dir(path);" in runtime_impl
+
+
 def test_step_uses_runtime_pre_step_contract_instead_of_picker_swap():
     isa = _base_isa("CartBridge8")
     isa["cartridge"] = {
@@ -1434,9 +1476,45 @@ def test_generator_moves_host_picker_wrappers_into_host_glue_unit(tmp_path):
     isa = _base_isa("HostGlue8")
     # Enable cartridge metadata so picker paths are generated.
     isa["cartridge"] = {"metadata": {"id": "cart", "type": "cartridge_map", "model": "test"}}
-    processor_path, system_path = write_pair_from_legacy(tmp_path, "hostglue8", isa)
+    processor_path, system_path = write_pair_from_legacy(
+        tmp_path, "hostglue8", isa, system_overrides={"components": {"hosts": ["host_stub"]}}
+    )
+    # Create the host stub file
+    host_stub = {
+        "metadata": {
+            "id": "host_stub",
+            "type": "host_adapter",
+            "model": "stub",
+            "version": "1.0"
+        },
+        "state": [],
+        "interfaces": {
+            "callbacks": [],
+            "handlers": [],
+            "signals": []
+        },
+        "behavior": {
+            "snippets": {},
+            "callback_handlers": {},
+            "handler_bodies": {}
+        },
+        "coding": {
+            "headers": [],
+            "include_paths": [],
+            "linked_libraries": [],
+            "library_paths": []
+        }
+    }
+    host_stub_path = tmp_path / "host_stub.yaml"
+    host_stub_path.write_text(yaml.safe_dump(host_stub, sort_keys=False), encoding="utf-8")
+    
     outdir = tmp_path / "hostglue8_out"
-    gen_mod.generate(str(processor_path), str(system_path), str(outdir))
+    gen_mod.generate(
+        str(processor_path),
+        str(system_path),
+        str(outdir),
+        host_paths=[str(host_stub_path)],
+    )
 
     core_impl = (outdir / "src" / "HostGlue8_core.c").read_text(encoding="utf-8")
     host_glue_impl = next((outdir / "src").glob("*_host_glue.c")).read_text(
@@ -3644,6 +3722,33 @@ def test_debug_abi_pumps_host_hal_when_host_present():
     assert "return dbgpump8_dbg_pump_host_events(cpu);" in impl
 
 
+def test_debug_abi_host_pump_runs_idle_component_tick_when_components_present():
+    isa = _base_isa("DbgPumpIdle8")
+    isa["hosts"] = [
+        {
+            "metadata": {"id": "host_glfw", "type": "host_adapter", "model": "test"},
+            "backend": {"target": "glfw"},
+            "state": [],
+            "interfaces": {"callbacks": [], "handlers": [], "signals": []},
+            "behavior": {"snippets": {}, "callback_handlers": {}, "handler_bodies": {}},
+            "coding": {"headers": [], "include_paths": [], "linked_libraries": [], "library_paths": []},
+        }
+    ]
+    isa["devices"] = [{"metadata": {"id": "dev0", "type": "device", "model": "dummy"}}]
+
+    _, impl = generate_debug_abi(isa, "DbgPumpIdle8")
+
+    assert "extern int cpu_components_runtime_pre_step(CPUState *cpu);" in impl
+    assert (
+        "extern void cpu_components_step_post(CPUState *cpu, DecodedInstruction *inst, uint16_t pc_before);"
+        in impl
+    )
+    assert "if (!cpu) return -1;" in impl
+    assert "if (cpu_components_runtime_pre_step(cpu) != 0) return -1;" in impl
+    assert "DecodedInstruction idle_inst = {0};" in impl
+    assert "cpu_components_step_post(cpu, &idle_inst, cpu->pc);" in impl
+
+
 def test_generated_header_exposes_split_dispatch_contracts(tmp_path):
     isa = _base_isa("SplitContract8")
     processor_path, system_path = write_pair_from_legacy(tmp_path, "split_contract8", isa)
@@ -4003,27 +4108,28 @@ int main(void) {
     split_runtime = next((outdir / "src").glob("*_runtime.c"))
     split_system_bus = next((outdir / "src").glob("*_system_bus.c"))
     split_system_glue = next((outdir / "src").glob("*_system_glue.c"))
-    split_host_glue = next((outdir / "src").glob("*_host_glue.c"))
+    split_host_glue = list((outdir / "src").glob("*_host_glue.c"))
     split_device_glue = next((outdir / "src").glob("*_device_glue.c"))
+    sources = [
+        compiler,
+        "-std=c11",
+        "-O2",
+        "-D_POSIX_C_SOURCE=199309L",
+        "-I",
+        str(outdir / "src"),
+        str(outdir / "src" / "RomLoad8_core.c"),
+        str(outdir / "src" / "RomLoad8_decoder.c"),
+        str(split_runtime),
+        str(split_system_bus),
+        str(split_system_glue),
+        str(split_device_glue),
+        str(harness_c),
+    ]
+    if split_host_glue:
+        sources.append(str(split_host_glue[0]))
+    sources.extend(["-o", str(binary)])
     subprocess.check_call(
-        [
-            compiler,
-            "-std=c11",
-            "-O2",
-            "-D_POSIX_C_SOURCE=199309L",
-            "-I",
-            str(outdir / "src"),
-            str(outdir / "src" / "RomLoad8_core.c"),
-            str(outdir / "src" / "RomLoad8_decoder.c"),
-            str(split_runtime),
-            str(split_system_bus),
-            str(split_system_glue),
-            str(split_host_glue),
-            str(split_device_glue),
-            str(harness_c),
-            "-o",
-            str(binary),
-        ],
+        sources,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
     )
@@ -5905,8 +6011,10 @@ def test_hook_sources_are_referenced_when_hooks_enabled(tmp_path):
     assert "HookEnabled8_hooks.c" in cmake_text
     assert "set(CPU_CORE_SOURCES" in cmake_text
     assert "src/HookEnabled8_hooks.c" in cmake_text
-    host_glue_text = next((outdir / "src").glob("*_host_glue.c")).read_text(encoding="utf-8")
-    assert '#include "HookEnabled8_hooks.c"' not in host_glue_text
+    host_glue_files = list((outdir / "src").glob("*_host_glue.c"))
+    if host_glue_files:
+        host_glue_text = host_glue_files[0].read_text(encoding="utf-8")
+        assert '#include "HookEnabled8_hooks.c"' not in host_glue_text
 
     build_dir = outdir / "build"
     subprocess.check_call(

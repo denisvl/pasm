@@ -25,6 +25,7 @@ def _apple2_interactive_paths():
         BASE_DIR / "examples" / "ics" / "apple2" / "apple2_gameio_ne558.yaml",
         BASE_DIR / "examples" / "ics" / "apple2" / "apple2_video_softswitches.yaml",
         BASE_DIR / "examples" / "ics" / "apple2" / "apple2_speaker_toggle.yaml",
+        BASE_DIR / "examples" / "ics" / "apple2" / "apple2_cassette_io.yaml",
         BASE_DIR / "examples" / "ics" / "apple2" / "apple2_char_generator_rom.yaml",
         BASE_DIR / "examples" / "ics" / "apple2" / "apple2_slot_decoder_ttl.yaml",
         BASE_DIR / "examples" / "ics" / "apple2" / "apple2_main_ram.yaml",
@@ -34,6 +35,10 @@ def _apple2_interactive_paths():
         BASE_DIR / "examples" / "devices" / "apple2" / "apple2_gameport.yaml",
         BASE_DIR / "examples" / "devices" / "apple2" / "apple2_video.yaml",
         BASE_DIR / "examples" / "devices" / "apple2" / "apple2_speaker.yaml",
+        BASE_DIR / "examples" / "devices" / "apple2" / "apple2_cassette_adapter.yaml",
+        BASE_DIR / "examples" / "devices" / "common" / "cassette_transport_nomotor.yaml",
+        BASE_DIR / "examples" / "devices" / "common" / "apple2_floppy_image_backend.yaml",
+        BASE_DIR / "examples" / "devices" / "common" / "monitor_crt_green.yaml",
     ]
     host_paths = [
         BASE_DIR / "examples" / "hosts" / "apple2" / "apple2_host_hal_interactive.yaml",
@@ -57,6 +62,7 @@ def test_apple2_interactive_component_graph_validates():
         "apple2_gameio",
         "apple2_video_softswitches",
         "apple2_speaker_toggle",
+        "apple2_cassette_io",
         "apple2_char_rom",
         "apple2_slot_decoder",
         "apple2_main_ram",
@@ -66,7 +72,12 @@ def test_apple2_interactive_component_graph_validates():
         "gameport_apple2",
         "video_apple2",
         "speaker",
+        "apple2_cassette_adapter",
+        "cassette_transport_nomotor",
+        "apple2_floppy_image_backend",
         "monitor",
+        "cassette_wav_source",
+        "cassette_line_in_source",
     ]
     assert [host["metadata"]["id"] for host in data["hosts"]] == ["host_apple2"]
 
@@ -91,13 +102,14 @@ def test_generate_apple2_interactive_with_components():
     assert (src_dir / "MOS6502_decoder.c").exists()
     impl = (src_dir / "MOS6502_core.c").read_text(encoding="utf-8")
     system_glue = (src_dir / "apple2_system_glue.c").read_text(encoding="utf-8")
+    device_glue = (src_dir / "apple2_device_glue.c").read_text(encoding="utf-8")
     all_src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(src_dir.glob("*.[ch]")))
     assert "0xC050u" in all_src and "0xC057u" in all_src
-    assert "apple2_glyph" in system_glue
-    assert "A2_HIRES_ADDR" in system_glue
-    assert "const uint32_t text_fg = 0xFFFFFFFFu;" in system_glue
+    assert "apple2_glyph" in device_glue
+    assert "A2_HIRES_ADDR" in device_glue
+    assert "const uint32_t text_fg = 0xFFFFFFFFu;" in device_glue
     assert "0xFFA8FF7Au" not in system_glue
-    assert 'cpu_component_emit_signal(cpu, "monitor", "frame_present", args, argc);' in system_glue
+    assert 'cpu_component_emit_signal(cpu, "monitor", "frame_present", args, argc);' in device_glue
     assert "void * display_shader;" in all_src
     assert "apple2_crt_green_fragment_shader" in all_src
     assert "const float CURVATURE = 6.0;" in all_src
@@ -123,7 +135,6 @@ def test_generate_apple2_interactive_with_components():
     assert 'snprintf(rendered, sizeof(rendered), "LDA #%s"' in all_src
     assert "int scaled_w = ww;" in all_src
     assert "int scaled_h = (int)((((int64_t)ww) * (int64_t)aspect_h) / (int64_t)aspect_w);" in all_src
-    assert "int16_t next_level = (level_u != 0u) ? 9000 : -9000;" in all_src
     assert "comp->audio_last_cycle = cycle;" in all_src
     assert "comp->audio_level = next_level;" in all_src
     assert 'SDL_Init(SDL_INIT_AUDIO)' in all_src

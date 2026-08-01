@@ -68,7 +68,6 @@ components:
   - joystick_c64
   - video_c64
   - tv
-  - speaker
   hosts:
   - host_c64
   cartridge: c64_cart0
@@ -93,6 +92,14 @@ automation:
   - input.keyboard_matrix
   - input.controller
   - media.cartridge
+
+display:
+  default_component: tv
+  default_model: generic_crt_tv_mono
+  runtime_switchable: true
+  available_models:
+  - component: tv
+    model: generic_crt_tv_mono
 connections:
 - from:
     component: c64_pla

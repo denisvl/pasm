@@ -695,12 +695,14 @@ behavior:
               }
           }
           if (trace_init != 0 && trace_count < 128u && addr < cpu->memory_size) {
+              uint64_t ra[1] = { (uint64_t)addr };
+              uint8_t value = (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu);
               fprintf(
                   trace_fp,
                   "atari_read CH cycle=%llu pc=%04X value=%02X\n",
                   (unsigned long long)cpu->total_cycles,
                   (unsigned)cpu->pc,
-                  (unsigned)cpu->memory[addr]
+                  (unsigned)value
               );
               fflush(trace_fp);
               trace_count += 1u;
@@ -752,7 +754,8 @@ behavior:
       #endif
           {
           if ((comp->portb & 0x02u) != 0u) {
-              return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+              uint64_t ra[1] = { (uint64_t)addr };
+              return (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu);
           }
           }
       }
@@ -763,10 +766,12 @@ behavior:
           }
       }
       if (addr >= 0xC000u && addr < 0xD000u) {
-          return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+          uint64_t ra[1] = { (uint64_t)addr };
+          return (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu);
       }
       if (addr >= 0xD800u) {
-          return ((uint64_t)addr < cpu->memory_size) ? cpu->memory[addr] : 0xFFu;
+          uint64_t ra[1] = { (uint64_t)addr };
+          return (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "bus_read", ra, 1) & 0xFFu);
       }
 
       if (addr >= 0xD000u && addr < 0xD800u) {
@@ -1002,8 +1007,7 @@ behavior:
           }
           if (addr == 0xD013u) {
               /* GTIA TRIG3 doubles as XL/XE cartridge detect. */
-              /* On XL/XE machines, TRIG3 reflects cartridge mapping state:
-                 1 when a cartridge is present, 0 when not. */
+              /* Match Atari800: a mapped cartridge drives TRIG3 high so the OS enters the cartridge boot path. */
               return (uint8_t)(cpu_component_call(cpu, "atari800xl_antic", "cart_present", NULL, 0) & 0x01u);
           }
 
@@ -1651,9 +1655,9 @@ behavior:
               }
 
               if (buffer_len != 0u && (uint32_t)buffer_addr + (uint32_t)buffer_len <= cpu->memory_size) {
-                  buffer = &cpu->memory[buffer_addr];
+                  /* Use bus_read to access memory through the MMU bridge */
               } else if (buffer_len == 0u && buffer_addr < cpu->memory_size) {
-                  buffer = &cpu->memory[buffer_addr];
+                  /* Use bus_read to access memory through the MMU bridge */
               }
 
               result = cpu_component_dispatch_callback(
@@ -2070,22 +2074,25 @@ behavior:
                       uint16_t load_addr = (uint16_t)boot_bytes[2] | (uint16_t)((uint16_t)boot_bytes[3] << 8u);
                       uint16_t init_addr = (uint16_t)boot_bytes[4] | (uint16_t)((uint16_t)boot_bytes[5] << 8u);
                       if ((uint32_t)load_addr + target_len <= cpu->memory_size && load_addr >= 0x0200u) {
-                          memcpy(&cpu->memory[load_addr], boot_bytes, (size_t)target_len);
+                          for (uint32_t i = 0u; i < target_len; ++i) {
+                              uint64_t wa[2] = { (uint64_t)(load_addr + i), (uint64_t)boot_bytes[i] };
+                              cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2);
+                          }
                           if (cpu->memory_size > 0x0003u) {
-                              cpu->memory[0x0002u] = (uint8_t)(init_addr & 0xFFu);
-                              cpu->memory[0x0003u] = (uint8_t)(init_addr >> 8u);
+                              { uint64_t wa[2] = { 0x0002u, (uint64_t)(init_addr & 0xFFu) }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
+                              { uint64_t wa[2] = { 0x0003u, (uint64_t)(init_addr >> 8u) }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
                           }
                           if (cpu->memory_size > 0x0009u) {
-                              cpu->memory[0x0009u] = 0x02u; /* BOOT? = cassette */
+                              { uint64_t wa[2] = { 0x0009u, 0x02u }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
                           }
                           if (cpu->memory_size > 0x000Bu) {
-                              cpu->memory[0x000Au] = (uint8_t)(init_addr & 0xFFu);
-                              cpu->memory[0x000Bu] = (uint8_t)(init_addr >> 8u);
+                              { uint64_t wa[2] = { 0x000Au, (uint64_t)(init_addr & 0xFFu) }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
+                              { uint64_t wa[2] = { 0x000Bu, (uint64_t)(init_addr >> 8u) }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
                           }
                           if (cpu->memory_size > 0x0602u) {
-                              cpu->memory[0x0600u] = 0x6Cu; /* JMP ($000A) */
-                              cpu->memory[0x0601u] = 0x0Au;
-                              cpu->memory[0x0602u] = 0x00u;
+                              { uint64_t wa[2] = { 0x0600u, 0x6Cu }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
+                              { uint64_t wa[2] = { 0x0601u, 0x0Au }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
+                              { uint64_t wa[2] = { 0x0602u, 0x00u }; cpu_component_call(cpu, "atari800xl_antic", "bus_write", wa, 2); }
                           }
                           {
                               uint8_t sp8 = (uint8_t)cpu->sp;

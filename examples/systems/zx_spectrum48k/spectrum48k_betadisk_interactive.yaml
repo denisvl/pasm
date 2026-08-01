@@ -225,6 +225,14 @@ connections:
 - from:
     component: ula0
     kind: signal
+    name: beeper_level
+  to:
+    component: tv
+    kind: handler
+    name: on_audio_level
+- from:
+    component: ula0
+    kind: signal
     name: tape_out
   to:
     component: cassette_transport_nomotor
@@ -278,6 +286,14 @@ connections:
     component: host_zx48
     kind: handler
     name: video_frame
+- from:
+    component: tv
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_zx48
+    kind: handler
+    name: audio_pcm
 audio:
   sample_rate: 44100
   format: s16le

@@ -385,6 +385,7 @@ class EmulatorGenerator:
             include_hooks=hooks_generated,
             dispatch_mode=dispatch_mode,
             subsystem_builds=subsystem_builds,
+            is_subsystem=is_subsystem,
         )
         (output_path / "CMakeLists.txt").write_text(cmake_code)
 
@@ -395,6 +396,7 @@ class EmulatorGenerator:
             include_hooks=hooks_generated,
             dispatch_mode=dispatch_mode,
             subsystem_builds=subsystem_builds,
+            is_subsystem=is_subsystem,
         )
         (output_path / "Makefile").write_text(makefile_code)
 

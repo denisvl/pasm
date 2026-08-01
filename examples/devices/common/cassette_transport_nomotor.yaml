@@ -325,11 +325,26 @@ behavior:
       }
       return 1u;
     set_transport_mode: |
+      FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_EMU_CASSETTE_TRACE");
+      if (trace_env != NULL && trace_env[0] != '\0' && strcmp(trace_env, "0") != 0) {
+          const char *trace_path = getenv("PASM_EMU_CASSETTE_TRACE_FILE");
+          if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+      }
       if (argc < 1u) return 0u;
       {
           uint8_t prev_mode = comp->transport_mode;
           uint8_t next_mode = (uint8_t)(args[0] & 0xFFu);
           const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
+          if (trace_fp != NULL) {
+              fprintf(trace_fp, "cassette_transport set_transport_mode prev=%u next=%u motor_before=%u loaded=%u source=%s\n",
+                  (unsigned)prev_mode,
+                  (unsigned)next_mode,
+                  (unsigned)comp->motor_on,
+                  (unsigned)comp->media_loaded,
+                  source_component);
+              fflush(trace_fp);
+          }
           comp->transport_mode = next_mode;
           comp->motor_on = (uint8_t)((next_mode == 1u || next_mode == 3u) ? 1u : 0u);
           if (next_mode != 1u) {
@@ -374,8 +389,23 @@ behavior:
               comp->record_bytes = 0u;
           }
       }
+          if (trace_fp != NULL) {
+              fprintf(trace_fp, "cassette_transport set_transport_mode done mode=%u motor=%u loaded=%u media=%s\n",
+                  (unsigned)comp->transport_mode,
+                  (unsigned)comp->motor_on,
+                  (unsigned)comp->media_loaded,
+                  (comp->media_path != NULL) ? comp->media_path : "<none>");
+              fflush(trace_fp);
+              fclose(trace_fp);
+          }
       return 1u;
     set_motor: |
+      FILE *trace_fp = NULL;
+      const char *trace_env = getenv("PASM_EMU_CASSETTE_TRACE");
+      if (trace_env != NULL && trace_env[0] != '\0' && strcmp(trace_env, "0") != 0) {
+          const char *trace_path = getenv("PASM_EMU_CASSETTE_TRACE_FILE");
+          if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+      }
       if (argc >= 1u) {
           comp->motor_on = (uint8_t)((args[0] & 0xFFu) != 0u ? 1u : 0u);
       }
@@ -386,6 +416,16 @@ behavior:
           strcmp(comp->selected_source_component, "cassette_transport_nomotor") != 0
       ) {
           (void)cpu_component_dispatch_callback(cpu, comp->selected_source_component, "set_motor", args, argc);
+      }
+      if (trace_fp != NULL) {
+          fprintf(trace_fp, "cassette_transport set_motor arg=%u done motor=%u mode=%u loaded=%u source=%s\n",
+              (unsigned)((argc >= 1u) ? (args[0] & 0xFFu) : 0u),
+              (unsigned)comp->motor_on,
+              (unsigned)comp->transport_mode,
+              (unsigned)comp->media_loaded,
+              (comp->selected_source_component != NULL) ? comp->selected_source_component : "");
+          fflush(trace_fp);
+          fclose(trace_fp);
       }
       return 1u;
     set_volume: |
@@ -425,12 +465,40 @@ behavior:
       {
           const char *source_component = (comp->selected_source_component != NULL) ? comp->selected_source_component : "";
           uint64_t packed = (uint64_t)comp->transport_mode;
+          FILE *trace_fp = NULL;
+          const char *trace_env = getenv("PASM_EMU_CASSETTE_TRACE");
+          static uint64_t last_logged_source_packed = UINT64_MAX;
+          static uint64_t last_logged_local_packed = UINT64_MAX;
+          if (trace_env != NULL && trace_env[0] != '\0' && strcmp(trace_env, "0") != 0) {
+              const char *trace_path = getenv("PASM_EMU_CASSETTE_TRACE_FILE");
+              if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+          }
           if (source_component[0] != '\0' && strcmp(source_component, "cassette_transport_nomotor") != 0) {
-              return cpu_component_dispatch_callback(cpu, source_component, "query_transport_state", NULL, 0);
+              uint64_t source_packed = cpu_component_dispatch_callback(cpu, source_component, "query_transport_state", NULL, 0);
+              if (trace_fp != NULL && source_packed != last_logged_source_packed) {
+                  fprintf(trace_fp, "cassette_transport query_transport_state source=%s packed=%llu\n",
+                      source_component,
+                      (unsigned long long)source_packed);
+                  fflush(trace_fp);
+                  last_logged_source_packed = source_packed;
+              }
+              if (trace_fp != NULL) fclose(trace_fp);
+              return source_packed;
           }
           if (comp->motor_on != 0u) packed |= (1ull << 8);
           if (comp->media_loaded != 0u) packed |= (1ull << 9);
           packed |= ((uint64_t)comp->volume_percent & 0xFFull) << 48u;
+          if (trace_fp != NULL && packed != last_logged_local_packed) {
+              fprintf(trace_fp, "cassette_transport query_transport_state local packed=%llu mode=%u motor=%u loaded=%u source=%s\n",
+                  (unsigned long long)packed,
+                  (unsigned)comp->transport_mode,
+                  (unsigned)comp->motor_on,
+                  (unsigned)comp->media_loaded,
+                  source_component);
+              fflush(trace_fp);
+              last_logged_local_packed = packed;
+          }
+          if (trace_fp != NULL) fclose(trace_fp);
           return packed;
       }
     query_selected_source_kind: |
@@ -546,6 +614,27 @@ behavior:
           comp->playback_level = (uint8_t)cpu_component_dispatch_callback(cpu, source_component, "query_playback_level", NULL, 0);
           if (want_raw != 0u) comp->input_raw_level = value;
           else comp->input_level = value;
+          {
+              FILE *trace_fp = NULL;
+              const char *trace_env = getenv("PASM_EMU_CASSETTE_TRACE");
+              if (trace_env != NULL && trace_env[0] != '\0' && strcmp(trace_env, "0") != 0) {
+                  const char *trace_path = getenv("PASM_EMU_CASSETTE_TRACE_FILE");
+                  if (trace_path != NULL && trace_path[0] != '\0') trace_fp = fopen(trace_path, "a");
+              }
+              if (trace_fp != NULL) {
+                  fprintf(trace_fp, "cassette_transport sample_input source=%s value=%u playback=%u mode=%u motor=%u loaded=%u raw=%u cyc=%llu\n",
+                      source_component,
+                      (unsigned)value,
+                      (unsigned)comp->playback_level,
+                      (unsigned)comp->transport_mode,
+                      (unsigned)comp->motor_on,
+                      (unsigned)comp->media_loaded,
+                      (unsigned)want_raw,
+                      (unsigned long long)cycle);
+                  fflush(trace_fp);
+                      fclose(trace_fp);
+                  }
+              }
           if (prev_playback != comp->playback_level) {
               uint64_t aud_args[2] = { (uint64_t)comp->playback_level, cycle };
               cpu_component_emit_signal(cpu, "cassette_transport_nomotor", "playback_sample", aud_args, 2);

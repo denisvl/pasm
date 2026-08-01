@@ -161,4 +161,60 @@ floppy:
   controls:
     picker_action_id: EMU_MEDIA_PICKER
 
-connections: []
+connections:
+- from:
+    component: apple2_video_softswitches
+    kind: signal
+    name: frame_present
+  to:
+    component: monitor
+    kind: handler
+    name: on_frame_present
+- from:
+    component: apple2_speaker_toggle
+    kind: signal
+    name: audio_level
+  to:
+    component: speaker
+    kind: handler
+    name: on_audio_level
+- from:
+    component: apple2_speaker_toggle
+    kind: signal
+    name: audio_level
+  to:
+    component: monitor
+    kind: handler
+    name: on_audio_level
+- from:
+    component: monitor
+    kind: signal
+    name: frame_present
+  to:
+    component: host_apple2
+    kind: handler
+    name: video_frame
+- from:
+    component: monitor
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_apple2
+    kind: handler
+    name: audio_pcm
+- from:
+    component: speaker
+    kind: signal
+    name: pcm_sample
+  to:
+    component: host_apple2
+    kind: handler
+    name: audio_pcm
+
+display:
+  default_component: monitor
+  default_model: generic_crt_monitor_green
+  runtime_switchable: true
+  available_models:
+  - component: monitor
+    model: generic_crt_monitor_green

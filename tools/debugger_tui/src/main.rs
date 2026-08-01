@@ -5,6 +5,7 @@ mod state;
 mod ui;
 
 use std::io;
+use std::io::Write;
 use std::io::IsTerminal;
 use std::time::{Duration, Instant};
 
@@ -37,6 +38,20 @@ fn parse_u64_arg(flag: &str) -> Option<u64> {
         u64::from_str_radix(hex, 16).ok()
     } else {
         raw.parse::<u64>().ok()
+    }
+}
+
+fn append_key_trace(line: &str) {
+    let trace_path = match std::env::var("PASM_TUI_KEY_TRACE_FILE") {
+        Ok(path) if !path.trim().is_empty() => path,
+        _ => return,
+    };
+    if let Ok(mut fp) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(trace_path)
+    {
+        let _ = writeln!(fp, "{line}");
     }
 }
 
@@ -144,12 +159,17 @@ fn run_ui(mut app: App, use_alt_screen: bool) -> Result<(), String> {
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if event::poll(timeout).map_err(|e| e.to_string())? {
             if let Event::Key(key) = event::read().map_err(|e| e.to_string())? {
+                append_key_trace(&format!(
+                    "key code={:?} modifiers={:?} kind={:?}",
+                    key.code, key.modifiers, key.kind
+                ));
                 if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
                     if app.handle_key_event(key)? {
                         needs_draw = true;
                         continue;
                     }
                     let action = map_key_event(key);
+                    append_key_trace(&format!("mapped action={action:?}"));
                     app.handle_action(action)?;
                     needs_draw = true;
                 }
